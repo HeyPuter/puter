@@ -40,6 +40,7 @@ import {
 } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import type { AclMode } from '../acl/ACLService.js';
+import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 import { fsAnchorToken } from './subjects.js';
 
@@ -196,6 +197,13 @@ const makeApp = async (path: string): Promise<Actor> => {
         owner.actor,
         uid,
         `fs:${await uidOf(path)}:list`,
+    );
+    // Durable rows target the app's worker by default, which takes its own
+    // consent.
+    await env.server.services.permission.grantUserAppPermission(
+        owner.actor,
+        uid,
+        EVENTS_BACKGROUND_PERMISSION,
     );
     const app = await env.server.stores.app.getByUid(uid);
     return makeActor({
@@ -501,6 +509,33 @@ describe('what a revoked grant settles', () => {
         await write(uniquePath(path));
         await quiet();
         expect(delivered).toEqual([]);
+    });
+
+    it('settles what background consent allowed, and leaves the rest running', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/settle-background`);
+        const appActor = await makeApp(path);
+
+        const background = (
+            await events().subscribeDurable(appActor, { subject: `fs:${path}` })
+        ).sub;
+        // Delivered to a connection and nowhere else, so the consent that just
+        // went was never what allowed it.
+        const foreground = (
+            await events().subscribeDurable(appActor, {
+                subject: `fs:${path}`,
+                targets: ['socket'],
+            })
+        ).sub;
+
+        await env.server.services.permission.revokeUserAppPermission(
+            owner.actor,
+            appActor.app!.uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+
+        await suspendedRow(background.subId);
+        expect((await rowOf(foreground.subId)).suspended_at).toBeFalsy();
     });
 
     it('settles a subscription when one app permission is revoked, not just all of them', async () => {

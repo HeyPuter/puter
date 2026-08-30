@@ -411,6 +411,123 @@ describe('reconnect', () => {
     });
 });
 
+describe('persistent delivery routing', () => {
+    /** One durable envelope, as the server addresses it at a room. */
+    const durable = (subId, path, over = {}) => ({
+        ...projected(subId, path),
+        ...over,
+    });
+
+    it('runs the handler on a delivery the server sends here', async () => {
+        const events = makeModule();
+        const seen = [];
+        events.channel.registerDurable(
+            'app-1#sub',
+            delivery => seen.push(delivery),
+            { label: 'ingest' },
+        );
+
+        sockets[0].fire('events.delivery', durable('app-1#sub', '/user/a/one.txt'));
+
+        expect(seen).toHaveLength(1);
+        expect(seen[0].event.path).toBe('/user/a/one.txt');
+        expect(seen[0].ctx).toEqual({ label: 'ingest' });
+        expect(Object.isFrozen(seen[0].ctx)).toBe(true);
+        // Nothing to acknowledge: everyone connected gets a copy of this one.
+        expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
+    });
+
+    it('hands a delivery owed to one consumer the environment its worker gets', async () => {
+        const events = makeModule();
+        let handed;
+        events.channel.registerDurable('app-1#sub', delivery => {
+            handed = delivery;
+            return delivery.ack();
+        });
+
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#sub', '/user/a/one.txt', {
+                ackRequired: true,
+                ackId: 'entry-1',
+            }),
+        );
+        await Promise.resolve();
+
+        expect(handed.user).toBe(events.puter);
+        expect(typeof handed.fetch).toBe('function');
+        expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toMatchObject([
+            { payload: { subId: 'app-1#sub', id: 'entry-1' } },
+        ]);
+    });
+
+    it('acknowledges a handler that returns without doing so itself', async () => {
+        const events = makeModule();
+        events.channel.registerDurable('app-1#sub', async () => 'done');
+
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#sub', '/user/a/one.txt', {
+                ackRequired: true,
+                ackId: 'entry-2',
+            }),
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toMatchObject([
+            { payload: { subId: 'app-1#sub', id: 'entry-2' } },
+        ]);
+    });
+
+    it('acknowledges nothing when the handler throws, so it is delivered again', async () => {
+        const events = makeModule();
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        events.channel.registerDurable('app-1#sub', async () => {
+            throw new Error('handler bug');
+        });
+
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#sub', '/user/a/one.txt', {
+                ackRequired: true,
+                ackId: 'entry-3',
+            }),
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
+        expect(errors).toHaveBeenCalled();
+    });
+
+    it('keeps routing across a reconnect without subscribing again', async () => {
+        const events = makeModule();
+        const seen = [];
+        events.channel.registerDurable('app-1#sub', ({ event }) => seen.push(event));
+
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.subscribe')).toEqual([]);
+
+        sockets[0].fire('events.delivery', durable('app-1#sub', '/user/a/back.txt'));
+        expect(seen).toHaveLength(1);
+    });
+
+    it('stops routing once the subscription is let go, and closes with the last', async () => {
+        const events = makeModule();
+        const seen = [];
+        events.channel.registerDurable('app-1#sub', ({ event }) => seen.push(event));
+
+        events.channel.deregisterDurable('app-1#sub');
+        sockets[0].fire('events.delivery', durable('app-1#sub', '/user/a/late.txt'));
+
+        expect(seen).toEqual([]);
+        expect(sockets[0].disconnected).toBe(true);
+    });
+});
+
 describe('ack timeout', () => {
     afterEach(() => {
         vi.useRealTimers();

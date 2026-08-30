@@ -150,7 +150,7 @@ const invalidTargets = (): HttpError =>
 const pushOnSingle = (): HttpError =>
     new HttpError(
         400,
-        'A `single` subscription needs a `worker` target and may not target `push`',
+        'A `single` subscription may not target `push`, and an app`s needs a `worker` target',
         { legacyCode: 'invalid_targets' },
     );
 
@@ -740,7 +740,8 @@ export class DurableSubscriptionStore extends PuterStore {
         if (!targets.every(isSubscriptionTarget)) throw invalidTargets();
 
         const unique = [...new Set(targets as SubscriptionTarget[])];
-        if (!targetsAllowedForDelivery(delivery, unique)) throw pushOnSingle();
+        if (!targetsAllowedForDelivery(delivery, unique, appUid))
+            throw pushOnSingle();
         if (appUid === null && unique.includes('worker'))
             throw workerNeedsApp();
         return unique;

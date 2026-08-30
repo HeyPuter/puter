@@ -79,7 +79,9 @@ export type GapReason =
     | 'backlog_overflow'
     // A suspension holds what it is owed only for as long as the suspension is
     // plausibly recoverable; past that the backlog goes and this stands in.
-    | 'suspended_backlog_expired';
+    | 'suspended_backlog_expired'
+    // The handler refused the delivery outright, so it is not offered again.
+    | 'handler_rejected';
 
 /**
  * `gap` says an event existed and was not delivered. It rides the delivery

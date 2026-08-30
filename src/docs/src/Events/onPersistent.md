@@ -27,6 +27,40 @@ puter.events.onPersistent(options)
 - `context` (Object): Values the handler needs, delivered to it as a frozen `ctx`. **Capped at 4 KB serialized** — see below.
 - `expiresAt` (Number | String): When the subscription ends by itself — unix seconds or an ISO-8601 string, and it has to be in the future.
 
+## Background delivery takes the user's consent
+
+A persistent subscription can run your handler when nobody is there — a different thing from delivering to a page the user has open — so it takes its own per-app permission, **`events:background`**. Subscribing with `worker` among its `targets` without it fails with `events_background_consent_required`, and `['socket', 'worker']` is the default for a subscription an app creates. Ask for it the way you ask for anything else:
+
+```js
+await puter.perms.request(['events:background']);
+```
+
+The user can take it back wherever they manage an app's access; every worker-target subscription that app holds for them is then suspended with `permission_revoked`, and re-granting does not bring one back — subscribe again. A subscription that only wants deliveries while your app is open needs no consent at all: pass `targets: ['socket']`.
+
+## Where the handler runs, and what it is handed
+
+The handler runs **in this client while it is connected**, and in the app's events worker when it is not. It is the same body either way, called with:
+
+| Binding | What it is |
+| --- | --- |
+| `event` | The projected event, or a gap marker. |
+| `ctx` | The frozen `context` this subscription was created with. |
+| `user` | A `puter` bound to the account holding the subscription — the ambient one in a client. |
+| `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, the environment's `fetch` otherwise. |
+| `ack` | On a `single` subscription only — see below. |
+
+Passing `handler` as a **function** is what registers it to run here; a source string or `{ file }` is sent as a hash only, and nothing runs client-side. Either way the hash must match what is published under `handlerName`.
+
+### Acknowledging a `single` delivery
+
+A `single` delivery is owed to exactly one consumer, so it stays owed until it is acknowledged:
+
+- Calling `ack()` takes the delivery.
+- Returning **without** calling it acknowledges it anyway — a handler that finished did the work.
+- **Throwing acknowledges nothing.** The lease lapses after 30 seconds and the delivery is offered again, so a handler that throws sees the same event twice. `event.id` is stable across redeliveries; use it to make the second one a no-op.
+
+In the events worker the same three outcomes are the response status: `2xx` takes the delivery, `4xx` refuses it (it is dropped with a `gap` marker carrying `reason: 'handler_rejected'`), and `5xx`, `429` or no answer within 30 seconds means "not now" — the delivery is retried after 2 seconds, doubling to at most 5 minutes. **Five failures in a row, refusals included, suspend the subscription** with `failures`; the developer is notified and republishing the handler puts it back in service.
+
 ## `context` is evaluated once, and capped at 4 KB
 
 A handler is deployed, not called: it is serialized and run later, somewhere else, so it cannot close over anything. `context` is how values reach it — and it is evaluated **at this call**, serialized, and never re-evaluated. `ctx.endpoint` is whatever `process.env.INGEST_URL` was when you subscribed, forever, until you subscribe again.
@@ -52,6 +86,7 @@ A `Promise` that resolves to the subscription:
 - `contextKeys` (Array | null), `contextHash` (String | null): the shape of the stored context, never its values.
 - `createdAt`, `expiresAt` (Number | null): unix seconds.
 - `suspendedAt` (Number | null), `suspendedReason` (String | null): why it stopped delivering without being removed — see [`puter.events.handlers.remove()`](/Events/handlers/).
+- `off()` (Function): ends the subscription — stops running its handler here and unsubscribes it. The same thing as [`puter.events.unsubscribe(subId)`](/Events/unsubscribe/), with nothing to pass.
 
 The promise rejects with `{ message, code }`:
 
@@ -65,6 +100,7 @@ The promise rejects with `{ message, code }`:
 | `events_handler_not_found` | No handler is published under `handlerName`. The subscription is **not** created. |
 | `events_handler_hash_mismatch` | The published handler is not the source this subscription was written against. |
 | `events_handler_required` | `delivery: 'single'` without a `handlerName`. |
+| `events_background_consent_required` | The subscription targets `worker` and the user has not granted this app `events:background`. |
 | `events_context_too_large` | The serialized `context` is over 4 KB. |
 | `events_context_invalid` | `context` is not JSON-serializable. |
 | `invalid_targets` | A target outside `socket`/`worker`/`push`, `push` on a `single` subscription, or `worker` on a subscription with no app. |

@@ -20,6 +20,7 @@
 import { actorUid, makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import type { SubscriptionTarget } from '../../stores/events/types.js';
 import type {
     AclError,
     AclMode,
@@ -29,6 +30,8 @@ import {
     appDataPermission,
     appDataSharingAllowed,
 } from '../permission/appDataScopes.js';
+import { PermissionUtil } from '../permission/permissionUtil.js';
+import { isKvToken } from './subjects.js';
 
 /**
  * Who may subscribe to an anchor, who may still be delivered from it, and which
@@ -200,6 +203,51 @@ export const checkDeliveryAuthorized = async (
     } catch {
         return false;
     }
+};
+
+// -- Background delivery ----------------------------------------------
+
+/**
+ * Consent to run an app's handler with nobody present.
+ *
+ * Delivering to a connected client is the app doing what the user opened it to
+ * do; invoking its handler hours later, on their account and their bill, is a
+ * different thing to agree to — so it is a per-app grant of its own, asked for
+ * through the same flow as every other one and revocable in the same place.
+ */
+export const EVENTS_BACKGROUND_PERMISSION = 'events:background';
+
+/** Whether a row's transports include one that runs code with nobody there. */
+export const needsBackgroundConsent = (
+    targets: readonly SubscriptionTarget[],
+): boolean => targets.includes('worker');
+
+export const backgroundConsentRequired = (): HttpError =>
+    new HttpError(
+        403,
+        'Background delivery needs this app’s `events:background` permission',
+        { legacyCode: 'events_background_consent_required' },
+    );
+
+/**
+ * The grant a delivery's token carries: exactly the one its subscribe check
+ * passed under, so the token can reach what the subscription watches and
+ * nothing else. The issuer-subset check refuses anything wider.
+ *
+ * A row on the app's own key-value namespace has no grant behind it — the app
+ * has always been able to read its own data — so its token carries none and
+ * stands only for who the delivery is for.
+ */
+export const subscriptionTokenPermissions = (row: {
+    token: string;
+    anchorUid: string;
+    appUid: string | null;
+    permission: AclMode;
+}): string[] => {
+    if (!isKvToken(row.token))
+        return [PermissionUtil.join('fs', row.anchorUid, row.permission)];
+    if (row.appUid === null || row.appUid === row.anchorUid) return [];
+    return [appDataPermission(row.anchorUid, 'kv', CROSS_APP_KV_CLASS)];
 };
 
 // -- Cross-app KV ------------------------------------------------------

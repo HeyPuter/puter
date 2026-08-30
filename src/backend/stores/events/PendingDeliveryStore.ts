@@ -19,8 +19,10 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+    EVENTS_FAILURE_COUNTER_TTL_MS,
     EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION,
     EVENTS_REGION_PENDING_CEILING,
+    deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
 import type {
     DeliverableEvent,
@@ -42,9 +44,10 @@ import { PuterStore } from '../types.js';
  * all deleted the moment the last one settles — a subscription that is keeping
  * up owns nothing:
  *
- *     ev:q:{<subId>}    HASH  entryId -> the delivery and its attempt count
+ *     ev:q:{<subId>}    HASH  entryId -> the delivery and its attempt counts
  *     ev:qp:{<subId>}   ZSET  entryId -> enqueued at; membership means unsettled
  *     ev:ql:{<subId>}   ZSET  entryId -> lease expiry; membership means in flight
+ *     ev:qf:{<subId>}   STR   handler failures in a row, expiring on its own
  *
  * And two the region shares:
  *
@@ -72,6 +75,7 @@ const entriesKey = (subId: string): string => `ev:q:{${subId}}`;
 const pendingKey = (subId: string): string => `ev:qp:{${subId}}`;
 const leaseKey = (subId: string): string => `ev:ql:{${subId}}`;
 const holdKey = (subId: string): string => `ev:qt:{${subId}}`;
+const failureKey = (subId: string): string => `ev:qf:{${subId}}`;
 
 const INDEX_KEY = 'ev:qx';
 const COUNTER_KEY = 'ev:qc';
@@ -171,6 +175,14 @@ export interface ClaimedDelivery {
     socketAttempts: number;
 }
 
+/** What one failed handler attempt left behind. */
+export interface DeferredDelivery {
+    /** Handler attempts this delivery has now had. */
+    attempts: number;
+    /** How long it is held before anything may claim it again. */
+    retryInMs: number;
+}
+
 /** What one shed took, for the marker and the alarm that follow it. */
 export interface PendingShed {
     subId: string;
@@ -187,6 +199,8 @@ export interface PendingHead {
 interface StoredEntry {
     event: DeliverableEvent;
     socketAttempts: number;
+    /** Handler attempts spent, which is what the retry wait is derived from. */
+    handlerAttempts?: number;
 }
 
 const parseEntry = (raw: string | null): StoredEntry | null => {
@@ -343,6 +357,78 @@ export class PendingDeliveryStore extends PuterStore {
     }
 
     /**
+     * Count one failed handler attempt and hold the delivery until its wait is
+     * over. The lease is the hold: a score in the future is what `claim` reads
+     * as "in flight", so pushing it out paces the retry with no second
+     * mechanism to keep in step.
+     */
+    async deferAfterFailure(
+        subId: string,
+        entryId: string,
+    ): Promise<DeferredDelivery> {
+        const entry = parseEntry(
+            await this.clients.redis.hget(entriesKey(subId), entryId),
+        );
+        const attempts = (entry?.handlerAttempts ?? 0) + 1;
+        const retryInMs = deliveryBackoffMs(attempts);
+
+        const write = this.clients.redis.pipeline();
+        if (entry)
+            write.hset(
+                entriesKey(subId),
+                entryId,
+                JSON.stringify({ ...entry, handlerAttempts: attempts }),
+            );
+        write.zadd(leaseKey(subId), Date.now() + retryInMs, entryId);
+        await write.exec();
+
+        return { attempts, retryInMs };
+    }
+
+    /**
+     * Drop one delivery nothing will ever take, leaving a gap marker in its
+     * place. A refused delivery is still an event its subscription was
+     * promised, so the marker is what keeps the silence from reading as
+     * "nothing happened".
+     */
+    async discard(
+        subId: string,
+        entryId: string,
+        reason: GapMarker['reason'],
+    ): Promise<boolean> {
+        const subject = await this.#subjectOf(subId, entryId);
+        const removed = await this.clients.redis.zrem(
+            pendingKey(subId),
+            entryId,
+        );
+        if (Number(removed) !== 1) return false;
+
+        await this.#forget(subId, [entryId]);
+        await this.#append(subId, gapMarker(subject, reason));
+        return true;
+    }
+
+    /**
+     * Count one failure against the subscription and answer how many are in a
+     * row. Region-local like the rest of the delivery state: the lease that
+     * produced the failure is this region's, and a row update per 5xx would put
+     * a write on the table for every failed attempt.
+     */
+    async recordFailure(subId: string): Promise<number> {
+        const count = Number(await this.clients.redis.incr(failureKey(subId)));
+        await this.clients.redis.pexpire(
+            failureKey(subId),
+            EVENTS_FAILURE_COUNTER_TTL_MS,
+        );
+        return Number.isFinite(count) ? count : 0;
+    }
+
+    /** Forget a run of failures, for a delivery that landed. */
+    async clearFailures(subId: string): Promise<void> {
+        await this.clients.redis.del(failureKey(subId));
+    }
+
+    /**
      * Settle a delivery a consumer took. False for an id this subscription is
      * not holding — a second ack for one already settled, which at-least-once
      * makes routine and which nothing should treat as an error.
@@ -367,6 +453,7 @@ export class PendingDeliveryStore extends PuterStore {
             pendingKey(subId),
             leaseKey(subId),
             holdKey(subId),
+            failureKey(subId),
         );
         await this.clients.redis.zrem(INDEX_KEY, subId);
         if (held > 0) await this.clients.redis.decrby(COUNTER_KEY, held);

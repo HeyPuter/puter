@@ -21,6 +21,7 @@ import { AlarmClient } from './alarm/AlarmClient';
 import { DatabaseClientFactory } from './database';
 import { EmailClient } from './email/EmailClient';
 import { EventClient } from './event/EventClient';
+import { EventsWorkerInvokerClient } from './events/EventsWorkerInvokerClient';
 import { DDBClient } from './dynamodb/DDBClient';
 import { RedisClient } from './redis/RedisClient';
 import { S3Client } from './s3/S3Client';
@@ -32,6 +33,7 @@ export const puterClients = {
     db: DatabaseClientFactory,
     email: EmailClient,
     event: EventClient,
+    eventsWorkerInvoker: EventsWorkerInvokerClient,
     dynamo: DDBClient,
     redis: RedisClient,
     s3: S3Client,

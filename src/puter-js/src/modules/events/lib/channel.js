@@ -22,10 +22,11 @@ import { EventSubscription } from './subscription.js';
 
 /** @typedef {{ ok: true, sub?: SubscriptionView }} VerbAck */
 
-// The wire, fixed by the server: two verbs answered with an ack, one channel
+// The wire, fixed by the server: three verbs answered with an ack, one channel
 // events arrive on.
 const SUBSCRIBE_VERB = 'events.subscribe';
 const UNSUBSCRIBE_VERB = 'events.unsubscribe';
+const ACK_VERB = 'events.ack';
 const DELIVERY_CHANNEL = 'events.delivery';
 
 /** How long a verb waits for its ack before the call is called lost. */
@@ -82,6 +83,11 @@ const handshakeError = (error) => {
  * so a reconnect is not transparent server-side — this re-issues each live
  * subscription and re-points its handle at the new id, which is what keeps
  * `onLocal` a thing you call once.
+ *
+ * A persistent subscription is the other way round: the server holds it, its
+ * id outlives every connection, and what a reconnect has to rebuild is only
+ * this side's routing — so those registrations are kept apart from the session
+ * ones and are never re-subscribed.
  */
 export class EventChannel {
     /** @param {import('../index.js').EventsModule} module */
@@ -94,6 +100,12 @@ export class EventChannel {
         this.subscriptions = new Set();
         /** @internal @type {Map<string, EventSubscription>} */
         this.byId = new Map();
+        /**
+         * @internal Persistent subscriptions this client is running the
+         *   handler for, by their server-side id.
+         * @type {Map<string, DurableRegistration>}
+         */
+        this.durable = new Map();
         /** @internal Rejectors for verbs still waiting on an ack. */
         this.waiters = new Set();
         /** @internal Subscribes that have not resolved yet. */
@@ -155,6 +167,38 @@ export class EventChannel {
     }
 
     /**
+     * Run a persistent subscription's handler here whenever this client is the
+     * one the server delivers to. The subscription itself already exists and is
+     * not re-registered by any of this — what is registered is only where its
+     * deliveries go while this page is open.
+     *
+     * @internal
+     * @param {string} subId
+     * @param {import('../types.js').EventHandler} handler
+     * @param {Record<string, unknown>} [ctx] The context the subscription was
+     *   created with, delivered frozen alongside every event.
+     * @returns {void}
+     */
+    registerDurable (subId, handler, ctx) {
+        this.durable.set(subId, { subId, handler, ctx: Object.freeze({ ...(ctx ?? {}) }) });
+        this.connect();
+    }
+
+    /**
+     * Stop routing a persistent subscription here. The subscription is
+     * untouched — ending it is `unsubscribe()`, which is a different thing from
+     * this page no longer running its handler.
+     *
+     * @internal
+     * @param {string} subId
+     * @returns {void}
+     */
+    deregisterDurable (subId) {
+        if ( ! this.durable.delete(subId) ) return;
+        this.closeIfIdle();
+    }
+
+    /**
      * Rebuild the connection against the current token and origin. Live
      * subscriptions are re-issued once it is up.
      *
@@ -163,7 +207,7 @@ export class EventChannel {
      */
     reset () {
         this.close();
-        if ( this.subscriptions.size > 0 ) this.connect();
+        if ( this.subscriptions.size > 0 || this.durable.size > 0 ) this.connect();
     }
 
     /**
@@ -319,19 +363,84 @@ export class EventChannel {
 
     /**
      * @internal
-     * @param {{ subId?: string, event?: unknown }} envelope
+     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string }} envelope
      * @returns {void}
      */
     route (envelope) {
-        if ( ! envelope || typeof envelope !== 'object' ) return;
-        const sub = this.byId.get(/** @type {string} */ (envelope.subId));
+        if ( ! envelope || typeof envelope !== 'object' || ! envelope.event ) return;
+        const subId = /** @type {string} */ (envelope.subId);
+        const sub = this.byId.get(subId);
+        if ( sub ) {
+            sub.deliver(
+                /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event),
+                /** @type {Record<string, unknown> | undefined} */ (envelope.ctx),
+            );
+            return;
+        }
+        const registered = this.durable.get(subId);
         // An event for something this client has already unsubscribed from:
         // in flight when `off()` was called, and no longer anybody's.
-        if ( ! sub || ! envelope.event ) return;
-        sub.deliver(
-            /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event),
-            /** @type {Record<string, unknown> | undefined} */ (envelope.ctx),
+        if ( registered ) this.runDurable(registered, envelope);
+    }
+
+    /**
+     * Run a persistent subscription's handler on one delivery.
+     *
+     * The handler is handed the same environment its published copy gets in the
+     * app's events worker, so one body runs unchanged in either place. A
+     * delivery owed to exactly one consumer carries `ack`: calling it settles
+     * the delivery, resolving without calling it settles it anyway, and
+     * throwing settles nothing — the lease lapses and it is delivered again.
+     *
+     * @internal
+     * @param {DurableRegistration} registration
+     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string }} envelope
+     * @returns {void}
+     */
+    runDurable (registration, envelope) {
+        const event = /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event);
+        const delivery = { event, ctx: registration.ctx };
+
+        if ( ! envelope.ackRequired || typeof envelope.ackId !== 'string' ) {
+            settleHandler(() => registration.handler(delivery));
+            return;
+        }
+
+        let acked = false;
+        const ack = () => {
+            if ( acked ) return Promise.resolve();
+            acked = true;
+            return this.ack(registration.subId, /** @type {string} */ (envelope.ackId));
+        };
+        const { puter } = this.module;
+        settleHandler(
+            () =>
+                registration.handler({
+                    ...delivery,
+                    user: puter,
+                    fetch: puter?.net?.fetch ?? globalThis.fetch,
+                    ack,
+                }),
+            () => ack(),
         );
+    }
+
+    /**
+     * Tell the server a delivery was taken. Best effort: a lost ack is a
+     * redelivery, which `single` callers are told to expect, and there is
+     * nothing a failure here leaves for the caller to fix.
+     *
+     * @internal
+     * @param {string} subId
+     * @param {string} ackId
+     * @returns {Promise<void>}
+     */
+    async ack (subId, ackId) {
+        try {
+            await this.request(ACK_VERB, { subId, id: ackId }, DEFAULT_TIMEOUT_MS);
+        } catch (error) {
+            console.warn('[puter.events] could not acknowledge a delivery', error);
+        }
     }
 
     /**
@@ -408,6 +517,7 @@ export class EventChannel {
      */
     closeIfIdle () {
         if ( this.subscriptions.size > 0 || this.inflight > 0 ) return;
+        if ( this.durable.size > 0 ) return;
         this.close();
     }
 
@@ -433,3 +543,37 @@ export class EventChannel {
  */
 const timeoutFor = (sub) =>
     typeof sub.timeout === 'number' && sub.timeout > 0 ? sub.timeout : DEFAULT_TIMEOUT_MS;
+
+/**
+ * One persistent subscription this client runs the handler for.
+ *
+ * @typedef {Object} DurableRegistration
+ * @property {string} subId
+ * @property {import('../types.js').EventHandler} handler
+ * @property {Readonly<Record<string, unknown>>} ctx
+ */
+
+/**
+ * Run a handler and, if it finishes without throwing, do whatever the delivery
+ * still needs. A handler that throws is the app's bug: it is reported, and
+ * nothing is settled on its behalf.
+ *
+ * @param {() => unknown} run
+ * @param {() => unknown} [onResolved]
+ * @returns {void}
+ */
+const settleHandler = (run, onResolved) => {
+    try {
+        const result = run();
+        if ( result instanceof Promise ) {
+            result.then(
+                () => onResolved?.(),
+                error => console.error('[puter.events] subscription handler failed', error),
+            );
+            return;
+        }
+        onResolved?.();
+    } catch (error) {
+        console.error('[puter.events] subscription handler failed', error);
+    }
+};

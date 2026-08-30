@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_REGION_PENDING_CEILING,
+    deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
 import { EventSubscriptionStore } from '../../stores/events/EventSubscriptionStore.js';
@@ -378,6 +379,59 @@ describe('a delivery owed to exactly one consumer', () => {
 
         expect(sent).toHaveLength(1);
         expect(sent[0].ackRequired).toBe(true);
+    });
+
+    it('does not clear a run of handler failures when a socket ack settles a later delivery', async () => {
+        socketConnected = false;
+        workerOutcome = 'retriable';
+        const row = await register();
+
+        // Nothing is connected, so this one goes to the handler and fails.
+        await dispatch();
+        expect(invoked).toHaveLength(1);
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('1');
+
+        // The client reconnects before the backoff clears; the retry finds a
+        // socket this time and is acked there rather than run again.
+        socketConnected = true;
+        jump(deliveryBackoffMs(1) + 1);
+        await service.sweepPending();
+        expect(sent).toHaveLength(1);
+
+        await service.ackDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+        });
+
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        // A socket taking a delivery is not the handler answering: the strike
+        // the handler earned earlier stands.
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('1');
+    });
+
+    it('does not hand out the next delivery when an ack lands on a suspended row', async () => {
+        const row = await register();
+        await dispatch(entry({ uid: `file-a-${seq}` }));
+        await dispatch(entry({ uid: `file-b-${seq}` }));
+        expect(sent).toHaveLength(1);
+
+        // Suspended between the first delivery and its ack — a settle hook
+        // mid-flight, not a fresh dispatch decision.
+        rows.set(row.subId, {
+            ...row,
+            suspendedAt: Math.floor(Date.now() / 1000),
+            suspendedReason: 'failures',
+        });
+
+        await service.ackDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+        });
+
+        // The ack itself still settles; what it must not do is hand the next
+        // owed delivery out to a subscription that is no longer in service.
+        expect(sent).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
     });
 });
 

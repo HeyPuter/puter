@@ -35,6 +35,7 @@ import {
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import { hashContent } from '../../stores/events/EventHandlerStore.js';
 import type { IConfig } from '../../types.js';
+import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DurableSubscriptionView } from './EventsService.js';
 import { RecordingWorkerInvoker } from './workerSeam.js';
 
@@ -118,6 +119,13 @@ const makeApp = async (
             actor!,
             uid,
             `fs:${entry!.uid}:list`,
+        );
+        // Durable rows target the app's worker by default, which takes its own
+        // consent.
+        await env.server.services.permission.grantUserAppPermission(
+            actor!,
+            uid,
+            EVENTS_BACKGROUND_PERMISSION,
         );
         tokens.push(
             await env.server.services.auth.getUserAppToken(actor!, uid),
@@ -675,6 +683,25 @@ describe('the handler lifecycle', () => {
         });
         // A credit restore does not lift a suspension it did not cause.
         expect(await events().resumeForCredit(userId)).toBe(0);
+    });
+
+    it('puts a row a failing handler stopped back in service on a republish', async () => {
+        const subId = await bind();
+        await events().suspendForFailures(subId);
+
+        // New source under the name is the fix for a handler that could not
+        // take its deliveries, so it is what brings its subscriptions back.
+        const republished = await call('POST', '/events/handlers/publish', appToken, {
+            name: 'ingestUpload',
+            source: NEXT_SOURCE,
+            replace: true,
+        });
+
+        expect(republished.body.resumed).toBe(1);
+        expect(await rowOf(subId)).toMatchObject({
+            suspendedAt: null,
+            suspendedReason: null,
+        });
     });
 });
 

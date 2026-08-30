@@ -30,15 +30,15 @@ const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
 
 const waitFor = async (
-    condition: () => boolean,
+    condition: () => boolean | Promise<boolean>,
     timeoutMs: number,
 ): Promise<boolean> => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        if (condition()) return true;
+        if (await condition()) return true;
         await sleep(50);
     }
-    return condition();
+    return await condition();
 };
 
 const unique = (prefix: string): string =>
@@ -70,6 +70,61 @@ const makeApp = async (t: TestContext): Promise<string> => {
     const app = await t.puter.apps.create(name, `https://example.com/${name}`);
     return (app as unknown as { uid: string }).uid;
 };
+
+/**
+ * A handler that closes over nothing and reports what it ran on through the
+ * one thing it is allowed to reach. Published and subscribed as the same
+ * function, so the hash the subscribe sends is the hash that was published.
+ */
+const RECORDING_HANDLER = async ({
+    event,
+    ctx,
+}: {
+    event: { path?: string };
+    ctx: Record<string, unknown>;
+}) => {
+    const seen = ((globalThis as Record<string, unknown>).puterEventsSeen ??
+        []) as unknown[];
+    seen.push({ path: event.path, label: ctx.label });
+    (globalThis as Record<string, unknown>).puterEventsSeen = seen;
+};
+
+const recorded = (): Array<{ path?: string; label?: unknown }> =>
+    ((globalThis as Record<string, unknown>).puterEventsSeen ?? []) as Array<{
+        path?: string;
+        label?: unknown;
+    }>;
+
+/** Run as the app rather than as the account, then put the session back. */
+const asApp = async <T>(
+    t: TestContext,
+    appUid: string,
+    run: () => Promise<T>,
+): Promise<T> => {
+    const response = await fetch(`${t.env.apiOrigin}/auth/get-user-app-token`, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${t.env.users.user.token}`,
+        },
+        body: JSON.stringify({ app_uid: appUid }),
+    });
+    const { token } = (await response.json()) as { token: string };
+    // setAuthToken adopts the app identity from an app token's claims and never
+    // drops it, so the shared instance would keep resolving relative paths
+    // under ~/AppData/<app> for every later test unless it is put back here.
+    const sdk = t.puter as unknown as { appID?: string; appDataPath?: string };
+    const { appID, appDataPath } = sdk;
+    t.puter.setAuthToken(token);
+    try {
+        return await run();
+    } finally {
+        t.puter.setAuthToken(t.env.users.user.token);
+        sdk.appID = appID;
+        sdk.appDataPath = appDataPath;
+    }
+};
+
 
 export default suite('events', {
     'exposes onLocal': async (t) => {
@@ -436,6 +491,144 @@ export default suite('events', {
             t.puter.events.unsubscribe(''),
         );
         t.assert.equal(codeOf(error), 'subscription_does_not_exist');
+    },
+
+    'ends a persistent subscription through the handle it returns': async (t) => {
+        const dir = await makeDir(t, 'events-off');
+
+        const sub = await t.puter.events.onPersistent({ subject: `fs:${dir}` });
+        t.assert.equal(typeof sub.off, 'function');
+        await sub.off!();
+
+        const after = await t.puter.events.list();
+        t.assert.ok(
+            ! after.some((row) => row.subId === sub.subId),
+            'off() ends the subscription it was called on',
+        );
+    },
+
+    'runs the handler here while this client is the one connected': async (t) => {
+        const dir = await makeDir(t, 'events-durable');
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', RECORDING_HANDLER, {
+            appUid,
+        });
+        // Enough to watch the folder, write into it, and run in the background.
+        await t.puter.perms.grantApp(appUid, `fs:${dir}:write`);
+        await t.puter.perms.grantApp(appUid, 'events:background');
+
+        const before = recorded().length;
+        await asApp(t, appUid, async () => {
+            // A session subscription first: its answer is proof the connection
+            // is up, and the persistent deliveries ride the same one. Without
+            // it the write can land before the socket registers, and the
+            // delivery goes looking for the app's events worker instead.
+            const live = await open(t, `fs:${dir}`, () => {});
+            if (! live) return;
+
+            const sub = await t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                delivery: 'single',
+                handlerName: 'ingestUpload',
+                handler: RECORDING_HANDLER,
+                context: { label: 'ingest' },
+            });
+            try {
+                await t.puter.fs.write(`${dir}/first.txt`, 'one');
+                await waitFor(
+                    () => recorded().length > before,
+                    DELIVERY_TIMEOUT_MS,
+                );
+                const first = recorded()[before];
+                t.assert.ok(first, 'the persistent handler ran in this client');
+                t.assert.equal(first?.path, `${dir}/first.txt`);
+                t.assert.equal(
+                    first?.label,
+                    'ingest',
+                    'the handler is handed the context the subscription carries',
+                );
+
+                // A `single` hands out one delivery at a time, so a second one
+                // arriving is the acknowledgement of the first.
+                await t.puter.fs.write(`${dir}/second.txt`, 'two');
+                const settled = await waitFor(
+                    () => recorded().length > before + 1,
+                    DELIVERY_TIMEOUT_MS,
+                );
+                t.assert.ok(
+                    settled,
+                    'the first delivery was acknowledged, so the next was handed over',
+                );
+            } finally {
+                await sub.off!();
+                await live.off();
+            }
+        });
+    },
+
+    'takes background delivery only once the app is allowed it': async (t) => {
+        const dir = await makeDir(t, 'events-consent');
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', RECORDING_HANDLER, {
+            appUid,
+        });
+        await t.puter.perms.grantApp(appUid, `fs:${dir}:list`);
+
+        const refused = await asApp(t, appUid, () =>
+            t.assert.rejects(() =>
+                t.puter.events.onPersistent({
+                    subject: `fs:${dir}`,
+                    delivery: 'single',
+                    handlerName: 'ingestUpload',
+                    handler: RECORDING_HANDLER,
+                }),
+            ),
+        );
+        t.assert.equal(codeOf(refused), 'events_background_consent_required');
+
+        await t.puter.perms.grantApp(appUid, 'events:background');
+        const subId = await asApp(t, appUid, async () => {
+            const sub = await t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                delivery: 'single',
+                handlerName: 'ingestUpload',
+                handler: RECORDING_HANDLER,
+            });
+            return sub.subId;
+        });
+
+        // Taking the consent back stops the subscription it allowed.
+        await t.puter.perms.revokeApp(appUid, 'events:background');
+        const settled = await waitFor(async () => {
+            const held = await t.puter.events.list();
+            return (
+                held.find((row) => row.subId === subId)?.suspendedReason ===
+                'permission_revoked'
+            );
+        }, DELIVERY_TIMEOUT_MS);
+        t.assert.ok(settled, 'the subscription settled when consent was taken back');
+
+        await t.puter.events.unsubscribe(subId);
+    },
+
+    'needs no consent for a subscription only this connection hears': async (t) => {
+        const dir = await makeDir(t, 'events-no-consent');
+        const appUid = await makeApp(t);
+        await t.puter.perms.grantApp(appUid, `fs:${dir}:list`);
+
+        await asApp(t, appUid, async () => {
+            // Session subscriptions are socket-only by construction.
+            const sub = await open(t, `fs:${dir}`, () => {});
+            if (sub) await sub.off();
+
+            // So is a durable one that asks for nothing else.
+            const durable = await t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                targets: ['socket'],
+            });
+            t.assert.deepEqual(durable.targets, ['socket']);
+            await durable.off!();
+        });
     },
 
     'refuses to bind an inline handler nothing is published for': async (t) => {

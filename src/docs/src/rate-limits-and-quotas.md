@@ -172,6 +172,10 @@ One write can reach many subscriptions, so events are bounded on both halves: ho
 | Undelivered deliveries per subscription      | 10,000       |
 | Undelivered deliveries per *suspended* subscription | 100   |
 | Suspended subscriptions kept for             | 30 days      |
+| Handler invocation timeout                   | 30 seconds   |
+| Wait before retrying a failed handler        | 2 seconds, doubling |
+| Longest wait between retries                 | 5 minutes    |
+| Handler failures in a row before suspension  | 5            |
 | Published handlers per app                   | 100          |
 | Handler source size                          | 64 KB        |
 | Handlers per `publishAll` call               | 50           |
@@ -206,6 +210,8 @@ A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 
 The three per-event ceilings do not fail your call — they truncate the delivery and send a `gap` marker in its place, an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed".
+
+A **background delivery** — one that runs your app's handler with nobody there — takes the user's consent, the per-app permission `events:background`, and a subscription targeting `worker` without it is refused with `events_background_consent_required`. A handler has **30 seconds** to answer each invocation. Answering `2xx` takes the delivery; `4xx` refuses it, and it is dropped with a `gap` marker carrying `reason: 'handler_rejected'` rather than sent again to the same answer; `5xx`, `429` and a timeout are all "not now", and the delivery is held **2 seconds** before the next attempt, doubling each time up to **5 minutes**. **Five failures in a row** — refusals included — suspend the subscription with `failures`, hold what it is owed under the suspended-backlog rules above, and notify the app's developer. Until an events worker is deployed for an app there is nothing to invoke, so a worker-target subscription self-limits along exactly this path.
 
 A `single` subscription is delivered to exactly one consumer, which has **30 seconds** to acknowledge each delivery before it is offered again — twice to a connected client, then to the subscription's handler. Until it is acknowledged it is held for you, so a consumer that is away is a backlog that grows: **10,000** undelivered deliveries per subscription, after which the oldest are dropped and one `gap` marker with `reason: 'backlog_overflow'` takes their place. Each region also holds at most **1,000,000** undelivered deliveries across every subscription it serves, and sheds the oldest first — with the same marker — before it reaches that. A redelivery after a missed acknowledgement is normal and expected: deliveries are at-least-once, `event.id` is stable across them, and a handler that runs twice on the same id should do nothing the second time.
 
