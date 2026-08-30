@@ -40,7 +40,8 @@ const MAX_SELECT_LIMIT = 200;
 /** The mailbox slice a call named, in the terms the query takes it. */
 interface MailboxScope {
     audiences: readonly string[];
-    appUid: string | null;
+    /** `null` is the rows naming no app; `undefined` is any app. */
+    appUid: string | null | undefined;
 }
 
 /** Whether a row belongs to the slice, as the same SQL scope selected it. */
@@ -49,7 +50,8 @@ const inScope = (
     scope: MailboxScope,
 ): boolean => {
     const { audience, appUid } = notificationRowScope(row);
-    return scope.audiences.includes(audience) && appUid === scope.appUid;
+    if (!scope.audiences.includes(audience)) return false;
+    return scope.appUid === undefined || appUid === scope.appUid;
 };
 
 /**

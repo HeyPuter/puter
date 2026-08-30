@@ -20,7 +20,11 @@
 import { describe, expect, it } from 'vitest';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import { resolveFsAnchor, type FsAnchorDeps } from './anchors.js';
+import {
+    resolveFsAnchor,
+    resolveNotifAnchor,
+    type FsAnchorDeps,
+} from './anchors.js';
 import { compileMatch, relativeTo } from './matcher.js';
 import { parseSubject } from './subjects.js';
 
@@ -192,5 +196,62 @@ describe('anchor and match together', () => {
             ),
         ).toBe(true);
         expect(relativeTo(anchor.path, '/alice/Desktop/x.png')).toBeNull();
+    });
+});
+
+describe('resolveNotifAnchor', () => {
+    const USER = 'user-uuid-alice';
+    const APP = 'app-uuid-widget';
+
+    it('widens a session\'s own developer/app-user slice to any app', () => {
+        for (const audience of ['developer', 'app-user'] as const) {
+            const anchor = resolveNotifAnchor(parseSubject(`notif:${audience}`), {
+                userUuid: USER,
+                appUid: null,
+            });
+            expect(anchor.appScoped).toBe(false);
+            expect(anchor.anyApp).toBe(true);
+            expect(anchor.match).toBe(`*:${audience}`);
+
+            const compiled = compileMatch(anchor.match, { separator: ':' });
+            // Some other app's row, and a row naming none at all — both are
+            // this session's own mailbox to hear about.
+            expect(compiled.test(`${APP}:${audience}`)).toBe(true);
+            expect(compiled.test(`${USER}:${audience}`)).toBe(true);
+        }
+    });
+
+    it('never widens account — it never names an app to widen across', () => {
+        const anchor = resolveNotifAnchor(parseSubject('notif:account'), {
+            userUuid: USER,
+            appUid: null,
+        });
+        expect(anchor.anyApp).toBe(false);
+        expect(anchor.match).toBe(`${USER}:account`);
+    });
+
+    it('keeps an app\'s own two-segment slice pinned to itself', () => {
+        const anchor = resolveNotifAnchor(parseSubject('notif:developer'), {
+            userUuid: USER,
+            appUid: APP,
+        });
+        expect(anchor.appScoped).toBe(true);
+        expect(anchor.anyApp).toBe(false);
+        expect(anchor.match).toBe(`${APP}:developer`);
+
+        const compiled = compileMatch(anchor.match, { separator: ':' });
+        expect(compiled.test(`${APP}:developer`)).toBe(true);
+        // Not this app: an app's generic subject never reaches another's rows.
+        expect(compiled.test('some-other-app:developer')).toBe(false);
+    });
+
+    it('keeps an explicitly named app pinned to just that one', () => {
+        const anchor = resolveNotifAnchor(
+            parseSubject(`notif:${APP}:developer`),
+            { userUuid: USER, appUid: null },
+        );
+        expect(anchor.appScoped).toBe(true);
+        expect(anchor.anyApp).toBe(false);
+        expect(anchor.match).toBe(`${APP}:developer`);
     });
 });

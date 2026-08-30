@@ -77,9 +77,12 @@ export class NotificationStore extends PuterStore {
             const placeholders = scope.audiences.map(() => '?').join(', ');
             where.push(`\`audience\` IN (${placeholders})`);
             params.push(...scope.audiences);
+            // `undefined` is "any app" — a session's own generic slice, left
+            // unfiltered here because the caller applies the audience
+            // predicate over the page afterwards.
             if (scope.appUid === null) {
                 where.push('`app_uid` IS NULL');
-            } else {
+            } else if (scope.appUid !== undefined) {
                 where.push('`app_uid` = ?');
                 params.push(scope.appUid);
             }
@@ -104,12 +107,14 @@ export class NotificationStore extends PuterStore {
      * rows arrive between requests.
      *
      * `appUid` is matched, not filtered afterwards — `null` means the rows
-     * about no app, which is not the same question as "any app".
+     * about no app, which is not the same question as "any app". `undefined` is
+     * "any app": a session's own generic slice, which spans every app the
+     * audience predicate already grants it rather than one named ref.
      *
      * @param {number} userId
      * @param {{
      *     audience: string;
-     *     appUid: string | null;
+     *     appUid?: string | null;
      *     after?: number | null;
      *     limit?: number;
      * }} opts
@@ -123,7 +128,7 @@ export class NotificationStore extends PuterStore {
         const params = [userId, audience];
         if (appUid === null) {
             where.push('`app_uid` IS NULL');
-        } else {
+        } else if (appUid !== undefined) {
             where.push('`app_uid` = ?');
             params.push(appUid);
         }

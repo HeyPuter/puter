@@ -233,6 +233,33 @@ describe('PuterHomepageService — gui() parameters', () => {
         ).toEqual({ login: true, signup: true });
     });
 
+    it('advertises notification events only with the fold-in switched on', async () => {
+        expect(
+            guiParamsOf(await render(makeService())).eventsNotifications,
+        ).toBe(false);
+        expect(
+            guiParamsOf(
+                await render(makeService({ events: { enabled: true } })),
+            ).eventsNotifications,
+        ).toBe(false);
+        expect(
+            guiParamsOf(
+                await render(
+                    makeService({ events: { notificationsFoldIn: true } }),
+                ),
+            ).eventsNotifications,
+        ).toBe(false);
+        expect(
+            guiParamsOf(
+                await render(
+                    makeService({
+                        events: { enabled: true, notificationsFoldIn: true },
+                    }),
+                ),
+            ).eventsNotifications,
+        ).toBe(true);
+    });
+
     it('disables temp users when signup is off or the operator asked for it', async () => {
         expect(
             guiParamsOf(await render(makeService())).disable_temp_users,
