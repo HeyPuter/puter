@@ -18,7 +18,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER } from '../../controllers/events/limits.js';
+import {
+    EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+    type SubscriptionQuota,
+} from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { AclMode } from '../../services/acl/ACLService.js';
 import type { DeliveryClass } from '../../services/events/registry.js';
@@ -92,6 +95,19 @@ export interface DurableSubscriptionInput {
     context: string | null;
     permission: AclMode;
     expiresAt: number | null;
+    /**
+     * Plan-resolved caps this subscribe is held to. Omitted falls back to the
+     * structural maximum, so a writer that never resolved a plan still cannot
+     * leave an account holding more rows than the design allows.
+     */
+    limits?: SubscriptionQuota;
+}
+
+/** One keyset page of rows, and where the next page starts. */
+export interface DurablePage {
+    rows: DurableSubscription[];
+    /** `null` once the scan is exhausted. */
+    nextId: number | null;
 }
 
 export interface DurableListOptions {
@@ -161,10 +177,12 @@ const workerNeedsApp = (): HttpError =>
         { legacyCode: 'invalid_targets' },
     );
 
-const quotaReached = (): HttpError =>
+const quotaReached = (limit: number, scope: 'account' | 'app'): HttpError =>
     new HttpError(
         429,
-        `An account may hold ${EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER} durable subscriptions`,
+        scope === 'app'
+            ? `An app may hold ${limit} durable subscriptions for one account`
+            : `An account may hold ${limit} durable subscriptions`,
         { legacyCode: 'events_subscription_limit' },
     );
 
@@ -259,8 +277,18 @@ export class DurableSubscriptionStore extends PuterStore {
         );
         this.#assertContext(input.context);
 
-        const held = await this.countForHolder(input.holderUserId);
-        if (held >= EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER) throw quotaReached();
+        const perUser = Math.min(
+            input.limits?.perUser ?? EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+            EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+        );
+        const perApp = input.limits?.perApp ?? perUser;
+        const held = await this.countForHolder(
+            input.holderUserId,
+            input.appUid,
+        );
+        if (held.total >= perUser) throw quotaReached(perUser, 'account');
+        if (input.appUid !== null && held.forApp >= perApp)
+            throw quotaReached(perApp, 'app');
 
         const row: DurableSubscription = {
             durable: true,
@@ -547,17 +575,25 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
-     * Quota counting, over the same index the listing uses. Primary: a count
-     * read off a lagging replica is a cap a burst of subscribes walks straight
-     * through.
+     * Quota counting, over the same index the listing uses: what the account
+     * holds, and how much of that is one app's. Both caps come off one read.
+     * Primary — a count read off a lagging replica is a cap a burst of
+     * subscribes walks straight through.
      */
-    async countForHolder(holderUserId: number): Promise<number> {
+    async countForHolder(
+        holderUserId: number,
+        appUid: string | null = null,
+    ): Promise<{ total: number; forApp: number }> {
         const [row] = await this.clients.db.pread(
-            `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
-                `WHERE \`holder_user_id\` = ? AND ${this.#unexpiredClause()}`,
-            [holderUserId, nowSeconds()],
+            `SELECT COUNT(*) AS \`total\`, ` +
+                'SUM(CASE WHEN `app_uid` = ? THEN 1 ELSE 0 END) AS `for_app` ' +
+                `FROM \`${TABLE}\` WHERE \`holder_user_id\` = ? AND ${this.#unexpiredClause()}`,
+            [appUid, holderUserId, nowSeconds()],
         );
-        return Number(row?.total ?? 0);
+        return {
+            total: Number(row?.total ?? 0),
+            forApp: Number(row?.for_app ?? 0),
+        };
     }
 
     /**
@@ -584,7 +620,7 @@ export class DurableSubscriptionStore extends PuterStore {
         const rows = await this.clients.db.pread(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
                 `WHERE ${where.join(' AND ')} ORDER BY \`id\` LIMIT ?`,
-            [...params, EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER],
+            [...params, EVENTS_DURABLE_SUBSCRIPTIONS_MAX],
         );
         return rows.map(toRow);
     }
@@ -639,10 +675,42 @@ export class DurableSubscriptionStore extends PuterStore {
                 holderUserId,
                 reason,
                 nowSeconds(),
-                EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
+                EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
             ],
         );
         return rows.map(toRow);
+    }
+
+    /**
+     * Active rows across every holder, one keyset page at a time. The daily
+     * standing charge is the only pass that has to see all of them rather than
+     * one account's, and it walks the primary key so a long scan never holds a
+     * position anything else waits on.
+     */
+    async listActivePage(
+        afterId: number,
+        batchSize: number,
+    ): Promise<DurablePage> {
+        return this.#page(
+            ['`suspended_at` IS NULL', this.#unexpiredClause()],
+            [nowSeconds()],
+            afterId,
+            batchSize,
+        );
+    }
+
+    /** The same scan over rows suspended for one reason. */
+    async listSuspendedPage(
+        reason: SuspendedReason,
+        afterId: number,
+        batchSize: number,
+    ): Promise<DurablePage> {
+        return this.#page(
+            ['`suspended_at` IS NOT NULL', '`suspended_reason` = ?'],
+            [reason],
+            afterId,
+            batchSize,
+        );
     }
 
     /**
@@ -663,6 +731,29 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     // -- Internals ---------------------------------------------------
+
+    /** One page of a whole-table scan, ordered and positioned by primary key. */
+    async #page(
+        where: string[],
+        params: unknown[],
+        afterId: number,
+        batchSize: number,
+    ): Promise<DurablePage> {
+        const limit = Math.max(1, Math.floor(batchSize));
+        const rows = await this.clients.db.read(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                `WHERE ${[...where, '`id` > ?'].join(' AND ')} ` +
+                'ORDER BY `id` LIMIT ?',
+            [...params, afterId, limit],
+        );
+        return {
+            rows: rows.map(toRow),
+            nextId:
+                rows.length < limit
+                    ? null
+                    : Number(rows[rows.length - 1].id) || null,
+        };
+    }
 
     async #rebuildRegion(ownerUserId: number): Promise<void> {
         const rows = await this.listDeliverableForOwner(ownerUserId);

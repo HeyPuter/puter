@@ -32,7 +32,9 @@ import {
     type DurableSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type { UsageInput } from '../metering/types.js';
 import type { IConfig } from '../../types.js';
+import { EVENTS_COSTS } from './costs.js';
 import {
     EventsService,
     EVENTS_ACK_VERB,
@@ -63,6 +65,7 @@ let store: EventSubscriptionStore;
 let service: EventsService;
 let sent: Array<{ socket?: string; envelope: DeliveryEnvelope }>;
 let delivered: DeliveryEnvelope[];
+let metered: MeteredLine[];
 let entries: Map<string, FSEntry>;
 let eventBus: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
 
@@ -221,6 +224,18 @@ const durableSubscriptionStore = {
     getBySubId: async () => null,
 };
 
+/** One buffered usage line, with the identity it was written as. */
+interface MeteredLine {
+    userUuid: string | undefined;
+    appUid: string | null;
+    usageType: string;
+    usageAmount: number;
+    costOverride?: number;
+}
+
+/** Whether the account being delivered to still has budget. */
+let hasCredits: boolean;
+
 /**
  * Each service gets its own outbox. A delivery still in flight when a test
  * ends must land in that test's record, not in the next one's.
@@ -231,10 +246,12 @@ const buildService = (
     service: EventsService;
     sent: Array<{ socket?: string; envelope: DeliveryEnvelope }>;
     delivered: DeliveryEnvelope[];
+    metered: MeteredLine[];
     eventBus: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
 } => {
     const outbox: Array<{ socket?: string; envelope: DeliveryEnvelope }> = [];
     const counted: DeliveryEnvelope[] = [];
+    const lines: MeteredLine[] = [];
     const bus = { on: vi.fn(), emit: vi.fn() };
     const built = new EventsService(
         config,
@@ -266,11 +283,31 @@ const buildService = (
             },
             acl: aclService(),
             permission: permissionService(),
+            metering: {
+                bufferIncrementUsages: (
+                    actor: Actor,
+                    usages: UsageInput[],
+                ) => {
+                    for (const usage of usages)
+                        lines.push({
+                            userUuid: actor.user?.uuid,
+                            appUid: actor.app?.uid ?? null,
+                            ...usage,
+                        });
+                },
+                hasAnyUsageCached: async () => hasCredits,
+            },
         } as never,
     );
     built.onDelivered = (envelope) => counted.push(envelope);
     built.onServerStart();
-    return { service: built, sent: outbox, delivered: counted, eventBus: bus };
+    return {
+        service: built,
+        sent: outbox,
+        delivered: counted,
+        metered: lines,
+        eventBus: bus,
+    };
 };
 
 const fsEntryStore = {
@@ -382,13 +419,14 @@ beforeEach(() => {
     grants = new Set();
     permissionChecks = [];
     permissionGeneration = 1;
+    hasCredits = true;
     redis = countingRedis(new MockRedis.Cluster(['redis://localhost:7001']));
     store = new EventSubscriptionStore(
         {} as IConfig,
         { redis } as never,
         {} as never,
     );
-    ({ service, sent, delivered, eventBus } = buildService({
+    ({ service, sent, delivered, metered, eventBus } = buildService({
         events: { enabled: true },
     } as IConfig));
 });
@@ -940,6 +978,9 @@ describe('matching', () => {
         await flush();
 
         expect(sent[0].envelope.event).toMatchObject({ self: false });
+        // The subscription's holder is billed for their own delivery — never
+        // the actor whose write happened to trigger it.
+        expect(metered).toMatchObject([{ userUuid: `user-${userId}` }]);
     });
 
     it('stops delivering the moment the holder`s access goes', async () => {
@@ -1072,6 +1113,73 @@ describe('coalescing', () => {
 
         expect(delivered).toHaveLength(sent.length);
         expect(delivered).toHaveLength(1);
+        // Nine writes, one delivery, one line: what the coalescer collapses is
+        // never billed for.
+        expect(metered).toEqual([
+            {
+                userUuid: `user-${userId}`,
+                appUid: null,
+                usageType: 'events:delivery:broadcast',
+                usageAmount: 1,
+                costOverride: EVENTS_COSTS['events:delivery:broadcast'],
+            },
+        ]);
+    });
+
+    it('bills a filtered-out event to nobody', async () => {
+        const { file } = seedTree();
+        await subscribe(`fs:/u${userId}/Documents/*.md`);
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(delivered).toEqual([]);
+        expect(metered).toEqual([]);
+    });
+
+    it('bills a session subscription at the broadcast rate, to its holder', async () => {
+        const { documents, file } = seedTree();
+        await subscribe(`fs:${documents.uid}`);
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(metered).toMatchObject([
+            {
+                userUuid: `user-${userId}`,
+                usageType: 'events:delivery:broadcast',
+            },
+        ]);
+    });
+
+    it('does not bill a gap marker, which is a notice rather than a delivery', async () => {
+        const { documents, file } = seedTree();
+        await seedSubscriptions(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT + 5, {
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const gaps = sent.filter((s) => s.envelope.event.op === 'gap');
+        expect(gaps).toHaveLength(5);
+        expect(metered).toHaveLength(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
+    });
+
+    it('stops delivering to a holder with nothing left to spend', async () => {
+        const { documents, file } = seedTree();
+        await subscribe(`fs:${documents.uid}`);
+        hasCredits = false;
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+        expect(delivered).toEqual([]);
+        expect(metered).toEqual([]);
     });
 });
 

@@ -44,7 +44,7 @@ import { PuterStore } from '../types.js';
  * all deleted the moment the last one settles — a subscription that is keeping
  * up owns nothing:
  *
- *     ev:q:{<subId>}    HASH  entryId -> the delivery and its attempt counts
+ *     ev:q:{<subId>}    HASH  entryId -> the delivery, its attempt counts and billed flag
  *     ev:qp:{<subId>}   ZSET  entryId -> enqueued at; membership means unsettled
  *     ev:ql:{<subId>}   ZSET  entryId -> lease expiry; membership means in flight
  *     ev:qf:{<subId>}   STR   handler failures in a row, expiring on its own
@@ -201,6 +201,8 @@ interface StoredEntry {
     socketAttempts: number;
     /** Handler attempts spent, which is what the retry wait is derived from. */
     handlerAttempts?: number;
+    /** Set once this entry has been charged for, however many attempts follow. */
+    billed?: boolean;
 }
 
 const parseEntry = (raw: string | null): StoredEntry | null => {
@@ -405,6 +407,26 @@ export class PendingDeliveryStore extends PuterStore {
 
         await this.#forget(subId, [entryId]);
         await this.#append(subId, gapMarker(subject, reason));
+        return true;
+    }
+
+    /**
+     * Claim this entry's one bill, if nothing already has. A `single` retries
+     * the same entry across a lease expiry — a second socket attempt, then the
+     * handler — and every one of those is the same undelivered event, not a new
+     * one: only the attempt that gets here first is charged for it.
+     */
+    async markBilled(subId: string, entryId: string): Promise<boolean> {
+        const entry = parseEntry(
+            await this.clients.redis.hget(entriesKey(subId), entryId),
+        );
+        if (!entry || entry.billed) return false;
+
+        await this.clients.redis.hset(
+            entriesKey(subId),
+            entryId,
+            JSON.stringify({ ...entry, billed: true }),
+        );
         return true;
     }
 

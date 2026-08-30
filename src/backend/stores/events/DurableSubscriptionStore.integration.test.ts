@@ -26,7 +26,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER } from '../../controllers/events/limits.js';
+import { EVENTS_DURABLE_SUBSCRIPTIONS_MAX } from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -192,7 +192,9 @@ describe('validation at the row write', () => {
                 }),
             ),
         ).rejects.toSatisfy(codeOf('invalid_targets'));
-        await expect(durable().countForHolder(userId)).resolves.toBe(0);
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: 0,
+        });
     });
 
     it('refuses an app`s `single` row with no worker to fall back to', async () => {
@@ -232,7 +234,9 @@ describe('validation at the row write', () => {
         await expect(
             durable().create(input({ appUid: null, targets: ['socket', 'worker'] })),
         ).rejects.toSatisfy(codeOf('invalid_targets'));
-        await expect(durable().countForHolder(userId)).resolves.toBe(0);
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: 0,
+        });
     });
 
     it('allows a `worker` target once the row has an app', async () => {
@@ -249,7 +253,9 @@ describe('validation at the row write', () => {
         await expect(
             durable().create(input({ context: 'x'.repeat(4097) })),
         ).rejects.toSatisfy(codeOf('events_context_too_large'));
-        await expect(durable().countForHolder(userId)).resolves.toBe(0);
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: 0,
+        });
     });
 
     it('accepts a context right up to it', async () => {
@@ -263,15 +269,15 @@ describe('validation at the row write', () => {
 });
 
 describe('the per-account cap', () => {
-    it('refuses the one past the limit with a stable code', async () => {
+    const fill = async (count: number, appUid: string | null = null) => {
         const now = Math.floor(Date.now() / 1000);
-        for (let i = 0; i < EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER; i++)
+        for (let i = 0; i < count; i++)
             await env.server.clients.db.insert('event_subscriptions', {
-                sub_id: `user#filler-${i}`,
+                sub_id: `${appUid ?? 'user'}#filler-${i}`,
                 token: token(),
                 owner_user_id: userId,
                 holder_user_id: userId,
-                app_uid: null,
+                app_uid: appUid,
                 subject: `fs:${anchorPath}`,
                 anchor_uid: anchorUid,
                 anchor_path: anchorPath,
@@ -285,16 +291,57 @@ describe('the per-account cap', () => {
                 expires_at: null,
                 created_at: now,
             });
+    };
+
+    it('refuses the one past the limit with a stable code', async () => {
+        await fill(EVENTS_DURABLE_SUBSCRIPTIONS_MAX);
 
         await expect(durable().create(input())).rejects.toSatisfy(
             codeOf('events_subscription_limit'),
         );
     });
 
-    it('counts the holder, not the owner', async () => {
+    it('holds a row to the caps its caller resolved from a plan', async () => {
+        const appUid = `app-${uuidv4()}`;
+        await fill(2, appUid);
+
+        await expect(
+            durable().create(
+                input({ appUid, limits: { perUser: 10, perApp: 2 } }),
+            ),
+        ).rejects.toSatisfy(codeOf('events_subscription_limit'));
+
+        // The app is full; the account it belongs to is not.
+        await expect(
+            durable().create(input({ limits: { perUser: 10, perApp: 2 } })),
+        ).resolves.toMatchObject({ row: { appUid: null } });
+    });
+
+    it('never lets a resolved cap exceed the structural one', async () => {
+        await fill(EVENTS_DURABLE_SUBSCRIPTIONS_MAX);
+
+        await expect(
+            durable().create(
+                input({ limits: { perUser: 10_000, perApp: 10_000 } }),
+            ),
+        ).rejects.toSatisfy(codeOf('events_subscription_limit'));
+    });
+
+    it('counts the holder, not the owner, and one app`s share of it', async () => {
+        const appUid = `app-${uuidv4()}`;
         await durable().create(input({ holderUserId: otherUserId }));
-        await expect(durable().countForHolder(userId)).resolves.toBe(0);
-        await expect(durable().countForHolder(otherUserId)).resolves.toBe(1);
+        await durable().create(input({ appUid }));
+
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: 1,
+            forApp: 0,
+        });
+        await expect(
+            durable().countForHolder(userId, appUid),
+        ).resolves.toMatchObject({ total: 1, forApp: 1 });
+        await expect(
+            durable().countForHolder(otherUserId),
+        ).resolves.toMatchObject({ total: 1 });
     });
 
     it('does not count a row that has expired but not yet been swept', async () => {
@@ -302,7 +349,7 @@ describe('the per-account cap', () => {
             input({ expiresAt: Math.floor(Date.now() / 1000) - 60 }),
         );
         await durable().create(input());
-        await expect(durable().countForHolder(userId)).resolves.toBe(1);
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({ total: 1 });
     });
 });
 
@@ -438,7 +485,9 @@ describe('the expiry sweep', () => {
     it('leaves a subscription with no expiry alone', async () => {
         await durable().create(input());
         await expect(durable().sweepExpired(500)).resolves.toBe(0);
-        await expect(durable().countForHolder(userId)).resolves.toBe(1);
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: 1,
+        });
     });
 });
 
