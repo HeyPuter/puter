@@ -168,6 +168,8 @@ One write can reach many subscriptions, so events are bounded on both halves: ho
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
 | Deliveries per minute, per subscription      | 600          |
+| Acknowledgements per minute                  | 600          |
+| Undelivered deliveries per subscription      | 10,000       |
 
 Subscriptions come in two kinds. A **session** subscription lives with the connection that made it: it is dropped when the connection closes, and a reconnecting client subscribes again. A **durable** subscription outlives every connection — it is created over the API, listed and revoked from the account, and keeps delivering until you remove it or it expires.
 
@@ -180,6 +182,8 @@ Match patterns are compiled once when you subscribe and are capped at **256 char
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 
 The three per-event ceilings do not fail your call — they truncate the delivery and send a `gap` marker in its place, an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed".
+
+A `single` subscription is delivered to exactly one consumer, which has **30 seconds** to acknowledge each delivery before it is offered again — twice to a connected client, then to the subscription's handler. Until it is acknowledged it is held for you, so a consumer that is away is a backlog that grows: **10,000** undelivered deliveries per subscription, after which the oldest are dropped and one `gap` marker with `reason: 'backlog_overflow'` takes their place. Each region also holds at most **1,000,000** undelivered deliveries across every subscription it serves, and sheds the oldest first — with the same marker — before it reaches that. A redelivery after a missed acknowledgement is normal and expected: deliveries are at-least-once, `event.id` is stable across them, and a handler that runs twice on the same id should do nothing the second time.
 
 ### Peer connections
 

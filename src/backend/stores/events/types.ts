@@ -39,6 +39,26 @@ export const isSubscriptionTarget = (
 ): value is SubscriptionTarget =>
     SUBSCRIPTION_TARGETS.includes(value as SubscriptionTarget);
 
+/** Transports a session row may take: it has one connection and no handler. */
+export const SESSION_TARGETS: SubscriptionTarget[] = ['socket'];
+
+/** Transports a durable row takes unless the caller says otherwise. */
+export const DEFAULT_DURABLE_TARGETS: SubscriptionTarget[] = [
+    'socket',
+    'worker',
+];
+
+/**
+ * Whether a delivery class may carry these transports. `single` and `push` are
+ * incompatible by construction — a lease can only be settled by a consumer that
+ * reports back, and a device notification never does — so this is an invariant
+ * every writer is held to, not a default.
+ */
+export const targetsAllowedForDelivery = (
+    delivery: DeliveryClass,
+    targets: readonly SubscriptionTarget[],
+): boolean => delivery !== 'single' || !targets.includes('push');
+
 /** What dispatch needs from a subscription, whichever store it came from. */
 export interface DispatchSubscription {
     subId: string;
@@ -59,13 +79,16 @@ export interface DispatchSubscription {
     appUid: string | null;
     /** ACL mode the subscribe check passed under; re-checked per delivery. */
     permission: AclMode;
+    /** Transports this row's deliveries may take. */
+    targets?: SubscriptionTarget[];
     /** Session rows only: the connection a delivery is addressed at. */
     socketId?: string;
     /** Durable rows only: set on every row that outlives its connection. */
     durable?: true;
     delivery?: DeliveryClass;
-    targets?: SubscriptionTarget[];
     handlerName?: string | null;
+    /** Durable rows only: handed to the handler, and read nowhere else. */
+    context?: string | null;
 }
 
 export interface SessionSubscription extends DispatchSubscription {

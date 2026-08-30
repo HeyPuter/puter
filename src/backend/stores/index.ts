@@ -23,6 +23,7 @@ import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore.js';
 import { DurableSubscriptionStore } from './events/DurableSubscriptionStore.js';
 import { EventSubscriptionStore } from './events/EventSubscriptionStore.js';
+import { PendingDeliveryStore } from './events/PendingDeliveryStore.js';
 import { CreditHoldStore } from './metering/CreditHoldStore.js';
 import { MeteringBufferStore } from './metering/MeteringBufferStore.js';
 import { NotificationStore } from './notification/NotificationStore.js';
@@ -64,6 +65,7 @@ declare module './types.js' {
         userBlock: UserBlockStore;
         eventSubscription: EventSubscriptionStore;
         durableSubscription: DurableSubscriptionStore;
+        pendingDelivery: PendingDeliveryStore;
     }
 }
 
@@ -95,6 +97,7 @@ export const puterStores = {
     userBlock: UserBlockStore,
     // Redis only, no peer stores.
     eventSubscription: EventSubscriptionStore,
+    pendingDelivery: PendingDeliveryStore,
     // Writes through the Redis keyspace above, so it comes after it.
     durableSubscription: DurableSubscriptionStore,
 } satisfies IPuterStoreRegistry;

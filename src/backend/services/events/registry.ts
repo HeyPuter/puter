@@ -46,6 +46,29 @@ export interface ProjectedEvent {
     seq: number;
 }
 
+export type GapReason =
+    | 'matched_subscription_limit'
+    | 'filter_evaluation_limit'
+    | 'delivery_rate_limit'
+    | 'backlog_overflow';
+
+/**
+ * `gap` says an event existed and was not delivered. It rides the delivery
+ * channel because a subscriber that never saw one would read the silence as
+ * "nothing happened", and carries no `uid`/`path` — what was dropped is exactly
+ * what it cannot name.
+ */
+export interface GapMarker {
+    id: string;
+    subject: string;
+    op: 'gap';
+    reason: GapReason;
+    ts: number;
+}
+
+/** Either shape a subscriber can be handed. */
+export type DeliverableEvent = ProjectedEvent | GapMarker;
+
 /** What dispatch knows about one internal emit, before it picks subscribers. */
 export interface EventContext {
     key: EventKey;

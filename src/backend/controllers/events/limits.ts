@@ -75,6 +75,15 @@ export const EVENTS_SUBSCRIBE_LIMIT = userWindow('events:subscribe', 60);
  */
 export const EVENTS_LIST_LIMIT = userWindow('events:list', 120);
 
+/**
+ * Delivery acknowledgements per minute, per user.
+ *
+ * One ack per `single` delivery, so this sits level with what one subscription
+ * may be delivered — a client acking faster than that is acking things it was
+ * never sent.
+ */
+export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
+
 // -- Dispatch fan-out ------------------------------------------------
 
 /**
@@ -102,6 +111,29 @@ export const EVENTS_BROADCAST_DELIVERY_LIMIT = userWindow(
  * is readable in one place.
  */
 export { FILTER_EVALUATIONS_PER_EVENT } from '../../services/events/matcher.js';
+
+// -- Undelivered backlog ---------------------------------------------
+
+/**
+ * Deliveries one subscription may hold undelivered.
+ *
+ * A `single` delivery waits until something takes it, so a subscription whose
+ * consumer is gone accumulates. Over the cap the oldest go and one gap marker
+ * takes their place, which is what keeps "at-least-once" honest: what was lost
+ * is visible rather than silent.
+ */
+export const EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION = 10_000;
+
+/**
+ * Undelivered deliveries one region may hold across every subscription.
+ *
+ * The per-subscription cap bounds one backlog and nothing in aggregate —
+ * multiply it by the subscriptions that can exist and the region's memory is
+ * the only remaining limit. Over this, the oldest deliveries in the region are
+ * shed first, each shedding subscription gets a gap marker, and an alarm says
+ * it happened.
+ */
+export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
 
 // -- Coalescing ------------------------------------------------------
 

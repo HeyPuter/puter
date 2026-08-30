@@ -220,14 +220,39 @@ describe('creating a durable subscription over HTTP', () => {
         expect(created.body.context).toBeUndefined();
     });
 
-    it('refuses the delivery class that has nowhere to queue yet', async () => {
-        const refused = await subscribe(env.users.user.token, {
+    it('registers a subscription owed to one consumer', async () => {
+        await clearRows();
+        const created = await subscribe(env.users.user.token, {
             delivery: 'single',
             handlerName: 'onWrite',
         });
 
-        expect(refused.status).toBe(501);
-        expect(refused.body.code).toBe('delivery_class_unavailable');
+        expect(created.status).toBe(200);
+        expect(created.body).toMatchObject({
+            delivery: 'single',
+            handlerName: 'onWrite',
+            targets: ['socket', 'worker'],
+        });
+    });
+
+    it('refuses one owed to a consumer it cannot name', async () => {
+        const refused = await subscribe(env.users.user.token, {
+            delivery: 'single',
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('events_handler_required');
+    });
+
+    it('refuses one owed to a device notification', async () => {
+        const refused = await subscribe(env.users.user.token, {
+            delivery: 'single',
+            handlerName: 'onWrite',
+            targets: ['push'],
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('invalid_targets');
     });
 
     it('refuses a target outside the known set', async () => {

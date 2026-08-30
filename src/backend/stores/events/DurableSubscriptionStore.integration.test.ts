@@ -173,6 +173,26 @@ describe('validation at the row write', () => {
         ).rejects.toSatisfy(codeOf('invalid_targets'));
     });
 
+    it('refuses a `single` row that wants a device notification', async () => {
+        await expect(
+            durable().create(
+                input({
+                    delivery: 'single',
+                    handlerName: 'onWrite',
+                    targets: ['socket', 'push'],
+                }),
+            ),
+        ).rejects.toSatisfy(codeOf('invalid_targets'));
+        await expect(durable().countForHolder(userId)).resolves.toBe(0);
+    });
+
+    it('keeps the same targets on a `broadcast` row, where push is fine', async () => {
+        const { row } = await durable().create(
+            input({ targets: ['socket', 'push'] }),
+        );
+        expect(row.targets).toEqual(['socket', 'push']);
+    });
+
     it('refuses a context past the hard cap', async () => {
         await expect(
             durable().create(input({ context: 'x'.repeat(4097) })),

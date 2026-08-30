@@ -43,8 +43,9 @@
  * @property {string} subject The subject that was being delivered.
  * @property {'gap'} op Always `'gap'`.
  * @property {string} reason Why the delivery was dropped —
- *   `matched_subscription_limit`, `filter_evaluation_limit`, or
- *   `delivery_rate_limit`.
+ *   `matched_subscription_limit`, `filter_evaluation_limit`,
+ *   `delivery_rate_limit`, or `backlog_overflow` when undelivered events were
+ *   shed to stay inside a backlog cap.
  * @property {number} ts Milliseconds since the epoch.
  */
 
