@@ -19,6 +19,7 @@
 
 import { metrics } from '@opentelemetry/api';
 import { PuterStore } from '../types';
+import type { KvMutation } from '../../clients/event/types';
 import type { Actor } from '../../core/actor';
 import {
     isSystemActor,
@@ -133,8 +134,9 @@ export interface RecursiveRecord<T> {
 
 // -- Helpers ----------------------------------------------------------
 
-const GLOBAL_APP_KEY = 'os-global';
-const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${GLOBAL_APP_KEY}`;
+/** Namespace app component for an actor acting without an app. */
+export const KV_GLOBAL_APP_KEY = 'os-global';
+const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
 const MAX_VALUE_BYTES = 399 * 1024;
 // A number anywhere inside a value is bounded too, to the IEEE-754 safe
@@ -219,8 +221,22 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
         opts?.namespaceAppUuid ??
         actor.effectiveApp?.uid ??
         opts?.appUuid ??
-        GLOBAL_APP_KEY;
-    return `v1:${actor.user.uuid}:${appUuid}`;
+        KV_GLOBAL_APP_KEY;
+    return kvNamespace(actor.user.uuid, appUuid);
+};
+
+/** The namespace one user's data for one app lives in. */
+export const kvNamespace = (userUuid: string, appUid: string): string =>
+    `v1:${userUuid}:${appUid}`;
+
+/** Split a namespace back into its parts, or `null` if it is not one. */
+export const parseKvNamespace = (
+    namespace: string,
+): { userUuid: string; appUid: string } | null => {
+    const parts = namespace.split(':');
+    if (parts.length !== 3 || parts[0] !== 'v1' || !parts[1] || !parts[2])
+        return null;
+    return { userUuid: parts[1], appUid: parts[2] };
 };
 
 const assertKey = (key: string): void => {
@@ -628,6 +644,61 @@ export class SystemKVStore extends PuterStore {
     }
 
     /**
+     * Post-commit fan-out for one mutation: drop the cached reads it made
+     * wrong, then say on the bus that it happened.
+     *
+     * Every mutating method ends here, and the announcement sits outside the
+     * cache's own guard — whether this install caches reads says nothing about
+     * whether anyone subscribed to the change.
+     */
+    async #committed(
+        actor: Actor,
+        namespace: string,
+        keys: string[],
+        op: KvMutation,
+    ): Promise<void> {
+        await this.#invalidate(namespace, keys);
+        this.#emitMutation(actor, namespace, keys, op);
+    }
+
+    /**
+     * A flush is a namespace-level marker rather than a per-key fan-out: its
+     * own key enumeration is truncated for a large namespace, so the keys it
+     * names are not the keys it removed.
+     */
+    #emitMutation(
+        actor: Actor,
+        namespace: string,
+        keys: string[],
+        op: KvMutation,
+    ): void {
+        // Internal system data has no subscribable subject, and it is written
+        // often enough that the emit itself would be the cost.
+        if (isSystemActor(actor)) return;
+        const userId = actor.user?.id;
+        if (typeof userId !== 'number') return;
+
+        try {
+            if (op === 'flush') {
+                this.clients.event.emit(
+                    'kv.flushed',
+                    { namespace, userId },
+                    {},
+                );
+                return;
+            }
+            if (keys.length === 0) return;
+            this.clients.event.emit(
+                'kv.mutated',
+                { namespace, userId, keys: [...new Set(keys)], op },
+                {},
+            );
+        } catch {
+            // A change nobody hears about is not a failed write.
+        }
+    }
+
+    /**
      * Stop serving cached reads for `keys`, here and in every peer region.
      *
      * Awaited for the local part so a caller's own next read can't be answered
@@ -890,7 +961,7 @@ export class SystemKVStore extends PuterStore {
             ttl: expireAt,
             ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
         });
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'set');
 
         return {
             res: true,
@@ -961,7 +1032,7 @@ export class SystemKVStore extends PuterStore {
         }));
 
         const response = await this.clients.dynamo.batchPut(putParams);
-        await this.#invalidate(namespace, [...byKey.keys()]);
+        await this.#committed(actor, namespace, [...byKey.keys()], 'set');
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -986,7 +1057,7 @@ export class SystemKVStore extends PuterStore {
             namespace,
             key,
         });
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'del');
         return {
             res: true,
             usage: addUsage(
@@ -1019,7 +1090,7 @@ export class SystemKVStore extends PuterStore {
             { namespace, key },
             { returnOld: true },
         );
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'del');
 
         const old = response.Attributes as
             | { value?: unknown; ttl?: number }
@@ -1076,7 +1147,7 @@ export class SystemKVStore extends PuterStore {
                 key: { namespace, key },
             })),
         );
-        await this.#invalidate(namespace, uniqueKeys);
+        await this.#committed(actor, namespace, uniqueKeys, 'del');
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -1330,9 +1401,11 @@ export class SystemKVStore extends PuterStore {
 
         // Exactly the keys the query saw, which is also exactly what was
         // deleted — anything a truncated query missed is still there to read.
-        await this.#invalidate(
+        await this.#committed(
+            actor,
             namespace,
             entries.map((entry) => String(entry.key)),
+            'flush',
         );
 
         return { res: true, usage };
@@ -1347,7 +1420,7 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const usage = await this.rawExpireAt(namespace, key, Number(timestamp));
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'expire');
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -1361,7 +1434,7 @@ export class SystemKVStore extends PuterStore {
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const timestamp = Math.floor(Date.now() / 1000) + Number(ttl);
         const usage = await this.rawExpireAt(namespace, key, timestamp);
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'expire');
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -1472,7 +1545,7 @@ export class SystemKVStore extends PuterStore {
             );
             response = await runUpdate();
         }
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'set');
 
         const usage = addUsage(
             probeUsage,
@@ -1563,7 +1636,7 @@ export class SystemKVStore extends PuterStore {
             valueAttributeValues,
             { ...valueAttributeNames, '#value': 'value' },
         );
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'set');
 
         const usage = addUsage(
             probeUsage,
@@ -1624,7 +1697,7 @@ export class SystemKVStore extends PuterStore {
                 undefined,
                 { ...valueAttributeNames, '#value': 'value' },
             );
-            await this.#invalidate(namespace, [key]);
+            await this.#committed(actor, namespace, [key], 'set');
             return {
                 res: response.Attributes?.value,
                 usage: addUsage(
@@ -1738,7 +1811,7 @@ export class SystemKVStore extends PuterStore {
             { ...valueAttributeNames, '#value': 'value' },
         );
 
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(actor, namespace, [key], 'set');
 
         const usage = addUsage(
             probeUsage,

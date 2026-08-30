@@ -100,6 +100,7 @@ export type {
     EventHandler,
     OnLocalOptions,
     PuterEvent,
+    PuterKvEvent,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
 

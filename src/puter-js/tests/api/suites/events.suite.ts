@@ -15,6 +15,7 @@ type Delivered = {
     op: string;
     uid?: string;
     path?: string;
+    key?: string;
     self?: boolean;
     ts: number;
     seq?: number;
@@ -220,6 +221,72 @@ export default suite('events', {
         }
     },
 
+    'delivers a key-value change, exactly by default': async (t) => {
+        const exact = unique('kv-exact');
+        const nested = `${exact}-nested`;
+        const exactSeen: Delivered[] = [];
+        const widenedSeen: Delivered[] = [];
+
+        const one = await open(t, `kv:${exact}`, (event) =>
+            exactSeen.push(event),
+        );
+        if (!one) return;
+        // A trailing `*` is what widens a subject to a prefix; without it the
+        // key is matched exactly, which is the opposite of `kv.list()`.
+        const many = await open(t, `kv:${exact}*`, (event) =>
+            widenedSeen.push(event),
+        );
+        if (!many) {
+            await one.off();
+            return;
+        }
+
+        try {
+            // The subject comes back fully qualified whichever form was sent.
+            t.assert.ok(
+                one.subject.startsWith('kv:') &&
+                    one.subject.endsWith(`:${exact}`),
+                `unexpected subject: ${one.subject}`,
+            );
+            t.assert.equal(one.anchor?.path, exact);
+
+            await t.puter.kv.set(exact, { total: 1 });
+            await t.puter.kv.set(nested, ['apple']);
+            await waitFor(
+                () => exactSeen.length > 0 && widenedSeen.length > 1,
+                DELIVERY_TIMEOUT_MS,
+            );
+
+            const event = exactSeen[0];
+            t.assert.ok(event, `no delivery for ${exact}`);
+            t.assert.deepEqual(
+                Object.keys(event as Delivered).sort(),
+                ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts'],
+                'a kv delivery carries a key, not a uid and path',
+            );
+            t.assert.equal(event?.key, exact);
+            t.assert.equal(event?.op, 'set');
+            t.assert.equal(event?.self, true);
+
+            t.assert.deepEqual(
+                exactSeen.map((one) => one.key),
+                [exact],
+                `the exact subscription saw ${JSON.stringify(exactSeen.map((e) => e.key))}`,
+            );
+            t.assert.deepEqual(
+                widenedSeen.map((one) => one.key).sort(),
+                [exact, nested].sort(),
+                `the widened subscription saw ${JSON.stringify(widenedSeen.map((e) => e.key))}`,
+            );
+
+            await t.puter.kv.del(exact);
+            await t.puter.kv.del(nested);
+        } finally {
+            await one.off();
+            await many.off();
+        }
+    },
+
     'passes server error codes through unchanged': async (t) => {
         const dir = await makeDir(t, 'events-errors');
         const cases: Array<[string, string]> = [
@@ -227,6 +294,8 @@ export default suite('events', {
             [`fs:${dir}:frobnicate`, 'invalid_subject_op'],
             // A pattern past the compile-cost bounds (16 segments).
             [`fs:${dir}/${'deep/'.repeat(20)}x`, 'invalid_subject_pattern'],
+            // KV widens with a trailing `*` only.
+            ['kv:ca*rt', 'invalid_kv_pattern'],
             // Another account's home: refused as absent, so the call cannot be
             // used to find out what exists.
             [

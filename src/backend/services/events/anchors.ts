@@ -19,17 +19,26 @@
 
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
 import type { NodeRef } from '../fs/resolveNode.js';
 import { expandTildePath, normalizeAbsolutePath } from '../fs/resolveNode.js';
 import { relativeTo } from './matcher.js';
-import { fsAnchorToken, type FsOp, type ParsedSubject } from './subjects.js';
+import {
+    fsAnchorToken,
+    kvAnchorToken,
+    type FsOp,
+    type ParsedSubject,
+} from './subjects.js';
 
 /**
- * Turn an `fs:` subject into the pair a subscription stores: the anchor node it
- * keys on, and the glob its members are filtered by. Subscribing to something
- * that does not exist yet anchors on the nearest existing ancestor and files
- * the remainder as the filter — climbing terminates at the user's home, whose
- * uid never changes.
+ * Turn a subject into the pair a subscription stores: the anchor it keys on,
+ * and the glob its members are filtered by.
+ *
+ * An `fs:` subject naming something that does not exist yet anchors on the
+ * nearest existing ancestor and files the remainder as the filter — climbing
+ * terminates at the user's home, whose uid never changes. A `kv:` subject
+ * anchors on a key prefix, which needs no lookup: the namespace is derived from
+ * the actor, so nothing has to exist for the subscription to be valid.
  */
 
 export interface FsAnchorDeps {
@@ -49,6 +58,27 @@ export interface ResolvedFsAnchor {
     /** Glob relative to the anchor, or `null` for a node-form subscription. */
     match: string | null;
     op: FsOp | null;
+}
+
+/** Who a `kv:` subject is resolved on behalf of. */
+export interface KvAnchorActor {
+    userUuid: string;
+    /** The actor's `effectiveApp`, or `null` when it acts as the user. */
+    appUid: string | null;
+}
+
+export interface ResolvedKvAnchor {
+    token: string;
+    /** App whose namespace the subscription watches. */
+    appUid: string;
+    /** Key prefix the token anchors at. */
+    prefix: string;
+    /** Glob over the whole key, or `null` when the prefix is exact enough. */
+    match: string | null;
+    /** Fully-qualified wire form, after any app-relative expansion. */
+    subject: string;
+    /** True when the subject names a namespace other than the actor's own. */
+    crossApp: boolean;
 }
 
 const anchorNotFound = (subjectPath: string): HttpError =>
@@ -119,5 +149,38 @@ export async function resolveFsAnchor(
         path: nearest.path,
         match: joinMatch(remainder, rawMatch),
         op,
+    };
+}
+
+/**
+ * Resolve a `kv:` subject against the actor's own namespace.
+ *
+ * The two-segment form is expanded here rather than in the SDK, so a raw
+ * `/drivers` call cannot dodge it; an actor with no app falls back to the same
+ * global key the KV store itself namespaces under, which keeps the expansion
+ * agreeing with where the data actually lands.
+ */
+export function resolveKvAnchor(
+    parsed: ParsedSubject,
+    actor: KvAnchorActor,
+): ResolvedKvAnchor {
+    const { anchorRef, rawMatch } = parsed;
+    if (anchorRef.kind !== 'kvPrefix')
+        throw new HttpError(400, 'Not a key-value subject', {
+            legacyCode: 'invalid_subject',
+        });
+
+    const appUid = anchorRef.appUid ?? actor.appUid ?? KV_GLOBAL_APP_KEY;
+
+    return {
+        token: kvAnchorToken(actor.userUuid, appUid, anchorRef.prefix),
+        appUid,
+        prefix: anchorRef.prefix,
+        match: rawMatch,
+        subject: `kv:${appUid}:${anchorRef.key}`,
+        // An actor with no app is its user, and a user naming a namespace of
+        // their own has never been gated — the same branch a cross-app KV read
+        // takes before it reaches a permission lookup.
+        crossApp: actor.appUid !== null && appUid !== actor.appUid,
     };
 }

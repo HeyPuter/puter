@@ -21,7 +21,12 @@ import { describe, expect, it } from 'vitest';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import {
+    KV_TOKEN_SEGMENT_CAP,
     fsAnchorToken,
+    isKvToken,
+    kvAnchorToken,
+    kvAnchorTokens,
+    kvKeyPrefixes,
     parseSubject,
     SUBJECT_MAX_LENGTH,
     type AnchorRef,
@@ -59,13 +64,18 @@ const ACCEPTED: SubjectRow[] = [
     },
     {
         subject: `kv:${APP}:cart:*`,
-        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: 'cart:' },
+        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: 'cart:', key: 'cart:*' },
         op: null,
         rawMatch: null,
     },
     {
         subject: `kv:${APP}:user:12*`,
-        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: 'user:' },
+        anchorRef: {
+            kind: 'kvPrefix',
+            appUid: APP,
+            prefix: 'user:',
+            key: 'user:12*',
+        },
         op: null,
         rawMatch: 'user:12*',
     },
@@ -102,19 +112,24 @@ const ACCEPTED: SubjectRow[] = [
     },
     {
         subject: `kv:${APP}:cart`,
-        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: 'cart' },
+        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: 'cart', key: 'cart' },
         op: null,
         rawMatch: null,
     },
     {
         subject: `kv:${APP}:cart:items`,
-        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: 'cart:items' },
+        anchorRef: {
+            kind: 'kvPrefix',
+            appUid: APP,
+            prefix: 'cart:items',
+            key: 'cart:items',
+        },
         op: null,
         rawMatch: null,
     },
     {
         subject: `kv:${APP}:*`,
-        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: '' },
+        anchorRef: { kind: 'kvPrefix', appUid: APP, prefix: '', key: '*' },
         op: null,
         rawMatch: null,
     },
@@ -137,7 +152,7 @@ const REJECTED: Array<{ subject: string; code: string }> = [
     { subject: 'fs:~backup:add', code: 'invalid_subject' },
     { subject: 'fs:~/Documents:touch', code: 'invalid_subject_op' },
     { subject: 'fs:~/Documents:WRITE', code: 'invalid_subject_op' },
-    { subject: `kv:${APP}`, code: 'invalid_subject' },
+    { subject: 'kv:', code: 'invalid_subject' },
     { subject: 'kv::cart', code: 'invalid_subject' },
     { subject: `kv:${APP}:*cart`, code: 'invalid_kv_pattern' },
     { subject: `kv:${APP}:ca*rt`, code: 'invalid_kv_pattern' },
@@ -195,8 +210,31 @@ describe('parseSubject', () => {
             kind: 'kvPrefix',
             appUid: APP,
             prefix: 'a:b:c:d:e:f:',
+            key: 'a:b:c:d:e:f:g',
         });
         expect(parsed.rawMatch).toBe('a:b:c:d:e:f:g');
+    });
+
+    it('leaves a two-segment kv subject`s app for the resolver to fill in', () => {
+        expect(parseSubject('kv:cart').anchorRef).toEqual({
+            kind: 'kvPrefix',
+            appUid: null,
+            prefix: 'cart',
+            key: 'cart',
+        });
+        expect(parseSubject('kv:cart*').anchorRef).toEqual({
+            kind: 'kvPrefix',
+            appUid: null,
+            prefix: '',
+            key: 'cart*',
+        });
+    });
+
+    it('reads a third segment as the key, never as sugar', () => {
+        expect(parseSubject('kv:orders:pending').anchorRef).toMatchObject({
+            appUid: 'orders',
+            key: 'pending',
+        });
     });
 
     it('tolerates surrounding whitespace', () => {
@@ -229,5 +267,73 @@ describe('subject length', () => {
 describe('fsAnchorToken', () => {
     it('namespaces node uids', () => {
         expect(fsAnchorToken('uid-abc')).toBe('f#uid-abc');
+    });
+});
+
+describe('kv anchor tokens', () => {
+    const USER = 'user-uuid';
+
+    it('carries the user, so two users of one app do not collide', () => {
+        expect(kvAnchorToken(USER, APP, 'cart:')).toBe(
+            `k#${USER}#${APP}#cart:`,
+        );
+        expect(kvAnchorToken('other', APP, 'cart:')).not.toBe(
+            kvAnchorToken(USER, APP, 'cart:'),
+        );
+    });
+
+    it('tells a kv token from an fs one', () => {
+        expect(isKvToken(kvAnchorToken(USER, APP, ''))).toBe(true);
+        expect(isKvToken(fsAnchorToken('uid-abc'))).toBe(false);
+    });
+
+    it('enumerates the exact key and then its prefixes', () => {
+        expect(kvAnchorTokens(USER, APP, 'cart:items:1')).toEqual([
+            `k#${USER}#${APP}#cart:items:1`,
+            `k#${USER}#${APP}#`,
+            `k#${USER}#${APP}#cart:`,
+            `k#${USER}#${APP}#cart:items:`,
+        ]);
+    });
+
+    it('does not enumerate a bare parent, so an exact key stays exact', () => {
+        expect(kvAnchorTokens(USER, APP, 'cart:items')).not.toContain(
+            `k#${USER}#${APP}#cart`,
+        );
+    });
+
+    it('says a key with no delimiter once', () => {
+        expect(kvAnchorTokens(USER, APP, 'cart')).toEqual([
+            `k#${USER}#${APP}#cart`,
+            `k#${USER}#${APP}#`,
+        ]);
+    });
+
+    it('stops enumerating prefixes at the segment cap', () => {
+        const prefixes = kvKeyPrefixes('a:b:c:d:e:f:g:h:i');
+        expect(prefixes).toHaveLength(KV_TOKEN_SEGMENT_CAP + 1);
+        expect(prefixes.at(-1)).toBe('a:b:c:d:e:f:');
+    });
+
+    it('keeps a token inside the column that indexes it', () => {
+        const long = Array.from({ length: 6 }, () => 'x'.repeat(60)).join(':');
+        const parsed = parseSubject(`kv:${APP}:${long}:*`);
+        const anchor = parsed.anchorRef as { prefix: string };
+
+        expect(
+            Buffer.byteLength(
+                kvAnchorToken('u'.repeat(36), 'a'.repeat(40), anchor.prefix),
+            ),
+        ).toBeLessThanOrEqual(255);
+        // Nothing is lost: what the prefix gave up becomes the filter.
+        expect(parsed.rawMatch).toBe(`${long}:*`);
+    });
+
+    it('reaches the anchor a capped subject stored', () => {
+        const parsed = parseSubject(`kv:${APP}:a:b:c:d:e:f:g`);
+        const anchor = parsed.anchorRef as { prefix: string };
+        expect(kvAnchorTokens(USER, APP, 'a:b:c:d:e:f:g')).toContain(
+            kvAnchorToken(USER, APP, anchor.prefix),
+        );
     });
 });

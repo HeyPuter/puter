@@ -17,10 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { EventKey } from '../../clients/event/types.js';
+import type { EventKey, KvOp } from '../../clients/event/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { AclMode } from '../acl/ACLService.js';
-import { fsAnchorToken, type FsOp } from './subjects.js';
+import { relativeTo } from './matcher.js';
+import {
+    KV_MATCH_SEPARATOR,
+    fsAnchorToken,
+    kvAnchorTokens,
+    type FsOp,
+    type SubjectFamily,
+} from './subjects.js';
 
 /**
  * The one place an internal bus event becomes a public subject. Fail closed: an
@@ -33,18 +40,37 @@ import { fsAnchorToken, type FsOp } from './subjects.js';
 
 export type DeliveryClass = 'broadcast' | 'single';
 
-/** What subscribers receive. Additive only — puter.js ships unversioned. */
-export interface ProjectedEvent {
+/** Fields a projection only has once it is addressed to one subscription. */
+export interface DeliveryFields {
+    /** True when the acting user is the subscription holder. */
+    self: boolean;
+    seq: number;
+}
+
+interface ProjectedEventBase extends DeliveryFields {
     id: string;
     subject: string;
+    ts: number;
+}
+
+/** What an FS subscriber receives. Additive only — puter.js ships unversioned. */
+export interface ProjectedFsEvent extends ProjectedEventBase {
     op: FsOp;
     uid: string;
     path: string;
-    /** True when the acting user is the subscription holder. */
-    self: boolean;
-    ts: number;
-    seq: number;
 }
+
+/**
+ * What a KV subscriber receives. `key` stands where an FS event carries
+ * `uid`/`path`: a KV change happens to a key in a namespace, and there is no
+ * node to name.
+ */
+export interface ProjectedKvEvent extends ProjectedEventBase {
+    op: KvOp;
+    key: string;
+}
+
+export type ProjectedEvent = ProjectedFsEvent | ProjectedKvEvent;
 
 export type GapReason =
     | 'matched_subscription_limit'
@@ -69,21 +95,34 @@ export interface GapMarker {
 /** Either shape a subscriber can be handed. */
 export type DeliverableEvent = ProjectedEvent | GapMarker;
 
-/** What dispatch knows about one internal emit, before it picks subscribers. */
-export interface EventContext {
+export interface EventContextBase {
     key: EventKey;
-    entry: FSEntry;
-    /** Existing ancestors of `entry`, deepest first. */
-    ancestors: ReadonlyArray<{ uid: string; path: string }>;
     id: string;
     ts: number;
 }
 
-/** `EventContext` plus the fields that only exist per subscription. */
-export interface DeliveryContext extends EventContext {
-    self: boolean;
-    seq: number;
+/** What dispatch knows about one committed filesystem change. */
+export interface FsEventContext extends EventContextBase {
+    entry: FSEntry;
+    /** Existing ancestors of `entry`, deepest first. */
+    ancestors: ReadonlyArray<{ uid: string; path: string }>;
 }
+
+/**
+ * What dispatch knows about one committed KV change. The namespace is already
+ * split, because both the anchor token and the cross-app gate need its parts.
+ */
+export interface KvEventContext extends EventContextBase {
+    /** Owner of the namespace the key lives in. */
+    userUuid: string;
+    /** App whose namespace it is — not necessarily the subscriber's own. */
+    appUid: string;
+    kvKey: string;
+    op: KvOp;
+}
+
+export type FsDeliveryContext = FsEventContext & DeliveryFields;
+export type KvDeliveryContext = KvEventContext & DeliveryFields;
 
 export interface PushMessage {
     title: string;
@@ -96,20 +135,58 @@ export interface PushMessage {
  * Human-facing projection. Its absence is what makes a subject unpushable —
  * which subjects have one is a privacy decision, not a formatting one.
  */
-export type NotifyProjection = (event: ProjectedEvent) => PushMessage | null;
+export type NotifyProjection<P extends ProjectedEvent = ProjectedEvent> = (
+    event: P,
+) => PushMessage | null;
 
-export interface PublicSubject {
+/** How one family's filters are compiled and what they are tested against. */
+export interface MatchSpec {
+    /** Delimiter a single `*` will not cross in this family's filters. */
+    matchSeparator: string | null;
+    /**
+     * The value one row's filter is tested against, or `null` when the event is
+     * outside that row's anchor.
+     */
+    matchScope: (anchorPath: string, matchOn: string) => string | null;
+}
+
+/**
+ * One registry entry. Generic over what its family's dispatch carries and what
+ * its subscribers receive, so an FS entry cannot be handed a KV event and the
+ * two projections need not pretend to share a shape.
+ */
+export interface SubjectSpec<
+    C extends EventContextBase,
+    P extends ProjectedEvent,
+> extends MatchSpec {
+    family: SubjectFamily;
     subject: string;
     internal: readonly EventKey[];
-    /** ACL mode required to subscribe to the anchor. */
-    mode: AclMode;
-    tokens: (event: EventContext) => string[];
+    tokens: (event: C) => string[];
     /** What a match filter globs against. */
-    matchOn: (event: EventContext) => string;
-    project: (delivery: DeliveryContext) => ProjectedEvent;
-    notify: NotifyProjection | null;
+    matchOn: (event: C) => string;
+    project: (delivery: C & DeliveryFields) => P;
+    notify: NotifyProjection<P> | null;
     defaultDelivery: DeliveryClass;
 }
+
+export interface FsPublicSubject extends SubjectSpec<
+    FsEventContext,
+    ProjectedFsEvent
+> {
+    family: 'fs';
+    /** ACL mode required to subscribe to the anchor. */
+    mode: AclMode;
+}
+
+export interface KvPublicSubject extends SubjectSpec<
+    KvEventContext,
+    ProjectedKvEvent
+> {
+    family: 'kv';
+}
+
+export type PublicSubject = FsPublicSubject | KvPublicSubject;
 
 export interface UnpublishedInternalEvent {
     event: EventKey;
@@ -120,19 +197,19 @@ export interface UnpublishedInternalEvent {
 
 // Dispatch walks up, so a folder subscription is stored under that folder's
 // uid alone and a deep write still matches.
-const fsTokens = (event: EventContext): string[] => [
+const fsTokens = (event: FsEventContext): string[] => [
     fsAnchorToken(event.entry.uid),
     ...event.ancestors.map((ancestor) => fsAnchorToken(ancestor.uid)),
 ];
 
-const fsMatchOn = (event: EventContext): string => event.entry.path;
+const fsMatchOn = (event: FsEventContext): string => event.entry.path;
 
-/** No human-facing projection, so nothing under FS is push-eligible yet. */
-const NOT_PUSHABLE: NotifyProjection | null = null;
+/** No human-facing projection, so nothing is push-eligible yet. */
+const NOT_PUSHABLE: NotifyProjection<never> | null = null;
 
 const fsProject =
     (op: FsOp) =>
-    (delivery: DeliveryContext): ProjectedEvent => ({
+    (delivery: FsDeliveryContext): ProjectedFsEvent => ({
         id: delivery.id,
         subject: `fs:${delivery.entry.uid}:${op}`,
         op,
@@ -143,46 +220,94 @@ const fsProject =
         seq: delivery.seq,
     });
 
+// -- KV projections ---------------------------------------------------
+
+// The exact key first, then its prefixes: a key-level subscription and a
+// prefix-level one are different tokens, which is what makes `kv:<app>:cart`
+// mean the key and `kv:<app>:cart:*` mean everything under it.
+const kvTokens = (event: KvEventContext): string[] =>
+    kvAnchorTokens(event.userUuid, event.appUid, event.kvKey);
+
+const kvMatchOn = (event: KvEventContext): string => event.kvKey;
+
+// A KV filter is written against the whole key rather than a suffix of it, so
+// the anchor prefix does not narrow what the pattern sees.
+const kvMatchScope = (_anchorPath: string, key: string): string => key;
+
+const kvProject = (delivery: KvDeliveryContext): ProjectedKvEvent => ({
+    id: delivery.id,
+    subject: `kv:${delivery.appUid}:${delivery.kvKey}`,
+    op: delivery.op,
+    key: delivery.kvKey,
+    self: delivery.self,
+    ts: delivery.ts,
+    seq: delivery.seq,
+});
+
 // -- Registry ---------------------------------------------------------
 
 export const PUBLIC_SUBJECTS = [
     {
+        family: 'fs',
         subject: 'fs:*:write',
         internal: ['fs.write.file'],
         mode: 'list',
         tokens: fsTokens,
         matchOn: fsMatchOn,
+        matchSeparator: '/',
+        matchScope: relativeTo,
         project: fsProject('write'),
         notify: NOT_PUSHABLE,
         defaultDelivery: 'broadcast',
     },
     {
+        family: 'fs',
         subject: 'fs:*:add',
         internal: ['fs.create.file', 'fs.create.directory'],
         mode: 'list',
         tokens: fsTokens,
         matchOn: fsMatchOn,
+        matchSeparator: '/',
+        matchScope: relativeTo,
         project: fsProject('add'),
         notify: NOT_PUSHABLE,
         defaultDelivery: 'broadcast',
     },
     {
+        family: 'fs',
         subject: 'fs:*:move',
         internal: ['fs.move.node', 'fs.rename'],
         mode: 'list',
         tokens: fsTokens,
         matchOn: fsMatchOn,
+        matchSeparator: '/',
+        matchScope: relativeTo,
         project: fsProject('move'),
         notify: NOT_PUSHABLE,
         defaultDelivery: 'broadcast',
     },
     {
+        family: 'fs',
         subject: 'fs:*:remove',
         internal: ['fs.remove.node'],
         mode: 'list',
         tokens: fsTokens,
         matchOn: fsMatchOn,
+        matchSeparator: '/',
+        matchScope: relativeTo,
         project: fsProject('remove'),
+        notify: NOT_PUSHABLE,
+        defaultDelivery: 'broadcast',
+    },
+    {
+        family: 'kv',
+        subject: 'kv:*',
+        internal: ['kv.mutated'],
+        tokens: kvTokens,
+        matchOn: kvMatchOn,
+        matchSeparator: KV_MATCH_SEPARATOR,
+        matchScope: kvMatchScope,
+        project: kvProject,
         notify: NOT_PUSHABLE,
         defaultDelivery: 'broadcast',
     },
@@ -204,6 +329,10 @@ export const UNPUBLISHED_INTERNAL_EVENTS = [
     {
         event: 'fs.storage.upload-progress',
         reason: 'Progress ticks within one upload, not a committed change; the finished write publishes as `add` or `write`.',
+    },
+    {
+        event: 'kv.flushed',
+        reason: 'No subject addresses "the whole namespace went": the grammar anchors on a key or a prefix, and fanning a flush out per key would report keys a truncated enumeration never saw.',
     },
 ] as const satisfies readonly UnpublishedInternalEvent[];
 
@@ -227,8 +356,20 @@ for (const entry of PUBLIC_SUBJECTS) {
 export const lookupPublicSubject = (key: EventKey): PublicSubject | undefined =>
     byInternalKey.get(key);
 
+/** The FS entry for a bus key, or `undefined` for anything else. */
+export const lookupFsSubject = (key: EventKey): FsPublicSubject | undefined => {
+    const found = lookupPublicSubject(key);
+    return found?.family === 'fs' ? found : undefined;
+};
+
+/** The KV entry for a bus key, or `undefined` for anything else. */
+export const lookupKvSubject = (key: EventKey): KvPublicSubject | undefined => {
+    const found = lookupPublicSubject(key);
+    return found?.family === 'kv' ? found : undefined;
+};
+
 /** The push payload for an event, or `null` when the subject isn't pushable. */
-export const pushProjection = (
-    subject: PublicSubject,
-    event: ProjectedEvent,
+export const pushProjection = <P extends ProjectedEvent>(
+    subject: { notify: NotifyProjection<P> | null },
+    event: P,
 ): PushMessage | null => subject.notify?.(event) ?? null;

@@ -24,6 +24,8 @@ puter.kv.list(options)
 
 If set, only keys that match the given pattern will be returned. The pattern is prefix-based and can include a `*` wildcard only at the end. For example, `abc` and `abc*` both match keys that start with `abc` (such as `abc`, `abc123`, `abc123xyz`). If you need to match a literal `*` in the prefix, use `*` at the end (for example, `key**` matches keys that start with `key*`, or `k*y*` will match `k*y` prefixes). Default is `*`, which matches all keys.
 
+> Patterns here are **always** prefix matches, with or without a trailing `*`. [Events](/Events/) subjects are the other way round: `kv:cart` watches that one key, and you add `*` to widen it to a prefix.
+
 #### `returnValues` (Boolean) (optional)
 
 If set to `true`, the returned array will contain objects with both `key` and `value` properties. If set to `false`, the returned array will contain only the keys. Default is `false`.

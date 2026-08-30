@@ -2,6 +2,7 @@
 /** @typedef {import('../types.js').EventGapMarker} EventGapMarker */
 /** @typedef {import('../types.js').EventHandler} EventHandler */
 /** @typedef {import('../types.js').PuterEvent} PuterEvent */
+/** @typedef {import('../types.js').PuterKvEvent} PuterKvEvent */
 
 /**
  * A live subscription, as returned by `puter.events.onLocal()`.
@@ -83,7 +84,7 @@ export class EventSubscription {
 
     /**
      * @internal
-     * @param {PuterEvent | EventGapMarker} event
+     * @param {PuterEvent | PuterKvEvent | EventGapMarker} event
      * @returns {void}
      */
     deliver (event) {

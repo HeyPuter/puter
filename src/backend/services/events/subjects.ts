@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { KvOp } from '../../clients/event/types.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isTildePath } from '../fs/resolveNode.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
@@ -28,6 +29,7 @@ import { PermissionUtil } from '../permission/permissionUtil.js';
  *     fs:<nodeUid|path>[:<op>]     op in add | write | move | remove | meta
  *     kv:<appUid>:<key>            exact key
  *     kv:<appUid>:<prefix>*        trailing `*` only
+ *     kv:<key>                     sugar for the caller's own app namespace
  *     notif:<channel>
  *
  * Parsing is pure syntax. It yields the anchor a subscription keys on plus the
@@ -41,10 +43,22 @@ export type SubjectFamily = 'fs' | 'kv' | 'notif';
 
 export type FsOp = 'add' | 'write' | 'move' | 'remove' | 'meta';
 
+export type SubjectOp = FsOp | KvOp;
+
 export type AnchorRef =
     | { kind: 'fsUid'; uid: string }
     | { kind: 'fsPath'; path: string }
-    | { kind: 'kvPrefix'; appUid: string; prefix: string }
+    | {
+          kind: 'kvPrefix';
+          /**
+           * `null` for the app-relative two-segment form, filled in
+           * server-side.
+           */
+          appUid: string | null;
+          prefix: string;
+          /** The key pattern as written, which the canonical subject reuses. */
+          key: string;
+      }
     | { kind: 'notifChannel'; channel: string };
 
 export interface ParsedSubject {
@@ -75,12 +89,78 @@ export const KV_TOKEN_SEGMENT_CAP = 6;
 /** Longest subject accepted: the widest path the filesystem itself stores. */
 export const SUBJECT_MAX_LENGTH = 4096;
 
+/**
+ * Bytes of key a KV anchor token may carry. KV keys run to 1 KB, and the token
+ * is an indexed column, so a deep prefix backs off to a shallower delimiter and
+ * the whole pattern becomes the filter — the same trade the segment cap makes.
+ */
+export const KV_TOKEN_PREFIX_MAX_BYTES = 160;
+
 const GLOB_CHARS = /[*?]/;
+
+/** What splits a KV key into the segments a token can anchor between. */
+export const KV_KEY_SEPARATOR = ':';
+
+/**
+ * A KV filter's glob has no boundary: a trailing `*` means "everything from
+ * here on", including deeper `:`-segments.
+ */
+export const KV_MATCH_SEPARATOR: string | null = null;
+
+const FS_TOKEN_PREFIX = 'f#';
+const KV_TOKEN_PREFIX = 'k#';
 
 // -- Anchor tokens ----------------------------------------------------
 
 /** Stored anchor token for an FS node. */
-export const fsAnchorToken = (uid: string): string => `f#${uid}`;
+export const fsAnchorToken = (uid: string): string =>
+    `${FS_TOKEN_PREFIX}${uid}`;
+
+/**
+ * Stored anchor token for a KV prefix. The user is part of it because KV
+ * namespaces are `v1:<userUuid>:<appUid>` — an app-uid-only token would collide
+ * across every user of the app.
+ */
+export const kvAnchorToken = (
+    userUuid: string,
+    appUid: string,
+    prefix: string,
+): string => `${KV_TOKEN_PREFIX}${userUuid}#${appUid}#${prefix}`;
+
+/** Which family a stored row belongs to, without re-parsing its subject. */
+export const isKvToken = (token: string): boolean =>
+    token.startsWith(KV_TOKEN_PREFIX);
+
+/**
+ * The delimiter-aligned prefixes a key can be watched under, shallowest first
+ * and capped at {@link KV_TOKEN_SEGMENT_CAP}. The empty prefix is the whole
+ * namespace.
+ */
+export const kvKeyPrefixes = (key: string): string[] => {
+    const prefixes = [''];
+    let from = 0;
+    while (prefixes.length <= KV_TOKEN_SEGMENT_CAP) {
+        const at = key.indexOf(KV_KEY_SEPARATOR, from);
+        if (at === -1) break;
+        prefixes.push(key.slice(0, at + 1));
+        from = at + 1;
+    }
+    return prefixes;
+};
+
+/**
+ * Every token a write to `key` may be watched by: the exact key first, then its
+ * prefixes — the KV counterpart of the FS ancestor walk, and bounded the same
+ * way so one write never enumerates more than a handful.
+ */
+export const kvAnchorTokens = (
+    userUuid: string,
+    appUid: string,
+    key: string,
+): string[] =>
+    [...new Set([key, ...kvKeyPrefixes(key)])].map((prefix) =>
+        kvAnchorToken(userUuid, appUid, prefix),
+    );
 
 // -- Parsing ----------------------------------------------------------
 
@@ -105,13 +185,24 @@ const splitGlobPrefix = (
     };
 };
 
-/** Trim a KV prefix back to the segment cap, landing on a delimiter. */
-const capPrefixSegments = (prefix: string): string => {
-    const segments = prefix.split(':');
+/** Trim a KV prefix back to the segment and byte caps, landing on a delimiter. */
+const capPrefix = (prefix: string): string => {
+    const segments = prefix.split(KV_KEY_SEPARATOR);
     const body =
         segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
-    if (body.length <= KV_TOKEN_SEGMENT_CAP) return prefix;
-    return `${body.slice(0, KV_TOKEN_SEGMENT_CAP).join(':')}:`;
+
+    const capped = body.slice(0, KV_TOKEN_SEGMENT_CAP);
+    while (
+        capped.length > 0 &&
+        Buffer.byteLength(capped.join(KV_KEY_SEPARATOR), 'utf8') >
+            KV_TOKEN_PREFIX_MAX_BYTES
+    )
+        capped.pop();
+
+    if (capped.length === body.length) return prefix;
+    return capped.length === 0
+        ? ''
+        : `${capped.join(KV_KEY_SEPARATOR)}${KV_KEY_SEPARATOR}`;
 };
 
 const parseFsSubject = (subject: string, parts: string[]): ParsedSubject => {
@@ -155,13 +246,18 @@ const parseFsSubject = (subject: string, parts: string[]): ParsedSubject => {
 };
 
 const parseKvSubject = (subject: string, parts: string[]): ParsedSubject => {
-    if (parts.length < 3) throw invalidSubject(subject);
+    if (parts.length < 2) throw invalidSubject(subject);
 
-    const appUid = parts[1];
+    // Two segments is the app-relative form: the key belongs to whichever app
+    // the caller is acting as, and the resolver fills that in. Three or more is
+    // always fully qualified, which is what keeps `kv:orders:pending` from
+    // being read as a key when it names app `orders`.
+    const relative = parts.length === 2;
+    const appUid = relative ? null : parts[1];
     // Components were unescaped on split, so re-joining reconstructs a key
     // whether or not its `:`s were escaped on the wire.
-    const key = parts.slice(2).join(':');
-    if (!appUid || !key) throw invalidSubject(subject);
+    const key = relative ? parts[1] : parts.slice(2).join(KV_KEY_SEPARATOR);
+    if ((!relative && !appUid) || !key) throw invalidSubject(subject);
 
     const starIndex = key.indexOf('*');
     if (key.includes('?') || (starIndex !== -1 && starIndex !== key.length - 1))
@@ -182,7 +278,7 @@ const parseKvSubject = (subject: string, parts: string[]): ParsedSubject => {
         : literal.slice(0, literal.lastIndexOf(':') + 1);
     let rawMatch = onDelimiter ? null : key;
 
-    const capped = capPrefixSegments(prefix);
+    const capped = capPrefix(prefix);
     if (capped !== prefix) {
         prefix = capped;
         rawMatch = key;
@@ -190,7 +286,7 @@ const parseKvSubject = (subject: string, parts: string[]): ParsedSubject => {
 
     return {
         family: 'kv',
-        anchorRef: { kind: 'kvPrefix', appUid, prefix },
+        anchorRef: { kind: 'kvPrefix', appUid, prefix, key },
         op: null,
         rawMatch,
     };

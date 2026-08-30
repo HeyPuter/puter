@@ -182,6 +182,8 @@ A durable subscription may carry a `context`: JSON that is stored with it and ha
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**; anything larger is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 
+A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it.
+
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 
 The three per-event ceilings do not fail your call — they truncate the delivery and send a `gap` marker in its place, an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed".
