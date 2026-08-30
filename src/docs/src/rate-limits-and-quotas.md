@@ -173,6 +173,8 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Subscriptions per connection                 | 50           |
 | `subscribe` / `unsubscribe` calls per minute | 60           |
 | Subscription listings per minute             | 120          |
+| Missed-event fetches per minute              | 120          |
+| Events per fetch page                        | 200          |
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
 | Broadcast deliveries per minute, per subscription | 600     |
@@ -191,6 +193,8 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Handlers per `publishAll` call               | 50           |
 | Handler publish / remove calls per minute    | 60           |
 | Handler listings per minute                  | 120          |
+
+`fetch()` reads a page of what a subject recorded rather than a delivery, so it is budgeted with the listings: a page defaults to 50 events and is capped at 200, and a client catching up walks pages until one comes back with no cursor. Only `notif:` has a store to read — the notification mailbox, kept for 14 days — and any other subject family is refused with `fetch_unsupported_subject`.
 
 Subscriptions come in two kinds. A **session** subscription lives with the connection that made it: it is dropped when the connection closes, and a reconnecting client subscribes again. A **durable** subscription outlives every connection — it is created over the API, listed and revoked from the account, and keeps delivering until you remove it or it expires.
 

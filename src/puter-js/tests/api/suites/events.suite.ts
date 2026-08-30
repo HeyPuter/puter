@@ -126,6 +126,38 @@ const asApp = async <T>(
 };
 
 
+/** One notification in this account's own mailbox, written through the driver. */
+const postNotification = async (t: TestContext, title: string): Promise<void> => {
+    await t.puter.drivers.call('puter-notifications', 'es:notification', 'create', {
+        object: { value: { title } },
+    });
+};
+
+type FetchedNotification = Awaited<
+    ReturnType<TestContext['puter']['events']['fetch']>
+>['items'][number];
+
+/** Every notification in the account's mailbox, following the cursor. */
+const readAllNotifications = async (
+    t: TestContext,
+): Promise<FetchedNotification[]> => {
+    const items: FetchedNotification[] = [];
+    let after: string | undefined;
+    // Bounded: a mailbox is capped by its retention window, and a runaway
+    // cursor loop would hang the suite rather than fail it.
+    for (let page = 0; page < 20; page++) {
+        const result = await t.puter.events.fetch({
+            subject: 'notif:account',
+            limit: 200,
+            ...(after ? { after } : {}),
+        });
+        items.push(...result.items);
+        if (!result.cursor) break;
+        after = result.cursor;
+    }
+    return items;
+};
+
 export default suite('events', {
     'exposes onLocal': async (t) => {
         t.assert.ok(t.puter.events, 'puter.events is registered');
@@ -133,7 +165,12 @@ export default suite('events', {
     },
 
     'exposes the persistent surface': async (t) => {
-        for (const method of ['onPersistent', 'unsubscribe', 'list'] as const) {
+        for (const method of [
+            'onPersistent',
+            'unsubscribe',
+            'list',
+            'fetch',
+        ] as const) {
             t.assert.equal(
                 typeof t.puter.events[method],
                 'function',
@@ -733,6 +770,99 @@ export default suite('events', {
             ['ingestUpload', 'indexDocument'],
         );
         t.assert.equal((await t.puter.events.handlers.list({ appUid })).length, 2);
+    },
+
+    // -- fetch ------------------------------------------------------
+    //
+    // Catching up is a query against the subject's own store, so these need no
+    // connection at all — they run the same on a runtime with no WebSocket.
+
+    'rejects a fetch with no subject before it calls anything': async (t) => {
+        for (const subject of [undefined, '', '   ']) {
+            const error = await t.assert.rejects(() =>
+                t.puter.events.fetch({ subject } as { subject: string }),
+            );
+            t.assert.equal(codeOf(error), 'invalid_subject');
+        }
+    },
+
+    'refuses a subject family with nothing stored behind it': async (t) => {
+        for (const subject of ['fs:~/Documents', 'kv:cart']) {
+            const error = await t.assert.rejects(() =>
+                t.puter.events.fetch({ subject }),
+            );
+            t.assert.equal(codeOf(error), 'fetch_unsupported_subject');
+        }
+    },
+
+    'refuses a notif subject naming an audience that is not one': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.fetch({ subject: 'notif:everyone' }),
+        );
+        t.assert.equal(codeOf(error), 'invalid_subject_audience');
+    },
+
+    'reads missed notifications back, oldest first': async (t) => {
+        const title = unique('missed');
+        await postNotification(t, title);
+
+        const page = await t.puter.events.fetch({ subject: 'notif:account' });
+        const mine = (await readAllNotifications(t)).find(
+            (event) => (event.notification as { title?: string }).title === title,
+        );
+
+        t.assert.ok(mine, 'the notification just written comes back');
+        t.assert.equal(mine!.op, 'post');
+        t.assert.equal(mine!.audience, 'account');
+        t.assert.equal(mine!.appUid, null);
+        t.assert.equal(mine!.self, true);
+        // The event id is the notification's own uid, which is what makes a
+        // fetched copy and a delivered copy the same event.
+        t.assert.equal(mine!.id, mine!.uid);
+        t.assert.ok(typeof mine!.ts === 'number' && mine!.ts > 0);
+        t.assert.ok(Array.isArray(page.items));
+    },
+
+    'pages from the cursor and returns only newer rows': async (t) => {
+        const firstTitle = unique('page-one');
+        const secondTitle = unique('page-two');
+        await postNotification(t, firstTitle);
+        await postNotification(t, secondTitle);
+
+        const all = await readAllNotifications(t);
+        const index = all.findIndex(
+            (event) =>
+                (event.notification as { title?: string }).title === firstTitle,
+        );
+        t.assert.ok(index >= 0, 'the first notification is in the mailbox');
+        t.assert.ok(
+            index + 1 <= 200,
+            'the mailbox is inside one page, so a page can end on it',
+        );
+
+        // A page ending exactly on the first of the two, so its cursor sits
+        // between them.
+        const page = await t.puter.events.fetch({
+            subject: 'notif:account',
+            limit: index + 1,
+        });
+        t.assert.equal(page.items.length, index + 1);
+        t.assert.ok(page.cursor, 'more to come, so a cursor comes back');
+
+        const next = await t.puter.events.fetch({
+            subject: 'notif:account',
+            after: page.cursor,
+        });
+        const uids = new Set(next.items.map((event) => event.uid));
+        t.assert.ok(
+            !uids.has(all[index].uid),
+            'the row the cursor was taken at is not repeated',
+        );
+        t.assert.equal(
+            (next.items[0].notification as { title?: string }).title,
+            secondTitle,
+            'the page after the cursor starts at the next row',
+        );
     },
 
     'refuses to publish into an app this account does not own': async (t) => {

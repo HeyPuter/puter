@@ -1137,10 +1137,16 @@ interface IConfigOptional {
      *   `events_cross_app_disabled`: a standing cross-app push leans entirely
      *   on revocation settling, so it turns on only once that has run on the
      *   simpler surface. The gate itself is enforced either way.
+     * - `notificationsFoldIn` — whether notification delivery runs through events
+     *   dispatch. Absent means off, and `enabled` gates it: the fold-in has
+     *   nowhere to dispatch from with the surface itself switched off. The
+     *   socket wire is identical either way — the flag decides which layer
+     *   produced the delivery, not what the desktop receives.
      */
     events?: {
         enabled?: boolean;
         crossAppKv?: boolean;
+        notificationsFoldIn?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
     };

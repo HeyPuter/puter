@@ -20,11 +20,15 @@
 import type { EventKey, KvOp } from '../../clients/event/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { AclMode } from '../acl/ACLService.js';
+import type { NotificationAudience } from '../notification/notificationTypes.js';
 import { relativeTo } from './matcher.js';
 import {
     KV_MATCH_SEPARATOR,
+    NOTIF_MATCH_SEPARATOR,
     fsAnchorToken,
     kvAnchorTokens,
+    notifAnchorToken,
+    notifMatchOn,
     type FsOp,
     type SubjectFamily,
 } from './subjects.js';
@@ -70,7 +74,33 @@ export interface ProjectedKvEvent extends ProjectedEventBase {
     key: string;
 }
 
-export type ProjectedEvent = ProjectedFsEvent | ProjectedKvEvent;
+/**
+ * What a notification subscriber receives.
+ *
+ * `id` is the row's own uid rather than a per-dispatch uuid: a client that
+ * fetched a missed notification and then received the live copy has to be able
+ * to tell they are the same thing, and the mailbox uid is the only identity
+ * both halves share. `uid` carries it under the name the mailbox verbs
+ * (`mark-ack`, `mark-shown`) take.
+ *
+ * `notification` is the payload the caller sent, which is exactly what the
+ * socket adapter puts on `notif.message` — a subscriber reading this channel
+ * sees no less than the desktop does, and no internal row either.
+ */
+export interface ProjectedNotifEvent extends ProjectedEventBase {
+    op: 'post';
+    uid: string;
+    type: string;
+    audience: NotificationAudience;
+    /** App the notification is about; `null` for platform notifications. */
+    appUid: string | null;
+    notification: Record<string, unknown>;
+}
+
+export type ProjectedEvent =
+    | ProjectedFsEvent
+    | ProjectedKvEvent
+    | ProjectedNotifEvent;
 
 export type GapReason =
     | 'matched_subscription_limit'
@@ -126,8 +156,24 @@ export interface KvEventContext extends EventContextBase {
     op: KvOp;
 }
 
+/**
+ * What dispatch knows about one persisted notification. The scope tuple rides
+ * along because both the filter and the audience predicate need it, and the
+ * recipient's uuid because the anchor token is the mailbox.
+ */
+export interface NotifEventContext extends EventContextBase {
+    userId: number;
+    userUuid: string;
+    uid: string;
+    type: string;
+    audience: NotificationAudience;
+    appUid: string | null;
+    notification: Record<string, unknown>;
+}
+
 export type FsDeliveryContext = FsEventContext & DeliveryFields;
 export type KvDeliveryContext = KvEventContext & DeliveryFields;
+export type NotifDeliveryContext = NotifEventContext & DeliveryFields;
 
 export interface PushMessage {
     title: string;
@@ -191,7 +237,17 @@ export interface KvPublicSubject extends SubjectSpec<
     family: 'kv';
 }
 
-export type PublicSubject = FsPublicSubject | KvPublicSubject;
+export interface NotifPublicSubject extends SubjectSpec<
+    NotifEventContext,
+    ProjectedNotifEvent
+> {
+    family: 'notif';
+}
+
+export type PublicSubject =
+    | FsPublicSubject
+    | KvPublicSubject
+    | NotifPublicSubject;
 
 export interface UnpublishedInternalEvent {
     event: EventKey;
@@ -244,6 +300,32 @@ const kvProject = (delivery: KvDeliveryContext): ProjectedKvEvent => ({
     subject: `kv:${delivery.appUid}:${delivery.kvKey}`,
     op: delivery.op,
     key: delivery.kvKey,
+    self: delivery.self,
+    ts: delivery.ts,
+    seq: delivery.seq,
+});
+
+// -- Notification projections -----------------------------------------
+
+/** The mailbox is the anchor; which slice of it a row wants is the filter. */
+const notifTokens = (event: NotifEventContext): string[] => [
+    notifAnchorToken(event.userUuid),
+];
+
+const notifMatchTarget = (event: NotifEventContext): string =>
+    notifMatchOn(event.appUid ?? event.userUuid, event.audience);
+
+const notifMatchScope = (_anchorPath: string, slice: string): string => slice;
+
+const notifProject = (delivery: NotifDeliveryContext): ProjectedNotifEvent => ({
+    id: delivery.uid,
+    subject: `notif:${delivery.appUid ?? delivery.userUuid}:${delivery.audience}`,
+    op: 'post',
+    uid: delivery.uid,
+    type: delivery.type,
+    audience: delivery.audience,
+    appUid: delivery.appUid,
+    notification: delivery.notification,
     self: delivery.self,
     ts: delivery.ts,
     seq: delivery.seq,
@@ -316,6 +398,20 @@ export const PUBLIC_SUBJECTS = [
         notify: NOT_PUSHABLE,
         defaultDelivery: 'broadcast',
     },
+    {
+        family: 'notif',
+        subject: 'notif:*',
+        internal: ['notif.created'],
+        tokens: notifTokens,
+        matchOn: notifMatchTarget,
+        matchSeparator: NOTIF_MATCH_SEPARATOR,
+        matchScope: notifMatchScope,
+        project: notifProject,
+        // The push seam fills this in; until then a notification is delivered
+        // to what is connected, and found in the mailbox otherwise.
+        notify: NOT_PUSHABLE,
+        defaultDelivery: 'broadcast',
+    },
 ] as const satisfies readonly PublicSubject[];
 
 export const UNPUBLISHED_INTERNAL_EVENTS = [
@@ -341,10 +437,13 @@ export const UNPUBLISHED_INTERNAL_EVENTS = [
     },
 ] as const satisfies readonly UnpublishedInternalEvent[];
 
-// Every `fs.*`/`kv.*` bus key needs a decision. A new key that is in neither
-// list fails to compile here, naming itself in the error.
+// Every `fs.*`/`kv.*`/`notif.*` bus key needs a decision. A new key that is in
+// neither list fails to compile here, naming itself in the error.
 type AssertNever<T extends never> = T;
-type SubscribableBusKey = Extract<EventKey, `fs.${string}` | `kv.${string}`>;
+type SubscribableBusKey = Extract<
+    EventKey,
+    `fs.${string}` | `kv.${string}` | `notif.${string}`
+>;
 type DecidedBusKey =
     | (typeof PUBLIC_SUBJECTS)[number]['internal'][number]
     | (typeof UNPUBLISHED_INTERNAL_EVENTS)[number]['event'];
@@ -371,6 +470,14 @@ export const lookupFsSubject = (key: EventKey): FsPublicSubject | undefined => {
 export const lookupKvSubject = (key: EventKey): KvPublicSubject | undefined => {
     const found = lookupPublicSubject(key);
     return found?.family === 'kv' ? found : undefined;
+};
+
+/** The notification entry for a bus key, or `undefined` for anything else. */
+export const lookupNotifSubject = (
+    key: EventKey,
+): NotifPublicSubject | undefined => {
+    const found = lookupPublicSubject(key);
+    return found?.family === 'notif' ? found : undefined;
 };
 
 /** The push payload for an event, or `null` when the subject isn't pushable. */

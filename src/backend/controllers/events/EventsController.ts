@@ -24,7 +24,12 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
-import { EVENTS_HANDLER_LIST_LIMIT, EVENTS_LIST_LIMIT } from './limits.js';
+import {
+    EVENTS_FETCH_LIMIT,
+    EVENTS_FETCH_LIMIT_CAP,
+    EVENTS_HANDLER_LIST_LIMIT,
+    EVENTS_LIST_LIMIT,
+} from './limits.js';
 
 /**
  * The durable half of the events surface. Session subscriptions arrive over the
@@ -81,6 +86,36 @@ export class EventsController extends PuterController {
             items: page.items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    /**
+     * GET /events/fetch — what the caller missed, one page at a time.
+     *
+     * Stateless: no subscription, no stored position, nothing written. The
+     * cursor comes back to the caller and goes out again as `after`.
+     */
+    @Get('/fetch', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_FETCH_LIMIT,
+    })
+    async fetch(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+
+        const page = await this.services.events.fetchMissed(actor, {
+            subject: typeof query.subject === 'string' ? query.subject : '',
+            after: typeof query.after === 'string' ? query.after : undefined,
+            limit: normalizeLimit(query.limit, {
+                cap: EVENTS_FETCH_LIMIT_CAP,
+            }),
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
         });
     }
 

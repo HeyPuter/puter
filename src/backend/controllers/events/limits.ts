@@ -177,6 +177,19 @@ export const EVENTS_HANDLER_PUBLISH_LIMIT = userWindow(
     60,
 );
 
+/**
+ * Missed-event fetches per minute, per user.
+ *
+ * A keyset page off one index, so it is budgeted like the other listings — a
+ * client catching up after a disconnect walks a handful of pages once, not a
+ * page per event.
+ */
+export const EVENTS_FETCH_LIMIT = userWindow('events:fetch', 120);
+
+/** Rows one fetch page may carry. Defaults to a quarter of it. */
+export const EVENTS_FETCH_LIMIT_CAP = 200;
+export const EVENTS_FETCH_LIMIT_DEFAULT = 50;
+
 /** Handler listings per minute, per user. Reads an index, so budgeted higher. */
 export const EVENTS_HANDLER_LIST_LIMIT = userWindow(
     'events:handlers:list',

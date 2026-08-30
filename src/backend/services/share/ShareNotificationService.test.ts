@@ -330,7 +330,7 @@ describe('ShareNotificationService', () => {
             shareTo(holder),
         ]);
         const [first] = await openNotifications(holder.id);
-        await server.services.notification.markShown(first.uid, holder.id);
+        await server.stores.notification.markShown(first.uid, holder.id);
 
         // Same pair inside the window: no second interruption, but the count
         // has to be right when the recipient looks.

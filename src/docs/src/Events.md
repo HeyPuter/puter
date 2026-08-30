@@ -40,7 +40,12 @@ await puter.events.onLocal('fs:~/Projects/**/build.log', handler);  // across di
 
 `*` matches within one path segment, `**` crosses directories, and `?` matches one character. A subject may use `*` once per segment and `**` once in total; anything more is rejected with `invalid_subject_pattern`.
 
-`fs:` and `kv:` subjects can be subscribed to; `notif:` is reserved and still rejected.
+```
+notif:<audience>
+notif:<appId>:<audience>
+```
+
+- **Notifications** — `notif:` names a slice of the account's notification mailbox: `notif:account` for notifications about the account, `notif:app-user` for the ones belonging to the app you are running as, `notif:developer` for the ones about an app you own. An app never names its own id; the two-segment form is expanded for you. Unlike `fs:` and `kv:`, notifications are also **stored**, which is what makes [`fetch()`](/Events/fetch/) possible for them and not for the others.
 
 ### Key-value subjects
 
@@ -130,6 +135,18 @@ await puter.events.onLocal('fs:~/Documents', async ({ event }) => {
 });
 ```
 
+## Catching up on what you missed
+
+A subscription delivers while something is listening. For what happened while nothing was, [`puter.events.fetch()`](/Events/fetch/) reads the subject's own store a page at a time:
+
+```js
+const page = await puter.events.fetch({ subject: 'notif:account' });
+for (const event of page.items) show(event.notification);
+if (page.cursor) { /* more where that came from — pass it back as `after` */ }
+```
+
+Nothing is registered and no position is kept for you: you hold the cursor. Only `notif:` has a store behind it — `fs:` and `kv:` keep no log and refuse the call rather than answering with an empty page. A notification's `id` is the same whether it arrived live or came back from a fetch, so overlapping the two and dropping ids you have already seen is the way to catch up without missing or repeating anything.
+
 ## Two kinds of subscription
 
 `onLocal()` subscriptions are **session-scoped**: nothing is stored, nothing runs while the page is closed, and the server drops them when the connection goes away. Every subscription this client makes rides one connection, which opens on the first `onLocal()` and closes when the last subscription ends. In a worker that means the subscription lasts as long as the invocation that made it, and no longer.
@@ -193,4 +210,5 @@ Subscriptions per connection, persistent subscriptions per account, published ha
 - **[`puter.events.onPersistent()`](/Events/onPersistent/)** - Subscribe with a subscription that keeps running when your app is closed
 - **[`puter.events.list()`](/Events/list/)** - List the persistent subscriptions this caller holds
 - **[`puter.events.unsubscribe()`](/Events/unsubscribe/)** - End a persistent subscription
+- **[`puter.events.fetch()`](/Events/fetch/)** - Read what a subject recorded while nothing was listening
 - **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers a persistent subscription runs

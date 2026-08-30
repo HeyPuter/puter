@@ -50,6 +50,9 @@ const waitFor = async (
     }
 };
 
+/** The real write, kept for the spy that counts statements to pass through. */
+let dbWrite: (statement: string, params?: unknown) => Promise<unknown>;
+
 const makeUser = async (): Promise<{ id: number; username: string }> => {
     const username = `notif-${Math.random().toString(36).slice(2, 10)}`;
     const created = await server.stores.user.create({
@@ -70,6 +73,7 @@ beforeAll(async () => {
     } as never);
     notifications = server.services
         .notification as unknown as NotificationService;
+    dbWrite = server.clients.db.write.bind(server.clients.db);
 });
 
 afterAll(async () => {
@@ -87,7 +91,6 @@ describe('NotificationService.notify', () => {
         const b = await makeUser();
 
         const pushed = collect('outer.gui.notif.message');
-        const persisted = collect('outer.gui.notif.persisted');
 
         const uid = await notifications.notify(
             [a.id, b.id],
@@ -113,8 +116,6 @@ describe('NotificationService.notify', () => {
         // The returned uid is the first recipient's.
         expect(uid).toBe(byUser.get(a.id)!.uid);
 
-        await waitFor(() => persisted.seen.length === 2);
-
         // Regression: the pushed uid must resolve to a real row, otherwise
         // the client's dismiss (`/notif/mark-ack`) matches nothing and the
         // notification reappears on every reconnect.
@@ -135,36 +136,57 @@ describe('NotificationService.notify', () => {
         }
 
         pushed.stop();
-        persisted.stop();
     });
 
-    it('persists the surviving recipients when one insert fails', async () => {
+    it('writes the row before it pushes, so no push names a missing row', async () => {
+        const user = await makeUser();
+        const seenAtPush: unknown[] = [];
+        const handler = (_k: string, data: unknown) => {
+            const { uid } = (data as NotifPush).response;
+            seenAtPush.push(
+                server.stores.notification.getByUid(uid, { userId: user.id }),
+            );
+        };
+        server.clients.event.on('outer.gui.notif.message', handler);
+
+        await notifications.notify(
+            [user.id],
+            { title: 'ordered' },
+            { type: 'share.received' },
+        );
+
+        expect(seenAtPush).toHaveLength(1);
+        expect(await seenAtPush[0]).not.toBeNull();
+        server.clients.event.off?.('outer.gui.notif.message', handler);
+    });
+
+    it('pushes nothing for a recipient whose insert failed', async () => {
         const good = await makeUser();
-        const persisted = collect('outer.gui.notif.persisted');
+        const pushed = collect('outer.gui.notif.message');
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         // userId 0 is falsy — NotificationStore.create rejects it. The
-        // remaining user must still be written and still report persisted.
+        // remaining user must still be written and still be pushed to.
         await notifications.notify(
             [0, good.id],
             { title: 'partial' },
             { type: 'share.received' },
         );
 
-        await waitFor(() =>
-            persisted.seen.some(
-                (d) => (d as NotifPush).user_id_list[0] === good.id,
-            ),
-        );
         const rows = await server.stores.notification.listByUserId(good.id, {});
         expect(rows).toHaveLength(1);
+        // The failed recipient reached no client at all: a uid nobody can
+        // acknowledge is worse than no notification.
+        expect(
+            (pushed.seen as NotifPush[]).map((p) => p.user_id_list[0]),
+        ).toEqual([good.id]);
         expect(warn).toHaveBeenCalledWith(
             '[notification] persist failed for user 0',
             expect.anything(),
         );
 
         warn.mockRestore();
-        persisted.stop();
+        pushed.stop();
     });
 
     it('is a no-op push for an empty recipient list', async () => {
@@ -175,21 +197,20 @@ describe('NotificationService.notify', () => {
             { type: 'share.received' },
         );
         expect(pushed.seen).toEqual([]);
-        expect(uid).toMatch(/^[0-9a-f-]{8}-/);
+        // Nothing was written, so there is no uid that would name anything.
+        expect(uid).toBeNull();
         pushed.stop();
     });
 
     it('records the audience and app the registry entry declares', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const persisted = collect('outer.gui.notif.persisted');
 
         await notifications.notify(
             [user.id],
             { title: 'subscription ended' },
             { type: 'app.events.ended', appUid },
         );
-        await waitFor(() => persisted.seen.length === 1);
 
         const [row] = await server.stores.notification.listByUserId(
             user.id,
@@ -198,7 +219,6 @@ describe('NotificationService.notify', () => {
         expect(row.type).toBe('app.events.ended');
         expect(row.audience).toBe('app-user');
         expect(row.app_uid).toBe(appUid);
-        persisted.stop();
     });
 
     it('writes nothing and pushes nothing for an unregistered type', async () => {
@@ -253,14 +273,11 @@ describe('NotificationService.notify', () => {
 describe('NotificationService.notifyUpdate', () => {
     it('rewrites an open row and keeps its type on the payload', async () => {
         const user = await makeUser();
-        const persisted = collect('outer.gui.notif.persisted');
         const uid = await notifications.notify(
             [user.id],
             { title: 'one share' },
             { type: 'share.received' },
         );
-        await waitFor(() => persisted.seen.length === 1);
-        persisted.stop();
 
         const pushed = collect('outer.gui.notif.message');
         expect(
@@ -299,7 +316,7 @@ describe('NotificationService.notifyUpdate', () => {
     });
 });
 
-describe('NotificationService.markAcknowledged / markShown', () => {
+describe('NotificationService.markAcknowledged', () => {
     it("acknowledges the row and pushes an ack to the user's other tabs", async () => {
         const user = await makeUser();
         const row = await server.stores.notification.create({
@@ -320,26 +337,6 @@ describe('NotificationService.markAcknowledged / markShown', () => {
         acks.stop();
     });
 
-    it('marks the row shown and pushes an ack', async () => {
-        const user = await makeUser();
-        const row = await server.stores.notification.create({
-            userId: user.id,
-            value: { source: 'test', title: 'show me' },
-        });
-        const acks = collect('outer.gui.notif.ack');
-
-        await notifications.markShown(row.uid, user.id);
-
-        expect(acks.seen).toEqual([
-            { user_id_list: [user.id], response: { uid: row.uid } },
-        ]);
-        const fresh = await server.stores.notification.getByUid(row.uid, {
-            userId: user.id,
-        });
-        expect(fresh?.shown).toBeTruthy();
-        expect(fresh?.acknowledged).toBeFalsy();
-        acks.stop();
-    });
 });
 
 describe('NotificationService — unread delivery on connect', () => {
@@ -366,6 +363,15 @@ describe('NotificationService — unread delivery on connect', () => {
             );
 
             const unreads = collect('outer.gui.notif.unreads');
+            const acks = collect('outer.gui.notif.ack');
+            const updates: string[] = [];
+            const write = vi
+                .spyOn(server.clients.db, 'write')
+                .mockImplementation(async (statement: string, params) => {
+                    if (statement.includes('UPDATE `notification`'))
+                        updates.push(statement);
+                    return dbWrite(statement, params);
+                });
 
             // Three tabs connect in quick succession — the debounce must
             // collapse them into a single delivery.
@@ -404,6 +410,16 @@ describe('NotificationService — unread delivery on connect', () => {
             });
             expect(after?.shown).toBeTruthy();
 
+            // One statement for the batch, however many rows it carried — a
+            // round trip per row is a round trip per notification on a path
+            // that runs whenever anyone opens the desktop.
+            expect(updates).toHaveLength(1);
+            // An ack means "stop showing this", which is the opposite of what
+            // a replay is doing.
+            expect(acks.seen).toEqual([]);
+
+            write.mockRestore();
+            acks.stop();
             unreads.stop();
         } finally {
             vi.useRealTimers();
@@ -448,50 +464,39 @@ describe('NotificationService — unread delivery on connect', () => {
     });
 });
 
-describe('NotificationService — delivery receipts', () => {
-    it('marks a notification shown once the socket fan-out reports delivery', async () => {
+describe('NotificationService — shown on delivery', () => {
+    it('marks a pushed notification shown only where the recipient is connected', async () => {
         const user = await makeUser();
+        const connected = vi
+            .spyOn(server.services.socket, 'has')
+            .mockReturnValue(true);
+
         const uid = await notifications.notify(
             [user.id],
             { title: 'receipt' },
             { type: 'share.received' },
         );
 
-        // What SocketService emits after pushing `notif.message` to a room.
-        server.clients.event.emit(
-            'sent-to-user.notif.message',
-            { user_id: user.id, response: { uid } },
-            {},
-        );
+        const [row] = await server.stores.notification.listByUserId(user.id, {});
+        expect(row.uid).toBe(uid);
+        expect(row.shown).toBeTruthy();
 
-        // The receipt waits on the pending insert before updating the row,
-        // so the row exists and ends up shown.
-        await vi.waitFor(async () => {
-            const rows = await server.stores.notification.listByUserId(
-                user.id,
-                {},
-            );
-            expect(rows).toHaveLength(1);
-            expect(rows[0].shown).toBeTruthy();
+        // Nobody there to see it: the row stays unseen so the reconnect
+        // replay is what carries it.
+        connected.mockReturnValue(false);
+        await notifications.notify(
+            [user.id],
+            { title: 'missed' },
+            { type: 'share.received' },
+        );
+        const unseen = await server.stores.notification.listByUserId(user.id, {
+            filter: 'unseen',
         });
-    });
+        expect(unseen.map((r) => r.value)).toEqual([
+            { title: 'missed', type: 'share.received' },
+        ]);
 
-    it('ignores a receipt missing the uid or the user id', async () => {
-        const user = await makeUser();
-        // Neither of these should throw or touch the store.
-        server.clients.event.emit(
-            'sent-to-user.notif.message',
-            { user_id: user.id, response: {} },
-            {},
-        );
-        server.clients.event.emit(
-            'sent-to-user.notif.message',
-            { response: { uid: 'x' } },
-            {},
-        );
-        server.clients.event.emit('sent-to-user.notif.message', undefined, {});
-        const rows = await server.stores.notification.listByUserId(user.id, {});
-        expect(rows).toHaveLength(0);
+        connected.mockRestore();
     });
 });
 
