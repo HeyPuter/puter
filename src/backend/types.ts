@@ -1147,12 +1147,17 @@ interface IConfigOptional {
      *   through a handle both reject with `events_kv_handles_disabled`, and a
      *   handle row already made stops delivering. Nothing on the write path
      *   reads it.
+     * - `workerRuntime` — whether publishing handlers deploys a per-app events
+     *   worker and delivery invokes it. Absent means off: publish stores rows
+     *   and nothing is deployed, and the invoker keeps its null resolver, so
+     *   worker-target deliveries stay retriable until something answers.
      */
     events?: {
         enabled?: boolean;
         crossAppKv?: boolean;
         notificationsFoldIn?: boolean;
         kvHandles?: boolean;
+        workerRuntime?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
     };

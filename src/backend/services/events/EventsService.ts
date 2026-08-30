@@ -198,6 +198,7 @@ import {
     type SubjectOp,
 } from './subjects.js';
 import { backlogPolicyFor, isResumable } from './suspension.js';
+import { DeployedEventsWorkerResolver } from './workerRuntime.js';
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
@@ -1014,6 +1015,16 @@ export class EventsService extends PuterService {
                 (invocation) => this.#mintSubscriberToken(invocation),
             );
 
+        // Address deployed events workers only when the runtime is on; the
+        // null resolver stays otherwise, and invocations stay retriable.
+        if (this.config.events?.workerRuntime === true)
+            this.clients.eventsWorkerInvoker.setResolver(
+                new DeployedEventsWorkerResolver({
+                    config: this.config,
+                    stores: this.stores,
+                }),
+            );
+
         this.clients.event.on(
             'outer.pubsub.events.generationBumped',
             (_key, data, meta) => {
@@ -1683,6 +1694,15 @@ export class EventsService extends PuterService {
             );
         }
         return published;
+    }
+
+    /**
+     * The app a handler call is scoped to, under the same gate the handler
+     * verbs apply. For whatever follows a successful publish or removal — the
+     * worker deploy step — so it acts on the app the mutation acted on.
+     */
+    async resolveHandlerApp(actor: Actor, requested: unknown): Promise<string> {
+        return this.#handlerApp(actor, requested);
     }
 
     /**

@@ -31,6 +31,10 @@ import {
     EVENTS_HANDLER_LIST_LIMIT,
     EVENTS_LIST_LIMIT,
 } from './limits.js';
+import {
+    EventsWorkerDeployer,
+    type EventsWorkerSyncView,
+} from './workerDeploy.js';
 
 /**
  * The durable half of the events surface. Session subscriptions arrive over the
@@ -215,9 +219,10 @@ export class EventsController extends PuterController {
     })
     async publishHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        res.json(
-            await this.services.events.publishHandler(actor, this.#body(req)),
-        );
+        const body = this.#body(req);
+        const view = await this.services.events.publishHandler(actor, body);
+        const worker = await this.#syncWorker(actor, body.appUid);
+        res.json(worker ? { ...view, worker } : view);
     }
 
     /** POST /events/handlers/publishAll — a build step's whole set, in order. */
@@ -228,12 +233,14 @@ export class EventsController extends PuterController {
     })
     async publishHandlers(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        res.json({
-            handlers: await this.services.events.publishHandlers(
-                actor,
-                this.#body(req),
-            ),
-        });
+        const body = this.#body(req);
+        const handlers = await this.services.events.publishHandlers(
+            actor,
+            body,
+        );
+        // One deploy for the whole set — the batch is the build step's unit.
+        const worker = await this.#syncWorker(actor, body.appUid);
+        res.json(worker ? { handlers, worker } : { handlers });
     }
 
     /** GET /events/handlers/list — names and hashes, never source. */
@@ -262,12 +269,38 @@ export class EventsController extends PuterController {
     })
     async removeHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        res.json(
-            await this.services.events.removeHandler(actor, this.#body(req)),
-        );
+        const body = this.#body(req);
+        const view = await this.services.events.removeHandler(actor, body);
+        const worker = await this.#syncWorker(actor, body.appUid);
+        res.json(worker ? { ...view, worker } : view);
     }
 
     // -- Internals ---------------------------------------------------
+
+    #deployer: EventsWorkerDeployer | null = null;
+
+    /**
+     * Bring the app's events worker in line with what a mutation just made
+     * true. Null with the worker runtime off, so the responses above keep their
+     * exact shape until it is enabled.
+     */
+    async #syncWorker(
+        actor: Actor,
+        requestedAppUid: unknown,
+    ): Promise<EventsWorkerSyncView | null> {
+        this.#deployer ??= new EventsWorkerDeployer({
+            config: this.config,
+            stores: this.stores,
+            services: this.services,
+            drivers: this.drivers,
+        });
+        if (!this.#deployer.enabled) return null;
+        const appUid = await this.services.events.resolveHandlerApp(
+            actor,
+            requestedAppUid,
+        );
+        return this.#deployer.sync(actor, appUid);
+    }
 
     #requireActor(req: Request): Actor {
         const actor = req.actor;
