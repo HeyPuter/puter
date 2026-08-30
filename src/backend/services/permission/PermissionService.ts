@@ -26,6 +26,7 @@ import { PuterService } from '../types';
 import {
     FLAT_PERM_WARM_TTL_SECONDS,
     MANAGE_PERM_PREFIX,
+    PERMISSION_MAX_LEN,
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from './consts';
 import {
@@ -45,12 +46,6 @@ import {
     implicit_user_app_permissions,
 } from '../../data/hardcoded-permissions.js';
 import { UserRow } from '../../stores/user/UserStore';
-
-/**
- * Width of the `permission` column in the permission tables, which every
- * dialect declares as `varchar(255)`.
- */
-const PERMISSION_MAX_LEN = 255;
 
 // -- Types ------------------------------------------------------------
 
@@ -1002,6 +997,80 @@ export class PermissionService extends PuterService {
                 ? (requestActor?.effectiveApp ?? requestActor?.app)
                 : null);
         return acting?.uid ? { appUid: acting.uid } : null;
+    }
+
+    /**
+     * Withdraw a grant and everything the holder was given beneath it.
+     *
+     * Prefix implication is what makes the subtree part necessary: a grant on a
+     * region answers every check inside it, so leaving a deeper grant standing
+     * would leave access to part of a region that has just been taken back.
+     * Scoped to this issuer's grants to this holder — a region two people were
+     * given is two grants, and one being withdrawn is not the other's
+     * business.
+     *
+     * Returns the permissions removed. Each is announced separately, because
+     * each is a distinct thing something may have been standing on.
+     */
+    async revokeUserUserPermissionSubtree(
+        actor: Actor,
+        username: string,
+        permission: string,
+        meta: GrantMeta = {},
+    ): Promise<string[]> {
+        permission = await this.rewritePermission(permission);
+        const user = await this.stores.user.getByUsername(username);
+        if (!user)
+            throw new HttpError(404, `user_does_not_exist: ${username}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        if (!actor.user?.id)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        const issuerId = actor.user.id;
+
+        const isSelfRevoke = user.id === issuerId;
+        if (
+            !isSelfRevoke &&
+            !(await this.canManagePermission(actor, permission))
+        ) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+
+        const removed =
+            await this.stores.permission.deleteUserUserPermSubtreeForHolder(
+                user.id,
+                issuerId,
+                permission,
+            );
+
+        for (const removedPermission of removed) {
+            this.stores.permission
+                .auditUserUserPerm({
+                    holder_user_id: user.id,
+                    issuer_user_id: issuerId,
+                    permission: removedPermission,
+                    action: 'revoke',
+                    reason: meta.reason ?? 'revoked via PermissionService',
+                    extra: this.#auditActorContext(actor),
+                })
+                .catch((err) => {
+                    console.warn(
+                        '[PermissionService] failed to audit user-user revoke:',
+                        err,
+                    );
+                });
+        }
+
+        // Before the announcement, so whatever settles on it re-derives from a
+        // counter that has already moved.
+        if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
+        for (const removedPermission of removed)
+            this.#announceRevoked(user.id, null, removedPermission);
+        return removed;
     }
 
     /**

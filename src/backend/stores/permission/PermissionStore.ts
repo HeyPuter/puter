@@ -117,6 +117,29 @@ export interface FlatPermRef {
 }
 
 /**
+ * Match a permission and everything beneath it.
+ *
+ * `_` and `%` are LIKE wildcards, so an unescaped one would widen the match
+ * beyond the intended subtree. `!` as the escape character, matching
+ * FSEntryStore: a backslash one would have to be written `ESCAPE '\\'` in the
+ * SQL text, and MySQL processes backslash escapes inside string literals, so
+ * the `'\'` a JS `'\\'` produces reads as an escaped quote and leaves the
+ * literal unterminated. SQLite and Postgres accept it, which is why only MySQL
+ * would have seen the parse error.
+ */
+const subtreeClause = (
+    permissions: string[],
+): { where: string; params: string[] } => ({
+    where: permissions
+        .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
+        .join(' OR '),
+    params: permissions.flatMap((permission) => [
+        permission,
+        `${permission.replace(/([!%_])/g, '!$1')}:%`,
+    ]),
+});
+
+/**
  * PermissionStore owns the _persistence_ side of permissions:
  *
  * - SQL CRUD + audit inserts for all permission tables
@@ -474,14 +497,7 @@ export class PermissionStore extends PuterStore {
         }>
     > {
         if (permissions.length === 0) return [];
-        // See deleteAppGrantsByPermissionPrefix for why `!` is the escape.
-        const where = permissions
-            .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
-            .join(' OR ');
-        const params = permissions.flatMap((permission) => [
-            permission,
-            `${permission.replace(/([!%_])/g, '!$1')}:%`,
-        ]);
+        const { where, params } = subtreeClause(permissions);
 
         const rows = (await this.clients.db.read(
             'SELECT `holder_user_id`, `issuer_user_id`, `permission` FROM `user_to_user_permissions` ' +
@@ -515,6 +531,46 @@ export class PermissionStore extends PuterStore {
             await this.publishCacheKeys({ keys, broadcast: true });
 
         return rows;
+    }
+
+    /**
+     * The same subtree delete, narrowed to one issuer's grants to one holder.
+     *
+     * Withdrawing a share names a person, not a region: two people granted on
+     * the same prefix hold two independent grants, and taking one back must not
+     * take the other's with it. Returns the permissions removed, so the caller
+     * can audit them and announce each one.
+     */
+    async deleteUserUserPermSubtreeForHolder(
+        holderUserId: number,
+        issuerUserId: number,
+        permission: string,
+    ): Promise<string[]> {
+        const { where, params } = subtreeClause([permission]);
+        const scope = '`holder_user_id` = ? AND `issuer_user_id` = ?';
+        const scoped = [holderUserId, issuerUserId, ...params];
+
+        const rows = (await this.clients.db.read(
+            'SELECT `permission` FROM `user_to_user_permissions` ' +
+                `WHERE ${scope} AND (${where})`,
+            scoped,
+        )) as Array<{ permission: string }>;
+        if (rows.length === 0) return [];
+
+        await this.clients.db.write(
+            `DELETE FROM \`user_to_user_permissions\` WHERE ${scope} AND (${where})`,
+            scoped,
+        );
+
+        const removed = rows.map((row) => String(row.permission));
+        await this.delFlatUserPerms(
+            removed.map((perm) => ({ holderUserId, permission: perm })),
+        );
+        await this.publishCacheKeys({
+            keys: [this.#u2uCacheKey(holderUserId)],
+            broadcast: true,
+        });
+        return removed;
     }
 
     async auditUserUserPerm(
@@ -738,18 +794,7 @@ export class PermissionStore extends PuterStore {
             permission: string;
         }>
     > {
-        // `_` and `%` are LIKE wildcards, so an unescaped one would widen the
-        // match beyond the intended subtree.
-        //
-        // `!` as the escape character, matching FSEntryStore: a backslash one
-        // would have to be written `ESCAPE '\\'` in the SQL text, and MySQL
-        // processes backslash escapes inside string literals, so the `'\'` a
-        // JS `'\\'` produces reads as an escaped quote and leaves the literal
-        // unterminated. SQLite and Postgres accept it, which is why only MySQL
-        // would have seen the parse error.
-        const escaped = permission.replace(/([!%_])/g, '!$1');
-        const exact = permission;
-        const prefix = `${escaped}:%`;
+        const { where, params } = subtreeClause([permission]);
 
         const removed: Array<{
             table: 'user_to_app_permissions' | 'dev_to_app_permissions';
@@ -764,8 +809,8 @@ export class PermissionStore extends PuterStore {
         ] as const) {
             const rows = (await this.clients.db.read(
                 `SELECT \`user_id\`, \`app_id\`, \`permission\` FROM \`${table}\` ` +
-                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
-                [exact, prefix],
+                    `WHERE ${where}`,
+                params,
             )) as Array<{
                 user_id: number;
                 app_id: number;
@@ -774,9 +819,8 @@ export class PermissionStore extends PuterStore {
             if (rows.length === 0) continue;
 
             await this.clients.db.write(
-                `DELETE FROM \`${table}\` ` +
-                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
-                [exact, prefix],
+                `DELETE FROM \`${table}\` WHERE ${where}`,
+                params,
             );
             for (const row of rows) removed.push({ table, ...row });
         }

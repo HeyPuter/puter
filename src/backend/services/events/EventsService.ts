@@ -51,6 +51,7 @@ import {
     HANDLER_SETTLE_BATCH,
     isSuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
+import type { KvShareHandleListOptions } from '../../stores/events/KvShareHandleStore.js';
 import {
     HANDLER_NAME_MAX_LENGTH,
     hashContent,
@@ -170,6 +171,7 @@ import {
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
     assertShareableAppUid,
+    assertShareablePermission,
     assertShareablePrefix,
     kvShareGrantCovers,
     kvShareOwnerImplicator,
@@ -669,7 +671,7 @@ const handlerAppRequired = (): HttpError =>
  * separate consent.
  */
 const handleOwnerOnly = (): HttpError =>
-    new HttpError(403, 'Only an account session may mint a share handle', {
+    new HttpError(403, 'Only an account session may manage share handles', {
         legacyCode: 'events_kv_handle_owner_only',
     });
 
@@ -1713,7 +1715,9 @@ export class EventsService extends PuterService {
         );
         const grantee = await this.#resolveGrantee(request);
 
-        const permission = kvSharePermission(owner.uuid, appUid, keyPrefix);
+        const permission = assertShareablePermission(
+            kvSharePermission(owner.uuid, appUid, keyPrefix),
+        );
         await this.services.permission.grantUserUserPermission(
             actor,
             grantee.username,
@@ -1730,6 +1734,94 @@ export class EventsService extends PuterService {
             permission,
         });
         return { handle: row.handle, prefix: row.keyPrefix };
+    }
+
+    /**
+     * Take a shared region back.
+     *
+     * The grant goes first — the subtree with it, since a deeper grant would
+     * leave access to part of a region that has just been withdrawn — and the
+     * handle is retired after. Removing the grant is what actually settles the
+     * subscriptions, and it is the only half that stops delivery, so it is the
+     * half that must not be able to fail after the other has succeeded. In that
+     * order both steps are idempotent and a failure anywhere is a retry: the
+     * reverse leaves a handle nothing can address standing on a grant
+     * everything still passes, and no way to try again.
+     *
+     * Not gated on the feature flag. Withdrawing access only ever narrows, and
+     * an install that turned handles off must still be able to retire the ones
+     * it has.
+     */
+    async revokeKvHandle(
+        actor: Actor,
+        handle: unknown,
+    ): Promise<{ handle: string; revokedAt: number }> {
+        if (!this.enabled) throw disabled();
+        const owner = actor.user;
+        if (owner?.id === undefined) throw disabled();
+        if (actor.effectiveApp !== null) throw handleOwnerOnly();
+
+        await this.#spendHandleBudget(owner.id);
+
+        const named = typeof handle === 'string' ? handle : '';
+        const share = await this.stores.kvShareHandle.getByHandle(named);
+        // Unknown and somebody else's read the same way, so revoking cannot be
+        // used to find out that a handle exists.
+        if (!share || share.ownerUserId !== owner.id)
+            throw unknownKvShareHandle(named);
+
+        const grantee = await this.stores.user.getById(share.granteeUserId);
+        if (!grantee?.username)
+            throw new HttpError(500, 'The grantee of this handle is gone', {
+                legacyCode: 'internal_error',
+            });
+        await this.services.permission.revokeUserUserPermissionSubtree(
+            actor,
+            grantee.username,
+            share.permission,
+            { reason: 'kv share handle revoked' },
+        );
+
+        const revoked = await this.stores.kvShareHandle.retire(named, owner.id);
+        if (!revoked?.revokedAt) throw unknownKvShareHandle(named);
+        return { handle: revoked.handle, revokedAt: revoked.revokedAt };
+    }
+
+    /**
+     * What this account has shared out of its key-value data, retired handles
+     * included: they are the only record of what was shared and when it
+     * stopped. The grantee has no listing of their own — what they hold is the
+     * handle they were given.
+     */
+    async listKvHandles(
+        actor: Actor,
+        options: KvShareHandleListOptions = {},
+    ): Promise<PageResult<KvShareHandleView>> {
+        if (!this.enabled) throw disabled();
+        const owner = actor.user;
+        if (owner?.id === undefined) throw disabled();
+        if (actor.effectiveApp !== null) throw handleOwnerOnly();
+
+        const page = await this.stores.kvShareHandle.listForOwner(
+            owner.id,
+            options,
+        );
+        const grantees = await this.stores.user.getByIds([
+            ...new Set(page.items.map((row) => row.granteeUserId)),
+        ]);
+
+        return {
+            ...page,
+            items: page.items.map((row) => ({
+                handle: row.handle,
+                prefix: row.keyPrefix,
+                appUid: row.appUid,
+                granteeUsername:
+                    grantees.get(row.granteeUserId)?.username ?? null,
+                createdAt: row.createdAt,
+                revokedAt: row.revokedAt,
+            })),
+        };
     }
 
     /** Who a mint is for. Named by username or uuid; unknown reads as absent. */
