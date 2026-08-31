@@ -389,7 +389,10 @@ async function UIWindowLogin (options) {
             UIWindowRecoverPassword({
                 window_options: {
                     backdrop: true,
-                    stay_on_top: isMobile.phone,
+                    // A stay-on-top login window (dashboard mode) sits in the
+                    // 99999999+ band; this dialog must join it there or it
+                    // opens buried under the login window's backdrop.
+                    stay_on_top: isMobile.phone || !!options.window_options?.stay_on_top,
                     close_on_backdrop_click: false,
                 },
             });

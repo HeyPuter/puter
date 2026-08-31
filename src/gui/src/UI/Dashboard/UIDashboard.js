@@ -746,6 +746,12 @@ async function UIDashboard (options) {
                             backdrop: true,
                             close_on_backdrop_click: true,
                             parent_center: true,
+                            // Phones/tablets pin every .window to one z-index
+                            // (style.css), which puts the fullpage dashboard
+                            // above this dialog's backdrop wrapper; stay_on_top
+                            // lifts the dialog into the 99999999+ band like
+                            // every other backdropped dashboard dialog.
+                            stay_on_top: true,
                         },
                     });
                 },
