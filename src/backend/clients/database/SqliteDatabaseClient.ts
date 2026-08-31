@@ -103,6 +103,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [66, ['0071_share_issuer_index.sql']],
     [67, ['0072_notification-scope.sql']],
     [68, ['0073_notification-created-at.sql']],
+    [69, ['0074_add_user_home.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

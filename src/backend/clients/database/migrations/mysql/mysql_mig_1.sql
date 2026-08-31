@@ -1060,6 +1060,7 @@ CREATE TABLE IF NOT EXISTS `user` (
   `signup_server` varchar(255) DEFAULT NULL,
   `metadata` json DEFAULT (json_object()),
   `reputation` smallint DEFAULT '100',
+  `home` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uid` (`uuid`),
   UNIQUE KEY `username` (`username`),
@@ -1151,6 +1152,7 @@ CALL _puter_add_col('user', 'signup_user_agent', '`signup_user_agent` varchar(51
 CALL _puter_add_col('user', 'signup_origin', '`signup_origin` varchar(255) DEFAULT NULL');
 CALL _puter_add_col('user', 'signup_server', '`signup_server` varchar(255) DEFAULT NULL');
 CALL _puter_add_col('user', 'metadata', '`metadata` json DEFAULT (json_object())');
+CALL _puter_add_col('user', 'home', '`home` varchar(64) DEFAULT NULL');
 CALL _puter_add_col('user', 'reputation', '`reputation` smallint DEFAULT ''100''');
 
 --

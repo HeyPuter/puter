@@ -2202,18 +2202,21 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         );
         await writeFile(user, `${user.home}/Documents/taken.txt`, 'x');
 
-        expect((await caught(() => fs.rename(user.userId, entry, 'a/b'))).message).toBe(
-            'Name cannot contain a slash',
-        );
-        expect((await caught(() => fs.rename(user.userId, entry, '   '))).message).toBe(
-            'Name cannot be empty',
-        );
         expect(
-            (await caught(() => fs.rename(user.userId, entry, 'taken.txt'))).statusCode,
+            (await caught(() => fs.rename(user.userId, entry, 'a/b'))).message,
+        ).toBe('Name cannot contain a slash');
+        expect(
+            (await caught(() => fs.rename(user.userId, entry, '   '))).message,
+        ).toBe('Name cannot be empty');
+        expect(
+            (await caught(() => fs.rename(user.userId, entry, 'taken.txt')))
+                .statusCode,
         ).toBe(409);
 
         // Renaming to the current name is a no-op that returns the same row.
-        await expect(fs.rename(user.userId, entry, 'ren.txt')).resolves.toBe(entry);
+        await expect(fs.rename(user.userId, entry, 'ren.txt')).resolves.toBe(
+            entry,
+        );
     });
 
     it("refuses to rename another user's entry without write on it", async () => {
@@ -3030,7 +3033,11 @@ describe('FSService restructuring a shared tree', () => {
     });
 
     it('refuses rename to a recipient who holds only read', async () => {
-        const file = await writeFile(owner, `${owner.home}/lookdonttouch.txt`, 'x');
+        const file = await writeFile(
+            owner,
+            `${owner.home}/lookdonttouch.txt`,
+            'x',
+        );
         await server.services.acl.setUserUser(
             owner.actor,
             holder.actor,
@@ -3186,7 +3193,6 @@ describe('FSService ownership in a shared tree', () => {
         );
         expect(inside?.userId).toBe(owner.userId);
     });
-
 });
 
 describe('FSService storage allowance in a shared tree', () => {
@@ -3219,7 +3225,9 @@ describe('FSService storage allowance in a shared tree', () => {
             limitedServer.stores.user,
             created,
         );
-        const refreshed = (await limitedServer.stores.user.getById(created.id))!;
+        const refreshed = (await limitedServer.stores.user.getById(
+            created.id,
+        ))!;
         return {
             userId: refreshed.id,
             home: `/${username}`,
@@ -3246,8 +3254,7 @@ describe('FSService storage allowance in a shared tree', () => {
             holder.actor,
             {
                 path: shared.path,
-                resolveAncestors: () =>
-                    limitedFs.getAncestorChain(shared.path),
+                resolveAncestors: () => limitedFs.getAncestorChain(shared.path),
             },
             'write',
         );
@@ -3643,7 +3650,9 @@ describe('FSService — cross-app AppData access', () => {
             asCalendar(() => fs.remove(owner.userId, { entry: contactsFile })),
         ).rejects.toMatchObject({ statusCode: 403 });
         await expect(
-            asCalendar(() => fs.rename(owner.userId, contactsFile, 'renamed.json')),
+            asCalendar(() =>
+                fs.rename(owner.userId, contactsFile, 'renamed.json'),
+            ),
         ).rejects.toMatchObject({ statusCode: 403 });
 
         const desktop = (await server.stores.fsEntry.getEntryByPath(
@@ -3730,5 +3739,140 @@ describe('FSService — cross-app AppData access', () => {
         expect(
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();
+    });
+});
+
+describe('FSService home-region placement', () => {
+    let regionServer: PuterServer;
+    let regionFs: FSService;
+
+    // A deployment that knows about two nodes. `node-far` is the home region
+    // under test; `node-here` stands in for this node's own bucket, which is
+    // configured separately below so the two are distinguishable.
+    beforeAll(async () => {
+        regionServer = await setupTestServer({
+            s3_bucket: 'puter-local',
+            s3_region: 'us-west-2',
+            servers: {
+                'node-far': {
+                    bucket: 'puter-far',
+                    bucketRegion: 'eu-central-1',
+                },
+                'node-here': {
+                    bucket: 'puter-local',
+                    bucketRegion: 'us-west-2',
+                },
+            },
+        } as never);
+        regionFs = regionServer.services.fs as unknown as FSService;
+        await regionServer.clients.s3
+            .get('eu-central-1')
+            .send(new CreateBucketCommand({ Bucket: 'puter-far' }));
+    });
+
+    afterAll(async () => {
+        await regionServer?.shutdown();
+    });
+
+    const regionUser = async () => {
+        const username = `fsr-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await regionServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            regionServer.clients.db,
+            regionServer.stores.user,
+            created,
+        );
+        return { userId: created.id, home: `/${username}` };
+    };
+
+    const writeIn = async (
+        user: { userId: number; home: string },
+        name: string,
+        body: string,
+        homeRegion?: string,
+        extra: Record<string, unknown> = {},
+    ) => {
+        const { fsEntry } = await regionFs.write(
+            user.userId,
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/${name}`,
+                    size: Buffer.byteLength(body),
+                    contentType: 'text/plain',
+                    ...extra,
+                },
+                fileContent: body,
+            },
+            undefined,
+            undefined,
+            homeRegion,
+        );
+        return fsEntry;
+    };
+
+    const readFrom = async (entry: FSEntry): Promise<string> => {
+        const result = await regionFs.readContent(entry, {});
+        const chunks: Buffer[] = [];
+        for await (const chunk of result.body) chunks.push(Buffer.from(chunk));
+        return Buffer.concat(chunks).toString();
+    };
+
+    it("stores a write in the home region's bucket and reads it back", async () => {
+        const user = await regionUser();
+        const entry = await writeIn(user, 'mail.eml', 'hello', 'node-far');
+
+        expect(entry.bucket).toBe('puter-far');
+        expect(entry.bucketRegion).toBe('eu-central-1');
+        // The row is what reads resolve from, so a foreign bucket has to be
+        // readable through the ordinary path.
+        expect(await readFrom(entry)).toBe('hello');
+    });
+
+    it('falls back to this server’s bucket for a region it does not know', async () => {
+        const user = await regionUser();
+        // A node id this deployment's config says nothing about.
+        const entry = await writeIn(user, 'unmapped.eml', 'hi', 'node-absent');
+
+        expect(entry.bucket).toBe('puter-local');
+        expect(entry.bucketRegion).toBe('us-west-2');
+        expect(await readFrom(entry)).toBe('hi');
+    });
+
+    it('places a write with no home region exactly as before', async () => {
+        const user = await regionUser();
+        const entry = await writeIn(user, 'plain.txt', 'unchanged');
+
+        expect(entry.bucket).toBe('puter-local');
+        expect(entry.bucketRegion).toBe('us-west-2');
+    });
+
+    it('keeps an overwrite where the row already points, home region or not', async () => {
+        const user = await regionUser();
+        const first = await writeIn(user, 'pinned.eml', 'first', 'node-far');
+        expect(first.bucket).toBe('puter-far');
+
+        // The entry outranks the hint: moving the bytes would repoint the row
+        // and strand the original object.
+        const second = await writeIn(
+            user,
+            'pinned.eml',
+            'second',
+            'node-here',
+            {
+                overwrite: true,
+            },
+        );
+
+        expect(second.uuid).toBe(first.uuid);
+        expect(second.bucket).toBe('puter-far');
+        expect(second.bucketRegion).toBe('eu-central-1');
+        expect(await readFrom(second)).toBe('second');
     });
 });

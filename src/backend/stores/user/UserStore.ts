@@ -73,6 +73,13 @@ export interface UserRow {
      * did.
      */
     card_fingerprint?: string | null;
+    /**
+     * Home region this account's data belongs in - a node id from
+     * `IConfig.servers`, not a storage region. Null for accounts that predate
+     * the column, which fall back to `signup_server`; `resolveHomeRegion` is
+     * the one place that precedence lives.
+     */
+    home?: string | null;
     password?: string;
     [k: string]: unknown;
 }

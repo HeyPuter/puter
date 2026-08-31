@@ -281,6 +281,15 @@ export const extension = {
         return configContainer;
     },
 
+    /**
+     * Where each node stores files, keyed by node id. See `IConfig.servers`. A
+     * getter over live config rather than a copy, so it follows the same
+     * lazy-population rule as `config` above. Empty when none is configured.
+     */
+    get servers(): NonNullable<IConfig['servers']> {
+        return configContainer.servers ?? {};
+    },
+
     // -- Event subscription -------------------------------------------
 
     on: <P extends ListenKey>(
