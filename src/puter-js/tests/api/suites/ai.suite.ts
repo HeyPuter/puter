@@ -144,6 +144,30 @@ export default suite('ai', {
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 
+    'chat with normalize true returns an OpenAI-shaped message': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Hello there', {
+            model: 'fake',
+            normalize: true,
+        });
+        // The fake provider replies Anthropic-shaped (content blocks); the
+        // driver's normalize option must coerce that to the OpenAI shape.
+        t.assert.equal(typeof result.message?.content, 'string');
+        t.assert.ok(
+            (result.message?.content as unknown as string).length > 0,
+            'normalized content should contain text',
+        );
+        t.assert.equal(result.message?.role, 'assistant');
+        t.assert.equal(
+            (result as { finish_reason?: string }).finish_reason,
+            'stop',
+        );
+        t.assert.equal(
+            (result as { normalized?: boolean }).normalized,
+            true,
+        );
+    },
+
     'chat with stream true yields text parts': async (t) => {
         useApiToken(t);
         const stream = await t.puter.ai.chat('Stream this', {

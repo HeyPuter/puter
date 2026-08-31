@@ -132,11 +132,9 @@ export class OCRDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
 
         const textract = providers['aws-textract'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAws = (textract?.aws ?? textract) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAccessKey = textractAws?.access_key as string | undefined;
         const textractSecretKey = textractAws?.secret_key as string | undefined;
         const textractRegion =

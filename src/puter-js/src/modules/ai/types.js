@@ -45,6 +45,13 @@
  * @property {{ type: string }} [cache_control]
  * @property {ImageContent[]} [images] Images attached to the message. Present on responses from
  * image-capable models.
+ * @property {string} [reasoning] Reasoning/thinking text, when the model exposes it and the
+ * request asked for it. Present on responses only.
+ * @property {object[]} [reasoning_details] Opaque provider reasoning artifacts (Anthropic thinking
+ * signatures, OpenAI reasoning item ids/encrypted content). Resend them verbatim to continue an
+ * extended-thinking turn. Present on responses only.
+ * @property {string | null} [refusal] Refusal message when the model declined, otherwise `null`.
+ * Present on responses only.
  */
 
 /**
@@ -60,6 +67,13 @@
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
+ * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
+ * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
+ * `message.tool_calls`, a mapped `finish_reason`); `false` forces the provider's native shape. Left
+ * unset, the SDK-wide `puter.ai.normalize` applies — itself tri-state: `true` normalizes every call,
+ * `false` disables normalization for every call, and unset (the default) means the release-date
+ * policy: models released on or after September 1, 2026 are normalized, older models keep their native
+ * shape. Streaming responses are unaffected (chunks are already provider-uniform).
  * @property {unknown} [response]
  * @property {string} [reasoning_effort] Controls how much effort reasoning models spend thinking. Flat
  * form. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` (availability varies by
@@ -95,6 +109,11 @@
  *
  * @typedef {Object} ChatResponse
  * @property {ChatMessage} [message]
+ * @property {string} [finish_reason] Why generation stopped: `stop`, `length`, `tool_calls`, or
+ * `content_filter` — or the vendor's own stop reason (e.g. Anthropic's `pause_turn`), passed
+ * through unchanged when it has no OpenAI equivalent. Treat it as an open set.
+ * @property {boolean} [normalized] Present and `true` when the response format was normalized
+ * server-side (see the `normalize` option on [ChatOptions]).
  * @property {unknown} [choices]
  * @property {{ type: 'compaction', id?: string, encrypted_content: string }} [compaction]
  * Inline-compaction artifact, present when the upstream compacted earlier context during this

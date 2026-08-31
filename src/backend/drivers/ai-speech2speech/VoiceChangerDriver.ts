@@ -87,8 +87,7 @@ export class VoiceChangerDriver extends PuterDriver {
 
     override onServerStart() {
         const elevenlabs = this.config.providers?.elevenlabs as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
         this.#apiKey =
             (elevenlabs?.apiKey as string | undefined) ??

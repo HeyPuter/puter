@@ -364,6 +364,193 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(toolUse!.input).toEqual({ q: 'puter' });
     });
 
+    it('splices round-tripped reasoning_details back in ahead of the content', async () => {
+        // The replay contract for a normalized Claude turn: the caller resends
+        // the whole message, and the thinking blocks have to reach Anthropic
+        // with their signature intact and leading the content array (Anthropic
+        // rejects both a missing signature and a trailing thinking block).
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    { role: 'user', content: 'think then call a tool' },
+                    {
+                        role: 'assistant',
+                        content: 'here you go',
+                        reasoning: 'step one',
+                        refusal: null,
+                        reasoning_details: [
+                            {
+                                type: 'thinking',
+                                thinking: 'step one',
+                                signature: 'sig_1',
+                            },
+                            { type: 'redacted_thinking', data: 'ENC' },
+                        ],
+                        tool_calls: [
+                            {
+                                id: 'call_1',
+                                type: 'function',
+                                function: {
+                                    name: 'lookup',
+                                    arguments: '{\"q\":\"puter\"}',
+                                },
+                            },
+                        ],
+                    } as never,
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const assistant = args.messages[1] as Record<string, unknown>;
+        const content = assistant.content as Array<Record<string, unknown>>;
+        // Thinking blocks lead, verbatim; string content became a text block;
+        // the tool_use block is appended after.
+        expect(content).toEqual([
+            { type: 'thinking', thinking: 'step one', signature: 'sig_1' },
+            { type: 'redacted_thinking', data: 'ENC' },
+            { type: 'text', text: 'here you go' },
+            {
+                type: 'tool_use',
+                id: 'call_1',
+                name: 'lookup',
+                input: { q: 'puter' },
+            },
+        ]);
+        // Output-only fields Anthropic rejects are stripped.
+        expect('reasoning_details' in assistant).toBe(false);
+        expect('reasoning' in assistant).toBe(false);
+        expect('refusal' in assistant).toBe(false);
+    });
+
+    it('leaves the caller\'s message objects intact', async () => {
+        // The driver reuses the same messages array across fallback attempts,
+        // so stripping the output-only fields has to happen on a copy.
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        const callerMessage = Object.freeze({
+            role: 'assistant',
+            content: 'here you go',
+            reasoning: 'step one',
+            refusal: null,
+            reasoning_details: Object.freeze([
+                Object.freeze({
+                    type: 'thinking',
+                    thinking: 'step one',
+                    signature: 'sig_1',
+                }),
+            ]),
+        });
+        const before = JSON.parse(JSON.stringify(callerMessage));
+
+        // A frozen message would throw on `delete` in strict mode.
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [callerMessage as never],
+            }),
+        );
+
+        expect(callerMessage).toEqual(before);
+        // ...and the provider still sent the spliced content upstream.
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const sent = args.messages[0] as Record<string, unknown>;
+        expect('reasoning_details' in sent).toBe(false);
+        expect(
+            (sent.content as Array<Record<string, unknown>>)[0],
+        ).toMatchObject({ type: 'thinking', signature: 'sig_1' });
+    });
+
+    it('survives the same messages array being sent twice', async () => {
+        // This is the fallback hazard the copy-on-write exists for: the driver
+        // reuses one messages array across attempts, so if attempt 1 strips
+        // `reasoning_details` in place, attempt 2 sends a message with no
+        // thinking blocks and Anthropic rejects the continuation. Two
+        // sequential calls over one shared array reproduce that at the
+        // provider level; the real fallback loop is driven end-to-end by
+        // "hands every fallback attempt the same messages array" in
+        // ChatCompletionDriver.test.ts.
+        const { provider } = makeProvider();
+        messagesCreateMock
+            .mockResolvedValueOnce(baseResponse)
+            .mockResolvedValueOnce(baseResponse);
+
+        const messages = [
+            { role: 'user', content: 'think then call a tool' },
+            {
+                role: 'assistant',
+                content: 'here you go',
+                reasoning: 'step one',
+                refusal: null,
+                reasoning_details: [
+                    {
+                        type: 'thinking',
+                        thinking: 'step one',
+                        signature: 'sig_1',
+                    },
+                ],
+            },
+        ];
+        const before = structuredClone(messages);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: messages as never,
+            }),
+        );
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: messages as never,
+            }),
+        );
+
+        // The caller's array is untouched by either attempt...
+        expect(messages).toEqual(before);
+        // ...so both attempts sent the thinking block with its signature.
+        for (const call of messagesCreateMock.mock.calls.slice(0, 2)) {
+            const sent = call[0].messages[1] as Record<string, unknown>;
+            const content = sent.content as Array<Record<string, unknown>>;
+            expect(content[0]).toEqual({
+                type: 'thinking',
+                thinking: 'step one',
+                signature: 'sig_1',
+            });
+        }
+    });
+
+    it('strips output-only reasoning fields even with no reasoning_details', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: 'plain reply',
+                        reasoning: 'leftover',
+                        refusal: null,
+                    } as never,
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const assistant = args.messages[0] as Record<string, unknown>;
+        expect('reasoning' in assistant).toBe(false);
+        expect('refusal' in assistant).toBe(false);
+        // Content is untouched when there was nothing to splice.
+        expect(assistant.content).toBe('plain reply');
+    });
+
     it('converts a tool-role message with tool_call_id into a user-role tool_result block', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

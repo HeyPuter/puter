@@ -238,6 +238,59 @@ describe('ai.chat driver payloads', () => {
         expect(String(result)).toBe('the answer');
         expect(result.valueOf()).toBe('the answer');
     });
+
+    // Response-format normalization: both the per-call option and the
+    // SDK-wide `ai.normalize` are tri-state (unset defers, true/false
+    // force). SDK-wide unset (the default) means the release-date policy —
+    // nothing rides the wire; an explicit `true` or `false` is sent on
+    // every call that does not set its own.
+    it('chat(prompt, {normalize: true}) forwards normalize', async () => {
+        await ai.chat('hello', { normalize: true });
+        expect(lastBody().args.normalize).toBe(true);
+    });
+
+    it('chat(prompt, {normalize: false}) forwards normalize', async () => {
+        await ai.chat('hello', { normalize: false });
+        expect(lastBody().args.normalize).toBe(false);
+    });
+
+    it('ai.normalize is unset by default, which stays off the wire (the release-date policy)', async () => {
+        expect(ai.normalize).toBeUndefined();
+        await ai.chat('hello');
+        expect('normalize' in lastBody().args).toBe(false);
+    });
+
+    it('ai.normalize = true force-normalizes calls that do not set it', async () => {
+        ai.normalize = true;
+        await ai.chat('hello');
+        expect(lastBody().args.normalize).toBe(true);
+    });
+
+    it('ai.normalize = false disables normalization for calls that do not set it', async () => {
+        ai.normalize = false;
+        await ai.chat('hello');
+        expect(lastBody().args.normalize).toBe(false);
+    });
+
+    it('a per-call normalize overrides ai.normalize in both directions', async () => {
+        ai.normalize = true;
+        await ai.chat('hello', { normalize: false });
+        expect(lastBody().args.normalize).toBe(false);
+
+        ai.normalize = false;
+        await ai.chat('hello', { normalize: true });
+        expect(lastBody().args.normalize).toBe(true);
+    });
+
+    it('clearing ai.normalize restores the release-date policy', async () => {
+        ai.normalize = false;
+        await ai.chat('hello');
+        expect(lastBody().args.normalize).toBe(false);
+
+        ai.normalize = undefined;
+        await ai.chat('hello');
+        expect('normalize' in lastBody().args).toBe(false);
+    });
 });
 
 describe('ai.img2txt driver payloads', () => {

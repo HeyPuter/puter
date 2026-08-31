@@ -35,6 +35,7 @@ An object containing the following properties:
 - `tools` (Array) (Optional) - Function definitions the AI can call. See [Function Calling](#function-calling) for details.
 - `reasoning_effort` / `reasoning.effort` (String) (Optional) - Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Lower values give faster responses with less reasoning. OpenAI models and Meta's Muse Spark models only; Muse Spark always reasons, so `none` is ignored for it.
 - `verbosity` / `text.verbosity` (String) (Optional) - Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only.
+- `normalize` (Boolean) (Optional) - Controls the format of the non-streaming response. When `true`, the response is normalized to the OpenAI format regardless of the model's vendor: `message.content` is a string, tool calls appear as `message.tool_calls`, and `finish_reason` is one of `stop`, `length`, `tool_calls`, or `content_filter` — or the vendor's own stop reason, passed through unchanged when it has no OpenAI equivalent. When `false`, the response keeps the vendor's native format (for Anthropic models, an array of content blocks). When unset, the SDK-wide `puter.ai.normalize` applies — itself tri-state: set it to `true` to normalize every call regardless of release date, `false` to disable normalization for every call, and when it is left unset too (the default) the release-date policy applies: **models released on or after September 1, 2026 return normalized (OpenAI-format) responses by default**, and for older models the default is unchanged — `message.content` keeps its vendor-native shape. (A handful of reasoning fields were made consistent across all models independently of this option; see [Reasoning fields on existing models](#reasoning-fields-on-existing-models).) Streaming responses are unaffected — chunks already share one format across vendors. See [Response normalization](#response-normalization).
 - `compaction` (Boolean | Object) (Optional) - Opt into inline context compaction for long conversations. Pass `true` to enable it with provider defaults, or `{ trigger_tokens: number }` to set the token threshold at which earlier context is summarized. When the model compacts, you receive a `compaction` chunk while streaming (or a `compaction` field on the result when not streaming) containing an opaque `encrypted_content` summary. Resend that item in `messages` on the next turn in place of the summarized history. The compaction chunk shape is identical across providers, so the same code works whether `model` is an OpenAI or Anthropic model. See [Compaction](#compaction).
 
 #### `testMode` (Boolean) (Optional)
@@ -113,6 +114,61 @@ In case of an error, the `Promise` will reject with an error message.
 ## Vendors
 
 We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
+
+## Response Normalization
+
+Most vendors respond in the OpenAI chat format, where `message.content` is a string and tool calls appear as `message.tool_calls`. Anthropic models historically respond in Anthropic's native format instead, where `message.content` is an array of content blocks such as `[{ type: "text", text: "..." }]`.
+
+**Going forward, all models released on or after September 1, 2026 return responses in the OpenAI format**, no matter which vendor serves them — so the same response-handling code works across every new model. For models released before that date, the `normalize` default does not change: leave the option unset and `message.content` keeps its vendor-native shape.
+
+### Reasoning fields on existing models
+
+Separately from the `normalize` default, four reasoning-related fields were made consistent across vendors. These apply to **every** model, including ones released before the cutoff, and are not affected by `normalize`:
+
+| Field | Before | Now |
+| --- | --- | --- |
+| `message.reasoning_content` | Present on providers following the DeepSeek convention (DeepSeek, OpenRouter and others) | **Renamed to `message.reasoning`.** Read `reasoning` instead — `reasoning_content` is no longer present on non-streaming responses. |
+| `message.reasoning` on OpenAI Responses models | Always present as `null` | Absent when the model returned no reasoning summary; a string when it did. `if (msg.reasoning)` is unaffected; `'reasoning' in msg` changes. |
+| `message.reasoning_details` on OpenAI Responses models | Not present | Present when the model returned reasoning items, carrying their `id` and `encrypted_content` for replay. |
+| `finish_reason` on OpenAI Responses models | Always `"stop"` | `"tool_calls"` when the turn ended in tool calls, `"stop"` otherwise. |
+
+If your code reads `message.reasoning_content` on a non-streaming response, that is the one change that removes a field — switch to `message.reasoning`.
+
+You can control this per call with the `normalize` option:
+
+```js
+// Force the OpenAI format on any model, old or new:
+const response = await puter.ai.chat("Hello", { model: "claude-sonnet-5", normalize: true });
+console.log(response.message.content);   // a string, or null on a tool-only turn
+console.log(response.finish_reason);     // "stop" | "length" | "tool_calls" | "content_filter" | vendor value
+
+// Force the vendor-native format, even on a post-cutoff model:
+const native = await puter.ai.chat("Hello", { model: "claude-sonnet-5", normalize: false });
+```
+
+Or SDK-wide with `puter.ai.normalize`:
+
+```js
+// Unset (the default): the release-date rule applies — models released on or
+// after September 1, 2026 return the OpenAI format, older models stay native.
+puter.ai.normalize = true;      // force normalization: every chat() call
+                                // returns the OpenAI format, old or new model
+puter.ai.normalize = false;     // disable normalization: every chat() call
+                                // returns the vendor-native format
+puter.ai.normalize = undefined; // back to the release-date rule
+```
+
+A `normalize` option on an individual call always overrides `puter.ai.normalize` in either direction. Normalized responses carry `normalized: true`.
+
+On a normalized response, extended-thinking output (from reasoning models that expose it) is joined into `message.reasoning`, and Anthropic stop reasons are mapped to OpenAI values (`end_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool_calls`, `refusal` → `content_filter`). A vendor stop reason with no OpenAI equivalent — Anthropic's `pause_turn`, for instance — passes through unchanged, so treat `finish_reason` as an open set. See [`finish_reason`](/Objects/chatresponse) for the full mapping.
+
+Normalization does not cost you the ability to continue a reasoning turn. The opaque parts a provider needs back — Anthropic thinking-block signatures, OpenAI reasoning item ids and encrypted content — are preserved verbatim on `message.reasoning_details`. Resend that array as-is alongside the message when you continue an extended-thinking tool-use loop. The artifacts are vendor-specific and only meaningful to the model that produced them, so replay them to the same model — don't carry them across vendors.
+
+One caveat. The release-date rule applies to the model that actually serves the request — if a request is rerouted to a fallback provider, the served model's release date decides.
+
+One thing to know about the release-date rule: a model's release date comes from the catalog of whichever provider serves it, and some providers report it from their own live listing. Models served through OpenRouter carry the date OpenRouter itself assigns, so a model newly listed there on or after September 1, 2026 is normalized by default without Puter shipping any change. Pin `normalize: false` if your code depends on a provider's native shape.
+
+Streaming is unaffected by normalization: streamed [`ChatResponseChunk`](/Objects/chatresponsechunk) objects already share one format across all vendors, and the chunk types a model emits do not depend on the `normalize` option. Reasoning models stream their thinking as `reasoning` chunks on every provider, whether or not normalization applies.
 
 ## Function Calling
 
@@ -644,9 +700,9 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
                     },
                     { role: "user", content: question },
                 ],
-                { model: "claude-sonnet-4-6" }
+                { model: "claude-sonnet-4-6", normalize: true }
             );
-            return response.message.content[0].text;
+            return response.message.content;
         }
 
         (async () => {

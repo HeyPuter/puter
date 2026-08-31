@@ -160,9 +160,6 @@ export class BytePlusProvider implements IChatProvider {
             completion,
         });
 
-        // Ark's deep-reasoning models return `reasoning_content` (DeepSeek
-        // wire convention); expose it under `reasoning` like other providers.
-        OpenAIUtil.normalizeReasoningContent(result);
         return result;
     }
 

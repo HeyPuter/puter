@@ -84,7 +84,7 @@ export class GroqAIProvider implements IChatProvider {
 
         return OpenAIUtil.handle_completion_output({
             deviations: {
-                index_usage_from_stream_chunk: (chunk) =>
+                index_usage_from_stream_chunk: (chunk: unknown) =>
                     // x_groq contains usage details for streamed responses
                     (chunk as { x_groq?: { usage?: CompletionUsage } }).x_groq
                         ?.usage,

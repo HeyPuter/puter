@@ -206,7 +206,7 @@ export class OpenAiChatProvider implements IChatProvider {
                           ? { verbosity: requestedVerbosity }
                           : {}),
                   }),
-        } as ChatCompletionCreateParams;
+        } as unknown as ChatCompletionCreateParams;
 
         const completion =
             await this.#openAi.chat.completions.create(completionParams);

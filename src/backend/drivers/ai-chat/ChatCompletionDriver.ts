@@ -57,6 +57,7 @@ import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
 import type {
     IChatCompleteResult,
+    IChatMessageResult,
     IChatModel,
     IChatProvider,
     ICompleteArguments,
@@ -71,6 +72,10 @@ import {
     isIdentityKey,
     normalizeModelKey,
 } from './utils/modelRouting.js';
+import {
+    normalizeResultToOpenAI,
+    shouldPresentAsOpenAI,
+} from './utils/normalizeToOpenAI.js';
 import { costKeys, isFreeModel } from './utils/pricing.js';
 import {
     isRouteUnhealthy,
@@ -671,16 +676,39 @@ export class ChatCompletionDriver extends PuterDriver {
             providerUsed: model.id,
         });
 
-        if (args.response?.normalize && 'message' in res && res.message) {
-            return {
-                ...res,
-                message: normalize_single_message(res.message),
-                normalized: true,
-                via_ai_chat_service: true,
-            };
+        // Response-format precedence: an explicit per-call `normalize` wins in
+        // both directions; the legacy `response.normalize` (internal
+        // block-format normalization) applies only when the new flag is
+        // absent; otherwise the release-date cutoff decides. The coercer is
+        // idempotent, so already-OpenAI-shaped results (most providers, or a
+        // Claude model served through a reseller fallback) pass through.
+        if ('message' in res && res.message) {
+            // `'message' in res` doesn't narrow the result union for TS.
+            const messageRes = res as IChatMessageResult;
+            if (shouldPresentAsOpenAI(args, model.release_date)) {
+                return {
+                    ...normalizeResultToOpenAI(messageRes),
+                    normalized: true,
+                    via_ai_chat_service: true,
+                };
+            }
+            // The legacy flag normalizes the other way — to Anthropic blocks —
+            // and only when the new flag is absent. It deliberately does NOT
+            // set `normalized`: that field is the caller's signal that the
+            // message is in the OpenAI shape, and this branch produces the
+            // opposite. Stamping both made the flag mean "some normalization
+            // happened", which no consumer can act on.
+            if (args.normalize !== false && args.response?.normalize) {
+                return {
+                    ...messageRes,
+                    message: normalize_single_message(messageRes.message),
+                    via_ai_chat_service: true,
+                };
+            }
         }
 
-        return { ...res, via_ai_chat_service: true };
+        // Streaming results returned above; only message results reach here.
+        return { ...(res as IChatMessageResult), via_ai_chat_service: true };
     }
 
     // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).

@@ -25,7 +25,7 @@ import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 
-const TOGETHER_AI_CHAT_COST_MAP = {
+const TOGETHER_AI_CHAT_COST_MAP: Record<string, string> = {
     prompt_tokens: 'input',
     completion_tokens: 'output',
 };

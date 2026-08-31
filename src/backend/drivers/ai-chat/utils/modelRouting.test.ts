@@ -51,6 +51,7 @@ const resoldModel = (
         input_cost_key: 'prompt',
         output_cost_key: 'completion',
         costs: { tokens: 1_000_000, prompt: promptCost, completion: 100 },
+        max_tokens: 8192,
         provider,
     }) as IChatModel;
 
