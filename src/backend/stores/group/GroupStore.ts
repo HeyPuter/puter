@@ -33,36 +33,29 @@ import { PuterStore } from '../types';
  * which joins the junction table itself.
  */
 export class GroupStore extends PuterStore {
-    /**
-     * Adds users (by username) to the group identified by `uid`. No-op if
-     * `usernames` is empty, and for a user who is already a member.
-     */
+    /** Adds users to a seeded system group. No-op for a team or a member. */
     async addUsers(uid: string, usernames: string[]): Promise<void> {
         if (usernames.length === 0) return;
         const placeholders = `(${usernames.map(() => '?').join(', ')})`;
-        // Ignore conflicts on the unique pair index from 0072; re-adding a member
-        // was a duplicate row before it, and would raise without this.
+        // Ignore conflicts on the unique pair index from 0072.
         await this.clients.db.write(
             `${this.clients.db.insertIgnoreInto('jct_user_group')} ` +
                 '(`user_id`, `group_id`) ' +
                 'SELECT u.id, g.id FROM `user` u ' +
-                'JOIN (SELECT id FROM `group` WHERE uid = ?) g ON 1 = 1 ' +
+                'JOIN (SELECT id FROM `group` WHERE uid = ? AND kind IS NULL) g ON 1 = 1 ' +
                 `WHERE u.username IN ${placeholders}` +
                 this.clients.db.insertIgnoreSuffix(),
             [uid, ...usernames],
         );
     }
 
-    /**
-     * Removes users (by username) from the group identified by `uid`. No-op if
-     * `usernames` is empty.
-     */
+    /** Removes users from a seeded system group. No-op for a team. */
     async removeUsers(uid: string, usernames: string[]): Promise<void> {
         if (usernames.length === 0) return;
         const placeholders = `(${usernames.map(() => '?').join(', ')})`;
         await this.clients.db.write(
             'DELETE FROM `jct_user_group` ' +
-                'WHERE `group_id` = (SELECT id FROM `group` WHERE uid = ?) ' +
+                'WHERE `group_id` = (SELECT id FROM `group` WHERE uid = ? AND kind IS NULL) ' +
                 'AND `user_id` IN (' +
                 'SELECT u.id FROM `user` u ' +
                 `WHERE u.username IN ${placeholders})`,
