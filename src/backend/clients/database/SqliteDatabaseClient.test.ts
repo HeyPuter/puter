@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 73;
+const CURRENT_SCHEMA_VERSION = 74;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -189,6 +189,105 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         // `GroupStore.addUsers` has no conflict clause, so before 0075 this
         // second call silently doubled every group permission the user reads.
         await expect(insert()).rejects.toThrow(/UNIQUE/iu);
+    });
+
+    it('applies the audit table and group-share columns from 0078', async () => {
+        const columns = (await client.read(
+            "SELECT name FROM pragma_table_info('audit_team_membership')",
+        )) as { name: string }[];
+        expect(columns.map((r) => r.name)).toEqual([
+            'id',
+            'group_id',
+            'group_id_keep',
+            'user_id',
+            'user_id_keep',
+            'actor_user_id',
+            'action',
+            'reason',
+            'created_at',
+        ]);
+
+        const shareColumns = (await client.read(
+            "SELECT name FROM pragma_table_info('share')",
+        )) as { name: string }[];
+        expect(shareColumns.map((r) => r.name)).toContain('holder_group_id');
+
+        const indexes = (await client.read(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE ? OR name LIKE ?",
+            ['idx_audit_team_membership%', 'idx_share_holder_group%'],
+        )) as { name: string }[];
+        expect(indexes.map((r) => r.name).sort()).toEqual([
+            'idx_audit_team_membership_group',
+            'idx_audit_team_membership_user',
+            'idx_share_holder_group',
+            'idx_share_holder_group_entry_issuer',
+        ]);
+    });
+
+    it('keeps an audit row after its group is deleted, blanking only the FK', async () => {
+        // 0043 leaves `PRAGMA foreign_keys = ON`, so this is real behaviour.
+        const [group] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `group`',
+        )) as { id: number }[];
+        const [user] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `user`',
+        )) as { id: number }[];
+
+        await client.write(
+            'INSERT INTO `audit_team_membership` ' +
+                '(`group_id`, `group_id_keep`, `user_id`, `user_id_keep`, ' +
+                '`actor_user_id`, `action`) VALUES (?, ?, ?, ?, ?, ?)',
+            [group.id, group.id, user.id, user.id, user.id, 'reset_member_password'],
+        );
+
+        await client.write('DELETE FROM `group` WHERE `id` = ?', [group.id]);
+
+        await expect(
+            client.read(
+                'SELECT `group_id`, `group_id_keep`, `action` FROM `audit_team_membership`',
+            ),
+        ).resolves.toEqual([
+            {
+                group_id: null,
+                group_id_keep: group.id,
+                action: 'reset_member_password',
+            },
+        ]);
+    });
+
+    it('constrains team shares that the user-holder index cannot', async () => {
+        const [user] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `user`',
+        )) as { id: number }[];
+        const groups = (await client.read(
+            'SELECT `id` FROM `group` ORDER BY `id` LIMIT 2',
+        )) as { id: number }[];
+
+        await client.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `user_id`, `modified`) ' +
+                'VALUES (?, ?, ?, ?)',
+            ['11111111-1111-4111-8111-111111111111', 'shared.txt', user.id, 0],
+        );
+        const [entry] = (await client.read(
+            'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+            ['11111111-1111-4111-8111-111111111111'],
+        )) as { id: number }[];
+
+        const insertShare = (uid: string, groupId: number) =>
+            client.write(
+                'INSERT INTO `share` ' +
+                    '(`uid`, `issuer_user_id`, `recipient_email`, `holder_user_id`, ' +
+                    '`holder_group_id`, `fsentry_id`) VALUES (?, ?, ?, NULL, ?, ?)',
+                [uid, user.id, 'team@test.local', groupId, entry.id],
+            );
+
+        await insertShare('share-team-a', groups[0].id);
+        // Different group, same file and issuer -- allowed.
+        await insertShare('share-team-b', groups[1].id);
+        // Both have `holder_user_id` NULL, so the user-holder index permitted them.
+        await expect(insertShare('share-team-c', groups[0].id)).rejects.toThrow(
+            /UNIQUE/iu,
+        );
     });
 
     it('runs the javascript migrations, not just the .sql ones', async () => {
