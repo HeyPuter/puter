@@ -81,7 +81,8 @@ vi.mock('openai', () => {
 // ── imageHandling stub ──────────────────────────────────────────────
 
 const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
-    inlineHttpImageUrlsMock: vi.fn(async () => {}),
+    // Declared with the real function's arity so `mock.calls[0][0]` is typed.
+    inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
 }));
 
 vi.mock('./imageHandling.js', () => ({

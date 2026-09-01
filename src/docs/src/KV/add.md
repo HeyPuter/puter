@@ -27,6 +27,8 @@ The value to add to the key. Defaults to `1` when omitted.
 
 An object where each key is a dot-separated path (for example, `"profile.tags"`) and each value is the value (or values) to add at that path.
 
+Appended values follow the same limits as [`puter.kv.set()`](/KV/set/): **400 KB**, and every number within **±9,007,199,254,740,991** — a larger one is stored clamped to that bound.
+
 ## Return value
 
 Returns a `Promise` that resolves to the updated value stored at `key`.

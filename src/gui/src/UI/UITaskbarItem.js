@@ -19,8 +19,8 @@
 
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
-import launch_app from '../helpers/launch_app.js';
-import { user_facing_windows } from '../helpers/window_visibility.js';
+import launch_app from '../helpers/launchApp.js';
+import { user_facing_windows } from '../helpers/windowVisibility.js';
 
 let tray_item_id = 1;
 

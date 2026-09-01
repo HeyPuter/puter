@@ -18,7 +18,7 @@
  */
 
 import { PROCESS_IPC_ATTACHED, Service } from '../definitions.js';
-import launch_app from '../helpers/launch_app.js';
+import launch_app from '../helpers/launchApp.js';
 
 export class ExecService extends Service {
     static description = `
@@ -125,7 +125,7 @@ export class ExecService extends Service {
 
                 // Check if caller is in godmode. The /apps endpoint serializes
                 // `godmode` as a boolean while older shapes used 0/1, so
-                // accept both (same guard as launch_app.js).
+                // accept both (same guard as launchApp.js).
                 if ( caller_app_info && (caller_app_info.godmode === true || caller_app_info.godmode === 1) ) {
                     // Get target app info to create file signatures
                     const target_app_info = await puter.apps.get(app_name);

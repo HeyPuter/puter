@@ -3367,6 +3367,26 @@ describe('FSService permission rules', () => {
         expect(error.legacyCode).toBe('subject_does_not_exist');
     });
 
+    // The old raw `split('fs:')` dropped the mode and stripped the trailing `fs`, resolving this to a bare `fs:<home_uuid>` that subsumes every mode.
+    it('does not let an embedded fs: escalate a scoped grant to a bare one', async () => {
+        const error = await caught(() =>
+            server.services.permission.rewritePermission(
+                `fs:${user.home}fs:junk:read`,
+            ),
+        );
+        expect(error.statusCode).toBe(404);
+        expect(error.legacyCode).toBe('subject_does_not_exist');
+    });
+
+    it('keeps the mode when a later component contains fs:', async () => {
+        // `fs` in the mode position is data, not a delimiter: the path resolves and the mode is preserved, never collapsed to bare.
+        await expect(
+            server.services.permission.rewritePermission(
+                `fs:${file.path}:fs:read`,
+            ),
+        ).resolves.toBe(`fs:${file.uuid}:fs:read`);
+    });
+
     it('leaves uuid-addressed and non-fs permissions untouched', async () => {
         await expect(
             server.services.permission.rewritePermission(

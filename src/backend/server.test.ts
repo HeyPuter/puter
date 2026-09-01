@@ -205,6 +205,73 @@ describe('PuterServer host header validation', () => {
         expect(res.headers['dav']).toContain('2');
     });
 
+    // The DAV controller declares one route per verb, so these check what only
+    // a real server can: that express materializes the WebDAV verbs, that the
+    // catch-all matches the root collection as well as deep paths, and that it
+    // stays on the `dav` subdomain.
+    it('routes every WebDAV verb on the dav subdomain, root included', async () => {
+        const dav = { host: `dav.puter.localhost:${port}` };
+        for (const [method, path] of [
+            ['PROPFIND', '/'],
+            ['PROPFIND', '/some-user/Documents'],
+            ['PROPPATCH', '/some-user/a.txt'],
+            ['MKCOL', '/some-user/new-folder'],
+            ['LOCK', '/some-user/a.txt'],
+            // Not a verb the controller implements; the catch-all that answers
+            // 405 has to authenticate first, like every other route.
+            ['SEARCH', '/some-user'],
+        ] as const) {
+            const res = await request(path, dav, method);
+            // Unauthenticated, so the reply is the auth challenge — what
+            // matters is that it came from the DAV controller and not from the
+            // 404 handler.
+            expect(res.status, `${method} ${path}`).toBe(401);
+            expect(res.headers['www-authenticate']).toContain('Basic');
+        }
+    });
+
+    it('leaves WebDAV verbs on other hosts alone', async () => {
+        // The DAV catch-all matches any path, so the subdomain gate is the only
+        // thing keeping it off the main domain.
+        const res = await request(
+            '/',
+            { host: `puter.localhost:${port}` },
+            'PROPFIND',
+        );
+        expect(res.status).not.toBe(401);
+        expect(res.status).not.toBe(405);
+        expect(res.headers['www-authenticate']).toBeUndefined();
+    });
+
+    it('answers a browser CORS preflight on the dav subdomain', async () => {
+        // Browsers send this credential-less probe before any cross-origin DAV
+        // verb and abandon the request unless it comes back 2xx.
+        const res = await request(
+            '/some-user/.vscode/settings.json',
+            {
+                host: `dav.puter.localhost:${port}`,
+                origin: 'https://code.puter.localhost',
+                'access-control-request-method': 'PROPFIND',
+                'access-control-request-headers': 'authorization,depth',
+            },
+            'OPTIONS',
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers['dav']).toContain('1');
+        expect(res.headers['access-control-max-age']).toBe('86400');
+        expect(String(res.headers['access-control-allow-headers'])).toContain(
+            'Depth',
+        );
+        expect(res.headers['access-control-allow-origin']).toBe(
+            'https://code.puter.localhost',
+        );
+        // A browser client reads ETags and lock tokens off the reply, so they
+        // have to be exposed to it.
+        expect(String(res.headers['access-control-expose-headers'])).toContain(
+            'ETag',
+        );
+    });
+
     it('still short-circuits OPTIONS preflight off the dav subdomain', async () => {
         const res = await request(
             '/some-path',
@@ -368,6 +435,19 @@ describe('PuterServer route option validation', () => {
 
         await expect(setupTestServer()).rejects.toThrow(
             /route GET \/plan-gated: requireSubscription: expected at least one subscription id/,
+        );
+    });
+
+    it('refuses to boot on a requireReputation that names no tier', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/reputation-gated',
+            options: { requireReputation: '  ' },
+            handler: noop,
+        });
+
+        await expect(setupTestServer()).rejects.toThrow(
+            /route GET \/reputation-gated: requireReputation: expected a non-empty tier name/,
         );
     });
 

@@ -25,7 +25,9 @@ import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
-import apply_item_added_to_containers from '../../helpers/apply_item_added_to_containers.js';
+import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
+import { clear_shared_param } from '../../helpers/parseSharedPath.js';
+import UIDashboardNotifications from './UIDashboardNotifications.js';
 /**
  * Creates and displays the Dashboard window.
  *
@@ -82,6 +84,17 @@ async function UIDashboard (options) {
     // a jQuery selector, which throws and would otherwise leave the
     // dashboard's event handlers unbound.
     const isKnownTabId = tab => tabs.some(t => t !== '-' && t.id === tab);
+
+    // A share link names items only a real account can hold, so a temporary
+    // session is never its recipient. It routes as a plain visit and is asked
+    // to sign in below; the link stays in the address bar across the prompt
+    // because login reloads on success, which brings it back for the account
+    // that can actually see what it points at.
+    const sharedLinkPaths = window.dashboard_initial_route?.shared ?? null;
+    const sharedLinkNeedsLogin = Boolean(sharedLinkPaths && window.user?.is_temp);
+    if ( sharedLinkNeedsLogin ) {
+        window.dashboard_initial_route = { tab: 'apps', path: null };
+    }
 
     // Tab to render active on open. Apps is the default (root URL / no hash);
     // Home is reached via #home. Fall back to Apps for an unknown/absent route.
@@ -187,6 +200,12 @@ async function UIDashboard (options) {
     // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
     if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
         window.dashboard_initial_file_path = window.dashboard_initial_route.path;
+    } else if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.shared ) {
+        // A share link: open Shared, and pick out the items it names once
+        // the listing is up. Consumed here, so a reload shows Files plainly.
+        window.dashboard_initial_file_path = window.shared_path;
+        window.dashboard_initial_shared_paths = window.dashboard_initial_route.shared;
+        clear_shared_param('#files');
     }
 
     // Initialize all tabs
@@ -259,6 +278,16 @@ async function UIDashboard (options) {
             }
         }
     });
+
+    // Notifications: the bell in the sidebar, its panel, and toasts for what
+    // arrives live. Toasts share the desktop's container and styling.
+    if ( $('.notification-container').length === 0 ) {
+        $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
+    }
+    // The title the unread count is prefixed onto, and what app windows
+    // restore when they close; captured before either can change it.
+    window.dashboard_base_title ??= document.title;
+    const notifications = UIDashboardNotifications({ $el_window, socket: window.socket });
 
     // Trash status updates
     window.socket.on('trash.is_empty', async (msg) => {
@@ -400,6 +429,17 @@ async function UIDashboard (options) {
         }
     }
 
+    if ( sharedLinkNeedsLogin ) {
+        // Not awaited: the dashboard is already up underneath the cover page.
+        UIWindowLogin({
+            reload_on_success: true,
+            window_options: { cover_page: true, has_head: false },
+        }).then(() => {
+            // Dismissed without signing in: drop the link rather than loop.
+            if ( window.user?.is_temp ) clear_shared_param();
+        });
+    }
+
     // Handle browser back/forward navigation
     // This handler is called for both hashchange (manual hash changes) and popstate (back/forward)
     // A single back/forward fires BOTH popstate and hashchange; track the last
@@ -423,6 +463,7 @@ async function UIDashboard (options) {
         if ( ! isKnownTabId(route.tab) ) return;
         const tab = route.tab;
         const filePath = route.path;
+        notifications.close({ restoreFocus: false });
 
         // Switch to correct tab
         const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
@@ -472,6 +513,7 @@ async function UIDashboard (options) {
         e.preventDefault();
         const $this = $(this);
         const section = $this.attr('data-section');
+        notifications.close({ restoreFocus: false });
 
         // Update active sidebar item
         $el_window.find('.dashboard-sidebar-item').removeClass('active');
@@ -704,6 +746,12 @@ async function UIDashboard (options) {
                             backdrop: true,
                             close_on_backdrop_click: true,
                             parent_center: true,
+                            // Phones/tablets pin every .window to one z-index
+                            // (style.css), which puts the fullpage dashboard
+                            // above this dialog's backdrop wrapper; stay_on_top
+                            // lifts the dialog into the 99999999+ band like
+                            // every other backdropped dashboard dialog.
+                            stay_on_top: true,
                         },
                     });
                 },

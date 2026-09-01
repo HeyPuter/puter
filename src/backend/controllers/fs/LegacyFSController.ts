@@ -47,6 +47,7 @@ import {
     hostedIndexUrlBackingIsUnavailable,
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
+import { listClientShares } from '../share/clientShare.js';
 import { PuterController } from '../types.js';
 import {
     FS_BATCH_CONCURRENT,
@@ -437,12 +438,12 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
-        entry.suggestedApps =
-            await this.services.suggestedApps.getSuggestedApps(entry);
-
-        const appsById = await loadLegacyAssociatedApps(this.stores.app, [
-            entry,
+        const [suggestedApps, appsById, shareFlags] = await Promise.all([
+            this.services.suggestedApps.getSuggestedApps(entry),
+            loadLegacyAssociatedApps(this.stores.app, [entry]),
+            this.services.share.shareFlags(actor, [entry]),
         ]);
+        entry.suggestedApps = suggestedApps;
 
         const shaped = await toLegacyEntry(this.clients.event, entry, {
             fsEntryStore: this.stores.fsEntry,
@@ -452,6 +453,7 @@ export class LegacyFSController extends PuterController {
                 ) => Promise<Record<string, unknown> | null>;
             },
             appsById,
+            isShared: shareFlags.get(entry.uuid) ?? null,
         });
 
         // Optional hydrations:
@@ -461,13 +463,17 @@ export class LegacyFSController extends PuterController {
                 entry.path,
             );
         }
-        // Legacy clients sometimes ask for `return_versions`, `return_shares`.
-        // We don't have parity for these yet — return empty arrays to avoid
-        // breaking `response.x.forEach(...)` patterns. `return_owner` is a
-        // no-op flag here: the `owner` field is already populated by
-        // `toLegacyEntry` as `{ username }`.
+        // `return_versions` has no parity yet; the empty array keeps `forEach`
+        // callers working. `return_owner` is a no-op — `owner` is always set.
         if (getBoolean(body, 'return_versions')) shaped.versions = [];
-        if (getBoolean(body, 'return_shares')) shaped.shares = [];
+        if (getBoolean(body, 'return_shares')) {
+            shaped.shares = await listClientShares(
+                this.services.share,
+                this.clients.event,
+                actor,
+                entry.uuid,
+            );
+        }
 
         res.json(shaped);
     };
@@ -500,14 +506,15 @@ export class LegacyFSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
-            const rootAppsById = await loadLegacyAssociatedApps(
-                this.stores.app,
-                rootChildren,
-            );
+            const [rootAppsById, rootShareFlags] = await Promise.all([
+                loadLegacyAssociatedApps(this.stores.app, rootChildren),
+                this.services.share.shareFlags(actor, rootChildren),
+            ]);
             const shaped = await Promise.all(
                 rootChildren.map((c) =>
                     toLegacyEntry(this.clients.event, c, {
                         appsById: rootAppsById,
+                        isShared: rootShareFlags.get(c.uuid) ?? null,
                     }),
                 ),
             );
@@ -581,14 +588,17 @@ export class LegacyFSController extends PuterController {
             }
         }
 
-        const appsById = await loadLegacyAssociatedApps(
-            this.stores.app,
-            children,
-        );
+        const [appsById, shareFlags] = await Promise.all([
+            loadLegacyAssociatedApps(this.stores.app, children),
+            this.services.share.shareFlags(actor, children),
+        ]);
 
         const shaped = await Promise.all(
             children.map((c) =>
-                toLegacyEntry(this.clients.event, c, { appsById }),
+                toLegacyEntry(this.clients.event, c, {
+                    appsById,
+                    isShared: shareFlags.get(c.uuid) ?? null,
+                }),
             ),
         );
 
@@ -832,9 +842,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1281,8 +1289,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1846,6 +1853,12 @@ export class LegacyFSController extends PuterController {
     /**
      * POST /auth/request-app-root-dir — an app-under-user requests stat on its
      * own app root directory. The app must own itself.
+     *
+     * `check: true` answers whether the caller may claim it and stops there,
+     * for callers asking the question rather than acting on the answer —
+     * otherwise `puter.perms.check('appRootDir', …)` would provision a
+     * directory just by being asked. Answering is the whole response: a caller
+     * that may not claim it gets the 403 below either way.
      */
     requestAppRootDir = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1872,6 +1885,11 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'unauthorized',
             });
 
+        if (getBoolean(body, 'check')) {
+            res.json({ allowed: true });
+            return;
+        }
+
         const rootPath = `/${username}/AppData/${appUid}`;
         // Auto-create the AppData/<uid> tree on first call.
         const entry = await this.services.fs.mkdir(userId, {
@@ -1892,10 +1910,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

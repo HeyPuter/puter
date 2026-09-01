@@ -35,6 +35,7 @@ import { ReplicateImageGenerationProvider } from './providers/replicate/Replicat
 import { TogetherImageProvider } from './providers/together/TogetherImageProvider.js';
 import { XAIImageProvider } from './providers/xai/XAIImageProvider.js';
 import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
+import { assertInputImagesShape } from './inputImage.js';
 
 /**
  * Driver implementing the `puter-image-generation` interface.
@@ -126,6 +127,11 @@ export class ImageGenerationDriver extends PuterDriver {
             throw new HttpError(401, 'Authentication required', {
                 legacyCode: 'unauthorized',
             });
+
+        // Every provider reads these off `args`, and several index into them
+        // directly rather than through the shared helpers, so the shape is
+        // settled here — once — before any provider runs.
+        assertInputImagesShape(args, 'image generation');
 
         const puterOutputPath = args.puter_output_path;
         delete args.puter_output_path;
@@ -293,7 +299,8 @@ export class ImageGenerationDriver extends PuterDriver {
         const cloudflare = (providers['cloudflare-image-generation'] ??
             providers['cloudflare-workers-ai-image'] ??
             providers['cloudflare-workers-ai']) as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const cfToken =
             (cloudflare?.apiToken as string | undefined) ??
             (cloudflare?.apiKey as string | undefined) ??
@@ -308,7 +315,8 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiToken: cfToken,
                         accountId: cfAccount,
                         apiBaseUrl: cloudflare?.apiBaseUrl as
-                            string | undefined,
+                            | string
+                            | undefined,
                     },
                     m,
                 );
@@ -340,9 +348,11 @@ export class ImageGenerationDriver extends PuterDriver {
         // pair its missing apiBaseUrl with the shared block's key (or vice
         // versa) and point a region-scoped key at the wrong endpoint.
         const byteplusImageCfg = providers['byteplus-image-generation'] as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const byteplusKey = readKey(byteplusImageCfg, byteplusSharedCfg);
         if (byteplusKey) {
             this.#providers['byteplus-image-generation'] =
@@ -351,7 +361,8 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiKey: byteplusKey,
                         apiBaseUrl: (byteplusImageCfg?.apiBaseUrl ??
                             byteplusSharedCfg?.apiBaseUrl) as
-                            string | undefined,
+                            | string
+                            | undefined,
                     },
                     m,
                 );
@@ -361,7 +372,12 @@ export class ImageGenerationDriver extends PuterDriver {
     async #buildModelMap() {
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
-            for (const model of await provider.models()) {
+            for (const entry of await provider.models()) {
+                // Catalogs are module-level constants that providers hand
+                // back by reference, so they are read and never written:
+                // normalizing the id or appending puterId in place would
+                // accumulate across map builds. Work on a copy instead.
+                const model = { ...entry };
                 model.id = model.id.trim().toLowerCase();
                 if (!this.#modelIdMap[model.id]) {
                     this.#modelIdMap[model.id] = [];

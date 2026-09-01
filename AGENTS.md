@@ -35,6 +35,8 @@ These apply everywhere — backend, puter.js, and GUI.
 
 Keep comments light; prefer self-documenting code. Comment only when the _why_ is non-obvious or a usage detail would trip the next reader. Use `//` for single lines and `/** ... */` JSDoc when it genuinely needs more — if a comment runs long, it's probably too long. Don't restate the code and don't reference the current task, PR, or version — those rot. **No ticket references** (`PUT-1234`, `// fix for FOO-99`) in code, comments, or test names; describe the why in domain terms, not project-management terms. Use plain ASCII `-` in comment section dividers (`// -- Section --`), never box-drawing characters.
 
+**Be concise — a comment is a sentence or two, not a paragraph block.** One or two lines for `//`, a few for JSDoc. Don't narrate the history ("used to swallow the failure, which meant…"), don't argue the design at length, and don't explain each parameter when the signature already does. State the constraint and stop. If the reasoning genuinely needs paragraphs, it belongs in a design doc, not above the function.
+
 ### Security & privacy
 
 Before opening a PR, scan the diff for:
@@ -112,17 +114,15 @@ Declare a shape where it belongs, and reference it with an `import(...)` type fr
 Use `@typedef {Object}` + `@property` for any shape whose fields need documenting — it is the only JSDoc form that carries a doc comment per field into the generated declaration. Keep the inline object-literal form for small internal shapes with nothing to say about each field, and prefer `unknown` over `*`:
 
 ```js
-/** @typedef {{ key: string, value: unknown }} KVEntry */
+/** @typedef {{ key: string; value: unknown }} KVEntry */
 ```
 
-Public (exposed) methods must carry JSDoc types — parameters and return value — with one `@overload` block per accepted call form, since those overloads *are* the published signature. Unexposed/private helpers are typed at the contributor's discretion: annotate where it helps the next reader, and either way keep them clean. Members tagged `@internal` are stripped from the generated declarations, so use that tag rather than `@private` to keep something off the public surface.
+Public (exposed) methods must carry JSDoc types — parameters and return value — with one `@overload` block per accepted call form, since those overloads _are_ the published signature. Unexposed/private helpers are typed at the contributor's discretion: annotate where it helps the next reader, and either way keep them clean. Members tagged `@internal` are stripped from the generated declarations, so use that tag rather than `@private` to keep something off the public surface.
 
 Typing in JS files is encouraged: annotate with JSDoc `@type`/`@param`/`@returns` using the TypeScript type system, and define shared shapes with `@typedef`. API types must not be `unknown` or untyped `...args` — spell out the real parameter and return shapes; the only exception is values passed through transparently to an upstream layer that owns their type. For example:
 
 ```js
-/**
- * @typedef {{key:string, value: unknown}} KVEntry
- */
+/** @typedef {{ key: string; value: unknown }} KVEntry */
 
 /** @type {KVEntry[]} */
 let entries = [];

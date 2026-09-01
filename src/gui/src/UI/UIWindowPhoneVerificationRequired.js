@@ -18,7 +18,8 @@
  */
 
 import UIWindow from './UIWindow.js';
-import { get_country_list } from '../helpers/country_codes.js';
+import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired.js';
+import { get_country_list } from '../helpers/countryCodes.js';
 import {
     format_phone_as_you_type,
     inspect_phone,
@@ -31,6 +32,19 @@ import {
 //   2. Enter the 6-digit code → POST /confirm-phone (Prelude validates it).
 // The 6-digit code UX mirrors UIWindowEmailConfirmationRequired.js. Used as a
 // hard gate for low-reputation signups, so by default it has no close button.
+//
+// Once the user is out of SMS send attempts for the window, SMS is not the only
+// way out: the backend opens a card-verification path that clears the phone gate
+// too, and this dialog surfaces it as an opt-in link rather than leaving the user
+// to retry a send that can only be refused. The card dialog can be dismissed
+// straight back here, so the choice is reversible either way.
+//
+// Two things reveal the link, and both are needed. A send response carrying
+// `card_fallback_available` covers the attempt that exhausts the allowance,
+// which is the send that opens the fallback. `options.card_fallback_available`
+// covers every visit after that: further sends are rejected by the route's rate
+// limit before the handler runs, so only whoami can still report the offer —
+// which matters because it stays valid for 24 hours, well past the send window.
 //
 // The number field combines a searchable country-code picker with the national
 // number. Everything the user types is normalized to E.164 with libphonenumber
@@ -65,8 +79,13 @@ function UIWindowPhoneVerificationRequired(options) {
         let is_checking_code = false;
         let is_sending = false;
         // Resolve the returned promise at most once. Success resolves(true);
-        // a user-initiated close resolves(false). Idempotent so the close hook
-        // can fire after a success without clobbering the result.
+        // a user-initiated close resolves(false). The card fallback resolves
+        // the string 'card' — truthy, so callers polling `while (!ok)` are
+        // unaffected, but distinguishable for the one caller decision it
+        // changes: a fallback card clears the card gate along with the phone
+        // gate, so the card dialog must not be opened again afterwards.
+        // Idempotent so the close hook can fire after a success without
+        // clobbering the result.
         let settled = false;
         const settle = (val) => {
             if (settled) return;
@@ -113,6 +132,10 @@ function UIWindowPhoneVerificationRequired(options) {
             select_country: i18n('phone_select_country'),
             code_sent_to: i18n('phone_code_sent_to'),
             code_sent_whatsapp: i18n('phone_code_sent_whatsapp'),
+            card_fallback_prompt: i18n('phone_card_fallback_prompt'),
+            card_fallback_link: i18n('phone_card_fallback_link'),
+            card_fallback_note: i18n('phone_card_fallback_note'),
+            card_fallback_unavailable: i18n('phone_card_fallback_unavailable'),
             suggested: i18n('phone_suggested'),
             all_countries: i18n('phone_all_countries'),
         };
@@ -194,6 +217,15 @@ function UIWindowPhoneVerificationRequired(options) {
         countryOptions += countries
             .map((c) => renderOption(c, 'cc-opt-', 'all'))
             .join('');
+
+        // Card escape hatch, rendered into both steps and revealed only when a
+        // send response says the backend opened it.
+        const card_fallback_html =
+            '<div class="phone-card-fallback" hidden>' +
+            `<p class="phone-card-fallback-prompt">${T.card_fallback_prompt}</p>` +
+            `<a class="phone-use-card" role="button" tabindex="0">${T.card_fallback_link}</a>` +
+            `<p class="phone-card-fallback-note">${T.card_fallback_note}</p>` +
+            '</div>';
 
         let h = '';
         // Scoped styling for this dialog.
@@ -333,6 +365,25 @@ function UIWindowPhoneVerificationRequired(options) {
             .window-confirm-phone-using-code .error {
                 color: #c0392b; font-size: 13px; text-align: center; margin-bottom: 10px;
             }
+            /* Card escape hatch — hidden until the server says the fallback is
+               open, so a working SMS flow never advertises it. */
+            .window-confirm-phone-using-code .phone-card-fallback {
+                text-align: center; margin-top: 16px; padding-top: 14px;
+                border-top: 1px solid #e9eef3;
+            }
+            .window-confirm-phone-using-code .phone-card-fallback[hidden] { display: none; }
+            .window-confirm-phone-using-code .phone-card-fallback-prompt {
+                font-size: 13px; color: #6b7c8c; margin: 0 0 4px;
+            }
+            .window-confirm-phone-using-code .phone-use-card {
+                display: inline-block; font-size: 14px; font-weight: 500;
+                color: #3b82f6; cursor: pointer; text-decoration: none;
+            }
+            .window-confirm-phone-using-code .phone-use-card:hover { text-decoration: underline; }
+            .window-confirm-phone-using-code .phone-card-fallback-note {
+                font-size: 12px; line-height: 1.4; color: #8a99a8;
+                margin: 6px auto 0; max-width: 300px;
+            }
             /* Touch devices: meet the ~44px minimum tap target for list rows
                and the search field; keep the input >=16px to avoid iOS focus-zoom. */
             @media (pointer: coarse) {
@@ -378,6 +429,7 @@ function UIWindowPhoneVerificationRequired(options) {
         h += `<div class="phone-country-empty" hidden>${T.no_matches}</div>`;
         h += '</div>';
         h += `<button type="submit" class="button button-block button-primary phone-send-btn">${send_btn_txt}</button>`;
+        h += card_fallback_html;
         if (options.logout_in_footer) {
             h += `<div class="phone-footer"><a class="phone-log-out">${i18n('log_out')}</a></div>`;
         }
@@ -399,6 +451,7 @@ function UIWindowPhoneVerificationRequired(options) {
                 <input class="digit-input" type="number" min='0' max='9' inputmode="numeric" name='number-code-5' data-number-code-input='5' required />
               </fieldset>`;
         h += `<button type="submit" class="button button-block button-primary phone-verify-btn" disabled>${verify_btn_txt}</button>`;
+        h += card_fallback_html;
         h += '<div class="phone-footer">';
         h += `<a class="phone-resend-code">${T.resend_code}</a> &nbsp;&bull;&nbsp; <a class="phone-change-number">${T.change_number}</a>`;
         if (options.logout_in_footer) {
@@ -462,6 +515,87 @@ function UIWindowPhoneVerificationRequired(options) {
         const clearError = () => {
             $(el_window).find('.error').hide();
         };
+
+        // ---------- Card escape hatch ----------
+        //
+        // Revealed by a send response carrying `card_fallback_available`, or
+        // straight away when the caller already knows the fallback is open
+        // (whoami reports it — see below). Once revealed it stays: the backend
+        // keeps the eligibility open for hours, and a user who came back to try
+        // SMS again shouldn't lose the way out they were already offered.
+        let card_fallback_available = false;
+        let card_fallback_in_progress = false;
+        const revealCardFallback = () => {
+            if (card_fallback_available) return;
+            card_fallback_available = true;
+            $(el_window).find('.phone-card-fallback').prop('hidden', false);
+        };
+
+        // The fallback only opens once the user is out of SMS send attempts, at
+        // which point every further send is rejected by the route's rate limit
+        // before the handler runs — so a send response can no longer advertise
+        // it. On a reload the offer therefore has to come from whoami, which the
+        // gate's caller passes in.
+        if (options.card_fallback_available) revealCardFallback();
+
+        // Hand off to the card dialog. This window stays alive behind it (just
+        // hidden) so a user who backs out — or whose card path turns out to be
+        // unavailable server-side — lands back on the live gate instead of on
+        // an empty desktop that 403s every request.
+        const useCardInstead = async () => {
+            if (card_fallback_in_progress) return;
+            card_fallback_in_progress = true;
+            clearError();
+            let unavailable = false;
+            // Hiding the backdrop too, so the card dialog's own backdrop is the
+            // only one on screen.
+            const $hidden = $(el_window).closest('.window-backdrop').length
+                ? $(el_window).closest('.window-backdrop')
+                : $(el_window);
+            $hidden.hide();
+            let verified = false;
+            try {
+                verified = await UIWindowCardVerificationRequired({
+                    phone_fallback: true,
+                    on_unavailable: () => {
+                        unavailable = true;
+                    },
+                    show_close_button: false,
+                    stay_on_top: options.stay_on_top ?? false,
+                    is_draggable: options.is_draggable,
+                    window_options: options.window_options,
+                });
+            } catch (e) {
+                console.debug('Card verification dialog failed:', e);
+            }
+            if (verified) {
+                // The card cleared the phone gate server-side, so this gate is
+                // satisfied — settle before closing so the on_close hook's
+                // resolve(false) is the no-op. 'card' rather than true so the
+                // caller knows the card gate went down with it.
+                settle('card');
+                $(el_window).close();
+                return;
+            }
+            card_fallback_in_progress = false;
+            // A logout (or a parent cascade) took this window with it; nothing
+            // left to restore.
+            if (!document.body.contains(el_window)) return;
+            $hidden.show();
+            if (unavailable) showError(T.card_fallback_unavailable);
+        };
+
+        $(el_window)
+            .find('.phone-use-card')
+            .on('click', function (e) {
+                e.preventDefault();
+                useCardInstead();
+            })
+            .on('keydown', function (e) {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                useCardInstead();
+            });
 
         // 6-digit code DOM refs (used by paste/WebOTP and the per-digit logic).
         const numberCodeForm = el_window.querySelector('[data-number-code-form]');
@@ -749,6 +883,10 @@ function UIWindowPhoneVerificationRequired(options) {
                 headers: { Authorization: `Bearer ${window.auth_token}` },
                 statusCode: { 401: (xhr) => window.handle401(xhr) },
                 success: function (res) {
+                    // The backend counts send *attempts*, so the fallback can
+                    // open on a send that itself succeeded — the user still may
+                    // never receive the code.
+                    if (res?.card_fallback_available) revealCardFallback();
                     // Advance to the code-entry step with a clean slate.
                     $(el_window).find('.phone-target').text(phone);
                     // `channel` is where Prelude actually delivered the code;
@@ -776,6 +914,8 @@ function UIWindowPhoneVerificationRequired(options) {
                     startWebOTP();
                 },
                 error: function (xhr) {
+                    if (xhr.responseJSON?.card_fallback_available)
+                        revealCardFallback();
                     const reason = xhr.responseJSON?.reason;
                     let msg =
                         SEND_REASON_MESSAGES[reason] ??

@@ -45,6 +45,11 @@ import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
+import {
+    clampStoredNumber,
+    isRepairableMarshallError,
+    repairForMarshall,
+} from './marshallRepair.js';
 
 const LOCAL_DYNAMO_MEMORY_PREFIX = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
@@ -114,6 +119,49 @@ const sleep = async (ms: number) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
+// One caller writing an out-of-range number usually keeps doing it, so the
+// warning is per-target and throttled rather than one line per write.
+const REPAIR_WARNING_INTERVAL_MS = 60_000;
+const lastRepairWarningAt = new Map<string, number>();
+
+const warnRepaired = (target: string, message: string): void => {
+    const now = Date.now();
+    const lastWarnedAt = lastRepairWarningAt.get(target) ?? 0;
+    if (now - lastWarnedAt < REPAIR_WARNING_INTERVAL_MS) return;
+
+    lastRepairWarningAt.set(target, now);
+    console.warn(
+        `[ddb] clamped an out-of-range value in ${target}: ${message}`,
+    );
+};
+
+/**
+ * Send a write, and if the payload was rejected while being encoded for a value
+ * the store cannot represent, clamp it and send it once more.
+ *
+ * Nothing is inspected on the way in: the payload of a successful write is
+ * never walked, so this costs one `try` on the hot path. The repair only runs
+ * on the failure, and only retries when it actually changed something —
+ * otherwise the original error stands.
+ */
+const sendRepairingValues = async <TPayload, TResult>(
+    payload: TPayload,
+    send: (payload: TPayload) => Promise<TResult>,
+    describe: () => string,
+): Promise<TResult> => {
+    try {
+        return await send(payload);
+    } catch (error) {
+        if (!isRepairableMarshallError(error)) throw error;
+
+        const repaired = repairForMarshall(payload);
+        if (!repaired.changed) throw error;
+
+        warnRepaired(describe(), (error as Error).message);
+        return send(repaired.value as TPayload);
+    }
+};
+
 export class DDBClient extends PuterClient {
     #documentClient: DynamoDBDocumentClient | null = null;
     #localInitPromise: Promise<void> | null = null;
@@ -171,14 +219,19 @@ export class DDBClient extends PuterClient {
 
     @Span('ddb.put', (table: string) => ({ 'db.table': table }))
     async put<T extends Record<string, unknown>>(table: string, item: T) {
-        const command = new PutCommand({
-            TableName: table,
-            Item: item,
-            ReturnConsumedCapacity: 'TOTAL',
-        });
-
         const client = await this.#getDocumentClient();
-        return client.send(command);
+        return sendRepairingValues(
+            item,
+            (itemToWrite) =>
+                client.send(
+                    new PutCommand({
+                        TableName: table,
+                        Item: itemToWrite,
+                        ReturnConsumedCapacity: 'TOTAL',
+                    }),
+                ),
+            () => `a put to ${table}`,
+        );
     }
 
     @Span('ddb.batchGet', (params: unknown[]) => ({
@@ -305,11 +358,17 @@ export class DDBClient extends PuterClient {
                     break;
                 }
 
-                const response = await client.send(
-                    new BatchWriteCommand({
-                        RequestItems: requestItems,
-                        ReturnConsumedCapacity: 'TOTAL',
-                    }),
+                const response = await sendRepairingValues(
+                    requestItems,
+                    (itemsToWrite) =>
+                        client.send(
+                            new BatchWriteCommand({
+                                RequestItems: itemsToWrite,
+                                ReturnConsumedCapacity: 'TOTAL',
+                            }),
+                        ),
+                    () =>
+                        `a batch write to ${Object.keys(requestItems).join(', ')}`,
                 );
                 accumulateConsumedCapacity(
                     response.ConsumedCapacity as
@@ -355,11 +414,18 @@ export class DDBClient extends PuterClient {
     }
 
     @Span('ddb.del', (table: string) => ({ 'db.table': table }))
-    async del<T extends Record<string, unknown>>(table: string, key: T) {
+    async del<T extends Record<string, unknown>>(
+        table: string,
+        key: T,
+        opts?: { returnOld?: boolean },
+    ) {
         const command = new DeleteCommand({
             TableName: table,
             Key: key,
             ReturnConsumedCapacity: 'TOTAL',
+            // ALL_OLD makes the delete an atomic claim: exactly one caller
+            // gets the attributes back.
+            ...(opts?.returnOld ? { ReturnValues: 'ALL_OLD' as const } : {}),
         });
 
         const client = await this.#getDocumentClient();
@@ -450,20 +516,27 @@ export class DDBClient extends PuterClient {
             !!expressionValues && Object.keys(expressionValues).length > 0;
         const hasNames =
             !!expressionNames && Object.keys(expressionNames).length > 0;
-        const command = new UpdateCommand({
-            TableName: table,
-            Key: key,
-            UpdateExpression: expression,
-            ...(hasValues
-                ? { ExpressionAttributeValues: expressionValues }
-                : {}),
-            ...(hasNames ? { ExpressionAttributeNames: expressionNames } : {}),
-            ReturnValues: 'ALL_NEW',
-            ReturnConsumedCapacity: 'TOTAL',
-        });
-
         const client = await this.#getDocumentClient();
-        return client.send(command);
+        return sendRepairingValues(
+            expressionValues,
+            (valuesToWrite) =>
+                client.send(
+                    new UpdateCommand({
+                        TableName: table,
+                        Key: key,
+                        UpdateExpression: expression,
+                        ...(hasValues
+                            ? { ExpressionAttributeValues: valuesToWrite }
+                            : {}),
+                        ...(hasNames
+                            ? { ExpressionAttributeNames: expressionNames }
+                            : {}),
+                        ReturnValues: 'ALL_NEW',
+                        ReturnConsumedCapacity: 'TOTAL',
+                    }),
+                ),
+            () => `an update to ${table}`,
+        );
     }
 
     async createTableIfNotExists(
@@ -565,6 +638,9 @@ export class DDBClient extends PuterClient {
             marshallOptions: {
                 removeUndefinedValues: true,
             },
+            unmarshallOptions: {
+                wrapNumbers: clampStoredNumber,
+            },
         });
     }
 
@@ -591,6 +667,9 @@ export class DDBClient extends PuterClient {
         this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
             marshallOptions: {
                 removeUndefinedValues: true,
+            },
+            unmarshallOptions: {
+                wrapNumbers: clampStoredNumber,
             },
         });
     }

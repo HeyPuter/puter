@@ -533,6 +533,8 @@ span.header-sort-icon img {
 }
 
 .item-icon {
+    /* Anchors the shared marker to the icon's corner. */
+    position: relative;
     display: block;
     margin: 0 auto;
     padding: 5px;
@@ -672,6 +674,31 @@ span.header-sort-icon img {
     border-radius: 50%;
     background: white;
     cursor: pointer;
+}
+
+/* Shared, owner-side: a dot on the icon's lower-right. A glyph is unreadable
+   at the size a row icon allows, and colour is the signal that survives it. */
+.item-shared-marker {
+    position: absolute;
+    /* Inset onto the glyph. Sitting on the icon box's corner reads as clipped,
+       because the box is 5px wider than the artwork on every side. */
+    right: 7px;
+    bottom: 7px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #3b82f6;
+    box-shadow: 0 0 0 1.5px white;
+    pointer-events: all;
+}
+
+.item-container-list .item-shared-marker,
+.item-container-details .item-shared-marker {
+    width: 7px;
+    height: 7px;
+    right: 0px;
+    bottom: 0px;
+    box-shadow: 0 0 0 1px white;
 }
 
 .item-name, .item-name-editor, .item-name-shadow {
@@ -6574,6 +6601,27 @@ html.dark-mode .usage-table-show-less:hover {
     color: #7f8b99;
     margin: 0;
     padding: 6px 0;
+}
+
+/* The blanket "refuse everyone" switch, above the per-sender list. */
+.blocked-all-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #eef1f4;
+    cursor: pointer;
+}
+
+.blocked-all-row input {
+    margin-top: 2px;
+    flex: none;
+}
+
+.blocked-all-row .share-dialog-empty {
+    display: block;
+    padding: 2px 0 0;
 }
 
 .share-row {

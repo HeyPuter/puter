@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { Request, Response } from 'express';
@@ -541,6 +542,74 @@ describe('FSController.write', () => {
 // Quota enforcement is off in the default test config (`is_storage_limited`
 // false makes the ceiling free disk space), so this group runs its own
 // server with the limit switched on.
+
+describe('write handlers with no parsable body', () => {
+    // A request whose body never parsed leaves `req.body` undefined, and the
+    // handlers read fileMetadata straight off it.
+    it.each([
+        [
+            'write',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.write(r as never, res as never),
+        ],
+        [
+            'startWrite',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.startWrite(r as never, res as never),
+        ],
+        [
+            'completeWrite',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.completeWrite(r as never, res as never),
+        ],
+    ])('%s answers 400', async (_label, call) => {
+        const { actor } = await makeUser();
+        const req = makeReq({ actor });
+        (req as { body?: unknown }).body = undefined;
+        const { res } = makeRes();
+
+        await expect(
+            withActor(actor, () => call(controller, req, res)),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+    });
+});
+
+describe('batch write handlers with a malformed element', () => {
+    // The body is an array, so the array check passes; the elements are what
+    // the handlers then read fileMetadata / thumbnailData off.
+    it.each([
+        [
+            'startBatchWrites',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.startBatchWrites(r as never, res as never),
+        ],
+        [
+            'batchWrites',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.batchWrites(r as never, res as never),
+        ],
+        [
+            'completeBatchWrites',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.completeBatchWrites(r as never, res as never),
+        ],
+    ])('%s answers 400 for a null element', async (_label, call) => {
+        const { actor } = await makeUser();
+        const req = makeReq({ actor });
+        (req as { body?: unknown }).body = [null];
+        const { res } = makeRes();
+
+        await expect(
+            withActor(actor, () => call(controller, req, res)),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+    });
+});
 
 describe('FSController.write storage allowance', () => {
     let limitedServer: PuterServer;

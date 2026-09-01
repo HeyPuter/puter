@@ -25,9 +25,16 @@ describe('cleanEmail', () => {
         expect(cleanEmail('Foo.Bar@Example.COM')).toBe('foo.bar@example.com');
     });
 
-    it('strips subaddressing for every provider by default', () => {
+    // `+` is a convention the receiving domain defines, not a rule of SMTP.
+    it('keeps subaddressing on a domain whose semantics we do not know', () => {
         expect(cleanEmail('foo+newsletter@example.com')).toBe(
-            'foo@example.com',
+            'foo+newsletter@example.com',
+        );
+    });
+
+    it('strips subaddressing for a provider that defines it', () => {
+        expect(cleanEmail('foo+newsletter@outlook.com')).toBe(
+            'foo@outlook.com',
         );
     });
 

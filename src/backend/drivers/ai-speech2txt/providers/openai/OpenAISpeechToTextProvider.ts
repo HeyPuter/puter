@@ -273,12 +273,12 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
 
         const result = translate
             ? await this.#openai.audio.translations.create(
-                  payload as Parameters<
+                  payload as unknown as Parameters<
                       OpenAI['audio']['translations']['create']
                   >[0],
               )
             : await this.#openai.audio.transcriptions.create(
-                  payload as Parameters<
+                  payload as unknown as Parameters<
                       OpenAI['audio']['transcriptions']['create']
                   >[0],
               );

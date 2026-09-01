@@ -136,6 +136,27 @@ export const bucketTag = (key: string): string =>
 const deltaKey = (tag: string, key: string): string =>
     `meter:d:{${tag}}:${key}`;
 const baseKey = (tag: string, key: string): string => `meter:b:{${tag}}:${key}`;
+/**
+ * Which settle a counter's base came from — see `seqKey`. Kept beside the base
+ * rather than in it, so the base holds amounts and nothing else: a bookkeeping
+ * field inside it would read back as a counter path of its own.
+ */
+const baseSeqKey = (tag: string, key: string): string =>
+    `meter:bq:{${tag}}:${key}`;
+/**
+ * Hands out the ordering token a settle carries, one sequence per bucket.
+ *
+ * A settle replaces the base with what the store returned, so of two settles
+ * for the same counter the one that finished writing last is the one holding
+ * the newer view — and that is the only thing the base has to be ordered by.
+ * The token is taken the moment the write comes back, so the order the tokens
+ * are in is the order the writes completed in.
+ *
+ * Deliberately without a TTL: it orders every settle the bucket will ever do,
+ * and one that started over would hand out tokens the stamps already written
+ * are ahead of, leaving those bases in place until it caught up again.
+ */
+const seqKey = (tag: string): string => `meter:q:{${tag}}`;
 const dirtyKey = (tag: string): string => `meter:dirty:{${tag}}`;
 const pendingKey = (tag: string, nonce: string): string =>
     `meter:p:{${tag}}:${nonce}`;
@@ -328,10 +349,16 @@ for i = 1, #abandoned do
     redis.call('ZREM', KEYS[2], abandoned[i])
 end
 local taken = redis.call('SPOP', KEYS[1], ARGV[1]) or {}
+-- Nothing taken means the dirty set is empty, including anything just put back
+-- above, so the SCARD below could only be 0. Returning it directly matters
+-- because most buckets are idle on most cycles: SPOP is a write and doesn't
+-- count as a keyspace read, so skipping the SCARD is what keeps an idle
+-- bucket's drain from registering as a cache miss.
+if #taken == 0 then return { taken, 0 } end
 for i = 1, #taken do
     redis.call('ZADD', KEYS[2], ARGV[2], taken[i])
 end
-if #taken > 0 then redis.call('PEXPIRE', KEYS[2], ARGV[3]) end
+redis.call('PEXPIRE', KEYS[2], ARGV[3])
 return { taken, redis.call('SCARD', KEYS[1]) }
 `;
 
@@ -392,23 +419,29 @@ return { 1, redis.call('HGETALL', KEYS[2]) }
 `;
 
 /**
- * KEYS: base, pending, pending index, delta, tracked set. ARGV: nonce, ttl, new
- * total (or ''), member, then the authoritative path/value pairs.
+ * KEYS: base, pending, pending index, delta, tracked set, base sequence. ARGV:
+ * nonce, ttl, sequence, member, then the authoritative path/value pairs.
  *
  * Replaces the base with what the KV store now holds, which is how the base
- * picks up other deployments' contributions without a separate read. The total
- * may not move backwards: two flushes settling out of order would otherwise
- * briefly under-report, and this total decides whether someone may spend.
+ * picks up other deployments' contributions without a separate read. Two
+ * flushes settling out of order must not leave the older view in place, so a
+ * settle only replaces a base laid down by a settle that finished before it —
+ * ordered by the sequence each took when its write came back.
+ *
+ * Ordering by sequence rather than by which view holds the larger total is what
+ * lets a counter go down at all: an amount can be corrected downwards, and
+ * comparing totals reads that correction as the stale view it must refuse,
+ * pinning the base to the pre-correction number for as long as it lives.
  *
  * The counter leaves the tracked set here, but only if nothing has started a
  * fresh delta for it in the meantime — checking and removing in the same step
  * is what stops an increment that landed mid-settle from being forgotten.
  */
 const SETTLE_SCRIPT = `
-local current = redis.call('HGET', KEYS[1], 'total')
+local current = redis.call('GET', KEYS[6])
 local replace = true
-if ARGV[3] ~= '' and current then
-    if tonumber(current) > tonumber(ARGV[3]) then replace = false end
+if current and tonumber(current) > tonumber(ARGV[3]) then
+    replace = false
 end
 if replace then
     redis.call('DEL', KEYS[1])
@@ -416,6 +449,7 @@ if replace then
         redis.call('HSET', KEYS[1], ARGV[i], ARGV[i + 1])
     end
     redis.call('PEXPIRE', KEYS[1], ARGV[2])
+    redis.call('SET', KEYS[6], ARGV[3], 'PX', ARGV[2])
 end
 redis.call('DEL', KEYS[2])
 redis.call('HDEL', KEYS[3], ARGV[1])
@@ -499,6 +533,7 @@ type ScriptRunner = {
     meterRetire(...args: string[]): Promise<number>;
     meterReconcile(...args: string[]): Promise<number>;
     meterSeed(...args: string[]): Promise<string[]>;
+    incr(key: string): Promise<number>;
 };
 
 // -- MeteringBufferStore ----------------------------------------------
@@ -644,6 +679,35 @@ export class MeteringBufferStore extends PuterStore {
         return this.stores.kv.get({ key, consistentRead: true });
     }
 
+    /**
+     * Forget the cached view of what the store holds for a counter, so the next
+     * read seeds it from the store again.
+     *
+     * For a counter corrected outside this buffer's own accounting — an
+     * adjustment applied to the record itself rather than metered onto it —
+     * where the cached view would otherwise keep answering with what it had
+     * until the correction settles. Buffered increments are deliberately left
+     * alone: they are amounts the store hasn't seen yet, and the seeded view is
+     * what they are added to.
+     *
+     * Never throws. The correction is in the store either way; failing the call
+     * that made it over a cache that is about to be replaced anyway would be
+     * the worse outcome.
+     */
+    async forgetBase(key: string): Promise<void> {
+        const tag = bucketTag(key);
+        try {
+            await this.clients.redis.del(
+                baseKey(tag, key),
+                baseSeqKey(tag, key),
+            );
+        } catch (e) {
+            console.warn(
+                `[metering] cached base not dropped for ${key}: ${(e as Error).message}`,
+            );
+        }
+    }
+
     // -- Internals: client & scripts ----------------------------------
 
     get #redis(): ScriptRunner {
@@ -676,7 +740,7 @@ export class MeteringBufferStore extends PuterStore {
             lua: RECLAIM_SCRIPT,
         });
         client.defineCommand('meterSettle', {
-            numberOfKeys: 5,
+            numberOfKeys: 6,
             lua: SETTLE_SCRIPT,
         });
         client.defineCommand('meterRetire', {
@@ -1107,6 +1171,11 @@ export class MeteringBufferStore extends PuterStore {
             return;
         }
 
+        // Taken here rather than before the writes: what the base has to be
+        // ordered by is which settle came away with the newer view of the
+        // store, and that is decided by the write that just returned.
+        const seq = await this.#redis.incr(seqKey(tag));
+
         const flat = flattenAmounts(settled);
         await this.#redis.meterSettle(
             baseKey(tag, key),
@@ -1114,9 +1183,10 @@ export class MeteringBufferStore extends PuterStore {
             pendingIndexKey(tag),
             deltaKey(tag, key),
             trackedKey(tag),
+            baseSeqKey(tag, key),
             nonce,
             String(BUFFER_TTL_MS),
-            flat['total'] === undefined ? '' : String(flat['total']),
+            String(seq),
             key,
             ...toScriptArgs(flat),
         );

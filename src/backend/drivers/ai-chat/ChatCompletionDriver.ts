@@ -41,7 +41,9 @@ import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { HoonifyProvider } from './providers/hoonify/HoonifyProvider.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
+import { MetaProvider } from './providers/meta/MetaProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
@@ -56,6 +58,7 @@ import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
 import type {
     IChatCompleteResult,
+    IChatMessageResult,
     IChatModel,
     IChatProvider,
     ICompleteArguments,
@@ -70,6 +73,10 @@ import {
     isIdentityKey,
     normalizeModelKey,
 } from './utils/modelRouting.js';
+import {
+    normalizeResultToOpenAI,
+    shouldPresentAsOpenAI,
+} from './utils/normalizeToOpenAI.js';
 import { costKeys, isFreeModel } from './utils/pricing.js';
 import {
     isRouteUnhealthy,
@@ -670,16 +677,39 @@ export class ChatCompletionDriver extends PuterDriver {
             providerUsed: model.id,
         });
 
-        if (args.response?.normalize && 'message' in res && res.message) {
-            return {
-                ...res,
-                message: normalize_single_message(res.message),
-                normalized: true,
-                via_ai_chat_service: true,
-            };
+        // Response-format precedence: an explicit per-call `normalize` wins in
+        // both directions; the legacy `response.normalize` (internal
+        // block-format normalization) applies only when the new flag is
+        // absent; otherwise the release-date cutoff decides. The coercer is
+        // idempotent, so already-OpenAI-shaped results (most providers, or a
+        // Claude model served through a reseller fallback) pass through.
+        if ('message' in res && res.message) {
+            // `'message' in res` doesn't narrow the result union for TS.
+            const messageRes = res as IChatMessageResult;
+            if (shouldPresentAsOpenAI(args, model.release_date)) {
+                return {
+                    ...normalizeResultToOpenAI(messageRes),
+                    normalized: true,
+                    via_ai_chat_service: true,
+                };
+            }
+            // The legacy flag normalizes the other way — to Anthropic blocks —
+            // and only when the new flag is absent. It deliberately does NOT
+            // set `normalized`: that field is the caller's signal that the
+            // message is in the OpenAI shape, and this branch produces the
+            // opposite. Stamping both made the flag mean "some normalization
+            // happened", which no consumer can act on.
+            if (args.normalize !== false && args.response?.normalize) {
+                return {
+                    ...messageRes,
+                    message: normalize_single_message(messageRes.message),
+                    via_ai_chat_service: true,
+                };
+            }
         }
 
-        return { ...res, via_ai_chat_service: true };
+        // Streaming results returned above; only message results reach here.
+        return { ...(res as IChatMessageResult), via_ai_chat_service: true };
     }
 
     // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).
@@ -1134,6 +1164,23 @@ export class ChatCompletionDriver extends PuterDriver {
             });
         }
 
+        const meta = providers['meta'];
+        const metaKey = readKey(meta);
+        if (metaKey) {
+            this.#providers['meta'] = new MetaProvider(
+                metering,
+                {
+                    fsEntry: this.stores.fsEntry,
+                    s3Object: this.stores.s3Object,
+                },
+                this.services.fs,
+                {
+                    apiKey: metaKey,
+                    apiBaseUrl: meta?.apiBaseUrl as string | undefined,
+                },
+            );
+        }
+
         const groqKey = readKey(providers['groq']);
         if (groqKey) {
             this.#providers['groq'] = new GroqAIProvider(
@@ -1210,20 +1257,24 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const togetherKey = readKey(providers['together-ai']);
-        if (togetherKey) {
-            this.#providers['together-ai'] = new TogetherAIProvider(
-                { apiKey: togetherKey },
-                metering,
-            );
-        }
-
         // Ollama — auto-discover local instance unless `enabled: false`.
         const ollama = providers['ollama'];
         if (ollama?.enabled !== false) {
             this.#providers['ollama'] = new OllamaChatProvider(
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
+                },
+                metering,
+            );
+        }
+
+        const infron = providers['infron'];
+        const infronKey = readKey(infron);
+        if (infronKey) {
+            this.#providers['infron'] = new InfronProvider(
+                {
+                    apiKey: infronKey,
+                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -1241,14 +1292,10 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const infron = providers['infron'];
-        const infronKey = readKey(infron);
-        if (infronKey) {
-            this.#providers['infron'] = new InfronProvider(
-                {
-                    apiKey: infronKey,
-                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
-                },
+        const togetherKey = readKey(providers['together-ai']);
+        if (togetherKey) {
+            this.#providers['together-ai'] = new TogetherAIProvider(
+                { apiKey: togetherKey },
                 metering,
             );
         }
@@ -1295,6 +1342,18 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const hoonify = providers['hoonify'];
+        const hoonifyKey = readKey(hoonify);
+        if (hoonifyKey) {
+            this.#providers['hoonify'] = new HoonifyProvider(
+                {
+                    apiKey: hoonifyKey,
+                    apiBaseUrl: hoonify?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         // Fake provider — always available for testing
         this.#providers['fake-chat'] = new FakeChatProvider();
     }
@@ -1317,20 +1376,40 @@ export class ChatCompletionDriver extends PuterDriver {
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
 
-            for (const model of await provider.models()) {
-                model.id = normalizeModelKey(model.id);
-                if (model.puterId) {
-                    model.aliases = model.aliases
-                        ? [...model.aliases, model.puterId]
-                        : [model.puterId];
-                }
+            for (const entry of await provider.models()) {
+                // Catalogs are module-level constants shared by every driver
+                // instance, so they are read and never written: normalizing
+                // the id or appending puterId in place would accumulate across
+                // instantiations. The bucket gets its own copy instead.
+                const aliases =
+                    entry.puterId &&
+                    !(entry.aliases ?? []).includes(entry.puterId)
+                        ? [...(entry.aliases ?? []), entry.puterId]
+                        : entry.aliases;
+                const model = {
+                    ...entry,
+                    id: normalizeModelKey(entry.id),
+                };
+                // Assigned only when the entry has names to carry: models()
+                // is serialized to the API, and an entry that declared no
+                // aliases should not sprout an `aliases: []` key on the wire.
+                if (aliases) model.aliases = aliases;
 
                 // Catalogs derive an alias by stripping the vendor org off the
                 // id, which yields '' for ids that carry no org. Drop those —
                 // an empty key would pool unrelated models together.
-                const keys = [model.id, ...(model.aliases ?? [])]
-                    .map(normalizeModelKey)
-                    .filter((key) => key.length > 0);
+                //
+                // Names may repeat: an entry is free to list its own id among
+                // its aliases, and normalizing can collapse two spellings onto
+                // one key. Deduplicate so a repeat can neither register a key
+                // twice nor make the bucket search consider it twice.
+                const keys = [
+                    ...new Set(
+                        [model.id, ...(aliases ?? [])]
+                            .map(normalizeModelKey)
+                            .filter((key) => key.length > 0),
+                    ),
+                ];
 
                 const bucket =
                     keys

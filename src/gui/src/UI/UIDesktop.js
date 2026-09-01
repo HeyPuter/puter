@@ -32,16 +32,19 @@ import UIWindowQR from './UIWindowQR.js';
 
 import UIWindowProgress from './UIWindowProgress.js';
 import UITaskbar from './UITaskbar.js';
-import new_context_menu_item from '../helpers/new_context_menu_item.js';
-import refresh_item_container from '../helpers/refresh_item_container.js';
+import new_context_menu_item from '../helpers/newContextMenuItem.js';
+import refresh_item_container from '../helpers/refreshItemContainer.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
 import UIWindowTaskManager from './UIWindowTaskManager.js';
-import truncate_filename from '../helpers/truncate_filename.js';
+import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
-import launch_app from '../helpers/launch_app.js';
-import item_icon from '../helpers/item_icon.js';
-import apply_item_added_to_containers from '../helpers/apply_item_added_to_containers.js';
+import launch_app from '../helpers/launchApp.js';
+import item_icon from '../helpers/itemIcon.js';
+import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
+import resolve_shared_item from '../helpers/resolveSharedItem.js';
+import { markNotificationAcknowledged } from '../helpers/notificationApi.js';
+import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
 async function UIDesktop (options) {
@@ -208,6 +211,27 @@ async function UIDesktop (options) {
         }
     });
 
+    /** Clicking a share notification opens the item, or Shared if grouped. */
+    const share_notification_click = (notification) => {
+        if ( notification?.source !== 'sharing' ) return undefined;
+        const target = notification?.fields?.target;
+        if ( target?.path ) {
+            return () => {
+                open_shared_item(target.path);
+            };
+        }
+        // Grouped: open where they all landed rather than picking one.
+        return () => {
+            UIWindow({
+                path: window.shared_path,
+                title: i18n('shared'),
+                icon: window.icons['sidebar-folder-shared.svg'],
+                is_dir: true,
+                app: 'explorer',
+            });
+        };
+    };
+
     /**
      * This event is triggered if a user receives a notification during
      * an active session.
@@ -215,22 +239,26 @@ async function UIDesktop (options) {
     window.socket.on('notif.message', async ({ uid, notification }) => {
         let icon = window.icons[notification.icon];
 
+        // A notification can be re-sent under its own uid when what it says has
+        // grown — several people sharing with you is one notification that
+        // counts them. Refresh the one on screen rather than stacking a copy.
+        const $showing = $(`.notification[data-uid="${html_encode(uid)}"]`);
+        if ( $showing.length ) {
+            $showing.find('.notification-title').text(notification.title);
+            $showing.find('.notification-text').text(notification.text ?? '');
+            return;
+        }
+
         UINotification({
             title: notification.title,
             text: notification.text,
             icon: icon,
             value: notification,
             uid,
-            close: async () => {
-                await fetch(`${window.api_origin}/notif/mark-ack`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ uid }),
-                });
-            },
+            click: share_notification_click(notification),
+            close: () => markNotificationAcknowledged(uid).catch((err) => {
+                console.warn('Could not acknowledge notification:', err);
+            }),
         });
     });
 
@@ -256,18 +284,11 @@ async function UIDesktop (options) {
                 title: notification.title,
                 text: notification.text ?? notification.title,
                 uid: notif_info.uid,
-                close: async () => {
-                    await fetch(`${window.api_origin}/notif/mark-ack`, {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${puter.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            uid: notif_info.uid,
-                        }),
-                    });
-                },
+                value: notification,
+                click: share_notification_click(notification),
+                close: () => markNotificationAcknowledged(notif_info.uid).catch((err) => {
+                    console.warn('Could not acknowledge notification:', err);
+                }),
             });
         }
     });
@@ -1713,10 +1734,17 @@ async function UIDesktop (options) {
             return;
         }
 
-        // TODO: DRY everything here with open_item. Unfortunately we can't
-        //       use open_item here because it's coupled with UI logic;
-        //       it requires a UIItem element and cannot operate on a
-        //       file path on its own.
+        await open_path_target(item_path, stat);
+    }
+
+    /**
+     * Open a path as double-clicking would: the associated app for a file, an
+     * explorer window for a directory.
+     *
+     * TODO: DRY with open_item, which is coupled to a UIItem element and can't
+     *       operate on a path alone.
+     */
+    async function open_path_target (item_path, stat) {
         if ( ! stat.is_dir ) {
             if ( stat.associated_app ) {
                 launch_app({ name: stat.associated_app.name });
@@ -1785,6 +1813,53 @@ async function UIDesktop (options) {
             is_dir: true,
             app: 'explorer',
         });
+    }
+
+    /** Open an item somebody shared, addressed as `/<owner>/<uuid>/<name>`. */
+    async function open_shared_item (shared_path) {
+        const stat = await resolve_shared_item(puter.fs, shared_path);
+        if ( ! stat ) {
+            UIAlert({
+                message: i18n('error_user_or_path_not_found'),
+                type: 'error',
+            });
+            return false;
+        }
+
+        // `stat` returns the path this viewer may use, which is the one to open.
+        await open_path_target(stat.path ?? shared_path, stat);
+        return true;
+    }
+
+    /**
+     * Act on a share link. A share only ever reaches a real account, so a
+     * temporary session is never the recipient: signing out of the way first
+     * beats resolving the link as somebody who can't see it and burning it on
+     * a "not found". The link stays in the address bar across the prompt
+     * because login reloads on success, which brings it back for the account
+     * that can actually open it.
+     */
+    async function handle_shared_link (shared_path) {
+        if ( window.user?.is_temp ) {
+            await UIWindowLogin({
+                reload_on_success: true,
+                window_options: { cover_page: true, has_head: false },
+            });
+            // Dismissed without signing in: drop the link rather than loop.
+            if ( window.user?.is_temp ) clear_shared_param();
+            return;
+        }
+        clear_shared_param();
+        await open_shared_item(shared_path);
+    }
+
+    //--------------------------------------------------------------------------------------
+    // Opening an item someone shared, on the desktop
+    // i.e. https://puter.com/desktop?shared=%2F<owner>%2F<uuid>%2F<name>
+    // (the same link at the root lands in the dashboard's Shared view instead)
+    //--------------------------------------------------------------------------------------
+    if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
+        await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));
     }
 
     //--------------------------------------------------------------------------------------

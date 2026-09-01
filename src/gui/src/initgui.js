@@ -39,8 +39,8 @@ import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
-import create_access_token from './helpers/create_access_token.js';
-import create_gui_token from './helpers/create_gui_token.js';
+import create_access_token from './helpers/createAccessToken.js';
+import create_gui_token from './helpers/createGuiToken.js';
 import {
     authmeRequestUrl,
     authmeReturnUrl,
@@ -50,18 +50,20 @@ import {
     urlTokenParam,
     wantsFullToken,
 } from './util/authmeGrant.js';
-import init_device_signals from './helpers/device_signals.js';
-import item_icon from './helpers/item_icon.js';
-import launch_app from './helpers/launch_app.js';
-import { parse_url_paths } from './helpers/url_paths.js';
-import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
-import update_mouse_position from './helpers/update_mouse_position.js';
-import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
+import init_device_signals from './helpers/deviceSignals.js';
+import { holdsPermissions } from './helpers/holdsPermissions.js';
+import item_icon from './helpers/itemIcon.js';
+import launch_app from './helpers/launchApp.js';
+import { parse_url_paths } from './helpers/urlPaths.js';
+import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
+import update_mouse_position from './helpers/updateMousePosition.js';
+import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
 import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
+import { PictureInPictureService } from './services/PictureInPictureService.js';
 import { IPCService } from './services/IPCService.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
@@ -80,6 +82,9 @@ const postAuthActions = async (action) => {
     // bootstraps the app row a permission grant is written against, so an
     // action that depends on it has to report failure rather than prompt.
     let token_exchange_failed = false;
+    // The token the exchange minted for the opener's app, kept only to ask what
+    // that app holds — a question this window's own token cannot answer.
+    let user_app_token = null;
     // -------------------------------------------------------------------------------------
     // Action: AuthMe — redirect to a third-party URL with the user's auth token
     // -------------------------------------------------------------------------------------
@@ -384,6 +389,7 @@ const postAuthActions = async (action) => {
                 // This is an implicit app and the app_uid is sent back from the server
                 // we cache it here so that we can use it later
                 window.host_app_uid = data.app_uid;
+                user_app_token = data.token;
                 // send token to parent. The opener is unreachable when it is
                 // cross-origin isolated (COOP severs the relationship); those
                 // flows learn the outcome server-side instead.
@@ -687,6 +693,9 @@ const postAuthActions = async (action) => {
             if ( token_exchange_failed ) {
                 throw new Error('token exchange failed; not prompting');
             }
+            // A signed-out opener holds no token to settle this for itself, so
+            // ask here, as the app, with the token the exchange just minted.
+            const already_held = await holdsPermissions(permissions, user_app_token);
             // The requesting app is identified by its origin, and only the
             // server turns that origin into a grant target. No uid is sent
             // from here: a uid from the query string is chosen by whoever
@@ -699,7 +708,7 @@ const postAuthActions = async (action) => {
             // name. Passing the origin instead makes the server resolve the
             // same origin the dialog displayed, and reject it outright
             // unless it names an app that really exists.
-            granted = await UIPermissionDialog({
+            granted = already_held || await UIPermissionDialog({
                 // See IPC.js: both forms, so a single scope still works with a
                 // dialog that only understands the scalar.
                 permissions,
@@ -829,6 +838,7 @@ const launch_services = async function (options) {
     // === Builtin Services ===
     register('ipc', new IPCService());
     register('exec', new ExecService());
+    register('pip', new PictureInPictureService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
@@ -909,9 +919,11 @@ if (jQuery) {
 // through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
 // (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// fullpage mode (`?puter.fullpage=`), and iframe embeds. App metadata like
-// fullpage_on_landing does NOT opt a landing out of the dashboard; it only affects
-// boots that still go through the desktop flow.
+// fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// from an email) lands in the dashboard: Files, on Shared, with the items it names
+// picked out; `/desktop?shared=` opens the item on the desktop instead. App metadata
+// like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
+// affects boots that still go through the desktop flow.
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
@@ -932,6 +944,15 @@ if (jQuery) {
     if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
+        // A share link outranks the hash: Files, on Shared, with what it names
+        // picked out. The values go through raw — the Files tab validates them.
+        if (search_params.has('shared')) {
+            window.dashboard_initial_route = {
+                tab: 'files',
+                path: null,
+                shared: search_params.getAll('shared'),
+            };
+        }
     }
 }
 
@@ -1684,6 +1705,10 @@ window.initgui = async function (options) {
                 } while (!is_verified);
             }
             // is phone verification required? (hard gate for low-rep signups)
+            // A user the SMS path keeps failing may be offered the card
+            // fallback instead; that resolves 'card' and clears the card gate
+            // too (see UIWindowPhoneVerificationRequired).
+            let card_gate_cleared_by_fallback = false;
             if (whoami.requires_phone_verification) {
                 let is_verified;
                 do {
@@ -1691,15 +1716,23 @@ window.initgui = async function (options) {
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
+                        // Already out of SMS attempts (the offer outlives the
+                        // send window, and no send can report it any more).
+                        card_fallback_available:
+                            whoami.card_fallback_available,
                         window_options: {
                             is_draggable: false,
                         },
                     });
                 } while (!is_verified);
+                card_gate_cleared_by_fallback = is_verified === 'card';
             }
             // Card verification is the last gate: only show it once the email and
             // phone (SMS) gates are cleared, since those show up first.
-            if (whoami.requires_card_verification) {
+            if (
+                whoami.requires_card_verification &&
+                !card_gate_cleared_by_fallback
+            ) {
                 let is_verified;
                 do {
                     is_verified = await UIWindowCardVerificationRequired({
@@ -1930,6 +1963,14 @@ window.initgui = async function (options) {
         }
         // update local user data
         if (whoami) {
+            // The server renders the /app/<name> landing overlay only for
+            // requests it saw as anonymous, but its only signal is the session
+            // cookie — which can be gone (e.g. browser restart) while the
+            // localStorage session is still valid. whoami just proved this is
+            // a logged-in user, so drop the overlay. This must happen before
+            // the verification gates below: the overlay's max z-index would
+            // cover them.
+            document.getElementById('appLanding')?.remove();
             // Verification gates run in order: email → phone (SMS) → card,
             // matching the server-side order in assertVerifiedAccount.
             if (whoami.requires_email_confirmation) {
@@ -1948,6 +1989,10 @@ window.initgui = async function (options) {
                 } while (!is_verified);
             }
             // is phone verification required? (hard gate for low-rep signups)
+            // A user the SMS path keeps failing may be offered the card
+            // fallback instead; that resolves 'card' and clears the card gate
+            // too (see UIWindowPhoneVerificationRequired).
+            let card_gate_cleared_by_fallback = false;
             if (whoami.requires_phone_verification) {
                 let is_verified;
                 do {
@@ -1956,16 +2001,24 @@ window.initgui = async function (options) {
                         stay_on_top: true,
                         has_head: false,
                         logout_in_footer: true,
+                        // Already out of SMS attempts (the offer outlives the
+                        // send window, and no send can report it any more).
+                        card_fallback_available:
+                            whoami.card_fallback_available,
                         window_options: {
                             is_draggable: false,
                             cover_page: window.is_embedded,
                         },
                     });
                 } while (!is_verified);
+                card_gate_cleared_by_fallback = is_verified === 'card';
             }
             // Card verification is the last gate: only show it once the email and
             // phone (SMS) gates are cleared, since those show up first.
-            if (whoami.requires_card_verification) {
+            if (
+                whoami.requires_card_verification &&
+                !card_gate_cleared_by_fallback
+            ) {
                 let is_verified;
                 do {
                     is_verified = await UIWindowCardVerificationRequired({
@@ -2004,11 +2057,14 @@ window.initgui = async function (options) {
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
     // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
-    // real account even on a first visit — never a temp user.
+    // real account even on a first visit — never a temp user. So does a share
+    // link: a share only ever reaches a real account, so a temporary one could
+    // never see what it points at.
     const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
+    const is_share_link = window.url_query_params.has('shared');
     if (
         !window.is_auth() &&
-        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page)
+        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link)
     ) {
         // `npm start --server=<remote>` serves this GUI locally while pointing
         // `gui_origin` at a remote Puter. There is nothing here to log into:

@@ -1,0 +1,826 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import path from '../lib/path.js';
+import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
+import UIWindow from '../UI/UIWindow.js';
+import { starts_hidden } from './startsHidden.js';
+import { append_signed_item_params } from './appendSignedItemParams.js';
+
+const normalizePrivateAccessDecision = (privateAccess) => {
+    if ( !privateAccess || typeof privateAccess !== 'object' ) {
+        return null;
+    }
+
+    return {
+        hasAccess: !!privateAccess.hasAccess,
+        fallbackAppName: typeof privateAccess.fallbackAppName === 'string'
+            ? privateAccess.fallbackAppName.trim()
+            : '',
+        fallbackArgs: privateAccess.fallbackArgs &&
+            typeof privateAccess.fallbackArgs === 'object' &&
+            !Array.isArray(privateAccess.fallbackArgs)
+            ? privateAccess.fallbackArgs
+            : {},
+        reason: typeof privateAccess.reason === 'string'
+            ? privateAccess.reason
+            : undefined,
+    };
+};
+
+const getLaunchResult = (launchOutcome) => {
+    if ( !launchOutcome || typeof launchOutcome !== 'object' ) {
+        return null;
+    }
+    if ( launchOutcome.launchResult && typeof launchOutcome.launchResult === 'object' ) {
+        return launchOutcome.launchResult;
+    }
+    return null;
+};
+
+const endLaunchTransaction = (transaction, outcome) => {
+    if ( transaction ) {
+        if ( outcome ) transaction.annotate({ outcome });
+        transaction.end();
+    }
+};
+
+const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
+    if ( ! appUid ) {
+        return {
+            token: null,
+            reason: 'missing-app-uid',
+        };
+    }
+
+    try {
+        const response = await fetch(`${window.api_origin }/auth/get-user-app-token`, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${ window.auth_token}`,
+            },
+            body: JSON.stringify({ app_uid: appUid }),
+            method: 'POST',
+        });
+
+        let responseBody;
+        try {
+            responseBody = await response.json();
+        } catch ( error ) {
+            responseBody = null;
+        }
+
+        if ( response.ok && responseBody?.token ) {
+            return {
+                token: responseBody.token,
+            };
+        }
+
+        return {
+            token: null,
+            reason: 'token-request-failed',
+            status: response.status,
+            responseCode: responseBody?.code ?? responseBody?.error?.code,
+            responseMessage: responseBody?.message ?? responseBody?.error?.message,
+            responseBody,
+            attempts: 1,
+        };
+    } catch ( error ) {
+        return {
+            token: null,
+            reason: 'network-error',
+            error,
+            attempts: 1,
+        };
+    }
+};
+
+/**
+ * Launches an app.
+ *
+ * @param {*} options.name - The name of the app to launch.
+ */
+const launch_app = async (options) => {
+    let transaction;
+    // Ends once the app signals over IPC, i.e. when it can actually be used.
+    // Only apps built on the SDK ever signal, so this one is deliberately
+    // left unended (and therefore unreported) for the rest — better a series
+    // that covers fewer launches than one padded with timeouts.
+    let interactiveTransaction;
+    // A transaction to trace the time it takes to launch an app and
+    // for it to be ready.
+    // Explorer is a special case, it's not an app per se, so it doesn't need a transaction.
+    if ( options?.name !== 'explorer' ) {
+        // Attribute the timing: the same span covers a tile click on a warm
+        // dashboard and a cold landing on /app/<name>, which are different
+        // enough that a combined percentile describes neither.
+        const launchAttributes = {
+            'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
+            'launch.dashboard_mode': !! window.is_dashboard_mode,
+            // url_paths has the `/desktop` prefix stripped, so this counts the
+            // desktop-booted landing (`/desktop/app/<name>`) as the app URL
+            // it is.
+            'launch.from_app_url':
+                window.url_paths?.[0]?.toLocaleLowerCase() === 'app'
+                && !! window.url_paths?.[1],
+            'launch.has_app_obj': !! options?.app_obj,
+        };
+        // Exec-service launches never get the IPC listener attached below,
+        // so no interactive span is expected for them. Recording that here
+        // gives the interactive series a denominator: how many launches
+        // could have produced one.
+        const ipcTracked = ! options?.launched_by_exec_service;
+
+        transaction = new window.Transaction('app-is-ready', {
+            ...launchAttributes,
+            'launch.ipc_tracked': ipcTracked,
+        });
+        transaction.start();
+
+        if ( ipcTracked ) {
+            interactiveTransaction = new window.Transaction(
+                'app-interactive', launchAttributes);
+            interactiveTransaction.start();
+        }
+    }
+
+    const uuid = options.uuid ?? window.uuidv4();
+    let icon, title, file_signature;
+    const window_options = options.window_options ?? {};
+    const privateLaunchRedirectDepth = Number(options.privateLaunchRedirectDepth ?? 0);
+
+    if ( options.parent_instance_id ) {
+        window_options.parent_instance_id = options.parent_instance_id;
+    }
+
+    // If the app object is not provided, get it from the server
+    let app_info;
+
+    // explorer is a special case
+    if ( options.name === 'explorer' ) {
+        app_info = [];
+    }
+    else if ( options.app_obj )
+    {
+        app_info = options.app_obj;
+    }
+    else
+    {
+        app_info = await puter.apps.get(options.name, { icon_size: 64 });
+    }
+
+    // For backward compatibility reasons we need to make sure that both `uuid` and `uid` are set
+    app_info.uuid = app_info.uuid ?? app_info.uid;
+    app_info.uid = app_info.uid ?? app_info.uuid;
+
+    // If no `options.name` is provided, use the app name from the app_info
+    options.name = options.name ?? app_info.name;
+    const resolvedAppName = { 'launch.app': options.name ?? 'unknown' };
+    transaction?.annotate(resolvedAppName);
+    interactiveTransaction?.annotate(resolvedAppName);
+    const requestedAppName = options.privateLaunchRequestedAppName ?? options.name ?? app_info.name ?? null;
+    const privateAccessDecision = normalizePrivateAccessDecision(app_info.privateAccess);
+
+    if ( privateAccessDecision && privateAccessDecision.hasAccess === false ) {
+        const fallbackAppName = privateAccessDecision.fallbackAppName;
+        const fallbackArgs = privateAccessDecision.fallbackArgs ?? {};
+
+        if ( fallbackAppName && privateLaunchRedirectDepth < 1 && fallbackAppName !== options.name ) {
+            const fallbackLaunchOutcome = await launch_app({
+                ...options,
+                name: fallbackAppName,
+                args: fallbackArgs,
+                app_obj: undefined,
+                privateLaunchRequestedAppName: requestedAppName,
+                privateLaunchRedirectDepth: privateLaunchRedirectDepth + 1,
+            });
+
+            const fallbackLaunchResult = getLaunchResult(fallbackLaunchOutcome) ?? {
+                launched: true,
+                requestedAppName,
+                openedAppName: fallbackAppName,
+                redirectedToFallback: true,
+                deniedPrivateAccess: true,
+                privateAccess: privateAccessDecision,
+            };
+            const redirectedLaunchResult = {
+                ...fallbackLaunchResult,
+                requestedAppName,
+                redirectedToFallback: true,
+                deniedPrivateAccess: true,
+                privateAccess: privateAccessDecision,
+            };
+
+            if ( fallbackLaunchOutcome && typeof fallbackLaunchOutcome === 'object' ) {
+                fallbackLaunchOutcome.launchResult = redirectedLaunchResult;
+            }
+
+            endLaunchTransaction(transaction, 'redirected-to-fallback');
+            return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
+        }
+
+        if ( ! options?.silent_on_failure ) {
+            const deniedAppTitle = app_info.title ?? app_info.name ?? options.name ?? 'this app';
+            const safeDeniedAppTitle = window.html_encode
+                ? window.html_encode(deniedAppTitle)
+                : deniedAppTitle;
+            if ( typeof window.UIAlert === 'function' ) {
+                await window.UIAlert(`You don't have access to ${safeDeniedAppTitle}.`);
+            } else {
+                window.alert(`You don't have access to ${deniedAppTitle}.`);
+            }
+        }
+
+        const deniedLaunchResult = {
+            launched: false,
+            requestedAppName,
+            openedAppName: null,
+            appInstanceID: null,
+            appUid: null,
+            redirectedToFallback: false,
+            deniedPrivateAccess: true,
+            privateAccess: privateAccessDecision,
+        };
+        endLaunchTransaction(transaction, 'denied-private-access');
+        return { launchResult: deniedLaunchResult };
+    }
+
+    //-----------------------------------
+    // icon
+    //-----------------------------------
+    if ( app_info.icon )
+    {
+        icon = app_info.icon;
+    }
+    else if ( options.name === 'explorer' )
+    {
+        icon = window.icons['folder.svg'];
+    }
+    else
+    {
+        icon = window.icons[`app-icon-${options.name}.svg`];
+    }
+
+    //-----------------------------------
+    // title
+    //-----------------------------------
+    if ( app_info.title )
+    {
+        title = app_info.title;
+    }
+    else if ( options.window_title )
+    {
+        title = options.window_title;
+    }
+    else if ( options.name )
+    {
+        title = options.name;
+    }
+
+    //-----------------------------------
+    // maximize on start
+    //-----------------------------------
+    if ( app_info.maximize_on_start ) {
+        options.maximized = 1;
+    }
+    // Dashboard mode: apps are full-tab experiences (headless chrome,
+    // control drawer, tile/Back switching), so every app launch defaults
+    // to maximized — matching tile launches. Without this, an app launched
+    // by another app (puter.ui.launchApp) opened as a floating titlebar
+    // window over the full-tab parent, with no tile to switch back to.
+    // Explorer keeps its windowed form; an explicit option still wins.
+    if ( window.is_dashboard_mode && options.maximized === undefined
+        && options.name !== 'explorer' && options.name !== 'trash' ) {
+        options.maximized = 1;
+    }
+    //-----------------------------------
+    // if opened a file, sign it
+    //-----------------------------------
+    if ( options.file_signature )
+    {
+        file_signature = options.file_signature;
+    }
+    else if ( options.file_uid ) {
+        file_signature = await puter.fs.sign(app_info.uuid, { uid: options.file_uid, action: 'write' });
+        // add token to options
+        options.token = file_signature.token;
+        // add file_signature to options
+        file_signature = file_signature.items;
+    }
+
+    // -----------------------------------
+    // Create entry to track the "portal"
+    // (portals are processese in Puter's GUI)
+    // -----------------------------------
+
+    let el_win;
+    let process;
+
+    //------------------------------------
+    // Explorer
+    //------------------------------------
+    if ( options.name === 'explorer' || options.name === 'trash' ) {
+        process = new PseudoProcess({
+            uuid,
+            name: 'explorer',
+            parent: options.parent_instance_id,
+            meta: {
+                launch_options: options,
+                app_info: app_info,
+            },
+        });
+        const svc_process = globalThis.services.get('process');
+        svc_process.register(process);
+        if ( options.path === window.home_path ) {
+            title = i18n('home');
+            icon = window.icons['folder-home.svg'];
+        }
+        else if ( options.path === window.trash_path ) {
+            title = 'Trash';
+            icon = window.icons['trash.svg'];
+        }
+        else if ( ! options.path )
+        {
+            title = window.root_dirname;
+        }
+        else
+        {
+            title = path.dirname(options.path);
+        }
+
+        // if options.args.path is provided, use it as the path
+        if ( options.args?.path ) {
+            // if args.path is provided, enforce the directory
+            let fsentry = await puter.fs.stat({ path: options.args.path, consistency: 'eventual' });
+            if ( ! fsentry.is_dir ) {
+                let parent = path.dirname(options.args.path);
+                if ( parent === options.args.path )
+                {
+                    parent = window.home_path;
+                }
+                options.path = parent;
+            } else {
+                options.path = options.args.path;
+            }
+        }
+
+        // if path starts with ~, replace it with home_path
+        if ( options.path && options.path.startsWith('~/') )
+        {
+            options.path = window.home_path + options.path.slice(1);
+        }
+        // if path is ~, replace it with home_path
+        else if ( options.path === '~' )
+        {
+            options.path = window.home_path;
+        }
+
+        // open window
+        el_win = UIWindow({
+            element_uuid: uuid,
+            icon: icon,
+            path: options.path ?? window.home_path,
+            title: title,
+            uid: null,
+            is_dir: true,
+            app: 'explorer',
+            ...window_options,
+            is_maximized: options.maximized,
+        });
+    }
+    //------------------------------------
+    // All other apps
+    //------------------------------------
+    else {
+        process = new PortalProcess({
+            uuid,
+            name: app_info.name,
+            parent: options.parent_instance_id,
+            meta: {
+                launch_options: options,
+                app_info: app_info,
+            },
+        });
+        const svc_process = globalThis.services.get('process');
+        svc_process.register(process);
+
+        //-----------------------------------
+        // iframe_url
+        //-----------------------------------
+        let iframe_url;
+
+        // This can be any trusted URL that won't be used for other apps
+        const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
+
+        if ( ! app_info.index_url ) {
+            iframe_url = new URL(`https://${options.name}.${ window.app_domain }/index.html`);
+        } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
+            const name = app_info.index_url.slice(BUILTIN_PREFIX.length);
+            iframe_url = new URL(`${window.gui_origin}/builtin/${name}`);
+        } else {
+            iframe_url = new URL(app_info.index_url);
+        }
+
+        // add app_instance_id to URL
+        iframe_url.searchParams.append('puter.app_instance_id', uuid);
+
+        // add app_id to URL
+        iframe_url.searchParams.append('puter.app.id', app_info.uuid);
+        iframe_url.searchParams.append('puter.app.name', app_info.name);
+
+        // add parent_app_instance_id to URL
+        if ( options.parent_instance_id ) {
+            iframe_url.searchParams.append('puter.parent_instance_id', options.parent_pseudo_id);
+        }
+
+        // add source app metadata to URL
+        if ( options.source_app_title ) {
+            iframe_url.searchParams.append('puter.source_app.title', options.source_app_title);
+        }
+        if ( options.source_app_id ) {
+            iframe_url.searchParams.append('puter.source_app.id', options.source_app_id);
+        }
+        if ( options.source_app_icon ) {
+            iframe_url.searchParams.append('puter.source_app.icon', options.source_app_icon);
+        }
+        if ( options.source_app_name ) {
+            iframe_url.searchParams.append('puter.source_app.name', options.source_app_name);
+        }
+
+        if ( file_signature ) {
+            append_signed_item_params(
+                iframe_url.searchParams,
+                file_signature,
+                options.file_path ? privacy_aware_path(options.file_path) : file_signature.path,
+            );
+        }
+        else if ( options.readURL ) {
+            iframe_url.searchParams.append('puter.item.name', options.filename);
+            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
+            iframe_url.searchParams.append('puter.item.read_url', options.readURL);
+        }
+
+        // In godmode, we add the super token to the iframe URL
+        // so that the app can access everything.
+        if ( app_info.godmode && (app_info.godmode === true || app_info.godmode === 1) ) {
+            iframe_url.searchParams.append('puter.auth.token', window.auth_token);
+            iframe_url.searchParams.append('puter.auth.username', window.user.username);
+        }
+        // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
+        // that has access to everything.
+        else if ( options.token ) {
+            iframe_url.searchParams.append('puter.auth.token', options.token);
+        } else {
+            const tokenResult = await fetchUserAppTokenForLaunch({
+                appUid: app_info.uid ?? app_info.uuid,
+            });
+
+            if ( tokenResult?.token ) {
+                iframe_url.searchParams.append('puter.auth.token', tokenResult.token);
+            } else {
+                console.error('App launch blocked because app token could not be acquired', {
+                    appName: app_info?.name ?? options?.name,
+                    appUid: app_info?.uid ?? app_info?.uuid,
+                    tokenResult,
+                });
+
+                // `silent_on_failure` callers (e.g. best-effort auto-launches
+                // like the AI panel on desktop boot) skip the blocking alert.
+                if ( ! options?.silent_on_failure ) {
+                    const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
+                    const safeTokenErrorAppTitle = window.html_encode
+                        ? window.html_encode(tokenErrorAppTitle)
+                        : tokenErrorAppTitle;
+                    if ( typeof window.UIAlert === 'function' ) {
+                        await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
+                    } else {
+                        window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
+                    }
+                }
+
+                const tokenFailureLaunchResult = {
+                    launched: false,
+                    requestedAppName,
+                    openedAppName: null,
+                    appInstanceID: null,
+                    appUid: app_info?.uid ?? app_info?.uuid ?? null,
+                    redirectedToFallback: privateLaunchRedirectDepth > 0,
+                    deniedPrivateAccess: false,
+                    privateAccess: privateAccessDecision ?? undefined,
+                    authTokenAcquired: false,
+                };
+                endLaunchTransaction(transaction, 'token-unavailable');
+                return { launchResult: tokenFailureLaunchResult };
+            }
+        }
+
+        iframe_url.searchParams.append('puter.domain', window.app_domain);
+
+        // get URL parts
+        const url = new URL(window.location.href);
+
+        iframe_url.searchParams.append('puter.origin', url.origin);
+        iframe_url.searchParams.append('puter.hostname', url.hostname);
+        iframe_url.searchParams.append('puter.port', url.port);
+        iframe_url.searchParams.append('puter.protocol', url.protocol.slice(0, -1));
+
+        if ( window.api_origin )
+        {
+            iframe_url.searchParams.append('puter.api_origin', window.api_origin);
+        }
+
+        // Add options.params to URL
+        if ( options.params ) {
+            for ( const property in options.params ) {
+                iframe_url.searchParams.append(property, options.params[property]);
+            }
+        }
+
+        // Add locale to URL
+        iframe_url.searchParams.append('puter.locale', window.locale);
+
+        // Newer IPC dialogs this GUI can answer, comma-separated. The SDK
+        // consults this before posting a message an older GUI has no handler
+        // for: such a message is never replied to, and a reply timeout can't
+        // stand in for the check because legitimate replies only arrive when
+        // the user closes the dialog.
+        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog');
+
+        // Add options.args to URL
+        iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
+
+        // ...and finally append utm_source=puter.com to the URL
+        iframe_url.searchParams.append('utm_source', 'puter.com');
+
+        // register app_instance_uid
+        window.app_instance_ids.add(uuid);
+
+        // width
+        let window_width;
+        if ( app_info.metadata?.window_size?.width !== undefined && app_info.metadata?.window_size?.width !== '' )
+        {
+            window_width = parseFloat(app_info.metadata.window_size.width);
+        }
+        if ( options.maximized )
+        {
+            window_width = '100%';
+        }
+
+        // height
+        let window_height;
+        if ( app_info.metadata?.window_size?.height !== undefined && app_info.metadata?.window_size?.height !== '' ) {
+            window_height = parseFloat(app_info.metadata.window_size.height);
+        } if ( options.maximized )
+        {
+            window_height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`;
+        }
+
+        // top
+        let top;
+        if ( app_info.metadata?.window_position?.top !== undefined && app_info.metadata?.window_position?.top !== '' )
+        {
+            top = parseFloat(app_info.metadata.window_position.top) + window.toolbar_height + 1;
+        }
+        if ( options.maximized )
+        {
+            top = 0;
+        }
+
+        // left
+        let left;
+        if ( app_info.metadata?.window_position?.left !== undefined && app_info.metadata?.window_position?.left !== '' )
+        {
+            left = parseFloat(app_info.metadata.window_position.left);
+        }
+        if ( options.maximized )
+        {
+            left = 0;
+        }
+
+        // window_resizable
+        let window_resizable = true;
+        if ( app_info.metadata?.window_resizable !== undefined && typeof app_info.metadata.window_resizable === 'boolean' )
+        {
+            window_resizable = app_info.metadata.window_resizable;
+        }
+
+        // hide_titlebar
+        let hide_titlebar = false;
+        if ( app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean' )
+        {
+            hide_titlebar = app_info.metadata.hide_titlebar;
+        }
+
+        // credentialless
+        let credentialless = false;
+        if ( app_info.metadata?.credentialless !== undefined && typeof app_info.metadata.credentialless === 'boolean' )
+        {
+            credentialless = app_info.metadata.credentialless;
+        }
+
+        // set_title_to_opened_file
+        // if set_title_to_opened_file is true, set the title to the opened file's name
+        if ( app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true )
+        {
+            title = options.file_path ? path.basename(options.file_path) : title;
+        }
+
+        // show_in_taskbar
+        // Deliberately keyed on the app's own `background`, not on this launch's:
+        // an app that always runs windowless has nothing to put in the taskbar,
+        // ever. A background *launch* is a normal app that happens to start
+        // hidden, so it keeps asking for an item — UIWindow just holds it back
+        // until the window is first shown (see its taskbar block).
+        let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
+        if ( window_options?.show_in_taskbar !== undefined )
+        {
+            show_in_taskbar = window_options.show_in_taskbar;
+        }
+
+        // has_head
+        let has_head = app_info.metadata?.has_head !== undefined ? app_info.metadata.has_head : window_options?.has_head;
+        if ( app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean' && app_info.metadata.hide_titlebar === true )
+        {
+            has_head = false;
+        }
+        if ( window_options?.has_head !== undefined )
+        {
+            has_head = window_options.has_head;
+        }
+
+        // update_window_url
+        let update_window_url = true;
+        if ( options.update_window_url !== undefined && typeof options.update_window_url === 'boolean' )
+        {
+            update_window_url = options.update_window_url;
+        }
+
+        let custom_path;
+        if ( options.custom_path !== undefined )
+        {
+            custom_path = options.custom_path;
+        }
+
+        // open window
+        el_win = UIWindow({
+            element_uuid: uuid,
+            title: title,
+            iframe_url: iframe_url.href,
+            params: options.params ?? undefined,
+            icon: icon,
+            window_class: 'window-app',
+            update_window_url: true,
+            app_uuid: app_info.uuid ?? app_info.uid,
+            // Surfaced on the dashboard app-drawer as a "Send Feedback"
+            // control when the developer opted in (apps.feedbackEnabled).
+            feedback_enabled: app_info.feedback_enabled,
+            top: top,
+            left: left,
+            height: window_height,
+            width: window_width,
+            app: options.name,
+            iframe_credentialless: credentialless,
+            // The file this instance was launched to open, stamped on the
+            // window as data-file_uid so open_item can restore this window
+            // when the same file is opened again (the signature's uid wins:
+            // it's resolved, e.g. a shortcut's uid becomes its target's).
+            file_uid: file_signature?.uid ?? options.file_uid,
+            is_visible: !starts_hidden(app_info, options),
+            // Marks a window the user has never seen, so closing the app that
+            // launched it can take it down with it (see UIWindow's close path).
+            launched_hidden: starts_hidden(app_info, options),
+            is_maximized: options.maximized,
+            is_fullpage: options.is_fullpage,
+            ...(options.pseudonym ? { pseudonym: options.pseudonym } : {}),
+            ...window_options,
+            is_resizable: window_resizable,
+            has_head: has_head,
+            show_in_taskbar: show_in_taskbar,
+            update_window_url: update_window_url,
+            custom_path: custom_path,
+        });
+
+        // If the app is not in the background, show the window
+        if ( ! starts_hidden(app_info, options) ) {
+            $(el_win).show();
+        }
+
+        // send post request to /rao to record app open
+        if ( options.name !== 'explorer' ) {
+            // add the app to the beginning of the array
+            window.launch_apps.recent.unshift(app_info);
+
+            // dedupe the array by uuid, uid, and id
+            window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
+
+            // limit to window.launch_recent_apps_count
+            window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
+
+            // send post request to /rao to record app open
+            $.ajax({
+                url: `${window.api_origin }/rao`,
+                type: 'POST',
+                data: JSON.stringify({
+                    original_client_socket_id: window.socket?.id,
+                    app_uid: app_info.uid ?? app_info.uuid,
+                }),
+                async: true,
+                contentType: 'application/json',
+                headers: {
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+            });
+        }
+    }
+
+    const el = await el_win;
+    process.references.el_win = el;
+
+    // Dashboard mode: an app launched from another app takes over the tab,
+    // iOS-style — the parent app minimizes behind it. State only: the
+    // parent's /app/<name> history entry already sits beneath the child's,
+    // so Back from the child (and the child's close, which consumes its
+    // entry) lands on the parent's entry and the popstate handler restores
+    // it. The parent keeps running while hidden — parent/child IPC works.
+    if ( window.is_dashboard_mode && options.parent_instance_id
+        && options.maximized && !starts_hidden(app_info, options) && el ) {
+        const el_parent_win = window.window_for_app_instance(options.parent_instance_id);
+        const parent_minimized = $(el_parent_win).attr('data-is_minimized');
+        if ( el_parent_win && parent_minimized !== '1' && parent_minimized !== 'true' ) {
+            $(el_parent_win).hideWindow();
+            // Remember WHY this window is minimized: closing the child
+            // should land on the dashboard rather than resurrecting a
+            // parent the user never dismissed themselves (UIWindow's close
+            // path reads this; any restore clears it).
+            $(el_parent_win).attr('data-minimized_for_child', uuid);
+        }
+    }
+
+    if ( ! options.launched_by_exec_service ) {
+        process.onchange('ipc_status', value => {
+            if ( value !== PROCESS_IPC_ATTACHED ) return;
+
+            $(process.references.iframe).attr('data-appUsesSDK', 'true');
+
+            // The app is talking to us, so it's genuinely usable now —
+            // unlike `app-is-ready`, which stops at the window element.
+            endLaunchTransaction(interactiveTransaction, 'ipc-attached');
+            interactiveTransaction = undefined;
+
+            // Send any saved broadcasts to the new app
+            globalThis.services.get('broadcast').sendSavedBroadcastsTo(uuid);
+
+            // If `window-active` is set (meaning the window is focused), focus the window one more time
+            // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
+            // Never for a hidden window (see starts_hidden): the keyboard would
+            // go to something the user cannot see.
+            const $win = $(process.references.el_win);
+            if ( $win.attr('data-is_visible') !== '0' && $win.hasClass('window-active') ) {
+                $win.focusWindow();
+            }
+        });
+    }
+
+    process.chstatus(PROCESS_RUNNING);
+
+    $(el).on('remove', () => {
+        const svc_process = globalThis.services.get('process');
+        svc_process.unregister(process.uuid);
+    });
+
+    process.launchResult = {
+        launched: true,
+        requestedAppName,
+        openedAppName: (options.name === 'trash') ? 'explorer' : options.name,
+        appInstanceID: process.uuid ?? uuid,
+        appUid: (options.name === 'explorer' || options.name === 'trash')
+            ? null
+            : (app_info.uuid ?? app_info.uid ?? null),
+        redirectedToFallback: privateLaunchRedirectDepth > 0,
+        deniedPrivateAccess: false,
+        privateAccess: privateAccessDecision ?? undefined,
+    };
+
+    // end the transaction
+    endLaunchTransaction(transaction, 'launched');
+
+    return process;
+};
+
+export default launch_app;

@@ -20,30 +20,19 @@
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
 import path from '../lib/path.js';
-import { owner_of_path } from '../helpers/path_owner.js';
-import { invalidate_shared_roots } from '../helpers/shared_access.js';
+import { is_owned_by_me, owner_of_path } from '../helpers/pathOwner.js';
+import { invalidate_shared_roots } from '../helpers/sharedAccess.js';
 import { icons } from '../helpers/actionIcons.js';
+import { mode_label, options_for } from '../helpers/shareModes.js';
+import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
+import { share_outcome } from '../helpers/shareOutcome.js';
 
-// Offered when granting. The API accepts `see` and `list` too, but they are a
-// developer-level distinction with no place in this dialog — a row already set
-// to one is shown as-is rather than quietly rounded up to `read`.
-const MODES = ['read', 'write', 'manage'];
-
-const mode_label = (mode) => {
-    if ( mode === 'write' ) return i18n('share_access_write');
-    if ( mode === 'manage' ) return i18n('share_access_manage');
-    if ( mode === 'read' ) return i18n('share_access_read');
-    return mode;
-};
-
-const options_for = (current) => {
-    const modes = MODES.includes(current) ? MODES : [current, ...MODES];
-    return modes
-        .map(
-            (mode) =>
-                `<option value="${html_encode(mode)}"${mode === current ? ' selected' : ''}>${html_encode(mode_label(mode))}</option>`,
-        )
-        .join('');
+/** What each outcome of a share call is called on screen. */
+const SHARE_MESSAGE = {
+    invited: 'share_invited',
+    shared: 'share_shared_with',
+    updated: 'share_access_updated',
+    unchanged: 'share_already_shared_with',
 };
 
 /**
@@ -61,6 +50,8 @@ async function UIWindowShare (options) {
     const item_name = options.name ?? path.basename(item_path);
     const item_owner =
         options.owner ?? owner_of_path(item_path) ?? window.user.username;
+    // A delegate passes on access, never the authority to pass it on.
+    const allow_manage = is_owned_by_me(item_path);
 
     let h = '';
     h += '<div class="share-dialog">';
@@ -71,7 +62,7 @@ async function UIWindowShare (options) {
     h += '<div class="share-dialog-row">';
     h += `<input class="share-recipient" id="share-recipient" type="text" autocomplete="off" spellcheck="false"
                  placeholder="${html_encode(i18n('share_add_people'))}" />`;
-    h += `<select class="share-mode">${options_for('read')}</select>`;
+    h += `<select class="share-mode">${options_for('read', { allow_manage })}</select>`;
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
 
@@ -132,7 +123,11 @@ async function UIWindowShare (options) {
         $success.html(message).show();
     };
 
+    /** The access list as last drawn, which is what a share call changes. */
+    let shown_shares = [];
+
     const render = (shares) => {
+        shown_shares = Array.isArray(shares) ? shares : [];
         let rows = '';
         // The owner's access comes from owning the item, so it can't be revoked
         rows += '<div class="share-row">';
@@ -147,13 +142,23 @@ async function UIWindowShare (options) {
                 rows += '<div class="share-row share-row-inherited">';
                 rows += `<span class="share-row-who">${holder}</span>`;
                 rows += `<span class="share-row-via">${i18n('share_inherited_via', { folder: path.basename(share.inheritedFrom) })}</span>`;
-                rows += `<span class="share-row-mode">${html_encode(mode_label(share.mode))}</span>`;
+                rows += `<span class="share-row-mode">${mode_label(share.mode)}</span>`;
+                rows += '</div>';
+                continue;
+            }
+            if ( share.pending ) {
+                const invited = html_encode(share.recipientEmail ?? '');
+                rows += '<div class="share-row share-row-pending">';
+                rows += `<span class="share-row-who">${invited}</span>`;
+                rows += `<span class="share-row-via">${i18n('share_awaiting_signup')}</span>`;
+                rows += `<span class="share-row-mode">${mode_label(share.mode)}</span>`;
+                rows += `<button class="share-revoke" data-holder="${invited}" title="${html_encode(i18n('share_cancel_invite'))}" aria-label="${html_encode(i18n('share_cancel_invite'))}">${icons.trash}</button>`;
                 rows += '</div>';
                 continue;
             }
             rows += '<div class="share-row">';
             rows += `<span class="share-row-who">${holder}</span>`;
-            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode)}</select>`;
+            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode, { allow_manage })}</select>`;
             rows += `<button class="share-revoke" data-holder="${holder}" title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
             rows += '</div>';
         }
@@ -161,6 +166,8 @@ async function UIWindowShare (options) {
             rows += `<p class="share-dialog-empty">${i18n('share_no_one')}</p>`;
         }
         $list.html(rows);
+        // Every share, mode change and revoke lands here.
+        mark_item_shared(item_path, has_direct_share(shares));
     };
 
     const refresh = async () => {
@@ -177,14 +184,20 @@ async function UIWindowShare (options) {
 
         $(this).prop('disabled', true);
         try {
-            await puter.fs.share({
+            const created = await puter.fs.share({
                 path: item_path,
                 recipient,
                 mode: $(el_window).find('.share-mode').val(),
             });
             $(el_window).find('.share-recipient').val('');
             $error.hide();
-            show_success(i18n('share_shared_with', { recipient: html_encode(recipient) }));
+            // `i18n()` encodes its replacements; encoding first would show the
+            // entities to anyone whose address or username contains one.
+            show_success(
+                i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
+                    recipient,
+                }),
+            );
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
@@ -200,7 +213,7 @@ async function UIWindowShare (options) {
         $(this).prop('disabled', true);
         try {
             await puter.fs.share({ path: item_path, recipient: holder, mode });
-            show_success(i18n('share_shared_with', { recipient: html_encode(holder) }));
+            show_success(i18n('share_access_updated', { recipient: holder }));
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
@@ -212,18 +225,35 @@ async function UIWindowShare (options) {
 
     $(el_window).on('click', '.share-revoke', async function () {
         const holder = $(this).attr('data-holder');
+        const is_pending = $(this).closest('.share-row').hasClass('share-row-pending');
         const confirmed = await UIAlert({
-            message: i18n('share_confirm_remove', { recipient: holder }),
+            message: is_pending
+                ? i18n('share_confirm_cancel_invite', { recipient: holder })
+                : i18n('share_confirm_remove', { recipient: holder }),
             buttons: [
                 { label: i18n('share_remove'), value: true, type: 'primary' },
                 { label: i18n('cancel'), value: false },
             ],
+            // Stack the confirmation with the dialog that opened it. In
+            // fullpage/dashboard mode this window is promoted to the
+            // stay-on-top band, where an alert defaulting to `stay_on_top:
+            // false` renders underneath it — leaving a confirmation the user
+            // can't reach without closing the dialog behind it.
+            parent_uuid: $(el_window).attr('data-element_uuid'),
+            stay_on_top: $(el_window).attr('data-stay_on_top') === 'true',
         });
         if ( ! confirmed ) return;
         $(this).prop('disabled', true);
         try {
             await puter.fs.unshare(item_path, holder);
-            show_success(i18n('share_access_removed', { recipient: html_encode(holder) }));
+            // `i18n()` encodes what it returns, replacements included, so the
+            // raw value goes in — encoding first would show the entities to
+            // anyone whose address or username contains one.
+            show_success(
+                is_pending
+                    ? i18n('share_invite_cancelled', { recipient: holder })
+                    : i18n('share_access_removed', { recipient: holder }),
+            );
             invalidate_shared_roots();
             await refresh();
         } catch (e) {

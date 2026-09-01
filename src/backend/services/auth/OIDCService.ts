@@ -526,14 +526,17 @@ export class OIDCService extends PuterService {
             // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
             source: 'oidc' as const,
             data: { username, email },
-            ip:
-                (req?.headers?.['x-forwarded-for'] as string | undefined) ||
-                req?.connection?.remoteAddress ||
-                req?.ip ||
-                req?.socket?.remoteAddress ||
-                null,
+            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
+            // would let a client pick its own per-IP abuse bucket.
+            ip: clientIp,
             user_agent: req?.headers?.['user-agent'] ?? null,
             email,
+            // See the same field in AuthController: the canonical form
+            // `email.validate` is given, so the abuse harness can find the
+            // verdict that hook cached.
+            clean_email: cleanEmail(email),
+            // OIDC signups are never temp users.
+            is_temp: false,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
@@ -547,25 +550,13 @@ export class OIDCService extends PuterService {
             // Request Code so support can look the decision up.
             trail_id: undefined as string | undefined,
         };
-        try {
-            await this.clients.event?.emitAndWait(
-                'puter.signup.validate',
-                validateEvent,
-                {},
-            );
-        } catch (e) {
-            console.warn('[oidc] validate hook failed:', e);
-        }
-        if (!validateEvent.allow) {
-            return {
-                success: false,
-                error: validateEvent.message ?? 'Signup blocked',
-                code: validateEvent.code ?? 'signup_blocked',
-                requestCode: validateEvent.trail_id,
-            };
-        }
-
-        // Email validation — mirrors AuthController#validateEmail.
+        // Email validation — mirrors AuthController#validateEmail, and runs
+        // BEFORE the signup harness for the same reason it does there: the
+        // address verdict is an input to the reputation decision. The abuse
+        // extension's `email.validate` handler caches its Kickbox verdict and
+        // its `emailQuality` check reads that cache under
+        // `puter.signup.validate`, so emitting these two in the other order
+        // silently drops the email signal from every OIDC signup.
         if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
             return {
                 success: false,
@@ -592,6 +583,24 @@ export class OIDCService extends PuterService {
                 error:
                     emailEvent.message ??
                     'This email cannot be used. Please try a different email address.',
+            };
+        }
+
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.signup.validate',
+                validateEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[oidc] validate hook failed:', e);
+        }
+        if (!validateEvent.allow) {
+            return {
+                success: false,
+                error: validateEvent.message ?? 'Signup blocked',
+                code: validateEvent.code ?? 'signup_blocked',
+                requestCode: validateEvent.trail_id,
             };
         }
 
@@ -646,7 +655,10 @@ export class OIDCService extends PuterService {
                     origin: req?.headers?.origin,
                 },
                 signup_ip: clientIp,
-                signup_ip_forwarded: proxyIpChain,
+                // The abuse harness and the admin IP lookup both key on this
+                // column, so it holds the trusted client address; the raw
+                // forwarded chain stays in `audit_metadata.ip_fwd`.
+                signup_ip_forwarded: clientIp,
                 signup_user_agent: req?.headers?.['user-agent'] ?? null,
                 signup_origin: req?.headers?.origin,
                 signup_server: this.config.serverId,
@@ -722,6 +734,25 @@ export class OIDCService extends PuterService {
         // Fire signup events — keys match the password-based signup path so
         // downstream listeners (welcome email, mailchimp sync, etc.) treat
         // both signup routes identically.
+        //
+        // That includes `user.email-confirmed`: the provider's attestation IS
+        // the confirmation, and anything keyed on owning a confirmed address —
+        // pending share invites, most importantly — has no other moment to
+        // fire. Without it, an invitee who follows the email and signs in with
+        // Google never receives what was shared with them.
+        try {
+            this.clients.event?.emit(
+                'user.email-confirmed',
+                {
+                    user_id: resolved.id,
+                    user_uid: resolved.uuid,
+                    email: resolved.email,
+                },
+                {},
+            );
+        } catch {
+            // ignore — event emission shouldn't block signup
+        }
         try {
             this.clients.event?.emit(
                 'puter.signup.success',
@@ -730,12 +761,10 @@ export class OIDCService extends PuterService {
                     user_uuid: resolved.uuid,
                     email: resolved.email,
                     username: resolved.username,
-                    ip:
-                        req?.headers?.['x-forwarded-for'] ||
-                        req?.connection?.remoteAddress ||
-                        req?.ip ||
-                        req?.socket?.remoteAddress ||
-                        null,
+                    // Same derivation as the validate event above — the two
+                    // have to agree or per-IP counters are written under one
+                    // key and read under another.
+                    ip: clientIp,
                 },
                 {},
             );

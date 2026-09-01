@@ -63,6 +63,7 @@ const FULL_PROVIDER_CONFIG = {
         'azure-openai': { apiKey: 'k', apiURL: 'https://azure.test/openai/v1' },
         'openai-completion': { apiKey: 'k' },
         gemini: { apiKey: 'k' },
+        meta: { apiKey: 'k' },
         groq: { apiKey: 'k' },
         deepseek: { apiKey: 'k' },
         mistral: { apiKey: 'k' },
@@ -77,6 +78,7 @@ const FULL_PROVIDER_CONFIG = {
         byteplus: { apiKey: 'k' },
         neuralwatt: { apiKey: 'k' },
         saladcloud: { apiKey: 'k' },
+        hoonify: { apiKey: 'k' },
         // Suppress auto-discovery of a developer's local Ollama.
         ollama: { enabled: false },
     },
@@ -186,6 +188,7 @@ describe('ChatCompletionDriver provider registration', () => {
             'azure-openai',
             'openai-completion',
             'gemini',
+            'meta',
             'groq',
             'deepseek',
             'mistral',
@@ -200,6 +203,7 @@ describe('ChatCompletionDriver provider registration', () => {
             'byteplus',
             'neuralwatt',
             'saladcloud',
+            'hoonify',
             'fake-chat',
         ]) {
             expect(providers).toContain(expected);

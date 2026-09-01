@@ -91,6 +91,7 @@ function buildUsageHTML() {
         '<span class="bento-usage-card-details bento-plan-details"><span class="bento-plan-badge"></span></span>';
     h += '</div>';
     h += '<div class="bento-plan-warning" style="display: none;"></div>';
+    h += '<div class="bento-plan-note" style="display: none;"></div>';
     h +=
         '<a href="#" class="bento-plan-upgrade" style="display: none;">Upgrade →</a>';
     h += '</div>';
@@ -133,13 +134,21 @@ function buildUsageHTML() {
     return h;
 }
 
-// Trial end date in two lengths: `short` for the badge, `long` for the
-// sentence under it. Returns null when the subscription carries no end date,
+// Trial end date in two lengths — `short` for the note under the badge,
+// `long` for anywhere with room for a sentence — plus `countdown`, which is
+// what the badge carries: a date says when, only a countdown says how long
+// there is to decide. Returns null when the subscription carries no end date,
 // so callers fall back to unqualified "Free trial" wording.
 function formatTrialEnd(trialEndsAt) {
     if (!Number.isFinite(trialEndsAt)) return null;
     const date = new Date(trialEndsAt);
     if (Number.isNaN(date.getTime())) return null;
+    // Rounded up, so a trial with any time on it never reads "0 days left"
+    // before the day it actually converts.
+    const days = Math.max(
+        0,
+        Math.ceil((date.getTime() - Date.now()) / 86400000),
+    );
     return {
         short: date.toLocaleDateString(undefined, {
             month: 'short',
@@ -150,6 +159,13 @@ function formatTrialEnd(trialEndsAt) {
             month: 'long',
             day: 'numeric',
         }),
+        days,
+        countdown:
+            days === 0
+                ? 'ends today'
+                : days === 1
+                  ? '1 day left'
+                  : `${days} days left`,
     };
 }
 
@@ -457,8 +473,8 @@ const TabHome = {
             const $warning = $el_window
                 .find('.bento-plan-warning')
                 .hide()
-                .removeClass('info')
                 .text('');
+            const $note = $el_window.find('.bento-plan-note').hide().text('');
 
             if (hasSubscription) {
                 if (pastDue) {
@@ -469,22 +485,24 @@ const TabHome = {
                         )
                         .show();
                 } else if (trialing) {
-                    // A trial grants the full tier and then continues as a paid
-                    // plan, so say when that happens and where to opt out.
+                    // This is a glance surface sitting between two usage
+                    // meters, so the trial gets the same two lines they get:
+                    // how much is left, then the one consequence worth
+                    // knowing. Billing carries the full sentence and the
+                    // opt-out — "Manage →" is directly below.
                     $badge
                         .text(
                             trialEnds
-                                ? `Free trial — ends ${trialEnds.short}`
+                                ? `Free trial · ${trialEnds.countdown}`
                                 : 'Free trial',
                         )
                         .addClass('trial');
-                    $warning
+                    $note
                         .text(
                             trialEnds
-                                ? `Your free trial ends on ${trialEnds.long}, after which the plan continues at the usual monthly price. Cancel any time before then under Billing.`
-                                : 'When your free trial ends the plan continues at the usual monthly price. Cancel any time before then under Billing.',
+                                ? `First charge ${trialEnds.short} unless you cancel.`
+                                : 'Continues as a paid plan when the trial ends.',
                         )
-                        .addClass('info')
                         .show();
                 } else {
                     $badge.text('Current').addClass('active');

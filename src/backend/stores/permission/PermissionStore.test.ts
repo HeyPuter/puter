@@ -390,29 +390,54 @@ describe('PermissionStore', () => {
 
     // -- user → group --------------------------------------------------
 
+    // Read-only surface: group permissions are seeded by migration, so these
+    // drive the rows in the same way one does.
     describe('user-to-group permissions', () => {
+        const seedGroup = async (ownerUserId: number): Promise<number> => {
+            const uid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [uid, ownerUserId, '{}', '{}'],
+            );
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [uid],
+            );
+            return Number(group.id);
+        };
+
+        const seedGroupPerm = (
+            userId: number,
+            groupId: number,
+            permission: string,
+            extra: Record<string, unknown> = {},
+        ): Promise<unknown> =>
+            server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [userId, groupId, permission, JSON.stringify(extra)],
+            );
+
         it('only surfaces grants for groups the reader actually belongs to', async () => {
             const issuer = await makeUser();
             const member = await makeUser();
             const stranger = await makeUser();
-            const groupUid = await server.stores.group.create({
-                ownerUserId: issuer.id,
-            });
-            const group = await server.stores.group.getByUid(groupUid);
-            await server.stores.group.addUsers(groupUid, [member.username]);
-
-            await store.upsertUserGroupPerm(
-                issuer.id,
-                group!.id,
-                'fs:shared:read',
-                { note: 'team' },
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
             );
+
+            await seedGroupPerm(issuer.id, groupId, 'fs:shared:read', {
+                note: 'team',
+            });
 
             const memberRows = await store.readUserGroupPerms(member.id, [
                 'fs:shared:read',
             ]);
             expect(memberRows).toHaveLength(1);
-            expect(memberRows[0].group_id).toBe(group!.id);
+            expect(memberRows[0].group_id).toBe(groupId);
             expect(memberRows[0].extra).toEqual({ note: 'team' });
 
             // A non-member must not see the group grant.
@@ -421,25 +446,20 @@ describe('PermissionStore', () => {
             ).toEqual([]);
         });
 
-        it('drops the grant for every member once it is deleted', async () => {
+        it('drops the grant for every member once the row is deleted', async () => {
             const issuer = await makeUser();
             const member = await makeUser();
-            const groupUid = await server.stores.group.create({
-                ownerUserId: issuer.id,
-            });
-            const group = await server.stores.group.getByUid(groupUid);
-            await server.stores.group.addUsers(groupUid, [member.username]);
-            await store.upsertUserGroupPerm(
-                issuer.id,
-                group!.id,
-                'fs:shared:write',
-                {},
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
             );
+            await seedGroupPerm(issuer.id, groupId, 'fs:shared:write');
 
-            await store.deleteUserGroupPerm(
-                issuer.id,
-                group!.id,
-                'fs:shared:write',
+            await server.clients.db.write(
+                'DELETE FROM `user_to_group_permissions` ' +
+                    'WHERE `group_id` = ? AND `permission` = ?',
+                [groupId, 'fs:shared:write'],
             );
 
             expect(
@@ -447,50 +467,9 @@ describe('PermissionStore', () => {
             ).toEqual([]);
         });
 
-        it('replaces `extra` on a repeat upsert', async () => {
-            const issuer = await makeUser();
-            const member = await makeUser();
-            const groupUid = await server.stores.group.create({
-                ownerUserId: issuer.id,
-            });
-            const group = await server.stores.group.getByUid(groupUid);
-            await server.stores.group.addUsers(groupUid, [member.username]);
-
-            await store.upsertUserGroupPerm(issuer.id, group!.id, 'g:p', {
-                v: 1,
-            });
-            await store.upsertUserGroupPerm(issuer.id, group!.id, 'g:p', {
-                v: 2,
-            });
-
-            const rows = await store.readUserGroupPerms(member.id, ['g:p']);
-            expect(rows).toHaveLength(1);
-            expect(rows[0].extra).toEqual({ v: 2 });
-        });
-
         it('returns nothing for an empty permission list', async () => {
             const user = await makeUser();
             expect(await store.readUserGroupPerms(user.id, [])).toEqual([]);
-        });
-
-        it('records a group audit row', async () => {
-            const issuer = await makeUser();
-            const groupUid = await server.stores.group.create({
-                ownerUserId: issuer.id,
-            });
-            const group = await server.stores.group.getByUid(groupUid);
-            await store.auditUserGroupPerm({
-                user_id: issuer.id,
-                group_id: group!.id,
-                permission: 'g:p',
-                action: 'grant',
-                reason: 'test',
-            });
-            const rows = await server.clients.db.read(
-                'SELECT * FROM `audit_user_to_group_permissions` WHERE `user_id` = ?',
-                [issuer.id],
-            );
-            expect(rows).toHaveLength(1);
         });
     });
 

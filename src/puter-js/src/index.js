@@ -2,6 +2,7 @@ import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
 import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
+import { isFramedDocument } from './lib/appModeGate.js';
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
@@ -448,7 +449,15 @@ export class Puter {
         let URLParams = new URLSearchParams(globalThis.location?.search);
 
         // Figure out the environment in which the SDK is running
-        if (URLParams.has('puter.app_instance_id')) {
+        //
+        // App mode is gated on being framed: the parameter that selects it is
+        // URL-supplied, and app mode is what makes `puter.api_origin` and
+        // `puter.auth.token` authoritative. The GUI launches apps into an
+        // iframe, so a top-level document carrying those is a third-party site.
+        if (
+            URLParams.has('puter.app_instance_id') &&
+            isFramedDocument(globalThis)
+        ) {
             this.env = 'app';
         } else if (globalThis.puter_gui_enabled === true) {
             this.env = 'gui';
@@ -676,7 +685,23 @@ export class Puter {
                 const storedToken = this.normalizeAuthTokenCandidate(
                     localStorage.getItem(STORAGE_KEY_V2),
                 );
-                if (storedToken) this.setAuthToken(storedToken);
+                // Same origin binding the app branch applies. A token stored
+                // during a run whose API origin came from the URL is bound to
+                // that origin, and replaying one here would boot the page on a
+                // session someone else planted — so it is dropped rather than
+                // adopted. In `web` mode the current origin is always the
+                // default, so a token this page stored itself always passes.
+                const boundOrigin = this.normalizeStringCandidate(
+                    localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
+                );
+                if (
+                    storedToken &&
+                    this._storedTokenUsableForCurrentOrigin(boundOrigin)
+                ) {
+                    this.setAuthToken(storedToken);
+                } else if (storedToken) {
+                    this._clearAuthToken();
+                }
                 // if appID is already set in localStorage, then we don't need to show the dialog
                 if (!this.appID && localStorage.getItem('puter.app.id')) {
                     this.setAppID(localStorage.getItem('puter.app.id'));

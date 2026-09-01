@@ -44,6 +44,8 @@ A `Promise` that resolves to an array of share objects, each with `uid`, `mode`,
 
 The list includes shares granted by **anyone** holding `manage` on the item, not only your own. That is how an owner sees what someone they trusted has re-shared.
 
+It also includes **invitations** — shares aimed at an email address with no confirmed account yet. Those carry `pending: true`, a `null` `holder`, and the address in `recipientEmail`. They grant nothing until the recipient confirms that address, and [`unshare()`](/FS/unshare/) cancels one before it is claimed.
+
 If you cannot see the item at all, this rejects the same way a missing file would — it will not confirm that the item exists.
 
 ## Examples

@@ -164,12 +164,27 @@
  * @property {boolean} [returnPermissions] Whether to return permission information. Defaults to `false`.
  * @property {boolean} [returnVersions] Whether to return version information. Defaults to `false`.
  * @property {boolean} [returnSize] Whether to return size information. Defaults to `false`.
+ * @property {boolean} [returnShares] Whether to return who the item is shared with, as a `shares`
+ * array on the result. Empty unless you can manage the item. Defaults to `false`.
  */
 
 /**
  * Options for the `stat` operation.
  *
  * @typedef {StatOptionsOwn & RequestCallbacks<FSItem>} StatOptions
+ */
+
+/**
+ * What `stat()` and `readdir()` return: an item plus the sharing state only
+ * those two report. `is_shared` is null for items the caller does not own.
+ *
+ * @typedef {FSItem & { is_shared?: boolean | null }} FSItemRead
+ */
+
+/**
+ * A `stat()` result with `returnShares` set.
+ *
+ * @typedef {FSItemRead & { shares: Share[] }} FSItemWithShares
  */
 
 /**
@@ -294,7 +309,8 @@
  * @property {string} path Path of the shared item.
  * @property {string} entryUid UID of the shared item.
  * @property {boolean} isDir Whether the shared item is a directory.
- * @property {string | null} name The item's name. Only set by `listShared()`.
+ * @property {string | null} name The item's name. Not set by `getShares()`,
+ * which describes access to an item the caller already named.
  * @property {string | null} type The item's content type, or `'folder'`. Only
  * set by `listShared()`.
  * @property {string | null} thumbnail URL of the item's thumbnail, if it has
@@ -306,8 +322,15 @@
  * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
  * @property {string | null} [issuedByApp] UID of the app that asked for this
  * share, or `null` when a person made it directly.
+ * @property {boolean} [pending] True when the recipient's email has no
+ * confirmed account yet. The share is recorded but grants nothing until they
+ * create an account with that address and confirm it.
+ * @property {string | null} [recipientEmail] Address a pending share was sent
+ * to. Only set when `pending`.
  * @property {number} modified Last-modified time of the item, unix seconds.
  * @property {number | null} size Size of the item in bytes; null for a directory.
+ * @property {boolean} [isNew] Whether the call created access that did not exist
+ * before. Set by `share()` only; a listing leaves it undefined.
  */
 
 /**

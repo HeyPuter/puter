@@ -30,8 +30,11 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import type { IGenerateParams } from './types.js';
 
-export function isHttpUrl(s: string): boolean {
-    return s.startsWith('http://') || s.startsWith('https://');
+export function isHttpUrl(s: unknown): boolean {
+    return (
+        typeof s === 'string' &&
+        (s.startsWith('http://') || s.startsWith('https://'))
+    );
 }
 
 /**
@@ -40,9 +43,49 @@ export function isHttpUrl(s: string): boolean {
  * `mimeHint` (default image/png).
  */
 export function toUrlOrDataUri(img: string, mimeHint?: string): string {
+    assertInputImageString(img, 'input image');
     return isHttpUrl(img) || img.startsWith('data:')
         ? img
         : `data:${mimeHint ?? 'image/png'};base64,${img}`;
+}
+
+/**
+ * An input image is a URL, a data-URI or raw base64 — always a string. The
+ * field comes straight off the driver call, so the type has to be checked
+ * before the helpers below reach for `.startsWith`.
+ */
+export function assertInputImageString(img: unknown, label: string): string {
+    if (typeof img !== 'string') {
+        throw new HttpError(
+            400,
+            `${label}: each input image must be a URL, data-URI, or base64 string.`,
+            { legacyCode: 'bad_request' },
+        );
+    }
+    return img;
+}
+
+/**
+ * Validate `input_image` / `input_images` once, where the driver call arrives.
+ * Providers reach for `.startsWith` on these, and several do it without going
+ * through the helpers here, so the shape has to be settled before any of them
+ * runs.
+ */
+export function assertInputImagesShape(
+    params: Pick<IGenerateParams, 'input_image' | 'input_images'>,
+    label: string,
+): void {
+    if (params.input_image !== undefined && params.input_image !== null) {
+        assertInputImageString(params.input_image, label);
+    }
+    const imgs = params.input_images;
+    if (imgs === undefined || imgs === null) return;
+    if (!Array.isArray(imgs)) {
+        throw new HttpError(400, `${label}: input_images must be an array.`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    for (const img of imgs) assertInputImageString(img, label);
 }
 
 /**
@@ -62,7 +105,10 @@ export function resolveSingleInputImage(
             { legacyCode: 'bad_request' },
         );
     }
-    return params.input_image ?? imgs?.[0];
+    const chosen = params.input_image ?? imgs?.[0];
+    return chosen === undefined
+        ? undefined
+        : assertInputImageString(chosen, providerLabel);
 }
 
 const DATA_URI_PATTERN = /^data:([^;,]+)?(?:;base64)?,(.*)$/s;
@@ -103,6 +149,7 @@ export async function toBase64DataUri(
     img: string,
     mimeHint?: string,
 ): Promise<string> {
+    assertInputImageString(img, 'input image');
     if (img.startsWith('data:')) return img;
     if (isHttpUrl(img)) {
         const { base64, mime } = await fetchImageAsBase64(img);

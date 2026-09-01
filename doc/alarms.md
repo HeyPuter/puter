@@ -121,7 +121,14 @@ config always has the last word.
 
 ### Repeat throttling
 
-The chat transport won't repost the same alarm id within
+Two levels, and they stack.
+
+The client itself backs off before a repeat is reported at all: every
+occurrence is reported up to a small burst, then one per interval. A fault
+recurring hundreds of times a second still counts every occurrence, but it
+does not write a log line or build an alert payload for each one.
+
+Below that, the chat transport won't repost the same alarm id within
 `repeatThrottleMs` (default 15 minutes). The first occurrence always posts,
 and the next one that gets through reports how many piled up in between —
 so a hot loop reads as one message with a count, not a wall of them.

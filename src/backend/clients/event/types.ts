@@ -32,6 +32,27 @@ type GuiEvent<R = Record<string, unknown>> = {
     response: R;
 };
 
+// The entry arrives under several aliases, for handlers of any vintage.
+type FsCreateEvent = { node: FSEntry; entry: FSEntry; uid: string };
+
+/**
+ * Extension-augmentable half of {@link EventMap}. Extensions that emit their own
+ * events declare the payload here by declaration merging, so both the emitter
+ * and every listener are typed against the same shape:
+ *
+ *     declare module '@heyputer/backend/clients/event/types' {
+ *         interface IExtensionEventMap {
+ *             'my.thing.happened': { thingId: string };
+ *         }
+ *     }
+ *
+ * Deliberately member-less and index-signature-free: an index signature here
+ * would widen `keyof EventMap` to `string` and silently disable key checking on
+ * every `emit` in the tree.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IExtensionEventMap {}
+
 export type EventMap = {
     // ---- Server lifecycle ----
     serverStart: Record<string, never>;
@@ -142,6 +163,19 @@ export type EventMap = {
     'puter.signup.validate': {
         allow: boolean;
         email?: string;
+        /**
+         * The address in the same canonical form the `email.validate` hook was
+         * given (`cleanEmail`), so a handler can correlate the two hooks on one
+         * key. Aliases (`a+tag@outlook.com`, `a.b@icloud.com`) differ from
+         * `email` here.
+         */
+        clean_email?: string;
+        /**
+         * True for a temp (frictionless, no-password) signup. Those carry a
+         * synthetic `<username>@gmail.com` and never reach email validation, so
+         * a handler must not draw conclusions from `email`.
+         */
+        is_temp?: boolean;
         ip?: string | null;
         source?: 'oidc';
         req?: unknown;
@@ -246,6 +280,14 @@ export type EventMap = {
         publishable_key: string | null;
         [key: string]: unknown;
     };
+    // Side-effect-free "is the card gate usable?" probe. The extension stamps
+    // `enabled` from its own config and does nothing else — no provider call,
+    // no user state, nothing billed. It exists so the SMS-to-card fallback can
+    // default on only where a card gate actually works, which means it gets
+    // asked often and must stay cheap.
+    'puter.card-verification.status': {
+        enabled: boolean | null;
+    };
     'puter.card-verification.confirm': {
         user_id: number;
         user_uid: string;
@@ -303,6 +345,18 @@ export type EventMap = {
     };
     'fs.remove.node': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.write.file': { node: FSEntry; entry: FSEntry; target: FSEntry };
+    /** A new entry, one key per flavor; `fs.write.file` is the overwrite. */
+    'fs.create.file': FsCreateEvent;
+    'fs.create.directory': FsCreateEvent;
+    'fs.create.shortcut': FsCreateEvent;
+    'fs.create.symlink': FsCreateEvent;
+    /** In-place name change. A move emits `fs.move.node` instead. */
+    'fs.rename': FsCreateEvent & {
+        old_name: string;
+        new_name: string;
+        old_path: string;
+        new_path: string;
+    };
     'fs.storage.upload-progress': {
         upload_tracker: unknown;
         context: unknown;
@@ -348,6 +402,18 @@ export type EventMap = {
     // is pricing workers that came into existence, not deploys.
     'worker.create': { actor: Actor; workerName: string };
 
+    // The same announcement for worker code that lives inside a hosted site
+    // and is deployed on demand rather than by an explicit call. Such a worker
+    // has no row of ours to key on, so what stands in for "genuinely new" is
+    // the absence of any prior record that it ran — which is why it is
+    // announced separately, and identified by where its source lives rather
+    // than by a worker name.
+    'worker.dynamic.create': {
+        actor: Actor;
+        subdomain: string;
+        worker: string;
+    };
+
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
         cacheKey: string[];
@@ -384,6 +450,7 @@ export type EventMap = {
     'outer.gui.item.moved': GuiEvent;
     'outer.gui.item.pending': GuiEvent;
     'outer.gui.item.removed': GuiEvent;
+    'outer.gui.item.renamed': GuiEvent;
     'outer.gui.notif.ack': GuiEvent<{ uid: string }>;
     'outer.gui.notif.persisted': GuiEvent<{ uid: string }>;
     'outer.gui.notif.message': GuiEvent<{ uid: string; notification: unknown }>;
@@ -426,6 +493,13 @@ export type EventMap = {
     // ---- Web sockets ----
     'web.socket.connected': { socket: unknown; user: unknown };
     'web.socket.user-connected': { socket: unknown; user: unknown };
+
+    /**
+     * Sessions were revoked for a user. Anything holding one of them open — a
+     * live socket, say — should drop it: `revoked_at` is otherwise only read on
+     * the next handshake.
+     */
+    'auth.sessions.revoked': { user_id: number; session_uids: string[] };
 
     // ---- Extension hooks / misc ----
     'puter.gui.addons': {
@@ -487,7 +561,7 @@ export type EventMap = {
      * have all dropped that answer.
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
-};
+} & IExtensionEventMap;
 
 /**
  * Phase of a request/method lifecycle. `reject` is emitted when a `before`

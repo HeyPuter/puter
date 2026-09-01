@@ -21,13 +21,30 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { computeNetworkFingerprint } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
 import {
+    readClaimedGrantIdentifier,
+    signGuestGrant,
+    verifyGuestGrant,
+} from './guestGrant.js';
+import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
+
+/** Grant lifetime when config doesn't say. Long enough for a sitting. */
+const DEFAULT_GRANT_TTL = 3600;
+
+/**
+ * Guest credential lifetime when config doesn't say, and never longer than the
+ * host's own `turn.ttl`. Shorter than a host credential on purpose: a guest
+ * credential is handed to someone with no account behind it, so the window in
+ * which a leaked one can relay traffic on the host's tab stays small.
+ */
+const DEFAULT_GUEST_CREDENTIAL_TTL = 3600;
 
 /**
  * Constant-time secret comparison for the internal-auth header. HMAC both sides
@@ -88,11 +105,21 @@ const actorToTurnIdentifier = (actor: Actor): string => {
 /**
  * Peer controller — WebRTC signalling info + TURN credential generation.
  *
- * Config shape: config.peers.signaller_url — WebRTC signaller URL
- * config.peers.fallback_ice — fallback ICE server list
- * config.peers.turn.cloudflare_turn_service_id
- * config.peers.turn.cloudflare_turn_api_token config.peers.turn.ttl —
- * credential TTL (default 86400)
+ * Two ways to get relay credentials: an authenticated caller mints its own
+ * (`/peer/generate-turn`), or a host mints a grant (`/peer/turn-grant`) that
+ * people it invited redeem without an account (`/peer/guest-turn`). Both paths
+ * end at the same upstream call and stamp the same `customIdentifier`, so relay
+ * usage is attributed to a real account either way — for a guest, the host's.
+ *
+ * Config shape, all under `config.peers`:
+ *
+ * - `signaller_url` — WebRTC signaller URL
+ * - `fallback_ice` — fallback ICE server list
+ * - `turn.cloudflare_turn_service_id`, `turn.cloudflare_turn_api_token`
+ * - `turn.ttl` — credential TTL (default 86400)
+ * - `guest_turn.grant_secret` — HMAC key for guest grants; absent disables the
+ *   guest routes
+ * - `guest_turn.grant_ttl`, `guest_turn.credential_ttl`
  */
 export class PeerController extends PuterController {
     override getReportedCosts(): Record<string, unknown>[] {
@@ -147,6 +174,58 @@ export class PeerController extends PuterController {
             this.#generateTurn,
         );
         router.post(
+            '/peer/turn-grant',
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                // Issuing a grant costs nothing upstream — it's one HMAC — but
+                // each one lets a crowd of guests mint credentials against
+                // this account, so it carries the same per-account ceiling as
+                // minting credentials directly. One grant serves a whole
+                // session; a host at this limit is re-issuing in a loop.
+                rateLimit: {
+                    scope: 'peer-turn-grant',
+                    limit: 30,
+                    window: 60_000,
+                    key: 'user',
+                    bySubscription: {
+                        [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                        [DEFAULT_TEMP_SUBSCRIPTION]: 5,
+                    },
+                },
+            },
+            this.#createTurnGrant,
+        );
+        router.post(
+            '/peer/guest-turn',
+            {
+                subdomain: 'api',
+                // Deliberately unauthenticated: the grant in the body is the
+                // credential, and it names the account that pays. Keyed on the
+                // host the grant claims rather than the caller, so one host's
+                // guests share one bucket and no host can be relayed for by
+                // more guests per minute than this — the only ceiling on guest
+                // spend we can apply before the bytes are already spent.
+                // A grant that doesn't parse can't name a bucket, so those
+                // requests fall back to the caller's own network.
+                rateLimit: {
+                    scope: 'peer-guest-turn',
+                    limit: 60,
+                    window: 60_000,
+                    key: (req: Request) => {
+                        const claimed = readClaimedGrantIdentifier(
+                            (req.body as { grant?: unknown } | undefined)
+                                ?.grant,
+                        );
+                        return claimed
+                            ? `host:${claimed}`
+                            : `net:${computeNetworkFingerprint(req)}`;
+                    },
+                },
+            },
+            this.#guestTurn,
+        );
+        router.post(
             '/turn/ingest-usage',
             {
                 subdomain: 'api',
@@ -171,8 +250,12 @@ export class PeerController extends PuterController {
         });
     };
 
-    /** POST /peer/generate-turn — generate TURN credentials via Cloudflare. */
-    #generateTurn = async (req: Request, res: Response): Promise<void> => {
+    /** Upstream TURN settings, or 503 when this deployment has none configured. */
+    #requireTurnConfig = (): {
+        serviceId: string;
+        apiToken: string;
+        ttl: number;
+    } => {
         const cfg = this.config.peers;
         if (
             !cfg ||
@@ -185,11 +268,38 @@ export class PeerController extends PuterController {
                 legacyCode: 'response_timeout',
             });
         }
-        const serviceId = cfg.turn.cloudflare_turn_service_id;
-        const apiToken = cfg.turn.cloudflare_turn_api_token;
-        const ttl = cfg.turn.ttl;
+        return {
+            serviceId: cfg.turn.cloudflare_turn_service_id,
+            apiToken: cfg.turn.cloudflare_turn_api_token,
+            ttl: cfg.turn.ttl,
+        };
+    };
 
-        const customIdentifier = actorToTurnIdentifier(req.actor);
+    /**
+     * The signing key for guest grants, or 503 when this deployment hasn't set
+     * one. No key means no guest access — never a fallback to another secret,
+     * which would let a credential minted for one purpose be spent on another.
+     */
+    #requireGuestGrantSecret = (): string => {
+        const secret = this.config.peers?.guest_turn?.grant_secret;
+        if (!secret) {
+            throw new HttpError(503, 'Guest TURN access is not configured', {
+                legacyCode: 'response_timeout',
+            });
+        }
+        return secret;
+    };
+
+    /**
+     * Mint relay credentials upstream, attributed to `customIdentifier`. The
+     * one place that talks to the credential API, so every caller — host or
+     * guest — produces identically shaped, identically attributed usage.
+     */
+    #mintIceServers = async (
+        customIdentifier: string,
+        ttl: number,
+    ): Promise<unknown> => {
+        const { serviceId, apiToken } = this.#requireTurnConfig();
 
         const cfRes = await fetch(
             `https://rtc.live.cloudflare.com/v1/turn/keys/${serviceId}/credentials/generate-ice-servers`,
@@ -216,7 +326,85 @@ export class PeerController extends PuterController {
         }
 
         const data = (await cfRes.json()) as { iceServers?: unknown };
-        res.json({ ttl, iceServers: data.iceServers });
+        return data.iceServers;
+    };
+
+    /** POST /peer/generate-turn — generate TURN credentials via Cloudflare. */
+    #generateTurn = async (req: Request, res: Response): Promise<void> => {
+        const { ttl } = this.#requireTurnConfig();
+        const iceServers = await this.#mintIceServers(
+            actorToTurnIdentifier(req.actor),
+            ttl,
+        );
+        res.json({ ttl, iceServers });
+    };
+
+    /**
+     * POST /peer/turn-grant — issue a grant the caller can hand to guests.
+     *
+     * The grant names the caller as the account guest relay usage is billed to,
+     * so it is only as shareable as the caller wants their allowance to be:
+     * anyone holding it can mint guest credentials until it expires.
+     */
+    #createTurnGrant = (req: Request, res: Response): void => {
+        const secret = this.#requireGuestGrantSecret();
+        // Refuse to hand out a ticket this deployment couldn't redeem.
+        this.#requireTurnConfig();
+
+        const { grant, expiresAt } = signGuestGrant({
+            customIdentifier: actorToTurnIdentifier(req.actor),
+            ttlSeconds:
+                this.config.peers?.guest_turn?.grant_ttl ?? DEFAULT_GRANT_TTL,
+            secret,
+        });
+
+        res.json({ grant, expiresAt });
+    };
+
+    /**
+     * POST /peer/guest-turn — redeem a host's grant for relay credentials.
+     *
+     * Attribution comes from the grant alone; any session the caller happens to
+     * carry is ignored, so the account named in the grant is the account
+     * charged whether the guest is signed in or not.
+     */
+    #guestTurn = async (req: Request, res: Response): Promise<void> => {
+        const secret = this.#requireGuestGrantSecret();
+        const { ttl: hostTtl } = this.#requireTurnConfig();
+
+        const verified = verifyGuestGrant({
+            grant: (req.body as { grant?: unknown } | undefined)?.grant,
+            secret,
+        });
+        if (verified.status !== 'ok') {
+            if (verified.status === 'malformed') {
+                throw new HttpError(400, 'Missing or malformed grant', {
+                    code: 'peer_grant_malformed',
+                });
+            }
+            // Expiry is readable from the grant the caller already holds, so
+            // saying so tells them nothing they didn't know and lets the app
+            // ask the host for a fresh one instead of retrying a dead ticket.
+            if (verified.status === 'expired') {
+                throw new HttpError(403, 'Guest grant has expired', {
+                    code: 'peer_grant_expired',
+                });
+            }
+            throw new HttpError(403, 'Guest grant is not valid', {
+                code: 'peer_grant_invalid',
+            });
+        }
+
+        const ttl = Math.min(
+            hostTtl,
+            this.config.peers?.guest_turn?.credential_ttl ??
+                DEFAULT_GUEST_CREDENTIAL_TTL,
+        );
+        const iceServers = await this.#mintIceServers(
+            verified.customIdentifier,
+            ttl,
+        );
+        res.json({ ttl, iceServers });
     };
 
     /**

@@ -21,12 +21,11 @@
  * E2E-style tests for AuthController signup, login, and token-grant flows.
  *
  * Drives the controller's extracted route-handler methods directly with
- * synthetic req/res shapes — that way we exercise the full controller
- * logic (DB writes via in-memory sqlite, real password hashing, real
- * JWT signing/verifying via TokenService, real PermissionService writes)
- * without needing the HTTP layer's middleware (rate limiting, captcha,
- * anti-CSRF) to play along. Aligns with AGENTS.md: "Prefer test server
- * over mocking deps."
+ * synthetic req/res shapes — that way we exercise the full controller logic (DB
+ * writes via in-memory sqlite, real password hashing, real JWT
+ * signing/verifying via TokenService, real PermissionService writes) without
+ * needing the HTTP layer's middleware (rate limiting, captcha, anti-CSRF) to
+ * play along. Aligns with AGENTS.md: "Prefer test server over mocking deps."
  */
 
 import bcrypt from 'bcrypt';
@@ -38,10 +37,15 @@ import type { Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
-import type { TokenSource } from '../../core/http/types.js';
+import {
+    ROUTES_METADATA_KEY,
+    type CollectedRoute,
+    type TokenSource,
+} from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
+import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
 import { FS_READ_LIMIT } from '../fs/limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -72,6 +76,7 @@ type SignupValidateOverride = (data: {
     requires_email_confirmation: boolean;
     message: string | null;
     code: string | null;
+    ip: string | null;
 }) => void;
 
 let signupValidateOverride: SignupValidateOverride | null = null;
@@ -569,6 +574,54 @@ describe('AuthController.handleSignup', () => {
         expect(
             await bcrypt.compare('correct-horse-battery', persisted!.password!),
         ).toBe(true);
+    });
+
+    it('keys the signup abuse signals on req.ip, not the x-forwarded-for header', async () => {
+        const username = `s_${uniq()}`;
+        const forged = 'evil, 198.51.100.1';
+        let seenValidateIp: string | null | undefined;
+
+        await withSignupValidateOverride(
+            (event) => {
+                seenValidateIp = event.ip;
+            },
+            async () => {
+                await controller.handleSignup(
+                    makeReq(
+                        {
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        },
+                        {
+                            ip: '203.0.113.9',
+                            headers: { 'x-forwarded-for': forged },
+                        },
+                    ),
+                    makeRes(),
+                );
+            },
+        );
+
+        // Validate hook, success hook and the persisted lookup column all have
+        // to agree, or a per-IP counter is written under one key and read
+        // under another.
+        expect(seenValidateIp).toBe('203.0.113.9');
+        expect(
+            heardSignupSuccess.find((e) => e.username === username)?.ip,
+        ).toBe('203.0.113.9');
+
+        const persisted = await server.stores.user.getByUsername(username);
+        expect(persisted!.signup_ip).toBe('203.0.113.9');
+        expect(persisted!.signup_ip_forwarded).toBe('203.0.113.9');
+        // The raw chain is still recorded, but only as audit metadata.
+        const audit = JSON.parse(
+            String(
+                (persisted as unknown as { audit_metadata: string })
+                    .audit_metadata,
+            ),
+        );
+        expect(audit.ip_fwd).toBe(forged);
     });
 
     it('forces phone verification on every signup when always_require_phone_verification is set', async () => {
@@ -1386,12 +1439,13 @@ describe('AuthController.handleElevate', () => {
         );
         expect(res.body).toMatchObject({ elevated: true });
         expect(res.cookies.puter_elevated).toBeDefined();
-        expect(res.cookies.puter_elevated.opts).toMatchObject({ httpOnly: true });
+        expect(res.cookies.puter_elevated.opts).toMatchObject({
+            httpOnly: true,
+        });
 
         // The minted cookie satisfies verifyStepUpSession for this same user.
-        const { verifyStepUpSession } = await import(
-            '../../core/http/middleware/stepUpSession.js'
-        );
+        const { verifyStepUpSession } =
+            await import('../../core/http/middleware/stepUpSession.js');
         const ok = verifyStepUpSession(
             {
                 cookies: { puter_elevated: res.cookies.puter_elevated.value },
@@ -1417,9 +1471,7 @@ describe('AuthController.handleElevate', () => {
 
     it('2FA account: a live TOTP code elevates; a wrong code is rejected', async () => {
         const { TOTP } = await import('otpauth');
-        const { createSecret } = await import(
-            '../../services/auth/OTPUtil.js'
-        );
+        const { createSecret } = await import('../../services/auth/OTPUtil.js');
         const { user, actor } = await makeUserAndActor();
         const { secret } = createSecret(user.username);
         await server.stores.user.update(user.id, {
@@ -1496,9 +1548,8 @@ describe('AuthController.handleElevate', () => {
 
     it('the elevation token is never honored as a main auth token', async () => {
         const { user } = await makeUserAndActor();
-        const { signStepUpToken } = await import(
-            '../../core/http/middleware/stepUpSession.js'
-        );
+        const { signStepUpToken } =
+            await import('../../core/http/middleware/stepUpSession.js');
         const token = signStepUpToken(server.services.token, {
             uuid: user.uuid,
         });
@@ -1597,10 +1648,8 @@ describe('AuthController account-lifecycle route gating', () => {
         const gate = requireUserActorGate();
         const run = (actor: Partial<Actor>) =>
             new Promise<unknown>((resolve) => {
-                gate(
-                    { actor } as never,
-                    {} as never,
-                    (err?: unknown) => resolve(err),
+                gate({ actor } as never, {} as never, (err?: unknown) =>
+                    resolve(err),
                 );
             });
 
@@ -1679,27 +1728,6 @@ describe('AuthController grant flows', () => {
                 email_confirmed: true,
             },
         } as Actor;
-    });
-
-    it('grant-user-user: is retired and reports 501', async () => {
-        // Filesystem access goes through /share, which indexes the grant so it
-        // can be listed and revoked; nothing else is meant to pass between two
-        // users. Revoking is untouched, so pre-existing grants can still go.
-        await expect(
-            controller.handleGrantUserUser(
-                makeReq(
-                    {
-                        target_username: target.username,
-                        permission: `service:test-${uuidv4()}:ii:read`,
-                    },
-                    { actor: issuerActor },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 501,
-            legacyCode: 'not_implemented',
-        });
     });
 
     it('grant-user-app: persists a user→app permission grant', async () => {
@@ -1827,7 +1855,10 @@ describe('AuthController grant flows', () => {
             { origin: { host: 'evil' }, permission: 'service:x:ii:read' },
             { origin: 'https://a.test', permission: ['service:x:ii:read'] },
             { app_uid: 12345, permission: 'service:x:ii:read' },
-            { origin: `https://${'a'.repeat(5000)}.test`, permission: 'service:x:ii:read' },
+            {
+                origin: `https://${'a'.repeat(5000)}.test`,
+                permission: 'service:x:ii:read',
+            },
         ];
         for (const body of cases) {
             await expect(
@@ -2142,7 +2173,8 @@ describe('AuthController grant flows', () => {
         const NOTHING = 'nothing-in-particular';
         server.services.permission.registerRewriter({
             id: `test-grant-only-${prefix}`,
-            matches: (permission: string) => permission.startsWith(`${prefix}:`),
+            matches: (permission: string) =>
+                permission.startsWith(`${prefix}:`),
             // The real rewriter's condition, verbatim.
             rewrite: async (permission: string) =>
                 Context.get('is_grant_user_app_permission')
@@ -2187,21 +2219,6 @@ describe('AuthController grant flows', () => {
         expect(await storedPermissions()).not.toContain(resolvedPermission);
         // And it must not have written the sentinel as a row of its own.
         expect(await storedPermissions()).not.toContain(NOTHING);
-    });
-
-    it('grant-user-group: 404 when the group does not exist', async () => {
-        await expect(
-            controller.handleGrantUserGroup(
-                makeReq(
-                    {
-                        group_uid: `does-not-exist-${uuidv4()}`,
-                        permission: 'service:foo:ii:read',
-                    },
-                    { actor: issuerActor },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
     });
 });
 
@@ -2280,7 +2297,7 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
     // the latency with every test still passing.
     it('runs the permission grant, token mint and AppData mkdir concurrently', async () => {
         const order: string[] = [];
-        const defer = <T,>(label: string, value: T) => {
+        const defer = <T>(label: string, value: T) => {
             order.push(`${label}:start`);
             return new Promise<T>((resolve) =>
                 setTimeout(() => {
@@ -2532,6 +2549,39 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it.each([
+        ['an object', {}],
+        ['an array', ['30d']],
+        ['a boolean', true],
+        ['a fraction', 1.5],
+        ['a negative', -60],
+        ['an unparseable duration', 'banana'],
+        ['an unknown unit', '30x'],
+    ])('rejects %s as expiresIn with 400', async (_label, expiresIn) => {
+        // Anything the signer can't read reaches it only after the session row
+        // is already inserted, so it has to be refused here.
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq(
+                    {
+                        permissions: ['fs:read'],
+                        expiresIn: expiresIn as unknown as string,
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('answers 400 when the request has no parsable body', async () => {
+        const req = makeReq({}, { actor });
+        (req as { body?: unknown }).body = undefined;
+        await expect(
+            controller.handleCreateAccessToken(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('rejects a permission spec that is neither a string nor a tuple with 400', async () => {
         await expect(
             controller.handleCreateAccessToken(
@@ -2757,6 +2807,39 @@ describe('AuthController.handleSendConfirmEmail', () => {
         expect(after!.email_confirm_code).not.toBe(before!.email_confirm_code);
         expect(String(after!.email_confirm_code).length).toBe(6);
     });
+
+    // The resend is the recovery path for a lost code, so it must not fail
+    // silently either.
+    it('alarms — and still returns {} — when the resend send throws', async () => {
+        const { actor } = await makeUserAndActor();
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockRejectedValue(new Error('smtp down'));
+        try {
+            const res = makeRes();
+            await controller.handleSendConfirmEmail(
+                makeReq({}, { actor }),
+                res,
+            );
+            // Not the caller's fault; still a 200.
+            expect(res.body).toEqual({});
+
+            const raised = alarm.mock.calls.find(
+                (c) => c[0] === 'auth:confirmation-email-send-failed:resend',
+            );
+            expect(raised).toBeTruthy();
+            const fields = raised![2] as Record<string, unknown>;
+            expect(fields.stage).toBe('resend');
+            expect(fields.detail).toBe('smtp down');
+            expect(fields.error).toBeInstanceOf(Error);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
 });
 
 // The per-account / per-number SMS send caps used to live here as a hardcoded
@@ -2807,7 +2890,10 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         const { actor } = await makeUserAndActor();
         const createVerification = vi.fn(async () => ({ status: 'success' }));
         await withPrelude(
-            stubPrelude({ isCountrySupported: () => false, createVerification }),
+            stubPrelude({
+                isCountrySupported: () => false,
+                createVerification,
+            }),
             async () => {
                 await expect(
                     controller.handleSendConfirmPhone(
@@ -2979,7 +3065,10 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         const createVerification = vi.fn(async () => ({ status: 'success' }));
         await withPrelude(stubPrelude({ createVerification }), async () => {
             await controller.handleSendConfirmPhone(
-                makeReq({ phone: '+14155550123' }, { actor, ip: '203.0.113.7' }),
+                makeReq(
+                    { phone: '+14155550123' },
+                    { actor, ip: '203.0.113.7' },
+                ),
                 makeRes(),
             );
         });
@@ -3182,7 +3271,10 @@ describe('AuthController phone verification — staging & reuse', () => {
                 expect(res.body).toMatchObject({ phone_verified: true });
             },
         );
-        expect(checkVerification).toHaveBeenCalledWith('+14155550123', '123456');
+        expect(checkVerification).toHaveBeenCalledWith(
+            '+14155550123',
+            '123456',
+        );
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -3690,31 +3782,180 @@ describe('AuthController SMS → card fallback', () => {
             value: true,
         });
 
-    it('offers the fallback on send once the attempt threshold is reached', async () => {
-        const { actor } = await makeUserAndActor({
+    it('offers the fallback on send only once SMS attempts are exhausted', async () => {
+        const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
         });
-        // No after_attempts → exercises the default threshold of 2.
+        // No after_attempts → the default is the send route's whole allowance,
+        // so the offer appears on the last send that limit allows and not
+        // before: the card path is for a phone that has run out of tries.
         await withFallbackConfig({ enabled: true }, async () => {
             await withPrelude(stubPrelude(), async () => {
-                const first = makeRes();
+                const early = makeRes();
                 await controller.handleSendConfirmPhone(
                     makeReq({ phone: '+14155550123' }, { actor }),
-                    first,
+                    early,
                 );
-                // First attempt is below the threshold — no offer yet.
-                expect(first.body).toEqual({});
+                // One attempt spent, nine still available — no offer.
+                expect(early.body).toEqual({});
 
-                const second = makeRes();
+                // Stop one short of the allowance: still nothing on offer.
+                await seedAttempts(user.id, 7);
+                const penultimate = makeRes();
                 await controller.handleSendConfirmPhone(
                     makeReq({ phone: '+14155550123' }, { actor }),
-                    second,
+                    penultimate,
                 );
-                expect(second.body).toEqual({
+                expect(penultimate.body).toEqual({});
+
+                // The tenth send is the last one the route will allow, so this
+                // is the point the user is out of SMS attempts.
+                const last = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    last,
+                );
+                expect(last.body).toEqual({
                     card_fallback_available: true,
                 });
             });
         });
+    });
+
+    // The card gate lives in an extension, so the backend asks for its status
+    // over the event bus. Stub that one client: `null` stands for no extension
+    // listening at all, which is what a stock build looks like.
+    const withCardStatus = async (
+        enabled: boolean | null,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { event: unknown } };
+        const real = ctrl.clients.event;
+        ctrl.clients.event = {
+            emitAndWait: async (
+                key: string,
+                event: Record<string, unknown>,
+            ) => {
+                if (key === 'puter.card-verification.status') {
+                    if (enabled !== null) event.enabled = enabled;
+                }
+            },
+            emit: () => undefined,
+        };
+        resetCardVerificationStatusCache();
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.event = real;
+            resetCardVerificationStatusCache();
+        }
+    };
+
+    it('defaults on when SMS and card verification are both available', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // No `phone_verification_card_fallback` at all: the pair it bridges is
+        // what decides, and here both halves work.
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(true, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({
+                        card_fallback_available: true,
+                    });
+                });
+            });
+        });
+    });
+
+    it('stays off by default with no card gate behind it', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // Nothing answers the status probe (stock build) — offering a card path
+        // here could only strand the user, so the default holds it closed.
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(null, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('stays off by default when the card gate reports itself disabled', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(false, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('honours an explicit opt-out even when both gates are available', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig({ enabled: false }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(true, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('clamps after_attempts to the send allowance so it stays reachable', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // A threshold above the send limit could never be crossed on its own
+        // terms — requests past the limit are rejected in middleware and never
+        // reach the counter — so it is clamped down to the allowance.
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 50 },
+            async () => {
+                await withPrelude(stubPrelude(), async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({
+                        card_fallback_available: true,
+                    });
+                });
+            },
+        );
     });
 
     it('never offers the fallback on send when disabled', async () => {
@@ -3772,28 +4013,25 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardSetupOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.client_secret = 'seti_secret';
-                        data.publishable_key = 'pk_test';
-                    },
-                    () =>
-                        controller.handleCardVerificationSetup(
-                            makeReq({}, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toEqual({
-                    client_secret: 'seti_secret',
-                    publishable_key: 'pk_test',
-                });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardSetupOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.client_secret = 'seti_secret';
+                    data.publishable_key = 'pk_test';
+                },
+                () =>
+                    controller.handleCardVerificationSetup(
+                        makeReq({}, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toEqual({
+                client_secret: 'seti_secret',
+                publishable_key: 'pk_test',
+            });
+        });
     });
 
     it('still 409s card setup when no send has opened the fallback', async () => {
@@ -3888,27 +4126,24 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardConfirmOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.verified = true;
-                    },
-                    () =>
-                        controller.handleCardVerificationConfirm(
-                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toMatchObject({
-                    card_verified: true,
-                    phone_verified: true,
-                });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardConfirmOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.verified = true;
+                },
+                () =>
+                    controller.handleCardVerificationConfirm(
+                        makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toMatchObject({
+                card_verified: true,
+                phone_verified: true,
+            });
+        });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -3922,24 +4157,21 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardConfirmOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.verified = true;
-                    },
-                    () =>
-                        controller.handleCardVerificationConfirm(
-                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toMatchObject({ phone_verified: true });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardConfirmOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.verified = true;
+                },
+                () =>
+                    controller.handleCardVerificationConfirm(
+                        makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -4779,16 +5011,24 @@ describe('AuthController permission revokes', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('revoke-user-group: 400 on missing group_uid/permission', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleRevokeUserGroup(
-                makeReq({ permission: 'fs:read' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+    // No in-tree caller, so a later cleanup would read it as dead: pin the gate.
+    it('revoke-user-user: stays registered as a user-actor route', () => {
+        const proto = Object.getPrototypeOf(controller) as Record<
+            string,
+            CollectedRoute[] | undefined
+        >;
+        const route = (proto[ROUTES_METADATA_KEY] ?? []).find(
+            (r) => r.path === '/auth/revoke-user-user',
+        );
+        expect(route, '/auth/revoke-user-user is not registered').toBeDefined();
+        expect(route!.method).toBe('post');
+        expect(route!.options).toMatchObject({
+            subdomain: 'api',
+            requireUserActor: true,
+        });
     });
 
+    // Why the deprecated route exists: older grants stay withdrawable.
     it('revoke-user-user: round-trips a grant + revoke without throwing', async () => {
         const { actor: issuerActor, user: issuer } = await makeUserAndActor();
         const { user: target } = await makeUserAndActor();
@@ -4802,8 +5042,7 @@ describe('AuthController permission revokes', () => {
                 issuer_user_id: issuer.id,
             } as never,
         );
-        // Grant first — through the service, since the grant route is retired
-        // and revoking has to keep working for what it left behind.
+        // Through the service: the grant route is retired, the revoke is not.
         await inCtx(issuerActor, () =>
             server.services.permission.grantUserUserPermission(
                 issuerActor,
@@ -4812,13 +5051,8 @@ describe('AuthController permission revokes', () => {
             ),
         );
 
-        // Now revoke — must complete without throwing and return {}.
-        // We don't re-assert the post-revoke `check()` answer here: the
-        // Redis-mock scan cache is process-wide, and intervening grants
-        // from other tests have repeatedly been observed to leave the
-        // cached `true` answer in place even after a successful revoke.
-        // Verifying the controller path rather than the cache eviction
-        // semantics keeps this test focused.
+        // Asserts the controller path only: the process-wide Redis-mock scan
+        // cache makes a post-revoke `check()` unreliable across tests.
         const res = makeRes();
         await inCtx(issuerActor, () =>
             controller.handleRevokeUserUser(
@@ -4872,6 +5106,64 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ]);
     });
 
+    // What lets a permission request settle without a prompt. The second string
+    // is a consent scope nothing implies, so the first's `true` is the grant.
+    it('check-permissions: an app-under-user actor sees a grant made to that app', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cp-${uuidv4()}`,
+                title: 'TestCheckPermsApp',
+                index_url: 'https://check-perms.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const granted = `user:${user.uuid}:email:read`;
+        const ungranted = `apps-of-user:${user.uuid}:read`;
+
+        const appActor = {
+            user: actor.user,
+            app: { id: app.id, uid: app.uid },
+        } as unknown as Actor;
+        const before = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [granted, ungranted] },
+                    { actor: appActor },
+                ),
+                before,
+            ),
+        );
+        expect(before.body).toEqual({
+            permissions: { [granted]: false, [ungranted]: false },
+        });
+
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: granted, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const after = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [granted, ungranted] },
+                    { actor: appActor },
+                ),
+                after,
+            ),
+        );
+        expect(after.body).toEqual({
+            permissions: { [granted]: true, [ungranted]: false },
+        });
+    });
+
     it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
         const { user, actor } = await makeUserAndActor();
         const app = await server.stores.app.create(
@@ -4885,10 +5177,7 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         const permission = 'service:tl-app:ii:read';
         await inCtx(actor, () =>
             controller.handleGrantUserApp(
-                makeReq(
-                    { app_uid: app.uid, permission, extra: {} },
-                    { actor },
-                ),
+                makeReq({ app_uid: app.uid, permission, extra: {} }, { actor }),
                 makeRes(),
             ),
         );
@@ -4942,8 +5231,11 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             holderRes,
         );
         expect(
-            (holderRes.body as { user_to_myself: Array<{ user: string; permission: string }> })
-                .user_to_myself,
+            (
+                holderRes.body as {
+                    user_to_myself: Array<{ user: string; permission: string }>;
+                }
+            ).user_to_myself,
         ).toContainEqual(
             expect.objectContaining({
                 user: user.username,
@@ -5044,10 +5336,7 @@ describe('AuthController session endpoints', () => {
         const uuid = (sessionRes.session as { uuid: string }).uuid;
         await expect(
             controller.handleRenameSession(
-                makeReq(
-                    { label: 'pwned' },
-                    { actor: a2, params: { uuid } },
-                ),
+                makeReq({ label: 'pwned' }, { actor: a2, params: { uuid } }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
@@ -5461,130 +5750,6 @@ describe('AuthController.handleGetDevProfile', () => {
             joined_incentive_program: false,
             paypal: null,
         });
-    });
-});
-
-// ── Group endpoints ────────────────────────────────────────────────
-
-describe('AuthController group endpoints', () => {
-    it('group/create: rejects non-object extra/metadata with 400', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupCreate(
-                makeReq({ extra: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        await expect(
-            controller.handleGroupCreate(
-                makeReq({ metadata: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/create + add-users + remove-users: full owner-driven lifecycle', async () => {
-        const { actor: owner } = await makeUserAndActor();
-        const { user: target } = await makeUserAndActor();
-
-        // Create.
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({ metadata: { name: 'g' } }, { actor: owner }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        expect(typeof uid).toBe('string');
-
-        // Add.
-        const addRes = makeRes();
-        await controller.handleGroupAddUsers(
-            makeReq({ uid, users: [target.username] }, { actor: owner }),
-            addRes,
-        );
-        expect(addRes.body).toEqual({});
-
-        // Remove.
-        const remRes = makeRes();
-        await controller.handleGroupRemoveUsers(
-            makeReq({ uid, users: [target.username] }, { actor: owner }),
-            remRes,
-        );
-        expect(remRes.body).toEqual({});
-    });
-
-    it('group/add-users: 400 on missing uid or non-array users', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ users: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ uid: 'g-1' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/add-users: 404 on unknown uid; 403 when caller doesn’t own the group', async () => {
-        const { actor: a1 } = await makeUserAndActor();
-        const { actor: a2 } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq(
-                    { uid: `does-not-exist-${uuidv4()}`, users: [] },
-                    { actor: a1 },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-
-        // Group owned by a1; a2 tries to add → 403.
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({}, { actor: a1 }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ uid, users: [] }, { actor: a2 }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
-
-    it('group/list: forwards to GroupStore listByOwner/listByMember (or surfaces the source-side method-name mismatch)', async () => {
-        const { actor } = await makeUserAndActor();
-        const res = makeRes();
-        try {
-            await controller.handleGroupList(makeReq({}, { actor }), res);
-            const body = res.body as {
-                owned_groups: unknown[];
-                in_groups: unknown[];
-            };
-            expect(Array.isArray(body.owned_groups)).toBe(true);
-            expect(Array.isArray(body.in_groups)).toBe(true);
-        } catch (e) {
-            // The handler calls `stores.group.listByOwner(...)`, but the
-            // GroupStore implementation may expose a differently-named
-            // method. Surface the mismatch so a future GroupStore rename
-            // re-enables the assertion above.
-            expect((e as Error).message).toMatch(
-                /listByOwner|listByMember|is not a function/,
-            );
-        }
-    });
-
-    it('group/public-groups: returns {user, temp} from config', async () => {
-        const res = makeRes();
-        await controller.handleGroupPublicGroups(makeReq({}), res);
-        const body = res.body as { user: string | null; temp: string | null };
-        expect(body).toHaveProperty('user');
-        expect(body).toHaveProperty('temp');
     });
 });
 
@@ -6157,6 +6322,46 @@ describe('AuthController.handleSignup additional branches', () => {
             },
         );
     });
+
+    // No mail transport in the test server, so `send` returns null — the
+    // silent-drop case.
+    it('alarms when the signup confirmation email is not delivered', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            await withSignupValidateOverride(
+                (event) => {
+                    event.requires_email_confirmation = true;
+                },
+                async () => {
+                    const username = `cefail_${uniq()}`;
+                    await controller.handleSignup(
+                        makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        makeRes(),
+                    );
+                },
+            );
+
+            const raised = alarm.mock.calls.find(
+                (c) => c[0] === 'auth:confirmation-email-send-failed:signup',
+            );
+            expect(raised).toBeTruthy();
+            const fields = raised![2] as Record<string, unknown>;
+            expect(fields.stage).toBe('signup');
+            // No phone/card gate outstanding: stuck on the email alone.
+            expect(fields.sole_gate).toBe(true);
+            expect(fields.email_domain).toBe('test.local');
+            expect(raised![3]).toBe('warning');
+            expect(raised![4]).toEqual({ dedup: true });
+        } finally {
+            alarm.mockRestore();
+        }
+    });
 });
 
 describe('AuthController.handleSendPassRecoveryEmail additional branches', () => {
@@ -6473,16 +6678,6 @@ describe('AuthController grant/revoke additional branches', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('grant-user-group: 400 on missing group_uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGrantUserGroup(
-                makeReq({ permission: 'fs:read' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
     it('revoke-user-app: 400 when permission is "*" but app_uid is missing', async () => {
         const { actor } = await makeUserAndActor();
         await expect(
@@ -6597,58 +6792,6 @@ describe('AuthController.handleGetDevProfile additional branches', () => {
         await expect(
             controller.handleGetDevProfile(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 404 });
-    });
-});
-
-describe('AuthController group endpoints: additional branches', () => {
-    it('group/remove-users: 400 on missing uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ users: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/remove-users: 400 on non-array users', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ uid: 'g-1' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/remove-users: 404 on unknown uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq(
-                    { uid: `does-not-exist-${uuidv4()}`, users: [] },
-                    { actor },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('group/remove-users: 403 when caller does not own the group', async () => {
-        const { actor: a1 } = await makeUserAndActor();
-        const { actor: a2 } = await makeUserAndActor();
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({}, { actor: a1 }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ uid, users: [] }, { actor: a2 }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
     });
 });
 
@@ -6807,7 +6950,6 @@ describe('AuthController.handleRevokeSession additional branches', () => {
         expect((res.body as { sessions: unknown[] }).sessions).toBeDefined();
     });
 });
-
 
 // -- auth_id preservation on forced re-login --
 
@@ -7066,10 +7208,7 @@ describe('AuthController auth_id preservation on reauth', () => {
         const ip = `127.0.${Math.floor(Math.random() * 200)}.10`;
         await expect(
             controller.handleSignup(
-                makeReq(
-                    { is_temp: true, reauth_token: 'not-a-jwt' },
-                    { ip },
-                ),
+                makeReq({ is_temp: true, reauth_token: 'not-a-jwt' }, { ip }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 401 });
@@ -7123,9 +7262,9 @@ describe('AuthController auth_id preservation on reauth', () => {
 /**
  * The relay stands in for the popup's `postMessage` hand-off on
  * cross-origin-isolated openers, where COOP has severed `window.opener`.
- * postMessage is audience-bound for free (it posts with `targetOrigin`);
- * these tests pin the equivalent binding on the server-side path, since the
- * session id is a link-borne value and not a secret.
+ * postMessage is audience-bound for free (it posts with `targetOrigin`); these
+ * tests pin the equivalent binding on the server-side path, since the session
+ * id is a link-borne value and not a secret.
  */
 describe('AuthController.loginWait audience binding', () => {
     const OPENER = 'https://opener.test';
@@ -7134,15 +7273,18 @@ describe('AuthController.loginWait audience binding', () => {
     const mintAppToken = async (actor: Actor, origin: string) => {
         const res = makeRes();
         await inCtx(actor, () =>
-            controller.handleGetUserAppToken(makeReq({ origin }, { actor }), res),
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
         );
         return (res.body as { token: string }).token;
     };
 
     /**
-     * Start a wait, then relay `token` into it. The handler resolves the
-     * origin (async, DB-backed) before subscribing, so the emit is retried
-     * until the wait settles rather than fired after a fixed sleep.
+     * Start a wait, then relay `token` into it. The handler resolves the origin
+     * (async, DB-backed) before subscribing, so the emit is retried until the
+     * wait settles rather than fired after a fixed sleep.
      */
     const waitWithRelay = async (
         session: string,
@@ -7150,7 +7292,10 @@ describe('AuthController.loginWait audience binding', () => {
         token: string | null,
     ) => {
         const res = makeRes();
-        const waiting = controller.loginWait(makeReq({ session }, { headers }), res);
+        const waiting = controller.loginWait(
+            makeReq({ session }, { headers }),
+            res,
+        );
         const settled = waiting.then(
             () => 'ok' as const,
             (e: unknown) => e,
@@ -7220,6 +7365,27 @@ describe('AuthController.loginWait audience binding', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('answers 400 when the request has no parsable body', async () => {
+        // Destructuring an absent body is a TypeError, not a 400.
+        const req = makeReq({}, { headers: { origin: OPENER } });
+        (req as { body?: unknown }).body = undefined;
+        await expect(
+            controller.loginWait(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('rejects a non-string session id with 400', async () => {
+        await expect(
+            controller.loginWait(
+                makeReq(
+                    { session: { nested: true } as unknown as string },
+                    { headers: { origin: OPENER } },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('still rejects a malformed session id before looking at Origin', async () => {

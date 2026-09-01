@@ -19,7 +19,7 @@
 
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
-import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import type {
     ResolvedShare,
@@ -27,7 +27,7 @@ import type {
     ShareTarget,
 } from '../../services/share/ShareService.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
-import { signEntryThumbnail } from '../fs/legacyFsHelpers.js';
+import { toClientShare } from './clientShare.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
@@ -66,10 +66,13 @@ const LIST_LIMIT_CAP = 200;
 export const DEFAULT_MAX_RECIPIENTS = 10;
 export const DEFAULT_MAX_ITEMS = 50;
 
-/** A success carries the created share; a failure carries why. */
+/**
+ * A success carries the created share; a failure carries why. `pending` is an
+ * invite: recorded, but not access anyone holds yet.
+ */
 interface ShareOutcome {
     recipient: string;
-    status: 'success' | 'error';
+    status: 'success' | 'error' | 'pending';
     path?: string;
     uid?: string;
     mode?: string;
@@ -113,13 +116,16 @@ export class ShareController extends PuterController {
 
         // Every (recipient, item) pair is a distinct (holder, entry) key, so
         // they can run together. Two writes to the *same* pair could not —
-        // setUserUser is a read-modify-write.
+        // setUserUser is a read-modify-write, and a duplicated invite races
+        // itself into two pending rows — so duplicates in the request execute
+        // once and every original position reports that one outcome.
         const pairs = recipients.flatMap((recipient) =>
             items.map((item) => ({ recipient, item })),
         );
+        const { unique, indexOf } = this.#dedupePairs(pairs);
 
-        const settled = await runWithConcurrencyLimitSettled(
-            pairs,
+        const settledUnique = await runWithConcurrencyLimitSettled(
+            unique,
             SHARE_CONCURRENCY,
             async ({ recipient, item }) => {
                 const share = await this.services.share.share(actor, {
@@ -130,6 +136,7 @@ export class ShareController extends PuterController {
                 return share;
             },
         );
+        const settled = indexOf.map((i) => settledUnique[i]);
 
         const results: ShareOutcome[] = await Promise.all(
             settled.map(async (outcome, index) => {
@@ -142,7 +149,7 @@ export class ShareController extends PuterController {
                     return {
                         ...(await this.#toClientShare(share)),
                         recipient: label,
-                        status: 'success',
+                        status: share.pending ? 'pending' : 'success',
                     };
                 }
                 return {
@@ -154,18 +161,17 @@ export class ShareController extends PuterController {
             }),
         );
 
-        // Off the response path — a share must not fail because its
-        // notification didn't land.
-        void this.services.share
-            .notifyRecipients(
-                actor,
-                settled.flatMap((outcome) =>
-                    outcome.status === 'fulfilled' ? [outcome.value] : [],
-                ),
-            )
-            .catch(() => {});
+        // Off the response path: a share that landed must not be reported as
+        // failed because telling the recipient didn't. Fanned out from the
+        // unique outcomes, so a duplicated pair is not counted twice.
+        void this.services.shareNotification.notifyShared(
+            actor,
+            settledUnique
+                .filter((o) => o.status === 'fulfilled')
+                .map((o) => (o as PromiseFulfilledResult<ResolvedShare>).value),
+        );
 
-        const succeeded = results.filter((r) => r.status === 'success').length;
+        const succeeded = results.filter((r) => r.status !== 'error').length;
         res.json({
             status:
                 succeeded === results.length
@@ -197,20 +203,29 @@ export class ShareController extends PuterController {
         const pairs = recipients.flatMap((recipient) =>
             items.map((item) => ({ recipient, item })),
         );
+        const { unique, indexOf } = this.#dedupePairs(pairs);
 
-        const settled = await runWithConcurrencyLimitSettled(
-            pairs,
+        const settledUnique = await runWithConcurrencyLimitSettled(
+            unique,
             SHARE_CONCURRENCY,
             ({ recipient, item }) =>
                 this.services.share.unshare(actor, { ...item, recipient }),
         );
+        const settled = indexOf.map((i) => settledUnique[i]);
 
-        let revoked = 0;
+        // Totalled over the unique outcomes: a pair listed twice revoked its
+        // grants once.
+        const revoked = settledUnique.reduce(
+            (total, outcome) =>
+                outcome.status === 'fulfilled'
+                    ? total + outcome.value.revoked
+                    : total,
+            0,
+        );
         const results: ShareOutcome[] = settled.map((outcome, index) => {
             const { recipient, item } = pairs[index];
             const label = recipient.email ?? recipient.username ?? '';
             if (outcome.status === 'fulfilled') {
-                revoked += outcome.value.revoked;
                 return {
                     recipient: label,
                     ...(item.path ? { path: item.path } : {}),
@@ -295,46 +310,145 @@ export class ShareController extends PuterController {
         });
     }
 
+    // -- Blocking -----------------------------------------------------
+    // User sessions only: a block list is a safety control, not an app's to touch.
+
+    /**
+     * GET /share/blocks — who the caller is refusing shares from, and whether
+     * they are refusing everyone.
+     */
+    @Get('/blocks', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listBlocks(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { all, items } =
+            await this.services.share.listBlockedSenders(actor);
+        res.json({
+            all,
+            items: items.map((item) => ({
+                username: item.username,
+                created_at: item.createdAt,
+            })),
+        });
+    }
+
+    /**
+     * POST /share/blocks — stop accepting shares. `{ all: true }` refuses
+     * everyone; `{ username }` refuses one person. Idempotent either way:
+     * blocking twice is the state the caller asked for.
+     *
+     * Access already granted is untouched — `POST /share/revoke` is what
+     * withdraws that.
+     */
+    @Post('/blocks', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async createBlock(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        if (this.#isBlockAll(body)) {
+            const { all } = await this.services.share.setBlockAllSenders(
+                actor,
+                true,
+            );
+            res.json({ all, blocked: true });
+            return;
+        }
+        const { username, created } = await this.services.share.blockSender(
+            actor,
+            this.#username(body),
+        );
+        res.json({ username, blocked: true, created });
+    }
+
+    /**
+     * DELETE /share/blocks — accept shares again. `{ all: true }` lifts the
+     * blanket refusal, leaving the per-sender list as it was.
+     */
+    @Delete('/blocks', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async deleteBlock(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        if (this.#isBlockAll(body)) {
+            const { all } = await this.services.share.setBlockAllSenders(
+                actor,
+                false,
+            );
+            res.json({ all, blocked: false });
+            return;
+        }
+        const { username, unblocked } = await this.services.share.unblockSender(
+            actor,
+            this.#username(body),
+        );
+        res.json({ username, blocked: false, unblocked });
+    }
+
     // -- Helpers ------------------------------------------------------
 
     /**
-     * Only ever the username — never the internal id, and never an email the
-     * caller didn't already supply.
-     *
-     * `thumbnail` is stored as an `s3://bucket/key` URI, so it is swapped for a
-     * signed URL rather than emitted: the raw value names internal storage and
-     * no client can render it.
+     * Collapse repeated (recipient, item) pairs to one execution. `indexOf`
+     * maps every original position onto its unique pair, so a request that
+     * names the same pair twice still gets a result in both positions — the
+     * same result, which is the truth of what happened.
      */
-    async #toClientShare(share: ResolvedShare) {
-        const thumbnail =
-            share.thumbnail === undefined
-                ? undefined
-                : await signEntryThumbnail(
-                      this.clients.event,
-                      share.entryUid,
-                      share.thumbnail,
-                  );
-        return {
-            uid: share.uid,
-            mode: share.mode,
-            path: share.path,
-            // A share listing has no fsentry behind it for a client to stat.
-            ...(share.name === undefined ? {} : { name: share.name }),
-            ...(share.type === undefined ? {} : { type: share.type }),
-            ...(thumbnail === undefined ? {} : { thumbnail }),
-            ...(share.owner === undefined
-                ? {}
-                : { owner: share.owner.username }),
-            uid_entry: share.entryUid,
-            is_dir: share.isDir,
-            issuer: share.issuer.username,
-            holder: share.holder.username,
-            created_at: share.createdAt,
-            issued_by_app: share.issuedByApp ?? null,
-            inherited_from: share.inheritedFrom ?? null,
-            modified: share.modified,
-            size: share.size,
-        };
+    #dedupePairs<T extends { recipient: ShareRecipient; item: ShareTarget }>(
+        pairs: T[],
+    ): { unique: T[]; indexOf: number[] } {
+        const unique: T[] = [];
+        const seen = new Map<string, number>();
+        const indexOf = pairs.map((pair) => {
+            const key = JSON.stringify([
+                pair.recipient.email ?? null,
+                pair.recipient.username ?? null,
+                pair.item.uid ?? null,
+                pair.item.path ?? null,
+            ]);
+            let at = seen.get(key);
+            if (at === undefined) {
+                at = unique.length;
+                seen.set(key, at);
+                unique.push(pair);
+            }
+            return at;
+        });
+        return { unique, indexOf };
+    }
+
+    /**
+     * Whether this call is about the blanket switch rather than one person.
+     * Only the literal `true` counts, so a client sending `all: false`
+     * alongside a username still means the username.
+     */
+    #isBlockAll(body: Record<string, unknown>): boolean {
+        return body.all === true;
+    }
+
+    #username(body: Record<string, unknown>): string {
+        const username =
+            typeof body.username === 'string' ? body.username.trim() : '';
+        if (!username) {
+            throw new HttpError(400, '`username` is required', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return username;
+    }
+
+    #toClientShare(share: ResolvedShare) {
+        return toClientShare(this.clients.event, share);
     }
 
     #requireActor(req: Request): Actor {

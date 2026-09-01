@@ -944,7 +944,15 @@ export class MeteringService extends PuterService {
                 subscription.monthUsageAllowance,
             );
 
+        // The record already reads as asked, so there is nothing to write — but
+        // an adjustment is also how a cached view that has drifted from the
+        // record gets repaired, and answering "already correct" from the record
+        // while readers keep being told something else is how that drift
+        // survives being corrected at all. Drop the view either way.
+        await this.stores.meteringBuffer.forgetBase(actorUsageKey);
+
         if (delta === 0 && allowanceUsedDelta === 0) {
+            this.invalidateActorCredits(userId);
             return (current as UsageByType) || ({ total: 0 } as UsageByType);
         }
 

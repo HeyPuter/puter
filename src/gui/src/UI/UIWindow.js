@@ -23,16 +23,16 @@ import path from '../lib/path.js';
 import UITaskbarItem from './UITaskbarItem.js';
 import UIWindowLogin from './UIWindowLogin.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import new_context_menu_item from '../helpers/new_context_menu_item.js';
-import refresh_item_container from '../helpers/refresh_item_container.js';
+import new_context_menu_item from '../helpers/newContextMenuItem.js';
+import refresh_item_container from '../helpers/refreshItemContainer.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
-import launch_app from '../helpers/launch_app.js';
-import publish_as_website from '../helpers/publish_as_website.js';
+import launch_app from '../helpers/launchApp.js';
+import publish_as_website from '../helpers/publishAsWebsite.js';
 
-import item_icon from '../helpers/item_icon.js';
-import { parent_path_for, shared_crumbs_for } from '../helpers/share_paths.js';
-import { has_shared_roots } from '../helpers/shared_access.js';
-import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/window_visibility.js';
+import item_icon from '../helpers/itemIcon.js';
+import { parent_path_for, shared_crumbs_for } from '../helpers/sharePaths.js';
+import { has_shared_roots } from '../helpers/sharedAccess.js';
+import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/windowVisibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
@@ -3768,6 +3768,10 @@ $.fn.close = async function (options) {
             // notify other apps that we're closing
             window.report_app_closed(window_uuid, options.status_code ?? 0);
 
+            // A picture-in-picture window the app opened is the app's; it
+            // goes with it.
+            globalThis.services?.get?.('pip')?.close_for_app?.(window_uuid);
+
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
 
@@ -4553,6 +4557,43 @@ function minimize_window (el_window) {
         $(el_window).hideWindow();
     }
     pop_dashboard_app_url($(el_window).attr('data-app'));
+}
+
+/**
+ * Bring the dashboard out from under whatever app windows cover it — what
+ * a notification toast clicked over an open app needs before acting on the
+ * dashboard. Minimizes every app window the user can see, the way the
+ * minimize controls do, and lands the URL on the dashboard's own route
+ * rather than on the entry of an app stacked underneath. Resolves once the
+ * URL has settled: the pop is a history.back(), which lands asynchronously,
+ * and an entry pushed before then would be traversed over.
+ *
+ * @returns {Promise<void>}
+ */
+export async function reveal_dashboard () {
+    if ( ! window.is_dashboard_mode ) return;
+    const $covering = $(user_facing_windows($('.window[data-app]').not('[data-app="dashboard"]')))
+        .filter(function () {
+            const minimized = $(this).attr('data-is_minimized');
+            return minimized !== '1' && minimized !== 'true' && ! is_window_hidden(this);
+        });
+    if ( $covering.length === 0 ) return;
+    $covering.each(function () {
+        $(this).hideWindow();
+    });
+    const url_app = dashboard_app_url_current();
+    if ( ! url_app || ! pop_dashboard_app_url(url_app, { to_dashboard: true }) ) return;
+    await new Promise((resolve) => {
+        const settled = () => {
+            window.removeEventListener('popstate', settled);
+            clearTimeout(watchdog);
+            resolve();
+        };
+        // Same ceiling as pop_dashboard_app_url's own watchdog, which repairs
+        // the URL itself when no popstate arrives.
+        const watchdog = setTimeout(settled, 500);
+        window.addEventListener('popstate', settled);
+    });
 }
 
 window.addEventListener('popstate', () => {

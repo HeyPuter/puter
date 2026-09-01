@@ -45,6 +45,7 @@ import {
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
+import { listClientShares } from '../share/clientShare.js';
 import { PuterController } from '../types.js';
 import { STORAGE_OP_COSTS } from '../../services/metering/costs.js';
 import {
@@ -151,7 +152,10 @@ export class FSController extends PuterController {
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
-        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        const requestBody = this.#withGuiMetadata(
+            this.#requireObjectBody(req.body),
+            req.body,
+        );
         requestBody.fileMetadata = await this.#normalizeFileMetadataPath(
             req,
             requestBody.fileMetadata,
@@ -219,7 +223,7 @@ export class FSController extends PuterController {
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
                       const normalizedRequestBody = this.#withGuiMetadata(
-                          requestBody,
+                          this.#requireObjectBody(requestBody),
                           req.body,
                       );
                       normalizedRequestBody.fileMetadata =
@@ -318,7 +322,10 @@ export class FSController extends PuterController {
         res: Response<ClientCompleteWriteResponse>,
     ) {
         const userId = this.#getActorUserId(req);
-        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        const requestBody = this.#withGuiMetadata(
+            this.#requireObjectBody(req.body),
+            req.body,
+        );
         this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
 
         const response = await this.services.fs.completeUrlWrite(
@@ -356,7 +363,10 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const requests = Array.isArray(req.body)
             ? req.body.map((requestBody) => {
-                  return this.#withGuiMetadata(requestBody, req.body);
+                  return this.#withGuiMetadata(
+                      this.#requireObjectBody(requestBody),
+                      req.body,
+                  );
               })
             : [];
         for (const requestBody of requests) {
@@ -442,7 +452,10 @@ export class FSController extends PuterController {
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
-        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        const requestBody = this.#withGuiMetadata(
+            this.#requireObjectBody(req.body),
+            req.body,
+        );
         requestBody.fileMetadata = await this.#normalizeFileMetadataPath(
             req,
             requestBody.fileMetadata,
@@ -840,7 +853,7 @@ export class FSController extends PuterController {
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
                       const normalizedRequestBody = this.#withGuiMetadata(
-                          requestBody,
+                          this.#requireObjectBody(requestBody),
                           req.body,
                       );
                       normalizedRequestBody.fileMetadata =
@@ -972,17 +985,28 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, entry.path, 'see');
 
         const wantsSize = this.#toBoolean(body.return_size);
-        const subtreeSize =
-            entry.isDir && wantsSize
-                ? await this.services.fs.getSubtreeSize(userId, entry.path)
-                : undefined;
-
-        entry.suggestedApps =
-            await this.services.suggestedApps.getSuggestedApps(entry);
+        const [subtreeSize, suggestedApps, shareFlags, shares] =
+            await Promise.all([
+                entry.isDir && wantsSize
+                    ? this.services.fs.getSubtreeSize(userId, entry.path)
+                    : undefined,
+                this.services.suggestedApps.getSuggestedApps(entry),
+                this.services.share.shareFlags(actor, [entry]),
+                this.#toBoolean(body.return_shares)
+                    ? listClientShares(
+                          this.services.share,
+                          this.clients.event,
+                          actor,
+                          entry.uuid,
+                      )
+                    : undefined,
+            ]);
+        entry.suggestedApps = suggestedApps;
 
         res.json({
-            ...this.#toClientEntry(entry),
+            ...this.#toClientEntry(entry, shareFlags.get(entry.uuid) ?? null),
             ...(subtreeSize !== undefined ? { size: subtreeSize } : {}),
+            ...(shares !== undefined ? { shares } : {}),
         });
     }
 
@@ -994,7 +1018,7 @@ export class FSController extends PuterController {
      * (with public folders enabled) any authenticated user. The legacy read
      * path already curates its output; this does the same for the v2 routes.
      */
-    #toClientEntry(entry: FSEntry): ClientFSEntry {
+    #toClientEntry(entry: FSEntry, isShared?: boolean | null): ClientFSEntry {
         // Allowlist, not a denylist: a denylist silently ships every column
         // added to `fsentries` later. Omits the numeric primary keys (`id`,
         // `parentId`, `associatedAppId`), the storage columns, the owning
@@ -1026,6 +1050,8 @@ export class FSController extends PuterController {
             workers: entry.workers ?? [],
             hasWebsite: entry.hasWebsite ?? subdomains.length > 0,
             suggestedApps: entry.suggestedApps ?? [],
+            // Read paths pass a value; write responses leave it off entirely.
+            ...(isShared === undefined ? {} : { isShared }),
         };
     }
 
@@ -1134,7 +1160,7 @@ export class FSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
-            const rootItems = await this.#toReaddirEntries(rootChildren);
+            const rootItems = await this.#toReaddirEntries(actor, rootChildren);
             if (paginated) {
                 res.json({
                     items: rootItems,
@@ -1207,7 +1233,7 @@ export class FSController extends PuterController {
                   )
                 : undefined;
             res.json({
-                items: await this.#toReaddirEntries(page.entries),
+                items: await this.#toReaddirEntries(actor, page.entries),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
                 ...(total !== undefined ? { total } : {}),
             });
@@ -1227,7 +1253,7 @@ export class FSController extends PuterController {
                 ? await this.services.fs.countDirectory(parent.uuid)
                 : undefined;
             res.json({
-                items: await this.#toReaddirEntries(page.entries),
+                items: await this.#toReaddirEntries(actor, page.entries),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
                 ...(total !== undefined ? { total } : {}),
             });
@@ -1241,7 +1267,7 @@ export class FSController extends PuterController {
             sortOrder,
         });
         await this.#attachSuggestedApps(children);
-        res.json(await this.#toReaddirEntries(children));
+        res.json(await this.#toReaddirEntries(actor, children));
     }
 
     /**
@@ -1249,14 +1275,20 @@ export class FSController extends PuterController {
      * the three fields the SDK cannot reconstruct on its own so it can rebuild
      * the v1 shape: `type` (MIME), a signed `thumbnail`, and `associatedApp`.
      */
-    async #toReaddirEntries(entries: FSEntry[]): Promise<ClientReaddirEntry[]> {
-        const appsById = await loadLegacyAssociatedApps(
-            this.stores.app,
-            entries,
-        );
+    async #toReaddirEntries(
+        actor: Actor,
+        entries: FSEntry[],
+    ): Promise<ClientReaddirEntry[]> {
+        const [appsById, shareFlags] = await Promise.all([
+            loadLegacyAssociatedApps(this.stores.app, entries),
+            this.services.share.shareFlags(actor, entries),
+        ]);
         return Promise.all(
             entries.map(async (entry) => ({
-                ...this.#toClientEntry(entry),
+                ...this.#toClientEntry(
+                    entry,
+                    shareFlags.get(entry.uuid) ?? null,
+                ),
                 // Fields the client cannot derive on its own.
                 type: fsEntryMimeType(entry),
                 thumbnail: await signEntryThumbnail(
@@ -2340,6 +2372,20 @@ export class FSController extends PuterController {
             return undefined;
         }
         return guiMetadata;
+    }
+
+    /**
+     * The write handlers build on `req.body` being an object. A request whose
+     * body never parsed leaves it undefined, and the first field read after
+     * that is a 500 where the request deserves a 400.
+     */
+    #requireObjectBody<T>(body: T | undefined): T {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            throw new HttpError(400, 'A request body is required', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return body;
     }
 
     #withGuiMetadata<T extends { guiMetadata?: WriteGuiMetadata }>(

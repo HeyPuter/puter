@@ -30,6 +30,7 @@ export const AGGREGATOR_PROVIDERS = new Set([
     'openrouter',
     'infron',
     'neuralwatt',
+    'hoonify',
 ]);
 
 // Lower rank is served first. `openrouter` and `together-ai` sit at the very
@@ -47,6 +48,22 @@ const providerRank = (provider?: string): number => {
  */
 export const normalizeModelKey = (key: string): string =>
     key.trim().toLowerCase();
+
+/**
+ * Every name a model answers to, in declaration order and without repeats.
+ *
+ * A catalog entry's `id` is already one of its names, so an `aliases` array
+ * that also lists the id is redundant rather than wrong -- and catalogs do
+ * that, because alias lists get written as "every spelling a caller might type"
+ * and the id is one of those spellings. Deduplicating here means the flattened
+ * list stays honest no matter how the catalog is written, instead of every
+ * caller having to reason about it.
+ */
+export const modelLookupNames = (
+    models: readonly Pick<IChatModel, 'id' | 'aliases'>[],
+): string[] => [
+    ...new Set(models.flatMap((m) => [m.id, ...(m.aliases ?? [])])),
+];
 
 /**
  * Whether a key asserts _which model this is_, rather than merely being another

@@ -35,6 +35,8 @@ export default suite('sharing', {
         t.assert.equal(shares.length, 1);
         t.assert.equal(shares[0].mode, 'read');
         t.assert.equal(shares[0].holder, t.env.users.other.username);
+        // The path a recipient sees is masked, so the name is what labels it.
+        t.assert.equal(shares[0].name, path.split('/').pop());
 
         const after = await readAsOther(t, path);
         t.assert.equal(after.status, 200);
@@ -65,6 +67,21 @@ export default suite('sharing', {
         t.assert.equal(shares[0].path, path);
     },
 
+    'share says whether it created access or the recipient already had it': async (t) => {
+        const path = scratch(t, 'isnew');
+        await t.puter.fs.write(path, 'x');
+
+        const first = await t.puter.fs.share(path, t.env.users.other.username, 'read');
+        t.assert.equal(first[0].isNew, true);
+
+        const again = await t.puter.fs.share(path, t.env.users.other.username, 'read');
+        t.assert.equal(again[0].isNew, false);
+
+        // A listing describes standing access, so it does not carry it.
+        const listed = await t.puter.fs.getShares(path);
+        t.assert.equal(listed[0].isNew, undefined);
+    },
+
     'getShares reports who can reach an item': async (t) => {
         const path = scratch(t, 'getshares');
         await t.puter.fs.write(path, 'x');
@@ -75,6 +92,37 @@ export default suite('sharing', {
         t.assert.equal(shares[0].holder, t.env.users.other.username);
         t.assert.equal(shares[0].mode, 'write');
         t.assert.equal(shares[0].issuer, t.env.users.user.username);
+    },
+
+    'stat and readdir report whether an item is shared': async (t) => {
+        // A directory of its own, so the listing is just these two entries.
+        const dir = scratch(t, 'flag').replace(/\.txt$/, '');
+        const shared = `${dir}/shared.txt`;
+        const sibling = `${dir}/sibling.txt`;
+        await t.puter.fs.write(shared, 'x', { createMissingParents: true });
+        await t.puter.fs.write(sibling, 'x');
+        await t.puter.fs.share(shared, t.env.users.other.username, 'write');
+
+        const listing = await t.puter.fs.readdir(dir);
+        const flags = Object.fromEntries(
+            listing.map((item) => [item.name, item.is_shared]),
+        );
+        t.assert.equal(flags['shared.txt'], true);
+        t.assert.equal(flags['sibling.txt'], false);
+
+        const item = await t.puter.fs.stat(shared, { returnShares: true });
+        t.assert.equal(item.is_shared, true);
+        t.assert.equal(item.shares.length, 1);
+        t.assert.equal(item.shares[0].holder, t.env.users.other.username);
+        t.assert.equal(item.shares[0].mode, 'write');
+        // Mapped into the same shape `getShares()` publishes.
+        t.assert.equal(item.shares[0].entryUid, item.uid);
+        t.assert.equal(item.shares[0].inheritedFrom, null);
+
+        await t.puter.fs.unshare(shared, t.env.users.other.username);
+        const after = await t.puter.fs.stat(shared);
+        t.assert.equal(after.is_shared, false);
+        t.assert.equal(after.shares, undefined);
     },
 
     'changing the mode replaces the share rather than adding one': async (t) => {
@@ -196,5 +244,33 @@ export default suite('sharing', {
             t.env.users.other.username,
         );
         t.assert.equal(result.revoked, 0);
+    },
+
+    'sharing with an unregistered address records an invite': async (t) => {
+        const path = scratch(t, 'invite');
+        await t.puter.fs.write(path, 'x');
+        const email = `nobody-${Math.random().toString(36).slice(2, 8)}@test.local`;
+
+        // An address with no account is invited rather than refused: the
+        // share waits for whoever proves they own it.
+        const created = await t.puter.fs.share(path, email);
+        t.assert.equal(created.length, 1);
+        t.assert.equal(created[0].pending, true);
+        t.assert.equal(created[0].recipientEmail, email);
+
+        // It shows on the item so the sharer can see who was asked.
+        const shares = await t.puter.fs.getShares(path);
+        const invite = shares.find((share) => share.pending);
+        t.assert.ok(invite, 'the invite should be listed');
+        t.assert.equal(invite!.recipientEmail, email);
+
+        // And can be taken back before it is claimed.
+        const result = await t.puter.fs.unshare(path, email);
+        t.assert.equal(result.revoked, 1);
+        const after = await t.puter.fs.getShares(path);
+        t.assert.equal(
+            after.filter((share) => share.pending).length,
+            0,
+        );
     },
 });

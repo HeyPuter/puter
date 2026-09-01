@@ -96,11 +96,20 @@ export interface ICompleteArguments {
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
-    text?: string & { verbosity?: 'low' | 'medium' | 'high' | undefined };
+    text?: { verbosity?: 'low' | 'medium' | 'high' | undefined } | undefined;
     reasoning_effort?: 'low' | 'medium' | 'high' | undefined;
     verbosity?: 'low' | 'medium' | 'high' | undefined;
     moderation?: boolean;
     custom?: unknown;
+    /**
+     * Response-format control for non-streaming results. `true` coerces the
+     * result to the OpenAI `choices[0]` shape (string `message.content`,
+     * `message.tool_calls`, mapped `finish_reason`); `false` forces the
+     * provider-native shape. Left undefined, the legacy `response.normalize`
+     * flag applies if set; otherwise models released on or after
+     * [[OPENAI_SHAPE_CUTOFF]] (2026-09-01) are coerced by default.
+     */
+    normalize?: boolean;
     response?: {
         normalize?: boolean;
     };
@@ -141,5 +150,7 @@ export interface IChatProvider {
     list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
     complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
-    checkModeration(text: string): { flagged: boolean; categories: string[] };
+    checkModeration(
+        text: string,
+    ): Promise<{ flagged: boolean; categories?: string[] }> | void;
 }

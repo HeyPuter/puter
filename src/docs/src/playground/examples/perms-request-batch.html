@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="setup">Set Up</button>
+    <script>
+        document.getElementById('setup').addEventListener('click', async () => {
+            // One prompt for the set; the dialog lists only what is missing.
+            const [documents, apps, email] = await puter.perms.request([
+                { resource: 'folder', name: 'Documents', access: 'write' },
+                { resource: 'apps' },
+                { resource: 'email' },
+            ]);
+
+            puter.print(`Documents: ${documents ?? 'denied'}`);
+            puter.print(`Apps: ${apps ? 'granted' : 'denied'}`);
+            puter.print(`Email: ${email ?? 'denied'}`);
+        });
+    </script>
+</body>
+</html>

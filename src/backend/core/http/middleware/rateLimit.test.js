@@ -40,6 +40,7 @@ import {
     concurrencyGate,
     configureRateLimit,
     listConfiguredRateLimitBackends,
+    peekRateLimit,
     rateLimitGate,
     sweepMemoryWindows,
 } from './rateLimit.js';
@@ -1276,6 +1277,76 @@ describe('checkRateLimit', () => {
         });
         const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
         expect(await checkRateLimit('boom', 1, 60_000)).toBe(true);
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+});
+
+describe('peekRateLimit', () => {
+    beforeEach(() => configureRateLimit());
+    afterEach(() => configureRateLimit());
+
+    const backends = [
+        ['memory', () => ({})],
+        ['redis', () => ({ redis: new RedisMock() })],
+    ];
+
+    it.each(backends)(
+        'reads %s state without spending it',
+        async (name, wiring) => {
+            const cfg = wiring();
+            configureRateLimit(cfg);
+            const key = `peek-${name}-${Math.random()}`;
+
+            // Peeking is free: any number of reads leaves the budget intact.
+            for (let i = 0; i < 5; i++) {
+                expect(await peekRateLimit(key, 1, 60_000, name)).toBe(true);
+            }
+            expect(await checkRateLimit(key, 1, 60_000, name)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000, name)).toBe(false);
+            await cfg.redis?.quit?.();
+        },
+    );
+
+    it('reports exhaustion on the kv backend without writing', async () => {
+        const server = await setupTestServer();
+        try {
+            configureRateLimit({ default: 'kv', kv: server.stores.kv });
+            const key = `peek-kv-${Math.random().toString(36).slice(2, 10)}`;
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await checkRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(false);
+        } finally {
+            configureRateLimit();
+            await server.shutdown();
+        }
+    });
+
+    it('ages entries out of the window', async () => {
+        vi.useFakeTimers();
+        try {
+            const key = `peek-window-${Math.random()}`;
+            expect(await checkRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(false);
+            vi.advanceTimersByTime(60_001);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis down');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        expect(await peekRateLimit('boom', 1, 60_000)).toBe(true);
         expect(spy).toHaveBeenCalled();
         spy.mockRestore();
     });

@@ -26,14 +26,14 @@ import UIAlert from './UIAlert.js';
 import UIWindowPublishWorker from './UIWindowPublishWorker.js';
 import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
-import truncate_filename from '../helpers/truncate_filename.js';
-import launch_app from '../helpers/launch_app.js';
-import open_item from '../helpers/open_item.js';
-import publish_as_website from '../helpers/publish_as_website.js';
+import truncate_filename from '../helpers/truncateFilename.js';
+import launch_app from '../helpers/launchApp.js';
+import open_item from '../helpers/openItem.js';
+import publish_as_website from '../helpers/publishAsWebsite.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
-import { is_owned_by_me } from '../helpers/path_owner.js';
-import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/shared_access.js';
+import { is_owned_by_me } from '../helpers/pathOwner.js';
+import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
 
 const AI_APP_NAME = 'ai';
 
@@ -133,6 +133,8 @@ async function UIItem (options) {
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
     options.shared_with_me = options.shared_with_me ?? false;
+    // `=== true` because null — someone else's item — must not badge.
+    options.is_shared = options.is_shared === true;
     options.share_mode = options.share_mode ?? '';
     options.shared_by = options.shared_by ?? '';
     options.owner = options.owner ?? '';
@@ -169,6 +171,7 @@ async function UIItem (options) {
                 data-is_dir="${options.is_dir ? 1 : 0}" 
                 data-is_trash="${options.is_trash ? 1 : 0}"
                 data-shared_with_me="${options.shared_with_me ? 1 : 0}"
+                data-is_shared="${options.is_shared ? 1 : 0}"
                 data-share_mode="${html_encode(options.share_mode)}"
                 data-shared_by="${html_encode(options.shared_by)}"
                 data-owner="${html_encode(options.owner)}"
@@ -214,6 +217,12 @@ async function UIItem (options) {
     // icon
     h += '<div class="item-icon">';
     h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
+    // Shared marker: on the icon rather than in the badge cluster, so it stays
+    // on the item's own corner at every icon size.
+    h += `<div class="item-shared-marker"
+                style="${options.is_shared ? '' : 'display:none;'}"
+                title="${html_encode(i18n('item_shared_by_you'))}"
+            ></div>`;
     h += '</div>';
     // badges
     h += '<div class="item-badges">';
@@ -238,7 +247,7 @@ async function UIItem (options) {
                         title="${i18n('item_shortcut')}"
                     >`;
     // worker badge
-    h += `<img  class="item-badge item-is-worker long-hover" 
+    h += `<img  class="item-badge item-is-worker long-hover"
                         style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['worker.svg'])}" 
                         data-item-id="${item_id}"
@@ -1381,6 +1390,20 @@ async function UIItem (options) {
                 });
             }
             // -------------------------------------------
+            // Share
+            // -------------------------------------------
+            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
+                menu_items.push({
+                    html: i18n('share_ellipsis'),
+                    onClick: async function () {
+                        UIWindowShare({
+                            path: $(el_item).attr('data-path'),
+                            name: $(el_item).attr('data-name'),
+                        });
+                    },
+                });
+            }
+            // -------------------------------------------
             // Download
             // -------------------------------------------
             if ( !is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
@@ -1584,20 +1607,6 @@ async function UIItem (options) {
             // -------------------------------------------
             if ( !is_trashed && !is_trash && !is_shortcut && is_weblink ) {
                 menu_items.push(weblinkChangeIconMenuItem(el_item));
-            }
-            // -------------------------------------------
-            // Share
-            // -------------------------------------------
-            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
-                menu_items.push({
-                    html: i18n('share_ellipsis'),
-                    onClick: async function () {
-                        UIWindowShare({
-                            path: $(el_item).attr('data-path'),
-                            name: $(el_item).attr('data-name'),
-                        });
-                    },
-                });
             }
             // -------------------------------------------
             // Remove from Shared

@@ -3,132 +3,11 @@ import type { TestContext } from '../harness/types.ts';
 
 const home = (t: TestContext) => `/${t.env.users.user.username}`;
 
-/** Read a file as the `other` user via plain fetch — works on every platform. */
-const readAsOther = (t: TestContext, path: string) =>
-    fetch(
-        `${t.env.apiOrigin}/read?${new URLSearchParams({ file: path })}`,
-        {
-            headers: {
-                Authorization: `Bearer ${t.env.users.other.token}`,
-                Origin: t.env.apiOrigin,
-            },
-        },
-    );
+/** A permission string nothing grants, so asking for it is always a denial. */
+const UNHELD_PERMISSION = 'nonexistent-namespace:nothing:read';
 
 export default suite('perms', {
-    'grantUser is retired in favour of fs.share': async (t) => {
-        // Direct user-to-user grants left no share row, so the owner could
-        // neither see nor revoke them. Cross-user access is covered end to end
-        // by the sharing suite.
-        const res = await t.puter.perms.grantUser(
-            t.env.users.other.username,
-            `fs:${home(t)}/perms-suite-shared.txt:read`,
-        );
-        t.assert.ok(res.error, 'grantUser should be refused');
-        t.assert.equal(res.code, 'not_implemented');
-    },
-
-    'revokeUser takes a shared permission away': async (t) => {
-        // Revoking still works: it is how access granted before `grantUser`
-        // was retired, or through a share, gets taken back at the permission
-        // layer.
-        const path = `${home(t)}/perms-suite-revoked.txt`;
-        await t.puter.fs.write(path, 'soon private again');
-
-        await t.puter.fs.share({
-            path,
-            recipient: t.env.users.other.username,
-            mode: 'read',
-        });
-        const whileGranted = await readAsOther(t, path);
-        t.assert.equal(whileGranted.status, 200);
-
-        const revoked = await t.puter.perms.revokeUser(
-            t.env.users.other.username,
-            `fs:${path}:read`,
-        );
-        t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
-
-        const afterRevoke = await readAsOther(t, path);
-        t.assert.ok(
-            afterRevoke.status !== 200,
-            `read should fail after revoke (got ${afterRevoke.status})`,
-        );
-    },
-
-    'createGroup returns a group uid': async (t) => {
-        const created = await t.puter.perms.createGroup({
-            title: 'perms-suite-group',
-        });
-        t.assert.ok(!created.error, `create failed: ${JSON.stringify(created)}`);
-        t.assert.ok(created.uid, 'created group should have a uid');
-    },
-
-    'listGroups includes a created group': async (t) => {
-        const created = await t.puter.perms.createGroup({
-            title: 'perms-suite-listed-group',
-        });
-        const groups = await t.puter.perms.listGroups();
-        t.assert.ok(!groups.error, `list failed: ${JSON.stringify(groups)}`);
-        const all = JSON.stringify(groups);
-        t.assert.ok(
-            all.includes(created.uid),
-            'listGroups should mention the created group uid',
-        );
-    },
-
-    'addUsersToGroup and removeUsersFromGroup succeed': async (t) => {
-        const created = await t.puter.perms.createGroup({
-            title: 'perms-suite-membership',
-        });
-        const added = await t.puter.perms.addUsersToGroup(created.uid, [
-            t.env.users.other.username,
-        ]);
-        t.assert.ok(!added.error, `add failed: ${JSON.stringify(added)}`);
-        const removed = await t.puter.perms.removeUsersFromGroup(created.uid, [
-            t.env.users.other.username,
-        ]);
-        t.assert.ok(!removed.error, `remove failed: ${JSON.stringify(removed)}`);
-    },
-
-    'grantGroup lets group members read a file': async (t) => {
-        const path = `${home(t)}/perms-suite-group-shared.txt`;
-        await t.puter.fs.write(path, 'group content');
-
-        const created = await t.puter.perms.createGroup({
-            title: 'perms-suite-readers',
-        });
-        await t.puter.perms.addUsersToGroup(created.uid, [
-            t.env.users.other.username,
-        ]);
-        const granted = await t.puter.perms.grantGroup(
-            created.uid,
-            `fs:${path}:read`,
-        );
-        t.assert.ok(!granted.error, `grant failed: ${JSON.stringify(granted)}`);
-
-        const res = await readAsOther(t, path);
-        t.assert.equal(res.status, 200);
-        t.assert.equal(await res.text(), 'group content');
-    },
-
-    'grantGroup then revokeGroup both succeed': async (t) => {
-        const path = `${home(t)}/perms-suite-group-revoke.txt`;
-        await t.puter.fs.write(path, 'group revoke content');
-        const permission = `fs:${path}:read`;
-
-        const created = await t.puter.perms.createGroup({
-            title: 'perms-suite-revoke-readers',
-        });
-        await t.puter.perms.addUsersToGroup(created.uid, [
-            t.env.users.other.username,
-        ]);
-        const granted = await t.puter.perms.grantGroup(created.uid, permission);
-        t.assert.ok(!granted.error, `grant failed: ${JSON.stringify(granted)}`);
-
-        const revoked = await t.puter.perms.revokeGroup(created.uid, permission);
-        t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
-    },
+    // -- Grant / revoke against an app --
 
     'grantApp records an app permission': async (t) => {
         const app = await t.puter.apps.create(
@@ -146,6 +25,20 @@ export default suite('perms', {
             app.uid,
             `fs:${path}:read`,
         );
+        t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
+    },
+
+    // Uninstalling an app clears every grant it holds in one call.
+    'revokeApp with "*" clears every grant for the app': async (t) => {
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/perms-revoke-all',
+        );
+        const path = `${home(t)}/perms-suite-revoke-all.txt`;
+        await t.puter.fs.write(path, 'x');
+        await t.puter.perms.grantApp(app.uid, `fs:${path}:read`);
+
+        const revoked = await t.puter.perms.revokeApp(app.uid, '*');
         t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
     },
 
@@ -193,87 +86,183 @@ export default suite('perms', {
         t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
     },
 
-    // -- Groups --
+    // -- request(resource, details) --
 
-    'createGroup defaults its metadata when called with no arguments': async (t) => {
-        const created = await t.puter.perms.createGroup();
-        t.assert.ok(!created.error, `create failed: ${JSON.stringify(created)}`);
-        t.assert.equal(typeof created.uid, 'string');
-
-        const groups = (await t.puter.perms.listGroups()) as {
-            owned_groups?: Array<{ uid: string; metadata: unknown; extra: unknown }>;
-        };
-        const mine = groups.owned_groups?.find((g) => g.uid === created.uid);
-        t.assert.ok(mine, 'the new group should be listed as owned');
-        t.assert.deepEqual(mine!.metadata, {});
-        t.assert.deepEqual(mine!.extra, {});
-    },
-
-    'addUsersToGroup with no usernames is accepted as an empty list': async (t) => {
-        const created = await t.puter.perms.createGroup({
-            title: 'perms-suite-empty-membership',
-        });
-        const added = await (
-            t.puter.perms.addUsersToGroup as (uid: string) => Promise<{
-                error?: unknown;
-            }>
-        )(created.uid);
-        t.assert.ok(!added.error, `add failed: ${JSON.stringify(added)}`);
-        const removed = await (
-            t.puter.perms.removeUsersFromGroup as (uid: string) => Promise<{
-                error?: unknown;
-            }>
-        )(created.uid);
-        t.assert.ok(!removed.error, `remove failed: ${JSON.stringify(removed)}`);
-    },
-
-    // -- Low-level request helper --
-
-    'req_ reports an unknown route as an error result rather than throwing': async (
+    'request resolves a folder to its path and email to the address': async (
         t,
     ) => {
-        const result = await (
-            t.puter.perms as unknown as {
-                req_: (route: string) => Promise<Record<string, unknown>>;
-            }
-        ).req_('/perms-suite/no-such-route');
-        t.assert.equal(result.error, true);
-        t.assert.equal(result.code, 'not_found');
+        const whoami = await t.puter.auth.whoami();
+        t.assert.equal(
+            await t.puter.perms.request('folder', { name: 'Desktop' }),
+            `${home(t)}/Desktop`,
+        );
+        t.assert.equal(await t.puter.perms.request('email'), whoami.email);
+    },
+
+    'request rejects a folder it does not cover and an unknown access level': async (
+        t,
+    ) => {
+        const folder = (await t.assert.rejects(() =>
+            t.puter.perms.request('folder', {
+                name: 'Trash' as unknown as 'Desktop',
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(folder.code, 'invalid_argument');
+
+        const access = (await t.assert.rejects(() =>
+            t.puter.perms.request('apps', {
+                access: 'delete' as unknown as 'read',
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(access.code, 'invalid_argument');
+    },
+
+    // Details beside a non-resource name is a typo, not the legacy form.
+    'request rejects details passed with an unknown resource': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            (
+                t.puter.perms.request as (
+                    resource: string,
+                    details: unknown,
+                ) => Promise<unknown>
+            )('folders', { name: 'Desktop' }),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
+    },
+
+    'request denies what is not granted, in both the resource and raw forms': {
+        platforms: ['node', 'workerd'],
+        fn: async (t) => {
+            t.assert.equal(
+                await t.puter.perms.request('permission', {
+                    permission: UNHELD_PERMISSION,
+                }),
+                false,
+            );
+            // A lone string is still the permission string it always was.
+            t.assert.equal(
+                await t.puter.perms.request(UNHELD_PERMISSION),
+                false,
+            );
+        },
+    },
+
+    // -- check(resource, details) --
+
+    'check answers without prompting': async (t) => {
+        t.assert.equal(
+            await t.puter.perms.check('folder', { name: 'Desktop' }),
+            true,
+        );
+        t.assert.equal(await t.puter.perms.check('email'), true);
+        t.assert.equal(
+            typeof (await t.puter.perms.check('apps', { access: 'write' })),
+            'boolean',
+        );
+    },
+
+    // All-or-nothing: a set is held only when every permission in it is.
+    'check reports false when part of a set is missing': async (t) => {
+        t.assert.equal(
+            await t.puter.perms.check('permission', {
+                permissions: [
+                    `fs:${home(t)}/Desktop:read`,
+                    'nonexistent-namespace:nothing:read',
+                ],
+            }),
+            false,
+        );
+    },
+
+    'check validates its details the same way request does': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.perms.check('folder', {
+                name: 'Trash' as unknown as 'Desktop',
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
+    },
+
+    // -- Batching --
+
+    // Both folders are already readable, so no prompt: runs on every platform.
+    'a batch resolves each entry in order': async (t) => {
+        const results = await t.puter.perms.request([
+            { resource: 'folder', name: 'Desktop' },
+            { resource: 'folder', name: 'Documents' },
+        ]);
+        t.assert.deepEqual(results, [
+            `${home(t)}/Desktop`,
+            `${home(t)}/Documents`,
+        ]);
+
+        t.assert.deepEqual(
+            await t.puter.perms.check([
+                { resource: 'folder', name: 'Desktop' },
+                { resource: 'folder', name: 'Documents' },
+            ]),
+            [true, true],
+        );
+    },
+
+    'an empty batch resolves to an empty list': async (t) => {
+        t.assert.deepEqual(await t.puter.perms.request([]), []);
+        t.assert.deepEqual(await t.puter.perms.check([]), []);
+    },
+
+    'a batch rejects an entry naming no resource': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            (
+                t.puter.perms.request as (requests: unknown[]) => Promise<unknown>
+            )([{ name: 'Desktop' }]),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
     },
 
     // -- Special folders --
 
-    'requesting read access to an already-readable folder returns its path': async (
-        t,
-    ) => {
-        for (const [folder, request] of [
-            ['Desktop', () => t.puter.perms.requestReadDesktop()],
-            ['Documents', () => t.puter.perms.requestReadDocuments()],
-            ['Pictures', () => t.puter.perms.requestReadPictures()],
-            ['Videos', () => t.puter.perms.requestReadVideos()],
+    'each special folder resolves to its path when already readable': async (t) => {
+        for (const folder of [
+            'Desktop',
+            'Documents',
+            'Pictures',
+            'Videos',
         ] as const) {
             const expected = `${home(t)}/${folder}`;
-            // Guard first: without read access the helper would fall through
-            // to an interactive permission prompt.
+            // Guard first: without read access this would fall through to an
+            // interactive permission prompt.
             t.assert.ok(
                 await t.puter.fs.stat({ path: expected }),
                 `${folder} should already exist for the seeded user`,
             );
-            t.assert.equal(await request(), expected);
+            t.assert.equal(
+                await t.puter.perms.request('folder', { name: folder }),
+                expected,
+            );
+            t.assert.equal(
+                await t.puter.perms.check('folder', { name: folder }),
+                true,
+            );
         }
     },
 
-    // Write access always prompts, even for a folder that is already readable.
-    // Restricted to the runtimes where the prompt resolves without a UI: on
-    // `web` it opens a popup window a headless suite cannot answer.
-    'requesting write access to a folder is denied without a grant': {
-        platforms: ['node', 'workerd'],
-        fn: async (t) => {
-            t.assert.equal(await t.puter.perms.requestWriteDesktop(), undefined);
-            t.assert.equal(await t.puter.perms.requestWriteDocuments(), undefined);
-            t.assert.equal(await t.puter.perms.requestWritePictures(), undefined);
-            t.assert.equal(await t.puter.perms.requestWriteVideos(), undefined);
-        },
+    // A user's own credential already covers their own folders, so `request`
+    // settles from `check` and never prompts. The prompt is for an app asking
+    // on their behalf, which holds none of this to begin with.
+    'write access a user already holds resolves without a prompt': async (t) => {
+        for (const folder of [
+            'Desktop',
+            'Documents',
+            'Pictures',
+            'Videos',
+        ] as const) {
+            const details = { name: folder, access: 'write' } as const;
+            t.assert.equal(await t.puter.perms.check('folder', details), true);
+            t.assert.equal(
+                await t.puter.perms.request('folder', details),
+                `${home(t)}/${folder}`,
+            );
+        }
     },
 
     // -- Permission requests --
@@ -283,23 +272,81 @@ export default suite('perms', {
         t.assert.equal(await t.puter.perms.requestEmail(), whoami.email);
     },
 
-    // Same reasoning as the folder write test: these go through the
-    // environment's permission prompt, which only resolves synchronously
-    // where there is no window to open.
-    'app and subdomain access requests are denied without a grant': {
+    // Their own apps and subdomains namespaces are theirs implicitly, at both
+    // access levels, so these settle from `check` too.
+    'a user already holds their own apps and subdomains namespaces': async (t) => {
+        for (const resource of ['apps', 'subdomains'] as const) {
+            for (const access of ['read', 'write'] as const) {
+                t.assert.equal(
+                    await t.puter.perms.check(resource, { access }),
+                    true,
+                );
+                t.assert.equal(
+                    await t.puter.perms.request(resource, { access }),
+                    true,
+                );
+            }
+        }
+    },
+
+    // The one-method-per-task names still ship, and go straight to the prompt
+    // without pooling a read of their own — which is why the folder and apps
+    // assertions here are the opposite of what `request` answers. Node and
+    // workerd raise no prompt, so nothing is consulted; in an app or on a
+    // website `ui.requestPermission` checks first and these would answer for
+    // access already held. `requestPermission` forwards to `request`, so it
+    // settles from the pooled read everywhere (asserted separately below).
+    'the deprecated request aliases keep delegating': {
         platforms: ['node', 'workerd'],
         fn: async (t) => {
-            t.assert.equal(await t.puter.perms.requestReadApps(), false);
-            t.assert.equal(await t.puter.perms.requestManageApps(), false);
-            t.assert.equal(await t.puter.perms.requestReadSubdomains(), false);
-            t.assert.equal(await t.puter.perms.requestManageSubdomains(), false);
+            const perms = t.puter.perms as unknown as Record<
+                string,
+                (...args: unknown[]) => Promise<unknown>
+            >;
+            t.assert.equal(await perms.requestReadApps(), false);
+            t.assert.equal(await perms.requestManageApps(), false);
+            t.assert.equal(await perms.requestReadSubdomains(), false);
+            t.assert.equal(await perms.requestManageSubdomains(), false);
+            t.assert.equal(await perms.requestWriteDesktop(), undefined);
+            t.assert.equal(await perms.requestWriteDocuments(), undefined);
+            t.assert.equal(await perms.requestWritePictures(), undefined);
+            t.assert.equal(await perms.requestWriteVideos(), undefined);
             t.assert.equal(
-                await t.puter.perms.request(`fs:${home(t)}:write`),
-                false,
+                await perms.requestReadDesktop(),
+                `${home(t)}/Desktop`,
             );
-            // The deprecated alias must keep delegating to `request`.
+            const app = await t.puter.apps.create(
+                t.puter.randName(),
+                'https://example.com/perms-alias-root-dir',
+            );
             t.assert.equal(
-                await t.puter.perms.requestPermission(`fs:${home(t)}:write`),
+                await perms.requestReadAppRootDir(app.uid),
+                undefined,
+            );
+            t.assert.equal(
+                await perms.requestWriteAppRootDir(app.uid),
+                undefined,
+            );
+        },
+    },
+
+    // `requestPermission` forwards to `request`, so it settles from what is
+    // held rather than prompting for it. That is a change from prompting every
+    // time: a permission the caller already holds now answers `true` where the
+    // prompt used to decide it.
+    'requestPermission settles a held permission without prompting': {
+        platforms: ['node', 'workerd'],
+        fn: async (t) => {
+            const perms = t.puter.perms as unknown as {
+                requestPermission: (p: string) => Promise<boolean>;
+            };
+            // A user's own credential covers their own home directory.
+            t.assert.equal(
+                await perms.requestPermission(`fs:${home(t)}:write`),
+                true,
+            );
+            t.assert.equal(
+                await perms.requestPermission(UNHELD_PERMISSION),
                 false,
             );
         },
@@ -307,13 +354,13 @@ export default suite('perms', {
 
     // -- App root directory --
 
-    'requestReadAppRootDir rejects an app uid that is not a string': async (t) => {
+    'appRootDir rejects an app that is not a uid or an object with one': async (
+        t,
+    ) => {
         const error = (await t.assert.rejects(() =>
-            (
-                t.puter.perms.requestReadAppRootDir as (
-                    appUid: unknown,
-                ) => Promise<unknown>
-            )(42),
+            t.puter.perms.request('appRootDir', {
+                app: 42 as unknown as string,
+            }),
         )) as Error & { code?: string };
         t.assert.ok(error instanceof Error, 'should be a real Error');
         t.assert.equal(error.code, 'invalid_argument');
@@ -327,23 +374,37 @@ export default suite('perms', {
                 code: 'invalid_argument',
             },
         );
-    },
 
-    'requestWriteAppRootDir rejects an object without a uid': async (t) => {
-        const error = (await t.assert.rejects(() =>
-            (
-                t.puter.perms.requestWriteAppRootDir as (
-                    appUid: unknown,
-                ) => Promise<unknown>
-            )({}),
+        const noUid = (await t.assert.rejects(() =>
+            t.puter.perms.request('appRootDir', {
+                app: {} as unknown as { uid: string },
+            }),
         )) as Error & { code?: string };
-        t.assert.equal(error.code, 'invalid_argument');
+        t.assert.equal(noUid.code, 'invalid_argument');
     },
 
     // Only the app itself may claim its root dir, so a user-token caller is
-    // refused and then offered the permission prompt. Restricted to the
-    // runtimes where that prompt resolves without a window.
-    'requestReadAppRootDir resolves undefined when the grant is refused': {
+    // refused. `check` reports that without provisioning anything, and without
+    // the prompt a `request` would go on to raise.
+    'checking another app\'s root dir reports false and creates nothing': async (
+        t,
+    ) => {
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/perms-root-dir-check',
+        );
+        t.assert.equal(
+            await t.puter.perms.check('appRootDir', { app: app.uid }),
+            false,
+        );
+        await t.assert.rejects(() =>
+            t.puter.fs.stat({ path: `${home(t)}/AppData/${app.uid}` }),
+        );
+    },
+
+    // Refused, then offered the permission prompt. Restricted to the runtimes
+    // where that prompt resolves without a window.
+    'appRootDir resolves undefined when the grant is refused': {
         platforms: ['node', 'workerd'],
         fn: async (t) => {
             const app = await t.puter.apps.create(
@@ -351,11 +412,14 @@ export default suite('perms', {
                 'https://example.com/perms-root-dir',
             );
             t.assert.equal(
-                await t.puter.perms.requestReadAppRootDir(app.uid),
+                await t.puter.perms.request('appRootDir', { app: app.uid }),
                 undefined,
             );
             t.assert.equal(
-                await t.puter.perms.requestWriteAppRootDir({ uid: app.uid }),
+                await t.puter.perms.request('appRootDir', {
+                    app: { uid: app.uid },
+                    access: 'write',
+                }),
                 undefined,
             );
         },

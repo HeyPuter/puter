@@ -18,7 +18,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +27,15 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 64;
+const CURRENT_SCHEMA_VERSION = 66;
+
+/**
+ * These suites migrate real files on disk. Idle they finish in well under a
+ * second, but the whole migration chain runs against the filesystem — enough
+ * that a loaded runner blows the 5s default and reports a timeout where there
+ * is no fault.
+ */
+const DISK_MIGRATION_TIMEOUT_MS = 30_000;
 const SYSTEM_USER_UUID = '5d4adce0-a381-4982-9c02-6e2540026238';
 
 const sqliteConfig = (
@@ -52,7 +60,7 @@ const userVersionOf = async (client: SqliteDatabaseClient): Promise<number> => {
     return row.user_version as number;
 };
 
-describe('SqliteDatabaseClient — boot and migrations', () => {
+describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATION_TIMEOUT_MS }, () => {
     let client: SqliteDatabaseClient;
 
     beforeEach(async () => {
@@ -81,6 +89,105 @@ describe('SqliteDatabaseClient — boot and migrations', () => {
             [SYSTEM_USER_UUID],
         );
         expect(rows).toEqual([{ username: 'system' }]);
+    });
+
+    // 0070 sweeps three by-hand groups no code reads. Both tables it can reach
+    // cascade on delete, so the guard is the point: a group that still carries
+    // permissions or members has to survive, or the sweep silently revokes
+    // them. Re-running the statement is safe — it is a plain conditional DELETE.
+    describe('0070 drop-orphaned-default-groups', () => {
+        const MIGRATION = readFileSync(
+            new URL(
+                './migrations/sqlite/0070_drop-orphaned-default-groups.sql',
+                import.meta.url,
+            ),
+            'utf8',
+        );
+
+        const seedGroup = async (name: string): Promise<number> => {
+            const [system] = await client.read(
+                'SELECT `id` FROM `user` WHERE `uuid` = ?',
+                [SYSTEM_USER_UUID],
+            );
+            const uid = `grp-${name}-${Math.random().toString(36).slice(2, 10)}`;
+            await client.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [uid, system.id, JSON.stringify({ name }), '{}'],
+            );
+            const [row] = await client.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [uid],
+            );
+            return Number(row.id);
+        };
+
+        const stillThere = async (id: number): Promise<boolean> => {
+            const rows = await client.read(
+                'SELECT `id` FROM `group` WHERE `id` = ?',
+                [id],
+            );
+            return rows.length > 0;
+        };
+
+        it('drops an orphaned freeai/experimental/dangerous group', async () => {
+            const ids = await Promise.all(
+                ['freeai', 'experimental', 'dangerous'].map(seedGroup),
+            );
+            await client.write(MIGRATION);
+            for (const id of ids) expect(await stillThere(id)).toBe(false);
+        });
+
+        it('spares one that still carries a permission row', async () => {
+            const id = await seedGroup('freeai');
+            const [system] = await client.read(
+                'SELECT `id` FROM `user` WHERE `uuid` = ?',
+                [SYSTEM_USER_UUID],
+            );
+            await client.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [system.id, id, 'service:some-paid-thing', '{}'],
+            );
+
+            await client.write(MIGRATION);
+
+            expect(await stillThere(id)).toBe(true);
+            // And the grant it carries is still intact, not cascaded away.
+            const perms = await client.read(
+                'SELECT `permission` FROM `user_to_group_permissions` WHERE `group_id` = ?',
+                [id],
+            );
+            expect(perms).toEqual([{ permission: 'service:some-paid-thing' }]);
+        });
+
+        it('spares one that still has members', async () => {
+            const id = await seedGroup('experimental');
+            const [system] = await client.read(
+                'SELECT `id` FROM `user` WHERE `uuid` = ?',
+                [SYSTEM_USER_UUID],
+            );
+            await client.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [system.id, id],
+            );
+
+            await client.write(MIGRATION);
+
+            expect(await stillThere(id)).toBe(true);
+        });
+
+        it('leaves the groups the platform actually depends on alone', async () => {
+            // system, admin, user and temp are named by config or code.
+            await client.write(MIGRATION);
+            const rows = await client.read(
+                "SELECT json_extract(`extra`, '$.name') AS name FROM `group`",
+            );
+            const names = rows.map((r) => String(r.name));
+            for (const name of ['system', 'admin', 'user']) {
+                expect(names).toContain(name);
+            }
+        });
     });
 
     it('leaves an already-migrated database untouched on a second boot', async () => {
@@ -137,7 +244,10 @@ describe('SqliteDatabaseClient — boot and migrations', () => {
     });
 });
 
-describe('SqliteDatabaseClient — legacy version inference', () => {
+describe(
+    'SqliteDatabaseClient — legacy version inference',
+    { timeout: DISK_MIGRATION_TIMEOUT_MS },
+    () => {
     let dir: string;
 
     beforeEach(() => {

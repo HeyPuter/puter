@@ -143,7 +143,21 @@ const createMethodDecorator = (method: Exclude<RouteMethod, 'use'>) => {
                 const proto = Object.getPrototypeOf(
                     this as object,
                 ) as DecoratedPrototype;
-                getOrInitRoutes(proto).push({
+                const routes = getOrInitRoutes(proto);
+                // Initializers run once per *instance* but collect onto the
+                // shared prototype, so a process that builds a second server
+                // (every multi-server test file) would otherwise register
+                // every route twice. The decorated method and the path literal
+                // are the same references each time, so identity recognizes a
+                // repeat without comparing option objects.
+                const already = routes.some(
+                    (r) =>
+                        r.handler === (target as unknown as RequestHandler) &&
+                        r.method === method &&
+                        r.path === path,
+                );
+                if (already) return;
+                routes.push({
                     method,
                     path,
                     options,

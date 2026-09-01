@@ -31,6 +31,7 @@ import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 /**
  * AzureResponsesProvider serves the Responses-API-only models we expose through
@@ -85,15 +86,7 @@ export class AzureResponsesProvider implements IChatProvider {
     }
 
     list() {
-        const models = this.models({ no_restrictions: false });
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models({ no_restrictions: false }));
     }
 
     getDefaultModel() {
@@ -163,7 +156,7 @@ export class AzureResponsesProvider implements IChatProvider {
         if (tools) {
             // Unravel tools to OpenAI Responses API format
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            tools = (tools as any).map((e) => {
+            tools = (tools as any[]).map((e) => {
                 if (e.type === 'function') {
                     const tool = e.function;
                     tool.type = 'function';
@@ -239,7 +232,7 @@ export class AzureResponsesProvider implements IChatProvider {
                           : {}),
                   }),
             ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
-        } as ResponseCreateParams;
+        } as unknown as ResponseCreateParams;
 
         const completion =
             await this.#openAi.responses.create(completionParams);

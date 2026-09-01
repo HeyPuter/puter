@@ -23,7 +23,7 @@ import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
 import UIWindowSignup from './UIWindowSignup.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
-import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
+import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
 
 // ── 2FA Login CSS (injected once) ───────────────────────────────────────────
 const LOGIN_2FA_CSS = `
@@ -389,7 +389,10 @@ async function UIWindowLogin (options) {
             UIWindowRecoverPassword({
                 window_options: {
                     backdrop: true,
-                    stay_on_top: isMobile.phone,
+                    // A stay-on-top login window (dashboard mode) sits in the
+                    // 99999999+ band; this dialog must join it there or it
+                    // opens buried under the login window's backdrop.
+                    stay_on_top: isMobile.phone || !!options.window_options?.stay_on_top,
                     close_on_backdrop_click: false,
                 },
             });

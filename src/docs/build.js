@@ -493,16 +493,10 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<a href="mailto:hey@puter.com" target="_blank">hey@puter.com</a>';
     html += '<span class="bull">&bull;</span>';
 
-    html += '<a href="https://discord.gg/PQcx7Teh8u" target="_blank">Discord</a>';
-    html += '<span class="bull">&bull;</span>';
-
     html += '<a href="https://twitter.com/heyputer" target="_blank">X (Twitter)</a>';
     html += '<span class="bull">&bull;</span>';
 
     html += '<a href="https://github.com/HeyPuter" target="_blank">GitHub</a>';
-    html += '<span class="bull">&bull;</span>';
-
-    html += '<a href="https://www.reddit.com/r/puter/" target="_blank">Reddit</a>';
     html += '<span class="bull">&bull;</span>';
 
     html += '<a href="/llms.txt" class="skip-insta-load" target="_blank">llms.txt</a>';

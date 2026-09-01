@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { metrics } from '@opentelemetry/api';
 import { PuterStore } from '../types';
 import type { Actor } from '../../core/actor';
 import {
@@ -46,6 +47,48 @@ import {
     type KvCachedItem,
     type KvCacheSettings,
 } from './readCache';
+
+const meter = metrics.getMeter('puter-backend');
+
+/**
+ * What the read cache did with each key it was asked about, by `result`:
+ *
+ * - `hit` — answered from a cached value
+ * - `miss` — answered from a cached absence, which saves the same read a `hit`
+ *   does and belongs on the same side of the ratio
+ * - `expired` — a cached value whose own deadline had passed, so it answered
+ *   nothing and the key was read through
+ * - `blocked` — a recent write left a marker, so the read deliberately went
+ *   through and did not populate
+ * - `absent` — nothing was cached; the read went through and populated
+ * - `error` — the cache could not be reached and the read degraded to uncached
+ *
+ * The rate worth watching is `(hit + miss) / total`. Deliberately not split by
+ * namespace: namespaces are per-app, so that would be unbounded cardinality.
+ */
+const cacheLookupCounter = meter.createCounter('kv.cache.lookup', {
+    description: 'KV read-cache lookups by outcome',
+});
+
+type CacheOutcomes = Record<
+    'hit' | 'miss' | 'expired' | 'blocked' | 'absent',
+    number
+>;
+
+const countedOutcomes = (): CacheOutcomes => ({
+    hit: 0,
+    miss: 0,
+    expired: 0,
+    blocked: 0,
+    absent: 0,
+});
+
+/** One `add` per outcome that actually occurred, rather than one per key. */
+const recordCacheOutcomes = (outcomes: CacheOutcomes): void => {
+    for (const [result, count] of Object.entries(outcomes)) {
+        if (count > 0) cacheLookupCounter.add(count, { result });
+    }
+};
 
 // -- Types ------------------------------------------------------------
 
@@ -94,6 +137,11 @@ const GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
 const MAX_VALUE_BYTES = 399 * 1024;
+// A number anywhere inside a value is bounded too, to the IEEE-754 safe
+// integer range — past that it cannot round-trip, so it is clamped to the
+// bound as the write is encoded. Enforced there rather than here because
+// finding one means walking every value of every write: the whole payload's
+// cost again, on the hot path, for something almost nothing sends.
 const BATCH_GET_CHUNK = 100;
 const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // Offset emulation re-scans everything before the requested position, so it
@@ -258,6 +306,11 @@ const assertSafeValueKeys = (value: unknown): void => {
     }
 };
 
+/**
+ * Reject a value too big to store, or one holding a key that cannot be walked
+ * safely. An out-of-range number is not rejected — it is clamped when the write
+ * is encoded.
+ */
 const assertValue = (value: unknown): void => {
     const size = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
     if (size > MAX_VALUE_BYTES) {
@@ -454,6 +507,7 @@ export class SystemKVStore extends PuterStore {
             const resolved = new Set<string>();
             let readUnits = 0;
             const now = Date.now() / 1000;
+            const outcomes = countedOutcomes();
 
             keys.forEach((key, index) => {
                 const cached = decodeCachedRead(raw[index], key);
@@ -461,21 +515,33 @@ export class SystemKVStore extends PuterStore {
                     // The entry carries its own deadline and the cache TTL is
                     // only an upper bound on it, so an entry that lapsed since
                     // it was written counts as nothing cached at all.
-                    if (cached.item.ttl && cached.item.ttl <= now) return;
+                    if (cached.item.ttl && cached.item.ttl <= now) {
+                        outcomes.expired++;
+                        return;
+                    }
+                    outcomes.hit++;
                     items.push(cached.item);
                     resolved.add(key);
                     readUnits += cached.readUnits;
                     return;
                 }
                 if (cached.state === 'miss') {
+                    outcomes.miss++;
                     resolved.add(key);
                     readUnits += cached.readUnits;
+                    return;
                 }
+                if (cached.state === 'blocked') outcomes.blocked++;
+                else outcomes.absent++;
             });
 
+            recordCacheOutcomes(outcomes);
             return { items, resolved, readUnits };
         } catch (e) {
             // A cache that is down degrades to no cache, never to an error.
+            // Counted so that a cache which has stopped answering reads as
+            // exactly that, rather than as a cache nobody is asking.
+            cacheLookupCounter.add(keys.length, { result: 'error' });
             console.warn(
                 '[kv] read cache lookup failed:',
                 (e as Error).message,
@@ -923,6 +989,49 @@ export class SystemKVStore extends PuterStore {
         await this.#invalidate(namespace, [key]);
         return {
             res: true,
+            usage: addUsage(
+                probeUsage,
+                writeUsage(
+                    (response.ConsumedCapacity?.CapacityUnits as
+                        | number
+                        | undefined) ?? 1,
+                ),
+            ),
+        };
+    }
+
+    /**
+     * Delete a key and return what it held — an atomic claim. However many
+     * callers race the same key, exactly one gets the value; the rest get
+     * null.
+     */
+    async take(
+        { key }: { key: string },
+        opts?: KVOpts,
+    ): Promise<KVResult<unknown | null>> {
+        assertKey(key);
+        const actor = ensureActor(opts);
+        const namespace = getNamespace(actor, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
+
+        const response = await this.clients.dynamo.del(
+            this.tableName,
+            { namespace, key },
+            { returnOld: true },
+        );
+        await this.#invalidate(namespace, [key]);
+
+        const old = response.Attributes as
+            | { value?: unknown; ttl?: number }
+            | undefined;
+        const now = Date.now() / 1000;
+        const res =
+            old === undefined || (old.ttl && old.ttl <= now)
+                ? null
+                : (old.value ?? null);
+
+        return {
+            res,
             usage: addUsage(
                 probeUsage,
                 writeUsage(

@@ -239,7 +239,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -337,6 +342,22 @@ export interface IPeersConfig {
         cloudflare_turn_api_token?: string;
         /** Credential TTL in seconds. Default 86400. */
         ttl?: number;
+    };
+    /**
+     * Relay access for guests of an authenticated host, who mint credentials
+     * against a signed grant instead of an account of their own.
+     */
+    guest_turn?: {
+        /**
+         * HMAC key for guest grants. Absent disables the guest routes with a
+         * 503 — a deployment opts into guest relay access by setting this. Must
+         * not be shared with any other secret.
+         */
+        grant_secret?: string;
+        /** Grant lifetime in seconds. Default 3600. */
+        grant_ttl?: number;
+        /** Guest credential TTL in seconds, clamped to `turn.ttl`. Default 3600. */
+        credential_ttl?: number;
     };
     /** Shared secret for the internal `/turn/ingest-usage` endpoint. */
     internal_auth_secret?: string;
@@ -784,24 +805,37 @@ interface IConfigOptional {
     /**
      * Let a user who keeps getting blocked on SMS phone verification fall back
      * to credit-card verification, which clears the phone gate (and the card
-     * gate too, when one is set). Off by default.
+     * gate too, when one is set).
      *
-     * The fallback opens after `after_attempts` SMS _send_ attempts inside the
-     * send rate-limit window — successful sends count too, so a user who
-     * receives codes fine can still choose the card path after that many
-     * requests. This trades the phone signal for a card signal; it does NOT
-     * guarantee SMS actually failed. Once open, the fallback stays open for 24
-     * hours so the user can finish the card flow. Requires a payments extension
-     * to run the actual card check.
+     * The fallback opens once the user has made `after_attempts` SMS _send_
+     * attempts inside the send rate-limit window, which by default means only
+     * after they have used up the window's entire send allowance — the card
+     * option is an escape hatch for a phone that isn't working, not a choice
+     * offered alongside a working SMS flow. Successful sends count too, so this
+     * trades the phone signal for a card signal; it does NOT guarantee SMS
+     * actually failed. Once open, the fallback stays open for 24 hours so the
+     * user can finish the card flow. Requires a payments extension to run the
+     * actual card check.
      */
     phone_verification_card_fallback: {
-        enabled: boolean;
+        /**
+         * Tri-state. Set it and that wins, either way — this is the opt-out.
+         * Omit it and the fallback is on wherever both gates it bridges
+         * actually work: an SMS provider is configured _and_ an installed
+         * extension reports card verification enabled. On a build with no card
+         * gate behind it the fallback stays off, since taking the offer there
+         * could only strand the user.
+         */
+        enabled?: boolean;
         /**
          * SMS send attempts (within the send rate-limit window) before the card
-         * fallback opens. Defaults to 2 when omitted. Values above the send
-         * route's rate limit (10/hour) are clamped down to it — requests past
-         * the route limit never reach the attempt counter, so a higher
-         * threshold could never be crossed.
+         * fallback opens. Defaults to the send route's full rate limit
+         * (10/hour), i.e. the fallback appears only once the user is out of SMS
+         * attempts. Values above that limit are clamped down to it — requests
+         * past the route limit never reach the attempt counter, so a higher
+         * threshold could never be crossed. Lower it (e.g. 2) to reach the card
+         * path without burning the whole allowance, which is mainly useful for
+         * QA.
          */
         after_attempts?: number;
     };
@@ -826,12 +860,49 @@ interface IConfigOptional {
     enable_public_folders: boolean;
 
     /**
+     * Whether a recipient who already has an account is emailed about a share
+     * as well as notified in-app. **On unless set to false**; recipients
+     * decline with the unsubscribe link the mail carries, or by blocking a
+     * sender. An invite to an address with no account is emailed regardless.
+     */
+    share_email_notifications?: boolean;
+
+    /**
      * Ceiling on how many shares one user may create per UTC day. An abuse
      * bound, not an accounting one — it exists so a script can't blanket other
      * accounts with unwanted items and the notifications that follow. Omit to
      * use the built-in default.
      */
     share_daily_limit?: number;
+
+    /**
+     * How often a share may interrupt its recipient — the notification pushed
+     * to their screen and the email that goes with it. The share itself is
+     * never refused for being over budget; only the announcement is dropped.
+     *
+     * Both axes are needed: the pair bounds hold one sharer back, and the
+     * recipient bounds are what stop many senders from burying one person
+     * between them. Omit any field for the built-in default; a non-positive
+     * value removes that bound.
+     */
+    share_notify_limits?: {
+        /**
+         * Quiet period after one sharer reaches a recipient, in seconds. Also
+         * how long their notification keeps absorbing new shares.
+         */
+        pairWindowSeconds?: number;
+        /** Interruptions one sharer may cause a recipient per day. */
+        pairDaily?: number;
+        /** Interruptions a recipient may receive per hour, from anyone. */
+        recipientHourly?: number;
+        /** Same, per day. */
+        recipientDaily?: number;
+        /**
+         * How long emails to one recipient are held and merged into a single
+         * digest, in seconds. Default 90; non-positive sends immediately.
+         */
+        emailBatchSeconds?: number;
+    };
 
     /**
      * Ceiling on recipients, and on items, in a single share request. Bounds
@@ -1021,6 +1092,25 @@ interface IConfigOptional {
     };
 
     /**
+     * Reputation gating: what the tiers named by `requireReputation` on a route
+     * or a driver method actually take.
+     *
+     * - `enabled` — the one switch that stops every declared gate enforcing,
+     *   without unpicking the declarations. Defaults to on, which by itself
+     *   gates nothing: a tier only bites once `tiers` gives it a score.
+     * - `tiers` — tier name → the minimum score (0-100) an account needs to pass
+     *   it. The numbers live here rather than in the declarations because what
+     *   counts as trusted enough is a per-deployment call, retuned far more
+     *   often than the surfaces it protects. A tier with no entry is inert: an
+     *   install that doesn't score its accounts must not turn traffic away on a
+     *   score it never computed.
+     */
+    reputationGate?: {
+        enabled?: boolean;
+        tiers?: Record<string, number>;
+    };
+
+    /**
      * Display multiplier converting metered amounts into the "credits" clients
      * show. Applied server-side by the usage-reporting endpoints, so raw
      * metered amounts never leave the API; purely presentational, so it can
@@ -1066,8 +1156,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

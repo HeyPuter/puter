@@ -24,6 +24,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { BYTEPLUS_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 type BytePlusConfig = {
     apiKey: string;
@@ -76,14 +77,7 @@ export class BytePlusProvider implements IChatProvider {
     }
 
     list() {
-        const modelIds: string[] = [];
-        for (const model of this.models()) {
-            modelIds.push(model.id);
-            if (model.aliases) {
-                modelIds.push(...model.aliases);
-            }
-        }
-        return modelIds;
+        return modelLookupNames(this.models());
     }
 
     async complete(
@@ -166,9 +160,6 @@ export class BytePlusProvider implements IChatProvider {
             completion,
         });
 
-        // Ark's deep-reasoning models return `reasoning_content` (DeepSeek
-        // wire convention); expose it under `reasoning` like other providers.
-        OpenAIUtil.normalizeReasoningContent(result);
         return result;
     }
 

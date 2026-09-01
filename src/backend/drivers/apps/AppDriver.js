@@ -85,7 +85,7 @@ const INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES = [
 ];
 
 // Sentinel host for builtin apps. The GUI rewrites index_urls on this
-// host to `<gui origin>/builtin/<name>` (see launch_app.js), so rows
+// host to `<gui origin>/builtin/<name>` (see launchApp.js), so rows
 // carrying it are reserved for migration-seeded builtins — a user app
 // claiming it would load its code same-origin with the desktop.
 const BUILTIN_APPS_HOST = 'builtins.namespaces.puter.com';

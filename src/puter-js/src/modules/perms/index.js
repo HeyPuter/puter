@@ -9,34 +9,35 @@ import {
     requestReadVideos, requestWriteVideos,
 } from './folders.js';
 import {
-    grantApp, grantAppAnyUser, grantGroup, grantOrigin, grantUser,
-    revokeApp, revokeAppAnyUser, revokeGroup, revokeOrigin, revokeUser,
+    grantApp, grantAppAnyUser, grantOrigin,
+    revokeApp, revokeAppAnyUser, revokeOrigin,
 } from './grants.js';
-import { addUsersToGroup, createGroup, listGroups, removeUsersFromGroup } from './groups.js';
-import { req } from './lib/req.js';
 import {
-    request, requestEmail, requestManageApps, requestManageSubdomains,
+    requestEmail,
+    requestManageApps, requestManageSubdomains,
     requestPermission, requestReadApps, requestReadSubdomains,
 } from './permissions.js';
+import { check, request } from './request.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
 
 // Every `this`-context method exposed on the module, rebound in the
-// constructor so both `puter.perms.grantUser(...)` and destructured
-// `const { grantUser } = puter.perms` calls keep the right `this`.
+// constructor so both `puter.perms.request(...)` and destructured
+// `const { request } = puter.perms` calls keep the right `this`.
 const METHODS = [
-    'grantUser', 'grantGroup', 'grantApp', 'grantAppAnyUser', 'grantOrigin',
-    'revokeUser', 'revokeGroup', 'revokeApp', 'revokeAppAnyUser', 'revokeOrigin',
-    'createGroup', 'addUsersToGroup', 'removeUsersFromGroup', 'listGroups',
-    'request', 'requestPermission', 'requestEmail',
-    'requestReadApps', 'requestManageApps', 'requestReadSubdomains', 'requestManageSubdomains',
-    'requestFolder_',
+    'grantApp', 'grantAppAnyUser', 'grantOrigin',
+    'revokeApp', 'revokeAppAnyUser', 'revokeOrigin',
+    'request', 'check',
+    // Deprecated aliases; bound for the same reason as the rest.
+    'requestEmail', 'requestAppData',
+    'requestPermission', 'requestFolder_',
     'requestReadDesktop', 'requestWriteDesktop',
     'requestReadDocuments', 'requestWriteDocuments',
     'requestReadPictures', 'requestWritePictures',
     'requestReadVideos', 'requestWriteVideos',
+    'requestReadApps', 'requestManageApps',
+    'requestReadSubdomains', 'requestManageSubdomains',
     'requestReadAppRootDir', 'requestWriteAppRootDir',
-    'requestAppData',
 ];
 
 /**
@@ -47,50 +48,61 @@ const METHODS = [
  * `types/` is generated from it, never edited by hand.
  */
 export class PermsModule extends PuterModule {
-    // Grant / revoke
-    grantUser = grantUser;
-    grantGroup = grantGroup;
+    // Grant / revoke against an app, its origin, or every user of it
     grantApp = grantApp;
     grantAppAnyUser = grantAppAnyUser;
     grantOrigin = grantOrigin;
-    revokeUser = revokeUser;
-    revokeGroup = revokeGroup;
     revokeApp = revokeApp;
     revokeAppAnyUser = revokeAppAnyUser;
     revokeOrigin = revokeOrigin;
 
-    // Group management
-    createGroup = createGroup;
-    addUsersToGroup = addUsersToGroup;
-    removeUsersFromGroup = removeUsersFromGroup;
-    listGroups = listGroups;
-
-    // Permission requests
+    // The whole supported surface; everything below is a deprecated alias.
     request = request;
-    requestPermission = requestPermission;
+    check = check;
+
+    // -- Deprecated aliases --
+    //
+    // Still bound and callable, and still in the generated declarations:
+    // `stripInternal` does nothing for declarations emitted from JavaScript,
+    // and hiding them by hand would break TypeScript callers we still serve.
+
+    /** @deprecated Use `request('email')`. */
     requestEmail = requestEmail;
-    requestReadApps = requestReadApps;
-    requestManageApps = requestManageApps;
-    requestReadSubdomains = requestReadSubdomains;
-    requestManageSubdomains = requestManageSubdomains;
-
-    // Folder access
-    requestFolder_ = requestFolder_;
-    requestReadDesktop = requestReadDesktop;
-    requestWriteDesktop = requestWriteDesktop;
-    requestReadDocuments = requestReadDocuments;
-    requestWriteDocuments = requestWriteDocuments;
-    requestReadPictures = requestReadPictures;
-    requestWritePictures = requestWritePictures;
-    requestReadVideos = requestReadVideos;
-    requestWriteVideos = requestWriteVideos;
-
-    // App root directory access
-    requestReadAppRootDir = requestReadAppRootDir;
-    requestWriteAppRootDir = requestWriteAppRootDir;
-
-    // Another app's data (KV namespace + AppData directory)
+    /** @deprecated Use `request('appData', { app, scopes })`. */
     requestAppData = requestAppData;
+
+    /** @deprecated Use {@link request}. */
+    requestPermission = requestPermission;
+    /** @deprecated Use `request('folder', { name, access })`. */
+    requestFolder_ = requestFolder_;
+    /** @deprecated Use `request('folder', { name: 'Desktop' })`. */
+    requestReadDesktop = requestReadDesktop;
+    /** @deprecated Use `request('folder', { name: 'Desktop', access: 'write' })`. */
+    requestWriteDesktop = requestWriteDesktop;
+    /** @deprecated Use `request('folder', { name: 'Documents' })`. */
+    requestReadDocuments = requestReadDocuments;
+    /** @deprecated Use `request('folder', { name: 'Documents', access: 'write' })`. */
+    requestWriteDocuments = requestWriteDocuments;
+    /** @deprecated Use `request('folder', { name: 'Pictures' })`. */
+    requestReadPictures = requestReadPictures;
+    /** @deprecated Use `request('folder', { name: 'Pictures', access: 'write' })`. */
+    requestWritePictures = requestWritePictures;
+    /** @deprecated Use `request('folder', { name: 'Videos' })`. */
+    requestReadVideos = requestReadVideos;
+    /** @deprecated Use `request('folder', { name: 'Videos', access: 'write' })`. */
+    requestWriteVideos = requestWriteVideos;
+    /** @deprecated Use `request('apps')`. */
+    requestReadApps = requestReadApps;
+    /** @deprecated Use `request('apps', { access: 'write' })`. */
+    requestManageApps = requestManageApps;
+    /** @deprecated Use `request('subdomains')`. */
+    requestReadSubdomains = requestReadSubdomains;
+    /** @deprecated Use `request('subdomains', { access: 'write' })`. */
+    requestManageSubdomains = requestManageSubdomains;
+    /** @deprecated Use `request('appRootDir', { app })`. */
+    requestReadAppRootDir = requestReadAppRootDir;
+    /** @deprecated Use `request('appRootDir', { app, access: 'write' })`. */
+    requestWriteAppRootDir = requestWriteAppRootDir;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -102,19 +114,6 @@ export class PermsModule extends PuterModule {
         for ( const name of METHODS ) {
             methods[name] = methods[name].bind(this);
         }
-    }
-
-    /**
-     * Low-level request helper against the auth/group endpoints, kept on the
-     * instance for backward compatibility. Returns the parsed result object
-     * (with `error: true` set on failure) rather than rejecting.
-     *
-     * @param {string} route
-     * @param {Record<string, unknown>} [body]
-     * @returns {Promise<Record<string, unknown>>}
-     */
-    req_ (route, body) {
-        return req(this.puter, route, body);
     }
 }
 

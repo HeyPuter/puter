@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 When passed a key and a value, will add it to the user's key-value store, or update that key's value if it already exists.
 
-<div class="info">Each app has its own key-value store within each user's account. Another app can only reach it if the user explicitly grants that with <a href="/Perms/requestAppData/">puter.perms.requestAppData()</a> — and never for entries you write with <code>disableSharing</code>.</div>
+<div class="info">Each app has its own key-value store within each user's account. Another app can only reach it if the user explicitly grants that with <a href="/Perms/appData/">puter.perms.request('appData', …)</a> — and never for entries you write with <code>disableSharing</code>.</div>
 
 ## Syntax
 
@@ -28,13 +28,15 @@ A string containing the name of the key you want to create/update. The maximum a
 
 A string containing the value you want to give the key you are creating/updating. The maximum allowed `value` size is **400 KB**.
 
+Numbers are stored with the precision JavaScript itself keeps: every number in the value — including one nested inside an object or array — must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`). A number past that is stored clamped to the bound rather than rejected, and `NaN` is stored as `null`. Store an id or a total that has to stay exact past that point as a string.
+
 #### `expireAt` (Number) (optional)
 
 A number containing when the key should expire in timestamp seconds.
 
 #### `disableSharing` (Boolean) (optional)
 
-Pass inside the trailing options object — `set(key, value, { disableSharing: true })` — to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.requestAppData()`](/Perms/requestAppData/). Use it for anything another app should never see, such as a cached access token: a user approving a request cannot see what your store holds.
+Pass inside the trailing options object — `set(key, value, { disableSharing: true })` — to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.request('appData', …)`](/Perms/appData/). Use it for anything another app should never see, such as a cached access token: a user approving a request cannot see what your store holds.
 
 The batch form takes it too — `set([...items], { disableSharing: true })` marks every entry in the batch.
 

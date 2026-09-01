@@ -54,6 +54,17 @@ import {
 } from '../../services/auth/OTPUtil.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
+import type { CardFallbackDeps } from '../../util/cardFallback.js';
+import {
+    CARD_FALLBACK_OPEN_TTL_SECONDS,
+    SEND_PHONE_RATE_LIMIT,
+    SEND_PHONE_RATE_WINDOW_MS,
+    cardFallbackAfterAttempts,
+    cardFallbackFlagKey,
+    isCardFallbackEligible,
+    isCardFallbackEnabled,
+    phoneAttemptsKey,
+} from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
@@ -77,14 +88,6 @@ const FINGERPRINT_MAX_LENGTH = 128;
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
 const DISPATCH_ID_MAX_LENGTH = 128;
-// Default SMS send attempts before the card fallback opens.
-const DEFAULT_CARD_FALLBACK_ATTEMPTS = 2;
-// /send-confirm-phone route rate limit. Also caps the fallback's
-// `after_attempts`: requests past the route limit are rejected in middleware
-// and never reach the attempt counter, so a higher threshold could never be
-// crossed.
-const SEND_PHONE_RATE_LIMIT = 10;
-const SEND_PHONE_RATE_WINDOW_MS = 60 * 60_000;
 
 // -- Post-login route limits -----------------------------------------
 //
@@ -118,7 +121,7 @@ const TWO_FACTOR_LIMIT = {
     key: 'user',
 } as const;
 
-/** Permission and membership writes. Never called in a loop by a client. */
+/** Permission writes. Never called in a loop by a client. */
 const GRANT_LIMIT = {
     scope: 'auth-grant',
     limit: 60,
@@ -158,7 +161,7 @@ const ANTI_CSRF_MINT_LIMIT = {
     key: 'user',
 } as const;
 
-/** Settings-page reads — enumerating sessions, permissions, groups. */
+/** Settings-page reads — enumerating sessions and permissions. */
 const AUTH_LIST_LIMIT = {
     scope: 'auth-list',
     limit: 120,
@@ -173,9 +176,6 @@ const SESSION_LIMIT = {
     window: 60_000,
     key: 'user',
 } as const;
-// Once the threshold is crossed the fallback stays open this long, so the
-// user can finish the card flow without racing the attempt counter's expiry.
-const CARD_FALLBACK_OPEN_TTL_SECONDS = 24 * 60 * 60;
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -239,9 +239,12 @@ export class AuthController extends PuterController {
         ],
     })
     async loginWait(req: Request, res: Response) {
-        const { session } = req.body;
+        // Destructuring an absent body is a TypeError, not the 400 a request
+        // with no session id deserves.
+        const session = (req.body as { session?: unknown } | undefined)
+            ?.session;
         // validate uuid to prevent ultra long key or listening on pubsub.login.*
-        if (!session || !validateUuid(session)) {
+        if (typeof session !== 'string' || !validateUuid(session)) {
             throw new HttpError(400, 'session is required.', {
                 legacyCode: 'bad_request',
             });
@@ -841,6 +844,10 @@ export class AuthController extends PuterController {
         // guarantee — everything between here and the insert widens the window,
         // so the check runs again against the primary immediately before the
         // write, and the unique index catches whatever still slips through.
+        const clientIp: string | null =
+            req.ip || req.socket?.remoteAddress || null;
+        const proxyIpChain = req.headers['x-forwarded-for'];
+
         let pseudo_user = is_temp
             ? null
             : await this.#resolveSignupEmailClaim(body.email);
@@ -855,13 +862,19 @@ export class AuthController extends PuterController {
         const validateEvent = {
             req,
             data: body,
-            ip: ((req.headers?.['x-forwarded-for'] as string | undefined) ||
-                (req as unknown as { connection?: { remoteAddress?: string } })
-                    .connection?.remoteAddress ||
-                req.ip ||
-                req.socket?.remoteAddress ||
-                null) as string | null,
+            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
+            // would let a client pick its own per-IP abuse bucket.
+            ip: clientIp,
             email: body.email,
+            // The same canonical form `email.validate` was given, so a check
+            // in the abuse harness can look up the verdict that hook cached
+            // for this address. Without it an alias (`a+tag@outlook.com`,
+            // `a.b@icloud.com`) reaches the two hooks under two different keys.
+            clean_email: cleanEmail(body.email),
+            // Temp signups carry a synthetic `<username>@gmail.com` and skip
+            // #validateEmail entirely, so an email check must know not to
+            // reason about the address at all.
+            is_temp,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
@@ -1026,9 +1039,6 @@ export class AuthController extends PuterController {
             });
         } else {
             // -- New user ----------------------------------------
-            const clientIp = req.ip || req.socket?.remoteAddress || null;
-            const proxyIpChain = req.headers['x-forwarded-for'];
-
             try {
                 user = await this.stores.user.create({
                     username: body.username,
@@ -1049,7 +1059,10 @@ export class AuthController extends PuterController {
                         fingerprint,
                     },
                     signup_ip: clientIp,
-                    signup_ip_forwarded: proxyIpChain,
+                    // The abuse harness and the admin IP lookup both key on
+                    // this column, so it holds the trusted client address; the
+                    // raw forwarded chain stays in `audit_metadata.ip_fwd`.
+                    signup_ip_forwarded: clientIp,
                     signup_user_agent: req.headers?.['user-agent'] ?? null,
                     signup_origin:
                         (req.headers?.origin as string | null) ?? null,
@@ -1111,8 +1124,9 @@ export class AuthController extends PuterController {
         ) {
             const sendCode = body.send_confirmation_code ?? true;
             try {
+                let sent;
                 if (sendCode) {
-                    await this.clients.email.send(
+                    sent = await this.clients.email.send(
                         user!.email!,
                         'email_verification_code',
                         {
@@ -1121,14 +1135,18 @@ export class AuthController extends PuterController {
                     );
                 } else {
                     const link = `${this.config.origin ?? ''}/confirm-email-by-token?token=${email_confirm_token}&user_uuid=${user!.uuid}`;
-                    await this.clients.email.send(
+                    sent = await this.clients.email.send(
                         user!.email!,
                         'email_verification_link',
                         { link },
                     );
                 }
+                // `null` = dropped for want of a transport; silent otherwise.
+                if (sent === null) {
+                    this.#confirmationEmailFailed('signup', user!, null);
+                }
             } catch (e) {
-                console.warn('[signup] email send failed:', e);
+                this.#confirmationEmailFailed('signup', user!, e);
             }
         }
 
@@ -1148,18 +1166,10 @@ export class AuthController extends PuterController {
                     // a pseudo-user claim ends up with credentials, so it
                     // reports false here. Same signal completeLogin uses.
                     is_temp: user!.password === null && user!.email === null,
-                    ip:
-                        (req?.headers?.['x-forwarded-for'] as
-                            | string
-                            | undefined) ||
-                        (
-                            req as unknown as {
-                                connection?: { remoteAddress?: string };
-                            }
-                        )?.connection?.remoteAddress ||
-                        req?.ip ||
-                        req?.socket?.remoteAddress ||
-                        null,
+                    // Same derivation as the validate event above — the two
+                    // have to agree or per-IP counters are written under one
+                    // key and read under another.
+                    ip: clientIp,
                 } as never,
                 {},
             );
@@ -1261,13 +1271,16 @@ export class AuthController extends PuterController {
 
         if (this.clients.email) {
             try {
-                await this.clients.email.send(
+                const sent = await this.clients.email.send(
                     user.email,
                     'email_verification_code',
                     { code },
                 );
+                if (sent === null) {
+                    this.#confirmationEmailFailed('resend', user, null);
+                }
             } catch (e) {
-                console.warn('[send-confirm-email] send failed:', e);
+                this.#confirmationEmailFailed('resend', user, e);
             }
         }
         res.json({});
@@ -1378,6 +1391,64 @@ export class AuthController extends PuterController {
         res.json({ email_confirmed: true, original_client_socket_id });
     }
 
+    /**
+     * Alarm on a confirmation email that did not reach the recipient. A
+     * `requires_email_confirmation` account is refused by
+     * `requireVerifiedAccount` everywhere, so a lost code leaves an account
+     * that cannot be used. `cause === null` is the silent case: `sendRaw` drops
+     * the message rather than throwing when no transport is configured.
+     *
+     * `sole_gate` reports that no phone/card gate is outstanding either, so
+     * this user is stuck on the email alone. `dedup` because one broken mail
+     * path fails once per signup and is still one thing to fix.
+     */
+    #confirmationEmailFailed(
+        stage: 'signup' | 'resend',
+        user: {
+            uuid?: string | null;
+            username?: string | null;
+            email?: string | null;
+            requires_phone_verification?: unknown;
+            requires_card_verification?: unknown;
+        },
+        cause: unknown,
+    ): void {
+        const email = user.email ?? null;
+        const detail =
+            cause instanceof Error
+                ? cause.message
+                : cause === null
+                  ? 'no transport configured (message dropped)'
+                  : String(cause);
+        console.warn(
+            `[${stage === 'signup' ? 'signup' : 'send-confirm-email'}] ` +
+                `confirmation email not delivered: ${detail}`,
+        );
+        // Best-effort: failing to alarm must not fail the signup.
+        try {
+            this.clients.alarm?.create(
+                `auth:confirmation-email-send-failed:${stage}`,
+                'Confirmation email could not be sent — gated accounts cannot be used until it arrives',
+                {
+                    stage,
+                    user_uid: user.uuid ?? null,
+                    username: user.username ?? null,
+                    email,
+                    email_domain: email?.split('@')[1] ?? null,
+                    sole_gate:
+                        !user.requires_phone_verification &&
+                        !user.requires_card_verification,
+                    detail,
+                    ...(cause instanceof Error ? { error: cause } : {}),
+                },
+                'warning',
+                { dedup: true },
+            );
+        } catch (e) {
+            console.warn(`[${stage}] confirmation-email alarm failed:`, e);
+        }
+    }
+
     // -- Phone verification (SMS via Prelude) ------------------------
 
     /**
@@ -1441,9 +1512,10 @@ export class AuthController extends PuterController {
 
     // -- SMS-to-card fallback -----------------------------------------
     //
-    // Once a user has made enough SMS send attempts in the rate-limit window
-    // without getting through, they can verify a card instead to clear the
-    // phone gate. Off unless config enables it.
+    // Once a user has used up their SMS send attempts for the window without
+    // getting through, they can verify a card instead to clear the phone gate.
+    // On wherever both gates work unless config opts out. The rule itself lives
+    // in ../../util/cardFallback.ts, because /whoami answers the same question.
     //
     // Two KV keys: a short-lived counter tied to the send rate-limit window
     // triggers the fallback, and a longer-lived "open" flag holds eligibility
@@ -1452,30 +1524,11 @@ export class AuthController extends PuterController {
     // user is mid-way through the card flow. Every KV failure fails closed
     // (fallback unavailable), never open.
 
-    private cardFallbackConfig(): { enabled: boolean; afterAttempts: number } {
-        const cfg = this.config.phone_verification_card_fallback;
-        const afterAttempts = Math.min(
-            typeof cfg?.after_attempts === 'number' && cfg.after_attempts > 0
-                ? cfg.after_attempts
-                : DEFAULT_CARD_FALLBACK_ATTEMPTS,
-            SEND_PHONE_RATE_LIMIT,
-        );
-        return { enabled: Boolean(cfg?.enabled), afterAttempts };
-    }
-
-    private phoneAttemptsKey(userId: number): string {
-        return `phone-verify-attempts:${userId}`;
-    }
-
-    private cardFallbackFlagKey(userId: number): string {
-        return `card-fallback-open:${userId}`;
-    }
-
     // TTL ties the counter to the send rate-limit window, so it resets with it.
     private async bumpPhoneAttempts(userId: number): Promise<number> {
         try {
             const { res } = await this.stores.kv.incr({
-                key: this.phoneAttemptsKey(userId),
+                key: phoneAttemptsKey(userId),
                 pathAndAmountMap: { attempts: 1 },
                 expireAt:
                     Math.floor(Date.now() / 1000) +
@@ -1499,16 +1552,15 @@ export class AuthController extends PuterController {
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
-        const { enabled, afterAttempts } = this.cardFallbackConfig();
         const open =
-            enabled &&
             Boolean(user.requires_phone_verification) &&
-            attempts >= afterAttempts;
+            attempts >= cardFallbackAfterAttempts(this.config) &&
+            (await isCardFallbackEnabled(this.config, this.cardFallbackDeps()));
         if (open) {
             try {
                 // Plain set, so each eligible attempt refreshes the window.
                 await this.stores.kv.set({
-                    key: this.cardFallbackFlagKey(user.id),
+                    key: cardFallbackFlagKey(user.id),
                     value: true,
                     expireAt:
                         Math.floor(Date.now() / 1000) +
@@ -1529,17 +1581,33 @@ export class AuthController extends PuterController {
         id: number;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
-        const { enabled } = this.cardFallbackConfig();
-        if (!enabled || !user.requires_phone_verification) return false;
-        try {
-            const { res } = await this.stores.kv.get({
-                key: this.cardFallbackFlagKey(user.id),
-            });
-            return res === true;
-        } catch (e) {
-            console.warn('[card-verification] fallback flag read failed:', e);
-            return false;
-        }
+        return isCardFallbackEligible(
+            this.config,
+            user,
+            async (key) => (await this.stores.kv.get({ key })).res,
+            this.cardFallbackDeps(),
+        );
+    }
+
+    /**
+     * The two facts the fallback's default rests on: SMS can only work with a
+     * provider configured, and the card gate belongs to an extension, so the
+     * only honest way to ask whether it is on is to ask that extension. Nothing
+     * is listening on a stock build, which reads as "no card gate".
+     */
+    private cardFallbackDeps(): CardFallbackDeps {
+        return {
+            smsConfigured: () => Boolean(this.clients.prelude?.isConfigured()),
+            probeCardVerification: async () => {
+                const statusEvent = { enabled: null as boolean | null };
+                await this.clients.event?.emitAndWait(
+                    'puter.card-verification.status',
+                    statusEvent,
+                    {},
+                );
+                return statusEvent.enabled;
+            },
+        };
     }
 
     @Post('/send-confirm-phone', {
@@ -2966,25 +3034,6 @@ export class AuthController extends PuterController {
 
     // -- Permission grants -------------------------------------------
 
-    // Retired. Filesystem access is shared through `/share`, which indexes the
-    // grant so the owner can see and revoke it; nothing else is meant to pass
-    // between two users. This wrote straight to the permission tables with no
-    // such record. Never documented, no callers. Revoking still works, so
-    // anything granted before this can still be taken back.
-    @Post('/auth/grant-user-user', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGrantUserUser(_req: Request, _res: Response): Promise<void> {
-        throw new HttpError(
-            501,
-            'Direct user-to-user permission grants are no longer supported; ' +
-                'use puter.fs.share() to share files',
-            { legacyCode: 'not_implemented' },
-        );
-    }
-
     /**
      * Shared input validation for the user-app grant/revoke handlers, which
      * accept a caller-supplied `origin` as an alternative to `app_uid`. All
@@ -3205,35 +3254,12 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    @Post('/auth/grant-user-group', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGrantUserGroup(req: Request, res: Response): Promise<void> {
-        const { group_uid, permission, extra, meta } = req.body;
-        if (!group_uid || !permission) {
-            throw new HttpError(400, 'Missing `group_uid` or `permission`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const group = await this.stores.group.getByUid(group_uid);
-        if (!group)
-            throw new HttpError(404, 'Group not found', {
-                legacyCode: 'not_found',
-            });
-        await this.services.permission.grantUserGroupPermission(
-            req.actor!,
-            group,
-            permission,
-            extra,
-            meta,
-        );
-        res.json({});
-    }
-
     // -- Permission revokes ------------------------------------------
 
+    /**
+     * @deprecated Use `puter.fs.unshare()`. Kept for direct HTTP callers:
+     *   access left behind by an older client has to stay withdrawable.
+     */
     @Post('/auth/revoke-user-user', {
         subdomain: 'api',
         requireUserActor: true,
@@ -3253,6 +3279,13 @@ export class AuthController extends PuterController {
             target_username,
             permission,
             meta,
+        );
+        // The share index is what listings read, so it has to go with the
+        // grant — otherwise the item keeps reporting itself as shared.
+        await this.services.share.onGrantRevoked(
+            req.actor!,
+            target_username,
+            permission,
         );
         res.json({});
     }
@@ -3298,27 +3331,6 @@ export class AuthController extends PuterController {
                 );
             }
         }
-        res.json({});
-    }
-
-    @Post('/auth/revoke-user-group', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleRevokeUserGroup(req: Request, res: Response): Promise<void> {
-        const { group_uid, permission, meta } = req.body;
-        if (!group_uid || !permission) {
-            throw new HttpError(400, 'Missing `group_uid` or `permission`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        await this.services.permission.revokeUserGroupPermission(
-            req.actor!,
-            { uid: group_uid } as never,
-            permission,
-            meta,
-        );
         res.json({});
     }
 
@@ -3767,7 +3779,7 @@ export class AuthController extends PuterController {
         rateLimit: CREDENTIAL_MINT_LIMIT,
     })
     async handleCreateAccessToken(req: Request, res: Response): Promise<void> {
-        const { permissions, expiresIn, label } = req.body;
+        const { permissions, expiresIn, label } = req.body ?? {};
         if (!Array.isArray(permissions) || permissions.length === 0) {
             throw new HttpError(400, 'Missing or empty `permissions` array', {
                 legacyCode: 'bad_request',
@@ -3784,6 +3796,24 @@ export class AuthController extends PuterController {
                 });
             }
             normalizedLabel = label.trim().slice(0, 64) || null;
+        }
+
+        // Whole seconds or a duration string ('30d'). A wrong type, a
+        // fraction, or an unparseable unit all reach the signer, which throws
+        // after the session row is already inserted.
+        if (expiresIn !== undefined && expiresIn !== null) {
+            const usable =
+                typeof expiresIn === 'number'
+                    ? Number.isInteger(expiresIn) && expiresIn > 0
+                    : typeof expiresIn === 'string' &&
+                      /^\d+\s*[smhdwy]?$/.test(expiresIn.trim());
+            if (!usable) {
+                throw new HttpError(
+                    400,
+                    '`expiresIn` must be a whole number of seconds or a duration string like `30d`',
+                    { legacyCode: 'bad_request' },
+                );
+            }
         }
 
         // Normalize specs: string → [string], [string] → [string, {}], [string, extra] → as-is
@@ -3993,147 +4023,6 @@ export class AuthController extends PuterController {
             ),
             joined_incentive_program: Boolean(u.joined_incentive_program),
             paypal: u.paypal ?? null,
-        });
-    }
-
-    // -- Group management --------------------------------------------
-
-    @Post('/group/create', {
-        subdomain: 'api',
-        requireUserActor: true,
-        // Creates a persistent row per call with no quota behind it, so it
-        // sits on the hour-scale budget rather than the grant one.
-        rateLimit: { ...CREDENTIAL_MINT_LIMIT, scope: 'group-create' },
-    })
-    async handleGroupCreate(req: Request, res: Response): Promise<void> {
-        const extra = req.body.extra ?? {};
-        const metadata = req.body.metadata ?? {};
-        if (typeof extra !== 'object' || Array.isArray(extra))
-            throw new HttpError(400, '`extra` must be an object', {
-                legacyCode: 'bad_request',
-            });
-        if (typeof metadata !== 'object' || Array.isArray(metadata))
-            throw new HttpError(400, '`metadata` must be an object', {
-                legacyCode: 'bad_request',
-            });
-
-        const uid = await this.stores.group.create({
-            ownerUserId: req.actor!.user.id,
-            extra: {},
-            metadata,
-        } as never);
-        res.json({ uid });
-    }
-
-    @Post('/group/add-users', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGroupAddUsers(req: Request, res: Response): Promise<void> {
-        const { uid, users } = req.body ?? {};
-        if (!uid)
-            throw new HttpError(400, 'Missing `uid`', {
-                legacyCode: 'bad_request',
-            });
-        if (!Array.isArray(users))
-            throw new HttpError(400, '`users` must be an array', {
-                legacyCode: 'bad_request',
-            });
-
-        const group = await this.stores.group.getByUid(uid);
-        if (!group)
-            throw new HttpError(404, 'Group not found', {
-                legacyCode: 'not_found',
-            });
-        if (
-            (group as { owner_user_id?: number }).owner_user_id !==
-            req.actor!.user.id
-        )
-            throw new HttpError(403, 'Forbidden', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.group.addUsers(uid, users);
-        // New members inherit the group's permissions immediately, not
-        // after the permission-cache TTL.
-        await this.services.permission.bumpPermissionCacheForUsernames(users);
-        res.json({});
-    }
-
-    @Post('/group/remove-users', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGroupRemoveUsers(req: Request, res: Response): Promise<void> {
-        const { uid, users } = req.body ?? {};
-        if (!uid)
-            throw new HttpError(400, 'Missing `uid`', {
-                legacyCode: 'bad_request',
-            });
-        if (!Array.isArray(users))
-            throw new HttpError(400, '`users` must be an array', {
-                legacyCode: 'bad_request',
-            });
-
-        const group = await this.stores.group.getByUid(uid);
-        if (!group)
-            throw new HttpError(404, 'Group not found', {
-                legacyCode: 'not_found',
-            });
-        if (
-            (group as { owner_user_id?: number }).owner_user_id !==
-            req.actor!.user.id
-        )
-            throw new HttpError(403, 'Forbidden', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.group.removeUsers(uid, users);
-        // Removed members must lose the group's permissions immediately,
-        // not after the permission-cache TTL.
-        await this.services.permission.bumpPermissionCacheForUsernames(users);
-        res.json({});
-    }
-
-    @Get('/group/list', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: AUTH_LIST_LIMIT,
-    })
-    async handleGroupList(req: Request, res: Response): Promise<void> {
-        const userId = req.actor!.user.id!;
-        const [owned, member] = await Promise.all([
-            this.stores.group.listGroupsWithOwner(userId),
-            this.stores.group.listGroupsWithMember(userId),
-        ]);
-        res.json({
-            owned_groups: owned,
-            in_groups: member,
-        });
-    }
-
-    @Get('/group/public-groups', {
-        subdomain: 'api',
-        // The only unauthenticated route in the group set, so IP is the
-        // only key available — and that makes the bucket an aggregate:
-        // one office, campus or carrier gateway is a single key for
-        // everybody behind it, and each of them reads this once while
-        // bootstrapping. Sized for that population of real people rather
-        // than one browser, and no wider: this sits next to the sign-in
-        // surface, so it stays a real bound on enumeration.
-        rateLimit: {
-            scope: 'public-groups',
-            limit: 1_200,
-            window: 60_000,
-            key: 'ip',
-        },
-    })
-    async handleGroupPublicGroups(_req: Request, res: Response): Promise<void> {
-        res.json({
-            user: this.config.default_user_group ?? null,
-            temp: this.config.default_temp_group ?? null,
         });
     }
 

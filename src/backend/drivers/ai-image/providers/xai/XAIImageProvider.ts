@@ -27,6 +27,7 @@ import type {
 } from '../../types.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { assertInputImageString } from '../../inputImage.js';
 
 const DEFAULT_MODEL = 'grok-imagine-image';
 // xAI's Grok Imagine edit endpoint accepts up to 3 source images per request.
@@ -193,6 +194,7 @@ export class XAIImageProvider implements IImageProvider {
 
     // xAI accepts a public URL or a base64 data URI for input images.
     #toImageRef(img: string, mimeHint?: string) {
+        assertInputImageString(img, 'xAI');
         const url =
             img.startsWith('http://') ||
             img.startsWith('https://') ||

@@ -31,6 +31,7 @@ import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 /**
  * OpenAICompletionService class provides an interface to OpenAI's chat
@@ -69,7 +70,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
      * Each model object includes an ID and cost details (currency, tokens,
      * input/output rates).
      */
-    models(extra_params) {
+    models(extra_params?: { no_restrictions?: boolean }) {
         if (extra_params?.no_restrictions) {
             return OPEN_AI_MODELS;
         }
@@ -77,15 +78,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
     }
 
     list() {
-        const models = this.models({ no_restrictions: false });
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models({ no_restrictions: false }));
     }
 
     getDefaultModel() {
@@ -146,7 +139,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         // })
 
         const userIdentifier =
-            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
+            `${actor?.user.id}` + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
 
         // Resolve any `puter_path` content parts into inline base64 data URLs
         // before the Responses API sees them.
@@ -159,7 +152,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         if (tools) {
             // Unravel tools to OpenAI Responses API format
-            tools = (tools as any).map((e) => {
+            tools = (tools as any[]).map((e) => {
                 if (e.type === 'function') {
                     const tool = e.function;
                     tool.type = 'function';
@@ -235,7 +228,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                           : {}),
                   }),
             ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
-        } as ResponseCreateParams;
+        } as unknown as ResponseCreateParams;
 
         // console.log("completion params: ", completionParams)
         const completion =
@@ -260,7 +253,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor,
+                    actor!,
                     `openai:${modelUsed?.id}`,
                     costsOverrideFromModel,
                 );

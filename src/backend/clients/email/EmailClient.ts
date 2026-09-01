@@ -22,7 +22,11 @@ import handlebars, { template } from 'handlebars';
 import nodemailer from 'nodemailer';
 import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
-import { EMAIL_TEMPLATES, type EmailTemplateName } from './templates';
+import {
+    EMAIL_TEMPLATES,
+    type EmailTemplate,
+    type EmailTemplateName,
+} from './templates';
 
 /** Attachment shape passed through to the underlying transport. */
 export interface EmailAttachment {
@@ -64,6 +68,7 @@ export type EmailValidator = (email: string) => Promise<boolean> | boolean;
 interface CompiledTemplate {
     subject: ReturnType<typeof template>;
     html: ReturnType<typeof template>;
+    text?: ReturnType<typeof template>;
 }
 
 // -- Clean-email rules ------------------------------------------------
@@ -156,23 +161,28 @@ export class EmailClient extends PuterClient {
      * Render a template and send it to `to`. `options.replyTo` sets the
      * Reply-To header (e.g. so a recipient can respond to the originator of the
      * message rather than the no-reply From address).
+     *
+     * Returns the transport's send result, or `null` when none is configured —
+     * {@link sendRaw} drops the message instead of throwing. A caller that
+     * treats undelivered mail as a failure must check for `null` too.
      */
     async send<T extends EmailTemplateName>(
         to: string,
         template: T,
         values: Record<string, unknown> = {},
         options: { replyTo?: string } = {},
-    ): Promise<void> {
+    ) {
         const compiled = this.compiledTemplates[template];
         if (!compiled) {
             throw new Error(`Unknown email template: ${template}`);
         }
 
-        await this.sendRaw({
+        return await this.sendRaw({
             from: this.defaultFrom(),
             to,
             subject: compiled.subject(values),
             html: compiled.html(values),
+            ...(compiled.text ? { text: compiled.text(values) } : {}),
             ...(options.replyTo ? { replyTo: options.replyTo } : {}),
         });
     }
@@ -183,7 +193,8 @@ export class EmailClient extends PuterClient {
      *
      * Returns the transport's send result, or `null` when no transport is
      * configured (the send is a no-op in that case — callers that must not
-     * silently drop mail should check `isConfigured` first).
+     * silently drop mail should check `config.email` before composing, or the
+     * `null` return after).
      */
     async sendRaw(options: SendMailOptions) {
         if (!this.transport) {
@@ -197,11 +208,6 @@ export class EmailClient extends PuterClient {
             ...options,
             from: options.from ?? this.defaultFrom(),
         });
-    }
-
-    /** Whether an SMTP transport is configured (sends are no-ops otherwise). */
-    get isConfigured(): boolean {
-        return this.transport !== null;
     }
 
     // -- Public API: clean / validate ---------------------------------
@@ -289,7 +295,11 @@ export class EmailClient extends PuterClient {
     }
 
     private compileTemplates(): void {
-        for (const [name, template] of Object.entries(EMAIL_TEMPLATES)) {
+        // Widened to the interface: the literal map keeps a distinct type per
+        // template, and only some of them carry a `text` part.
+        const templates: Record<EmailTemplateName, EmailTemplate> =
+            EMAIL_TEMPLATES;
+        for (const [name, template] of Object.entries(templates)) {
             this.compiledTemplates[name as EmailTemplateName] = {
                 // Subjects are plain-text headers: HTML-escaping would put
                 // literal entities in front of the recipient (&amp; etc.).
@@ -300,6 +310,15 @@ export class EmailClient extends PuterClient {
                     noEscape: true,
                 }),
                 html: handlebars.compile(dedent(template.html)),
+                // Same reasoning as the subject: a text part is not HTML, so
+                // escaping would show entities to the reader.
+                ...(template.text
+                    ? {
+                          text: handlebars.compile(dedent(template.text), {
+                              noEscape: true,
+                          }),
+                      }
+                    : {}),
             };
         }
     }

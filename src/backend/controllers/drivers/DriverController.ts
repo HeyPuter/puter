@@ -24,6 +24,7 @@ import { Context } from '../../core/context.js';
 import { Controller } from '../../core/http/decorators.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { assertNotUserSession } from '../../core/http/middleware/gates.js';
+import { assertActorMeetsReputation } from '../../core/reputation.js';
 import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
@@ -36,6 +37,7 @@ import {
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
+    resolveDriverMethodRequireReputation,
     resolveDriverMethodRequireSubscription,
 } from '../../drivers/meta.js';
 import { assertActorHasSubscription } from '../../services/metering/enforcement.js';
@@ -299,7 +301,8 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                PermissionService | undefined;
+                | PermissionService
+                | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -325,6 +328,25 @@ export class DriverController extends PuterController {
                     );
                 }
             }
+        }
+
+        // Methods that ask for a trusted-enough account. Declared per-driver
+        // (`@Driver({ requireReputation })`) for the same reason the
+        // subscription block is. Checked ahead of the plan and rate-limit
+        // gates, matching the route chain: whether this account should be
+        // reaching the method at all is settled before what it pays for or how
+        // often it may ask. Inert unless the running config gives the named
+        // tier a score.
+        const reputationRequirement = resolveDriverMethodRequireReputation(
+            driverMeta?.requireReputation,
+            method,
+        );
+        if (reputationRequirement !== undefined) {
+            await assertActorMeetsReputation(
+                req.actor,
+                reputationRequirement,
+                this.config,
+            );
         }
 
         // Subscriber-only methods. Declared per-driver

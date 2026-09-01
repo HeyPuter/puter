@@ -8,7 +8,7 @@
             const user = await puter.auth.getUser();
             const permission = `user:${user.uuid}:email:read`;
             
-            const granted = await puter.perms.request(permission);
+            const granted = await puter.perms.request('permission', { permission });
             if (granted) {
                 puter.print('Permission granted');
             } else {

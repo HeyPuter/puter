@@ -35,6 +35,7 @@ import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 /**
  * OpenAICompletionService class provides an interface to OpenAI's chat
@@ -87,15 +88,7 @@ export class OpenAiChatProvider implements IChatProvider {
     }
 
     list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     getDefaultModel() {
@@ -213,7 +206,7 @@ export class OpenAiChatProvider implements IChatProvider {
                           ? { verbosity: requestedVerbosity }
                           : {}),
                   }),
-        } as ChatCompletionCreateParams;
+        } as unknown as ChatCompletionCreateParams;
 
         const completion =
             await this.#openAi.chat.completions.create(completionParams);

@@ -1,71 +1,149 @@
+import { fsPermission } from './lib/permissionStrings.js';
+
 /** @typedef {import('./index.js').PermsModule} PermsModule */
+/** @typedef {import('../../index.js').Puter} Puter */
+/** @typedef {import('./types.js').PermsAccess} PermsAccess */
+/** @typedef {import('./types.js').PermsFolderName} PermsFolderName */
 
 /**
- * Requests access to one of the user's special folders, returning its path if
- * access is (or becomes) granted. Read access is inferred from being able to
- * stat the folder; write access always prompts if not already held.
+ * Where one of the user's special folders lives. The one place the path is
+ * spelled out, so a request and its matching `check` can't name it differently.
  *
- * @this {PermsModule}
- * @param {string} folderName - Desktop, Documents, Pictures, or Videos.
- * @param {'read' | 'write'} accessLevel
+ * @param {string} username
+ * @param {string} folderName
+ * @returns {string}
+ */
+export function folderPathFor (username, folderName) {
+    return `/${username}/${folderName}`;
+}
+
+/**
+ * Whether the folder can be read already. Being able to stat it is the proof:
+ * read access can also come from an ACL grant that no `fs:` permission string
+ * names, so the permission tables alone would under-report it.
+ *
+ * @param {Puter} puter
+ * @param {string} folderPath
+ * @returns {Promise<boolean>}
+ */
+export async function folderReadable (puter, folderPath) {
+    try {
+        await puter.fs.stat({ path: folderPath });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Resolve a folder request to its path, prompting only when the access isn't
+ * already held.
+ *
+ * @param {Puter} puter
+ * @param {string} folderName
+ * @param {PermsAccess} accessLevel
  * @returns {Promise<string | undefined>}
  */
-export async function requestFolder_ (folderName, accessLevel) {
-    const whoami = await this.puter.auth.whoami();
-    const folderPath = `/${whoami.username}/${folderName}`;
+export async function requestFolderPath (puter, folderName, accessLevel) {
+    const whoami = await puter.auth.whoami();
+    const folderPath = folderPathFor(whoami.username, folderName);
 
-    // Being able to stat the folder means we already have at least read access.
-    try {
-        await this.puter.fs.stat({ path: folderPath });
-        if ( accessLevel !== 'write' ) {
-            return folderPath;
-        }
-    } catch (e) {
-        // No access yet, fall through to request permission.
+    // Read access is inferred from being able to stat the folder.
+    if ( accessLevel !== 'write' && await folderReadable(puter, folderPath) ) {
+        return folderPath;
     }
 
-    const granted = await this.puter.ui.requestPermission({
-        permission: `fs:${folderPath}:${accessLevel}`,
+    const granted = await puter.ui.requestPermission({
+        permission: fsPermission(folderPath, accessLevel),
     });
     return granted ? folderPath : undefined;
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+// -- Deprecated aliases --
+//
+// Kept so apps written against the old one-method-per-folder surface keep
+// working. `requestFolder_` takes any folder name, not just the four the
+// supported surface covers, so it stays unvalidated.
+
+/**
+ * @deprecated Use `request('folder', { name, access })`.
+ * @this {PermsModule}
+ * @param {string} folderName
+ * @param {PermsAccess} accessLevel
+ * @returns {Promise<string | undefined>}
+ */
+export function requestFolder_ (folderName, accessLevel) {
+    return requestFolderPath(this.puter, folderName, accessLevel);
+}
+
+/**
+ * @deprecated Use `request('folder', { name: 'Desktop' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestReadDesktop () {
-    return this.requestFolder_('Desktop', 'read');
+    return requestFolderPath(this.puter, 'Desktop', 'read');
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+/**
+ * @deprecated Use `request('folder', { name: 'Desktop', access: 'write' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestWriteDesktop () {
-    return this.requestFolder_('Desktop', 'write');
+    return requestFolderPath(this.puter, 'Desktop', 'write');
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+/**
+ * @deprecated Use `request('folder', { name: 'Documents' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestReadDocuments () {
-    return this.requestFolder_('Documents', 'read');
+    return requestFolderPath(this.puter, 'Documents', 'read');
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+/**
+ * @deprecated Use `request('folder', { name: 'Documents', access: 'write' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestWriteDocuments () {
-    return this.requestFolder_('Documents', 'write');
+    return requestFolderPath(this.puter, 'Documents', 'write');
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+/**
+ * @deprecated Use `request('folder', { name: 'Pictures' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestReadPictures () {
-    return this.requestFolder_('Pictures', 'read');
+    return requestFolderPath(this.puter, 'Pictures', 'read');
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+/**
+ * @deprecated Use `request('folder', { name: 'Pictures', access: 'write' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestWritePictures () {
-    return this.requestFolder_('Pictures', 'write');
+    return requestFolderPath(this.puter, 'Pictures', 'write');
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+/**
+ * @deprecated Use `request('folder', { name: 'Videos' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestReadVideos () {
-    return this.requestFolder_('Videos', 'read');
+    return requestFolderPath(this.puter, 'Videos', 'read');
 }
 
-/** @this {PermsModule} @returns {Promise<string | undefined>} */
+/**
+ * @deprecated Use `request('folder', { name: 'Videos', access: 'write' })`.
+ * @this {PermsModule}
+ * @returns {Promise<string | undefined>}
+ */
 export function requestWriteVideos () {
-    return this.requestFolder_('Videos', 'write');
+    return requestFolderPath(this.puter, 'Videos', 'write');
 }

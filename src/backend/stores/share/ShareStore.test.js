@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
 
 describe('ShareStore', () => {
@@ -409,6 +409,76 @@ describe('ShareStore', () => {
             // The cascade is what stops a deleted file lingering in the
             // recipient's listing forever.
             expect(await store.getByUid(created.uid)).toBeNull();
+        });
+
+        // -- the listing flag ------------------------------------------
+
+        it('reports which entries carry a share, and forgets one that is revoked', async () => {
+            const shared = await makeEntry(issuer);
+            const untouched = await makeEntry(issuer);
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: shared.id,
+                mode: 'read',
+            });
+
+            expect(
+                await store.getSharedFsentryIds([shared.id, untouched.id]),
+            ).toEqual(new Set([shared.id]));
+
+            await store.deleteActive({
+                holderUserId: holder.id,
+                fsentryId: shared.id,
+            });
+
+            expect(
+                await store.getSharedFsentryIds([shared.id, untouched.id]),
+            ).toEqual(new Set());
+        });
+
+        it('counts a node whose only share is an unclaimed invite', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: 'not-yet@test.local',
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            expect(await store.getSharedFsentryIds([entry.id])).toEqual(
+                new Set([entry.id]),
+            );
+        });
+
+        it('reaches ids past the first chunk', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            // Ids no entry can have, so the only hit sits past the first chunk.
+            const padding = Array.from(
+                { length: 1200 },
+                (_, i) => 10_000_000 + i,
+            );
+
+            expect(
+                await store.getSharedFsentryIds([...padding, entry.id]),
+            ).toEqual(new Set([entry.id]));
+        });
+
+        it('answers an empty request without a query', async () => {
+            const read = vi.spyOn(store.clients.db, 'read');
+            try {
+                expect(await store.getSharedFsentryIds([])).toEqual(new Set());
+                expect(read).not.toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+            }
         });
 
         it('paginates by keyset and stops without a trailing cursor', async () => {

@@ -25,6 +25,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { GROQ_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 export class GroqAIProvider implements IChatProvider {
     #client: Groq;
@@ -47,15 +48,7 @@ export class GroqAIProvider implements IChatProvider {
     }
 
     async list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     async complete({
@@ -91,7 +84,7 @@ export class GroqAIProvider implements IChatProvider {
 
         return OpenAIUtil.handle_completion_output({
             deviations: {
-                index_usage_from_stream_chunk: (chunk) =>
+                index_usage_from_stream_chunk: (chunk: unknown) =>
                     // x_groq contains usage details for streamed responses
                     (chunk as { x_groq?: { usage?: CompletionUsage } }).x_groq
                         ?.usage,

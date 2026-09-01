@@ -29,6 +29,7 @@ import type {
     IChatModel,
     IChatProvider,
     IChatCompleteResult,
+    ICompleteArguments,
 } from '../../types.js';
 import { OPEN_ROUTER_MODEL_OVERRIDES } from './modelOverrides.js';
 
@@ -95,7 +96,7 @@ export class OpenRouterProvider implements IChatProvider {
         tools,
         max_tokens,
         temperature,
-    }): Promise<IChatCompleteResult> {
+    }: ICompleteArguments): Promise<IChatCompleteResult> {
         const modelUsed =
             (await this.models()).find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
@@ -201,7 +202,7 @@ export class OpenRouterProvider implements IChatProvider {
                     return trackedUsage;
                 } else {
                     // custom open router logic because they're pricing are weird
-                    const trackedUsage = {
+                    const trackedUsage: Record<string, number> = {
                         prompt:
                             (usage.prompt_tokens ?? 0) -
                             (usage.prompt_tokens_details?.cached_tokens ?? 0),

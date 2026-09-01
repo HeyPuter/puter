@@ -20,26 +20,27 @@
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
 import path from '../../lib/path.js';
-import open_item from '../../helpers/open_item.js';
+import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
 import UIWindowProgress from '../UIWindowProgress.js';
 import UIAlert from '../UIAlert.js';
-import generate_file_context_menu from '../../helpers/generate_file_context_menu.js';
-import truncate_filename from '../../helpers/truncate_filename.js';
-import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
-import item_icon from '../../helpers/item_icon.js';
-import { user_facing_windows } from '../../helpers/window_visibility.js';
-import new_context_menu_item from '../../helpers/new_context_menu_item.js';
-import publish_as_website from '../../helpers/publish_as_website.js';
+import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
+import truncate_filename from '../../helpers/truncateFilename.js';
+import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
+import item_icon from '../../helpers/itemIcon.js';
+import { user_facing_windows } from '../../helpers/windowVisibility.js';
+import new_context_menu_item from '../../helpers/newContextMenuItem.js';
+import publish_as_website from '../../helpers/publishAsWebsite.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
+import UIShareModal from './UIShareModal.js';
 import { dedupedName } from './dedupedName.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 import { icons } from '../../helpers/actionIcons.js';
-import list_all_shared from '../../helpers/list_all_shared.js';
-import { remember_shared_roots } from '../../helpers/shared_access.js';
-import { parent_path_for, shared_crumbs_for } from '../../helpers/share_paths.js';
+import list_all_shared from '../../helpers/listAllShared.js';
+import { can_share, remember_shared_roots } from '../../helpers/sharedAccess.js';
+import { parent_path_for, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -122,6 +123,7 @@ const TabFiles = {
                     <div class="files-selection-actions">
                         <button class="selection-action-btn restore-btn" title="${i18n('restore')}">${icons.restore}<span>${i18n('restore')}</span></button>
                         <button class="selection-action-btn download-btn" title="${i18n('download')}">${icons.download}<span>${i18n('download')}</span></button>
+                        <button class="selection-action-btn share-btn" title="${i18n('share')}">${icons.share}<span>${i18n('share')}</span></button>
                         <button class="selection-action-btn cut-btn" title="${i18n('cut')}">${icons.cut}<span>${i18n('cut')}</span></button>
                         <button class="selection-action-btn copy-btn" title="${i18n('copy')}">${icons.copy}<span>${i18n('copy')}</span></button>
                         <button class="selection-action-btn delete-btn" title="${i18n('delete')}">${icons.trash}<span>${i18n('delete')}</span></button>
@@ -236,7 +238,7 @@ const TabFiles = {
             // If the directory was empty, drop the "No files in this directory."
             // placeholder before inserting the first real row — otherwise it
             // stays and overlaps the new item.
-            _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+            _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row)').remove();
 
             await _this.renderItem(file);
 
@@ -561,9 +563,14 @@ const TabFiles = {
         // Check for initial file path from URL routing
         if ( window.dashboard_initial_file_path ) {
             const initialPath = window.dashboard_initial_file_path;
+            const sharedPaths = window.dashboard_initial_shared_paths;
             delete window.dashboard_initial_file_path; // Clear so it only runs once
+            delete window.dashboard_initial_shared_paths;
             this.pushNavHistory(initialPath);
-            this.renderDirectory(initialPath, { skipUrlUpdate: true });
+            const rendered = this.renderDirectory(initialPath, { skipUrlUpdate: true });
+            // A share link names what was just shared; pick it out once the
+            // listing is up, the way an upload lands highlighted.
+            if ( sharedPaths ) rendered.then(() => this.selectSharedRows(sharedPaths));
         } else {
             // Auto-select Home folder on initialization
             const homeFolder = $el_window.find('[data-folder="Home"]');
@@ -663,6 +670,12 @@ const TabFiles = {
             // Only handle if Dashboard Files tab is active
             if ( ! _this.isDashboardFilesActive() ) return;
 
+            // A Files-tab modal (share, item properties) owns the keyboard
+            // while open: Enter/Space must reach its buttons, arrows its
+            // selects, and typing must not retarget row selection — nor may
+            // Enter/Delete open or trash the rows behind the overlay.
+            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-notifications-panel.open').length > 0 ) return;
+
             const focused_el = document.activeElement;
 
             // Skip if user is typing in an input/textarea (except for Escape)
@@ -679,7 +692,7 @@ const TabFiles = {
             }
 
             const $container = _this.$el_window.find('.files-tab .files');
-            const $allRows = $container.find('.row');
+            const $allRows = $container.find('.row:not(.place-row)');
             const $selectedRows = $container.find('.row.selected');
 
             // F2 - Rename selected item
@@ -1423,6 +1436,11 @@ const TabFiles = {
             }
         });
 
+        // Share button
+        $actions.find('.share-btn').on('click', function () {
+            _this.openShareModal(document.querySelectorAll('.files-tab .row.selected'));
+        });
+
         // Cut button
         $actions.find('.cut-btn').on('click', function () {
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
@@ -1513,6 +1531,54 @@ const TabFiles = {
             $actions.find('.copy-btn').show();
             $actions.find('.delete-btn span').text(i18n('delete'));
         }
+
+        // Whether the whole selection may be shared can need a lookup, so the
+        // button stays hidden until the answer is in. A selection changed in
+        // the meantime owns the bar, and this answer is discarded.
+        const token = (this._shareCheckToken = {});
+        $actions.find('.share-btn').hide();
+        if ( ! anyTrashed ) {
+            this.canShareRows(selectedRows).then((may_share) => {
+                if ( this._shareCheckToken !== token ) return;
+                $actions.find('.share-btn').toggle(may_share);
+            });
+        }
+    },
+
+    /**
+     * Whether every selected row may be shared with someone else. A selection
+     * mixing your own items with someone else's read-only ones can't be, and
+     * offering the action would only produce a failure per item.
+     *
+     * @param {NodeList|Array<HTMLElement>} rows - The selected row elements
+     * @returns {Promise<boolean>}
+     */
+    async canShareRows (rows) {
+        const list = Array.from(rows);
+        if ( ! list.length ) return false;
+        const answers = await Promise.all(list.map((row) => can_share(
+            $(row).attr('data-path'),
+            $(row).attr('data-share_mode'),
+        )));
+        return answers.every(Boolean);
+    },
+
+    /**
+     * Opens the share modal on a selection of rows, folding their access into
+     * one list. The row's rendered icon comes along so the header can show
+     * what is being shared without re-resolving it.
+     *
+     * @param {NodeList|Array<HTMLElement>} rows - The row elements to share
+     * @returns {void}
+     */
+    openShareModal (rows) {
+        const items = Array.from(rows).map((row) => ({
+            path: $(row).attr('data-path'),
+            name: $(row).attr('data-name'),
+            icon: $(row).find('.item-icon img').attr('src'),
+        }));
+        if ( ! items.length ) return;
+        UIShareModal({ items, $container: this.$el_window });
     },
 
     /**
@@ -1973,7 +2039,7 @@ const TabFiles = {
 
         // Drop the "No files in this directory." placeholder before inserting
         // the first row, otherwise it stays and overlaps the new item.
-        this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+        this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row)').remove();
 
         await this.renderItem(placeholder);
         const $row = this.$el_window.find(`.files-tab .files .item[data-uid='${placeholder.uid}']`);
@@ -2214,7 +2280,10 @@ const TabFiles = {
             this.currentPath = target;
         } else {
             let path = null;
-            Object.entries(window.user.directories).forEach(o => {
+            // Not every session carries `directories` (the Shared view's
+            // puter:// target lands here too); a throw would leave the
+            // spinner up and renderingDirectory stuck.
+            Object.entries(window.user.directories || {}).forEach(o => {
                 if ( o[1] === target ) {
                     path = o[0];
                 }
@@ -2349,6 +2418,10 @@ const TabFiles = {
             clearListing();
         }
 
+        // Shared and Trash have no rows of their own, so below 480px — where
+        // the directories sidebar is hidden — Home carries a row for each.
+        this.renderPlaceRows();
+
         if ( directoryContents.length === 0 ) {
             this.renderEmptyPlaceholderIfNeeded();
             this.updateFooterStats();
@@ -2379,6 +2452,91 @@ const TabFiles = {
     },
 
     /**
+     * Prepends "Shared" and "Trash" rows to the Home listing. Neither has a
+     * row of its own — Shared is a query, and Trash is filtered out of the
+     * listing — so the directories sidebar is their only entry point, and
+     * below 480px that sidebar is hidden. CSS shows these rows only at those
+     * widths; while the sidebar is visible they stay out of the way.
+     *
+     * The rows borrow the item markup for layout but are not `.item`, so
+     * nothing that walks items (sorted insert, selection restore, share-link
+     * select, placeholder removal) treats them as files. They only navigate
+     * and offer the same menu as their sidebar entry.
+     *
+     * @returns {void}
+     */
+    renderPlaceRows () {
+        if ( this.currentPath !== window.home_path ) return;
+        const _this = this;
+        const $files = this.$el_window.find('.files-tab .files');
+
+        // The sidebar Trash icon already tracks empty/full (see
+        // update_trash_icons, which keeps this row's icon in step too).
+        const trashIcon = $('.directories [data-folder="Trash"] img').attr('src') || window.icons['trash.svg'];
+        const places = [
+            { name: 'Shared', label: i18n('shared'), path: window.shared_path, icon: window.icons['folder-shared.svg'] },
+            { name: 'Trash', label: i18n('trash'), path: window.trash_path, icon: trashIcon },
+        ];
+
+        for ( const place of places ) {
+            const row = document.createElement('div');
+            row.setAttribute('class', 'row folder place-row');
+            row.setAttribute('data-place', place.name);
+            row.setAttribute('data-path', place.path);
+            row.setAttribute('data-name', place.label);
+            row.setAttribute('data-is_dir', '1');
+            row.innerHTML = `
+                <div class="item-checkbox"><span class="checkbox-icon"></span></div>
+                <div class="item-icon"><img src="${html_encode(place.icon)}"/></div>
+                <div class="item-badges"></div>
+                <div class="item-name-wrapper">
+                    <pre class="item-name">${html_encode(place.label)}</pre>
+                </div>
+                <div class="col-spacer"></div>
+                <div class="item-metadata">
+                    <div class="item-size"></div>
+                    <div class="col-spacer"></div>
+                    <div class="item-modified"></div>
+                </div>
+                <div class="col-spacer"></div>
+                <div class="item-more">${icons.more}</div>
+            `;
+
+            const openMenu = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const items = _this.generateFolderContextMenu(place.path);
+                if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() ) {
+                    const modal = new ContextMenuModal();
+                    modal.show(items, row.getBoundingClientRect(), { title: place.label });
+                } else {
+                    const releaseCtxState = _this.markRowContextMenuOpen(row);
+                    const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                    menu.onClose = releaseCtxState;
+                }
+            };
+
+            row.onclick = (e) => {
+                if ( e.target.closest('.item-more') ) {
+                    openMenu(e);
+                    return;
+                }
+                _this.pushNavHistory(place.path);
+                _this.renderDirectory(place.path);
+            };
+
+            $(row).on('contextmenu taphold', (e) => {
+                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !isTouchPrimaryDevice() ) {
+                    return;
+                }
+                openMenu(e);
+            });
+
+            $files.append(row);
+        }
+    },
+
+    /**
      * Renders a single file or folder item as a row in the file list.
      *
      * Creates the DOM element with appropriate data attributes and appends
@@ -2391,7 +2549,7 @@ const TabFiles = {
         // For trashed items, use original_name from metadata if available
         const item_id = window.global_element_id++;
         // metadata is a client-writable, untrusted string stored verbatim, so
-        // it may be '', undefined, or malformed. Guard the parse (as item_icon.js
+        // it may be '', undefined, or malformed. Guard the parse (as itemIcon.js
         // does) — an unguarded throw here aborts the whole directory render.
         let metadata = {};
         try {
@@ -2421,6 +2579,7 @@ const TabFiles = {
         row.setAttribute("data-is_dir", file.is_dir ? "1" : "0");
         row.setAttribute("data-is_trash", file.is_trash ? "1" : "0");
         row.setAttribute("data-shared_with_me", file.shared_with_me ? "1" : "0");
+        row.setAttribute("data-is_shared", file.is_shared === true ? "1" : "0");
         row.setAttribute("data-share_mode", file.share_mode ?? '');
         row.setAttribute("data-shared_by", file.shared_by ?? '');
         row.setAttribute("data-has_website", file.has_website ? "1" : "0");
@@ -2446,6 +2605,10 @@ const TabFiles = {
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">
                 ${icon}
+                <div class="item-shared-marker"
+                    style="${file.is_shared === true ? '' : 'display:none;'}"
+                    title="${html_encode(i18n('item_shared_by_you'))}"
+                ></div>
             </div>
             <div class="item-badges">
                 <img class="item-badge item-has-website-badge long-hover"
@@ -2464,9 +2627,9 @@ const TabFiles = {
                     data-item-id="${item_id}"
                     title="Shortcut"
                 >
-                <img  class="item-badge item-is-worker long-hover" 
-                    style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
-                    src="${html_encode(window.icons['worker.svg'])}" 
+                <img  class="item-badge item-is-worker long-hover"
+                    style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}"
+                    src="${html_encode(window.icons['worker.svg'])}"
                     data-item-id="${item_id}"
                 >
             </div>
@@ -2494,7 +2657,7 @@ const TabFiles = {
      * resolve to their target) against the data-file_uid that launch_app
      * stamps on app windows. In dashboard mode the row doubles as that
      * window's switcher (clicking it restores instead of relaunching — see
-     * open_item.js), so the dot marks where a click will return, not launch.
+     * openItem.js), so the dot marks where a click will return, not launch.
      *
      * @returns {void}
      */
@@ -2884,12 +3047,15 @@ const TabFiles = {
             e.stopPropagation();
 
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-            let items;
-            if ( selectedRows.length > 1 && el_item.classList.contains('selected') ) {
-                items = await _this.generateMultiSelectContextMenu(selectedRows);
-            } else {
-                items = await _this.generateContextMenuItems(el_item, file);
-            }
+            const isMultiSelection = selectedRows.length > 1 && el_item.classList.contains('selected');
+            const items = isMultiSelection
+                ? await _this.generateMultiSelectContextMenu(selectedRows)
+                : await _this.generateContextMenuItems(el_item, file);
+            // The sheet's title names what the menu acts on — the whole
+            // selection, not just the row the long-press landed on.
+            const menuTitle = isMultiSelection
+                ? i18n('items_count_other', { count: selectedRows.length }, false)
+                : file.name;
 
             // The touch sheet is for touch interactions and touch-first
             // devices. A mouse right-click gets the desktop menu at the
@@ -2899,7 +3065,7 @@ const TabFiles = {
             const touchInvoked = e.type === 'taphold' || lastPointerType === 'touch';
             if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() || touchInvoked ) {
                 const modal = new ContextMenuModal();
-                modal.show(items, el_item.getBoundingClientRect(), { title: file.name });
+                modal.show(items, el_item.getBoundingClientRect(), { title: menuTitle });
             } else {
                 // Keep the row visually active while its menu is open — the
                 // pointer moves onto the menu, so :hover alone would drop it.
@@ -3409,7 +3575,8 @@ const TabFiles = {
         const $selectionActions = this.$el_window.find('.files-selection-actions');
         if ( ! $footer.length ) return;
 
-        const allRows = this.$el_window.find('.files-tab .row').toArray();
+        // Place rows (Shared/Trash on Home) navigate; they aren't items.
+        const allRows = this.$el_window.find('.files-tab .row:not(.place-row)').toArray();
         const selectedRows = this.$el_window.find('.files-tab .row.selected').toArray();
 
         const totalCount = allRows.length;
@@ -3797,14 +3964,10 @@ const TabFiles = {
 
     async handleMoreClick (rowElement, file, targetElement, fromTouch) {
         const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-
-        let items;
-        if ( selectedRows.length > 1 && rowElement.classList.contains('selected') ) {
-            items = await this.generateMultiSelectContextMenu(selectedRows);
-        }
-        else {
-            items = await this.generateContextMenuItems(rowElement, file);
-        }
+        const isMultiSelection = selectedRows.length > 1 && rowElement.classList.contains('selected');
+        const items = isMultiSelection
+            ? await this.generateMultiSelectContextMenu(selectedRows)
+            : await this.generateContextMenuItems(rowElement, file);
 
         // The touch sheet for touch taps and touch-first devices; a mouse
         // click gets the desktop menu anchored to the button, also on
@@ -3812,7 +3975,11 @@ const TabFiles = {
         if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() || fromTouch ) {
             const targetRect = targetElement.getBoundingClientRect();
             const modal = new ContextMenuModal();
-            modal.show(items, targetRect, { title: file.name });
+            modal.show(items, targetRect, {
+                title: isMultiSelection
+                    ? i18n('items_count_other', { count: selectedRows.length }, false)
+                    : file.name,
+            });
         } else {
             // The '⋯' click doesn't select the row, so without this class the
             // row would lose all visual state the moment the pointer moves
@@ -3882,6 +4049,16 @@ const TabFiles = {
                     $container: _this.$el_window,
                 });
             },
+            onShare: ({ name, path: item_path }) => {
+                // Dashboard uses a responsive modal instead of the desktop UIWindow.
+                UIShareModal({
+                    name,
+                    path: item_path,
+                    // The row's fs entry, so the modal can show the item's icon.
+                    fsentry: options,
+                    $container: _this.$el_window,
+                });
+            },
         });
 
         return menu_items;
@@ -3927,12 +4104,23 @@ const TabFiles = {
         }
 
         if ( ! anyTrashed ) {
+            // Share
+            if ( await _this.canShareRows(selectedRows) ) {
+                items.push({
+                    html: i18n('share_ellipsis'),
+                    onClick: function () {
+                        _this.openShareModal(selectedRows);
+                    },
+                });
+            }
+
             items.push({
                 html: `${i18n('download')}`,
                 onClick: function () {
                     window.zipItems(Array.from(selectedRows), _this.currentPath, true);
                 },
             });
+
             items.push('-');
         }
 
@@ -4062,7 +4250,7 @@ const TabFiles = {
                                 const result = await uploadPromise;
                                 if ( targetPath === _this.currentPath ) {
                                     // Remove empty-directory placeholder if present
-                                    _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+                                    _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row)').remove();
                                     // Add the new file incrementally
                                     await _this.renderItem(result);
                                     const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
@@ -4610,16 +4798,42 @@ const TabFiles = {
      */
     selectUploadedRows (paths) {
         const wanted = new Set(paths.map(p => String(p).toLowerCase()));
-        const matches = this.$el_window.find('.files-tab .files .row').filter(function () {
-            const rowPath = String($(this).attr('data-path') ?? '').toLowerCase();
-            return wanted.has(rowPath);
+        this.selectRowsWhere((row) => wanted.has(String(row.getAttribute('data-path') ?? '').toLowerCase()));
+    },
+
+    /**
+     * Selects the rows for the items a share link names, replacing the
+     * current selection. Matched by uid — the link's `/<owner>/<uid>/<name>`
+     * form carries it, and unlike the name it survives a rename. Values that
+     * aren't shared paths, or items no longer shared, match nothing.
+     *
+     * @param {string[]} sharedPaths - The link's `?shared=` values
+     * @returns {void}
+     */
+    selectSharedRows (sharedPaths) {
+        const wanted = new Set(shared_uids_from_paths(sharedPaths));
+        if ( wanted.size === 0 ) return;
+        this.selectRowsWhere((row) => wanted.has(String(row.getAttribute('data-uid') ?? '').toLowerCase()));
+    },
+
+    /**
+     * Selects the rendered rows `matches` accepts, replacing the current
+     * selection and scrolling the first into view. No match leaves the
+     * selection untouched.
+     *
+     * @param {(row: HTMLElement) => boolean} matches
+     * @returns {void}
+     */
+    selectRowsWhere (matches) {
+        const rows = this.$el_window.find('.files-tab .files .row').filter(function () {
+            return matches(this);
         });
-        if ( matches.length === 0 ) return;
+        if ( rows.length === 0 ) return;
 
         this.$el_window.find('.files-tab .files .row.selected').removeClass('selected');
-        matches.addClass('selected');
+        rows.addClass('selected');
         this.updateFooterStats();
-        matches[0].scrollIntoView({ block: 'nearest' });
+        rows[0].scrollIntoView({ block: 'nearest' });
     },
 
     /**

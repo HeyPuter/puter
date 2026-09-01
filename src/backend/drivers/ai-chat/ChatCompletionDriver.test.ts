@@ -252,6 +252,106 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         expect(passed.model).toBe('realfake');
         expect(passed.provider).toBe('fake-chat');
     });
+
+    // Catalogs are hand-written, so alias lists repeat themselves: an entry
+    // may list its own id, list one alias twice, or differ only by case.
+    // Routing must not depend on anyone having tidied that up.
+    it('routes correctly from a catalog whose aliases repeat the id and each other', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'messy',
+                // self-alias, a repeat, and a case variant of the id
+                aliases: ['messy', 'vendor/messy', 'vendor/messy', 'MESSY'],
+                puterId: 'puter-messy',
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 0, 'output-tokens': 0 },
+                max_tokens: 8192,
+            },
+        ] as never);
+        const d = await makeDriver();
+
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        // Every spelling reaches the same model, and the provider is always
+        // handed the canonical id.
+        for (const requested of [
+            'messy',
+            'MESSY',
+            'vendor/messy',
+            'puter-messy',
+        ]) {
+            completeSpy.mockResolvedValueOnce({
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'ok' }],
+                },
+                usage: {},
+                finish_reason: 'stop',
+            } as never);
+
+            await withTestActor(() =>
+                d.complete({
+                    model: requested,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            const call = completeSpy.mock.calls.at(-1)!;
+            const passed = call[0] as ICompleteArguments;
+            expect(passed.model, `requested '${requested}'`).toBe('messy');
+        }
+
+        // The repeats must not have split the model across buckets or
+        // registered a phantom extra route.
+        const listed = (await d.models()).filter((m) => m.id === 'messy');
+        expect(listed).toHaveLength(1);
+    });
+
+    it('does not mutate the catalog objects a provider hands back', async () => {
+        // #buildModelMap used to normalize the id and append puterId in
+        // place. The catalogs are module-level constants shared by every
+        // driver instance, so that accumulated: build the map twice and the
+        // aliases array grew a duplicate puterId each time.
+        const catalog = [
+            {
+                id: 'Shared-Case',
+                aliases: ['shared-alias'],
+                puterId: 'puter-shared',
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 0, 'output-tokens': 0 },
+                max_tokens: 8192,
+            },
+        ];
+        const before = structuredClone(catalog);
+
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue(
+            catalog as never,
+        );
+        await makeDriver();
+        await makeDriver();
+
+        expect(catalog).toEqual(before);
+        vi.mocked(FakeChatProvider.prototype.models).mockRestore();
+    });
+
+    it('leaves aliases absent in models() for an entry that declares none', async () => {
+        // models() is serialized to the API, so the copy #buildModelMap
+        // stores must not sprout an `aliases: []` key the catalog entry
+        // never had.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'nameless',
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 0, 'output-tokens': 0 },
+                max_tokens: 8192,
+            },
+        ] as never);
+        const d = await makeDriver();
+
+        const listed = (await d.models()).find((m) => m.id === 'nameless')!;
+        expect(listed).toBeDefined();
+        expect('aliases' in listed).toBe(false);
+    });
 });
 
 // ── Happy path: events + cost emission ──────────────────────────────
@@ -713,13 +813,305 @@ describe('ChatCompletionDriver.complete normalization', () => {
                 messages: [{ role: 'user', content: 'hi' }],
                 response: { normalize: true },
             }),
-        )) as { message: { role: string; content: unknown[] }; normalized: boolean };
+        )) as {
+            message: { role: string; content: unknown[] };
+            normalized?: boolean;
+        };
 
-        expect(res.normalized).toBe(true);
+        // `normalized` is the caller's signal that the message is in the
+        // OpenAI shape; this branch produces Anthropic blocks, so it is absent.
+        expect(res.normalized).toBeUndefined();
         expect(res.message.role).toBe('user'); // default role from normalize
         expect(res.message.content).toEqual([
             { type: 'text', text: 'plain text reply' },
         ]);
+    });
+});
+
+// ── OpenAI-shape normalization ──────────────────────────────────────
+
+describe('ChatCompletionDriver.complete OpenAI-shape normalization', () => {
+    // An Anthropic-native provider result, as ClaudeProvider returns it.
+    const claudeShaped = (stop_reason = 'end_turn') =>
+        ({
+            message: {
+                id: 'msg_1',
+                type: 'message',
+                role: 'assistant',
+                model: 'post-cutoff',
+                content: [{ type: 'text', text: 'hi there' }],
+                stop_reason,
+                stop_sequence: null,
+            },
+            usage: { input_tokens: 1, output_tokens: 2 },
+            finish_reason: 'stop',
+        }) as never;
+
+    const zeroCost = {
+        costs_currency: 'usd-cents',
+        costs: { 'input-tokens': 0, 'output-tokens': 0 },
+        max_tokens: 8192,
+    };
+
+    // Driver whose catalog carries a model on each side of the cutoff.
+    const makeCutoffDriver = async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            { id: 'post-cutoff', release_date: '2026-09-01', ...zeroCost },
+            { id: 'pre-cutoff', release_date: '2026-08-31', ...zeroCost },
+        ] as never);
+        return await makeDriver();
+    };
+
+    type NormalizedResult = {
+        message: {
+            role: string;
+            content: unknown;
+            tool_calls?: unknown[];
+        };
+        finish_reason: string;
+        normalized?: boolean;
+        via_ai_chat_service: boolean;
+    };
+
+    it('coerces to the OpenAI shape when `normalize: true`, on any model', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped('max_tokens'),
+        );
+
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake', // date-less — only the flag triggers coercion
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: true,
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBe(true);
+        expect(res.via_ai_chat_service).toBe(true);
+        expect(res.message).toEqual({
+            role: 'assistant',
+            content: 'hi there',
+            refusal: null,
+        });
+        expect(res.finish_reason).toBe('length');
+    });
+
+    it('coerces by default for a model released on/after the cutoff', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBe(true);
+        expect(res.message.content).toBe('hi there');
+        expect(res.finish_reason).toBe('stop');
+    });
+
+    it('leaves a pre-cutoff model provider-native by default', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'pre-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+        expect(res.finish_reason).toBe('stop');
+    });
+
+    it('leaves a date-less model provider-native by default', async () => {
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(Array.isArray(res.message.content)).toBe(true);
+    });
+
+    it('`normalize: false` forces provider-native on a post-cutoff model', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: false,
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+    });
+
+    it('`normalize: true` beats the legacy `response.normalize` flag', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: true,
+                response: { normalize: true },
+            }),
+        )) as NormalizedResult;
+
+        // OpenAI shape, not the legacy block shape.
+        expect(res.normalized).toBe(true);
+        expect(res.message.content).toBe('hi there');
+    });
+
+    it('`normalize: false` beats both the legacy flag and the cutoff', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: false,
+                response: { normalize: true },
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+    });
+
+    it('the legacy `response.normalize` still wins over the cutoff when `normalize` is unset', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+                response: { normalize: true },
+            }),
+        )) as NormalizedResult;
+
+        // Legacy block shape, not the OpenAI string shape — and therefore
+        // not flagged `normalized`, which means "OpenAI shape" specifically.
+        expect(res.normalized).toBeUndefined();
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+    });
+
+    it('converts tool_use blocks into OpenAI tool_calls when coercing', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: {
+                type: 'message',
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_9',
+                        name: 'lookup',
+                        input: { q: 'x' },
+                    },
+                ],
+                stop_reason: 'tool_use',
+            },
+            usage: { input_tokens: 1, output_tokens: 1 },
+            finish_reason: 'stop',
+        } as never);
+
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: true,
+            }),
+        )) as NormalizedResult;
+
+        expect(res.message.content).toBeNull();
+        expect(res.message.tool_calls).toEqual([
+            {
+                id: 'toolu_9',
+                type: 'function',
+                function: { name: 'lookup', arguments: '{"q":"x"}' },
+            },
+        ]);
+        expect(res.finish_reason).toBe('tool_calls');
+    });
+
+    it('does not touch streaming results', async () => {
+        const res = await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+                normalize: true,
+            }),
+        );
+
+        expect(res).toMatchObject({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+        });
+        // Drain so the fake provider's populator finishes cleanly.
+        await collectStream(
+            (res as unknown as { stream: Readable }).stream,
+        );
+    });
+
+    it('a blocked prompt rerouted to fake-chat keeps its historical native shape', async () => {
+        // Catalog with a post-cutoff model plus the `fake` reroute target
+        // (mocking `models` replaces the whole catalog).
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            { id: 'post-cutoff', release_date: '2026-09-01', ...zeroCost },
+            { id: 'fake', aliases: [], ...zeroCost },
+        ] as never);
+        const d = await makeDriver();
+        vi.spyOn(server.clients.event, 'emitAndWait').mockImplementation(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            async (key, data: any) => {
+                if (key === 'ai.prompt.validate') data.allow = false;
+            },
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                // The user asked for a post-cutoff model, but the reroute
+                // lands on the date-less `fake` model — no coercion.
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(Array.isArray(res.message.content)).toBe(true);
     });
 });
 
@@ -756,6 +1148,71 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
             provider: 'fake-chat',
             error: 'boom',
         });
+    });
+
+    it('hands every fallback attempt the same messages array, reasoning artifacts intact', async () => {
+        // The hazard the providers' copy-on-write exists for. `complete` is
+        // called per attempt with `{ ...args }` — a shallow spread — so
+        // `args.messages` is the SAME array reference on every attempt. A
+        // provider that strips replay fields in place therefore hands attempt 2
+        // a message whose thinking signature is gone, and Anthropic rejects
+        // that continuation.
+        //
+        // Note what this does NOT assert: the caller's message objects are not
+        // pristine. `normalize_single_message` (utils/Messages.js, pre-existing)
+        // rewrites string `content` into `[{type:'text'}]` blocks in place on
+        // every inbound message before any provider runs. The invariant that
+        // matters here is narrower and is the one the fix delivers: the
+        // reasoning artifacts survive attempt 1 so attempt 2 can still replay
+        // them.
+        const freeRoute = {
+            costs_currency: 'usd-cents',
+            costs: { 'input-tokens': 0, 'output-tokens': 0 },
+            max_tokens: 8192,
+        };
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            { id: 'route-a', aliases: ['shared-id'], ...freeRoute },
+            { id: 'route-b', aliases: ['shared-id'], ...freeRoute },
+        ] as never);
+        const d = await makeDriver();
+
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockRejectedValueOnce(new Error('first route down'))
+            .mockResolvedValueOnce({
+                message: { role: 'assistant', content: 'from the fallback' },
+                usage: {},
+                finish_reason: 'stop',
+            } as never);
+
+        const details = [
+            { type: 'thinking', thinking: 'step one', signature: 'sig_1' },
+        ];
+        const messages = [
+            { role: 'user', content: 'hi' },
+            {
+                role: 'assistant',
+                content: 'earlier reply',
+                reasoning: 'step one',
+                refusal: null,
+                reasoning_details: details,
+            },
+        ];
+
+        await withTestActor(() =>
+            d.complete({ model: 'shared-id', messages: messages as never }),
+        );
+
+        // Two attempts actually ran, which is what makes the reference shared.
+        expect(completeSpy).toHaveBeenCalledTimes(2);
+        expect(completeSpy.mock.calls[0]![0].messages).toBe(
+            completeSpy.mock.calls[1]![0].messages,
+        );
+        // The replay material survived attempt 1 and reached attempt 2 intact.
+        const secondAttempt = completeSpy.mock.calls[1]![0].messages as Array<
+            Record<string, unknown>
+        >;
+        expect(secondAttempt[1]!.reasoning_details).toEqual(details);
     });
 
     it('re-reads the balance between fallback attempts so a parallel request that drains the wallet aborts the chain', async () => {

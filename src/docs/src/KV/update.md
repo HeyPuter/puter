@@ -24,6 +24,8 @@ The key to update.
 
 An object where each key is a dot-separated path (for example, `"profile.name"`) and each value is the new value for that path.
 
+Each value follows the same limits as [`puter.kv.set()`](/KV/set/): **400 KB**, and every number within **±9,007,199,254,740,991** — a larger one is stored clamped to that bound.
+
 #### `ttl` (Number) (optional)
 
 Time-to-live for the key, in seconds.

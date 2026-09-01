@@ -126,6 +126,29 @@ export class AppPermissionService extends PuterService {
             },
         });
 
+        // -- apps-of-user:<uuid>:read ← :write --------------------------
+        // `write` covers managing them, which includes reading them. Prefix
+        // implication only widens the other way — an `apps-of-user:<uuid>`
+        // grant covers both modes — so without this a scan for `read` misses
+        // a `write` grant, and `puter.perms.check('apps')` would report an
+        // app that holds write as holding nothing. Mirrors `fs-access-levels`.
+        permissions.registerExploder({
+            id: 'apps-of-user-access-levels',
+            matches: (permission: string) =>
+                (permission.startsWith('apps-of-user:') ||
+                    permission.startsWith('subdomains-of-user:')) &&
+                PermissionUtil.split(permission).length >= 3,
+            explode: ({ permission }) => {
+                const parts = PermissionUtil.split(permission);
+                if (parts[2] !== 'read') return [permission];
+                const [namespace, userUuid, , ...rest] = parts;
+                return [
+                    permission,
+                    PermissionUtil.join(namespace, userUuid, 'write', ...rest),
+                ];
+            },
+        });
+
         // -- app-root-dir:<app_uid>:<mode> → fs:<root_uid>:<mode> -------
         // Only rewrites while a user-app permission row is being written or
         // removed — `grantUserAppPermission` / `revokeUserAppPermission`, which

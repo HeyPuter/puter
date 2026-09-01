@@ -4,7 +4,7 @@ description: Create and deploy workers from JavaScript files.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Creates and deploys a new worker from a JavaScript file containing [router](../router) code.
+Creates and deploys a new worker from a JavaScript file containing [router](/Workers/router/) code.
 
 A worker is tied to its **name**: you create it **once** and keep that name. To deploy changes, don't call `create()` again with a new name — instead overwrite the worker's source file (see [Updating a worker](#updating-a-worker) below). Recreating under a different name leaves the old worker live at its old URL while your callers end up pointing at an orphaned one.
 
@@ -26,7 +26,7 @@ puter.workers.create(workerName, filePath, options)
 The name for the worker. It can contain letters, numbers, hyphens, and underscores.
 
 #### `filePath` (String)(Required)
-The path to a JavaScript file in your Puter account that contains your [router](../router) code.
+The path to a JavaScript file in your Puter account that contains your [router](/Workers/router/) code.
 
 #### `appName` (String)(Optional)
 The name of an existing app in your account to bind the worker to. The worker then runs as that app, and no sandbox app is created.

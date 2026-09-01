@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import { ShareController } from './ShareController.js';
 
 /**
  * Route-level coverage for the sharing endpoints. The service unit tests drive
@@ -64,8 +65,77 @@ describe('share endpoints over HTTP', () => {
             'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
             [uid, name, path, user!.id, Math.floor(Date.now() / 1000)],
         );
-        return { uid, path };
+        return { uid, path, name };
     };
+
+    // Masking hides where an item sits, not who may open it.
+    it('will not let a masked path reach an unshared sibling', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const shared = await makeFile(owner);
+        const secret = await makeFile(owner);
+
+        await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: shared.uid }],
+            mode: 'read',
+        });
+
+        const read = (path: string) =>
+            fetch(
+                `${env.apiOrigin}/read?${new URLSearchParams({ file: path })}`,
+                {
+                    headers: {
+                        authorization: `Bearer ${recipient.token}`,
+                        origin: env.apiOrigin,
+                    },
+                },
+            );
+
+        const masked = `/${owner.username}/${shared.uid}/${shared.name}`;
+        expect((await read(masked)).status).toBe(200);
+
+        for (const attempt of [
+            // The shared item's root, renamed to the sibling.
+            `/${owner.username}/${shared.uid}/${secret.name}`,
+            // The sibling's own uuid, as if it had leaked.
+            `/${owner.username}/${secret.uid}/${secret.name}`,
+            // Back out of the root the uuid vouched for.
+            `/${owner.username}/${shared.uid}/${shared.name}/../${secret.name}`,
+            // The owner's real path, named outright.
+            secret.path,
+        ]) {
+            const res = await read(attempt);
+            expect(res.status, `reachable: ${attempt}`).not.toBe(200);
+        }
+    });
+
+    it('says whether a share created access or the recipient already had it', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const file = await makeFile(owner);
+        const share = (mode: string) =>
+            post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: file.uid }],
+                mode,
+            }).then((r) => r.json() as Promise<{
+                results: Array<{ is_new?: boolean }>;
+            }>);
+
+        expect((await share('read')).results[0].is_new).toBe(true);
+        // Without this the dialog cannot tell a repeat from a first share.
+        expect((await share('read')).results[0].is_new).toBe(false);
+        expect((await share('write')).results[0].is_new).toBe(false);
+
+        // A listing describes standing access, so it says nothing about it.
+        const listed = await get('/share/shares', owner.token, {
+            uid: file.uid,
+        }).then((r) => r.json() as Promise<{
+            items: Array<Record<string, unknown>>;
+        }>);
+        expect(listed.items[0]).not.toHaveProperty('is_new');
+    });
 
     it('shares an item, lists it for the recipient, then revokes it', async () => {
         const owner = env.users.user;
@@ -80,10 +150,11 @@ describe('share endpoints over HTTP', () => {
         expect(shareRes.status).toBe(200);
         const shareBody = (await shareRes.json()) as {
             status: string;
-            results: Array<{ status: string; mode?: string }>;
+            results: Array<{ status: string; mode?: string; name?: string }>;
         };
         expect(shareBody.status).toBe('success');
         expect(shareBody.results[0].mode).toBe('read');
+        expect(shareBody.results[0].name).toBe(file.name);
 
         const listRes = await get(
             '/share/shared-with-me',
@@ -191,6 +262,68 @@ describe('share endpoints over HTTP', () => {
         expect(await revokeRes.json()).toMatchObject({ revoked: 1 });
     });
 
+    it('tells the recipient over the wire, once for the whole batch', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const [a, b] = [await makeFile(owner), await makeFile(owner)];
+
+        // These accounts are shared between tests, so both things that would
+        // otherwise decide this outcome are cleared first: the budgets that
+        // silence a repeat interruption, and any notification still open for
+        // this recipient, which a new share folds into instead of creating one.
+        // What's left under test is the batching.
+        const [issuer, holder] = await Promise.all([
+            env.server.stores.user.getByUsername(owner.username),
+            env.server.stores.user.getByUsername(recipient.username),
+        ]);
+        await env.server.clients.redis.del(
+            `rate:share:notify:pair:${issuer!.id}:${holder!.id}`,
+            `rate:share:notify:pair-day:${issuer!.id}:${holder!.id}`,
+            `rate:share:notify:to:${holder!.id}`,
+            `rate:share:notify:to-day:${holder!.id}`,
+        );
+        for (const row of await env.server.stores.notification.listByUserId(
+            holder!.id,
+            { filter: 'unacknowledged' },
+        )) {
+            await env.server.stores.notification.markAcknowledged(
+                row.uid,
+                holder!.id,
+            );
+        }
+
+        const seen: Array<{ userIds: number[]; payload: Record<string, unknown> }> = [];
+        const notification = env.server.services.notification;
+        const original = notification.notify.bind(notification);
+        notification.notify = async (userIds, payload) => {
+            seen.push({ userIds, payload });
+            return original(userIds, payload);
+        };
+
+        try {
+            const res = await post('/share', owner.token, {
+                items: [{ path: a.path }, { path: b.path }],
+                recipients: [{ username: recipient.username }],
+                mode: 'read',
+            });
+            expect(res.status).toBe(200);
+
+            // Delivery is off the response path, so it may land just after.
+            await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), {
+                timeout: 5000,
+            });
+        } finally {
+            notification.notify = original;
+        }
+
+        // Two items, one recipient — one notification carrying the count.
+        expect(seen).toHaveLength(1);
+        expect(seen[0].payload).toMatchObject({
+            source: 'sharing',
+            fields: { count: 2 },
+        });
+    });
+
     it('reports per-pair outcomes when only some recipients resolve', async () => {
         const owner = env.users.user;
         const file = await makeFile(owner);
@@ -241,6 +374,32 @@ describe('share endpoints over HTTP', () => {
             uid: file.uid,
         });
         expect(res.status).toBe(404);
+    });
+
+
+    it('runs a duplicated pair once, and answers for both positions', async () => {
+        const owner = env.users.user;
+        const file = await makeFile(owner);
+        const invitee = `dup-${crypto.randomUUID().slice(0, 8)}@puter.local`;
+
+        // The same pair twice raced itself into two pending rows; it must
+        // execute once, with the one outcome reported in both positions.
+        const res = await post('/share', owner.token, {
+            recipients: [invitee],
+            items: [{ uid: file.uid }, { uid: file.uid }],
+            mode: 'read',
+        });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            status: string;
+            results: Array<{ status: string; uid?: string }>;
+        };
+        expect(body.results).toHaveLength(2);
+        expect(body.results[0].status).toBe('pending');
+        expect(body.results[1]).toEqual(body.results[0]);
+
+        const rows = await env.server.stores.share.listPendingByEmail(invitee);
+        expect(rows).toHaveLength(1);
     });
 
     it('rejects an unauthenticated share', async () => {
@@ -299,5 +458,195 @@ describe('share endpoints over HTTP', () => {
                 })
             ).status,
         ).toBe(400);
+    });
+
+    it('blocks a sender, refuses their share, then unblocks them', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const file = await makeFile(owner);
+
+        const blocked = await post('/share/blocks', recipient.token, {
+            username: owner.username,
+        });
+        expect(blocked.status).toBe(200);
+        expect(await blocked.json()).toMatchObject({
+            username: owner.username,
+            blocked: true,
+            created: true,
+        });
+
+        const refused = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        // A per-pair outcome, so the envelope reports it rather than the status.
+        expect(refused.status).toBe(200);
+        expect(await refused.json()).toMatchObject({
+            status: 'aborted',
+            results: [{ status: 'error', code: 'recipient_not_accepting_shares' }],
+        });
+
+        const listed = await get('/share/blocks', recipient.token, {});
+        expect(listed.status).toBe(200);
+        const body = (await listed.json()) as {
+            items: Array<Record<string, unknown>>;
+        };
+        const row = body.items.find((i) => i.username === owner.username);
+        expect(row).toBeDefined();
+        expect(typeof row?.created_at).toBe('number');
+        // Nothing internal rides along.
+        for (const key of ['blocker_user_id', 'blocked_user_id', 'id']) {
+            expect(row).not.toHaveProperty(key);
+        }
+
+        const unblocked = await fetch(new URL('/share/blocks', env.apiOrigin), {
+            method: 'DELETE',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${recipient.token}`,
+            },
+            body: JSON.stringify({ username: owner.username }),
+        });
+        expect(unblocked.status).toBe(200);
+        expect(await unblocked.json()).toMatchObject({ unblocked: true });
+
+        const shared = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        expect(await shared.json()).toMatchObject({ status: 'success' });
+    });
+
+    it('requires a username to block', async () => {
+        const res = await post('/share/blocks', env.users.other.token, {});
+        expect(res.status).toBe(400);
+        expect(await res.json()).toMatchObject({ code: 'bad_request' });
+    });
+
+    it('refuses every sender while the blanket switch is on', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const file = await makeFile(owner);
+        const del = (body: unknown) =>
+            fetch(new URL('/share/blocks', env.apiOrigin), {
+                method: 'DELETE',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${recipient.token}`,
+                },
+                body: JSON.stringify(body),
+            });
+
+        const on = await post('/share/blocks', recipient.token, { all: true });
+        expect(on.status).toBe(200);
+        expect(await on.json()).toMatchObject({ all: true, blocked: true });
+
+        const listed = await get('/share/blocks', recipient.token, {});
+        expect(await listed.json()).toMatchObject({ all: true, items: [] });
+
+        const refused = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        expect(await refused.json()).toMatchObject({
+            status: 'aborted',
+            results: [
+                { status: 'error', code: 'recipient_not_accepting_shares' },
+            ],
+        });
+
+        const off = await del({ all: true });
+        expect(off.status).toBe(200);
+        expect(await off.json()).toMatchObject({ all: false, blocked: false });
+
+        const shared = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        expect(await shared.json()).toMatchObject({ status: 'success' });
+
+        // Cleaned up so a later assertion on this recipient isn't reading
+        // state this test left behind.
+        expect((await del({ all: true })).status).toBe(200);
+    });
+
+    it('keeps one caller\'s blocklist out of another\'s', async () => {
+        const res = await get('/share/blocks', env.users.admin.token, {});
+        const body = (await res.json()) as { all: boolean; items: unknown[] };
+        expect(body).toEqual({ all: false, items: [] });
+    });
+
+    // Reading it says who the user avoids; clearing it puts them back in touch.
+    it('is closed to an app acting for the user', async () => {
+        const user = env.users.user;
+        const minted = await post('/auth/get-user-app-token', user.token, {
+            origin: 'https://blocks-probe.example',
+        });
+        expect(minted.status).toBe(200);
+        const appToken = ((await minted.json()) as { token: string }).token;
+        expect(typeof appToken).toBe('string');
+
+        const asApp = [
+            get('/share/blocks', appToken, {}),
+            post('/share/blocks', appToken, { all: true }),
+            fetch(new URL('/share/blocks', env.apiOrigin), {
+                method: 'DELETE',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${appToken}`,
+                },
+                body: JSON.stringify({ all: true }),
+            }),
+        ];
+        for (const res of await Promise.all(asApp)) {
+            expect(res.status).toBe(403);
+            expect(await res.json()).toMatchObject({ code: 'forbidden' });
+        }
+
+        // The same calls from the user's own session: the app is what is refused.
+        expect((await get('/share/blocks', user.token, {})).status).toBe(200);
+        expect(
+            (await post('/share/blocks', user.token, { all: true })).status,
+        ).toBe(200);
+        const lifted = await fetch(new URL('/share/blocks', env.apiOrigin), {
+            method: 'DELETE',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({ all: true }),
+        });
+        expect(lifted.status).toBe(200);
+    });
+
+    // So a fourth block route cannot quietly ship without the gate.
+    it('gates every block route on a user session', () => {
+        const proto = ShareController.prototype as {
+            __puterRoutes?: Array<{
+                method: string;
+                path: string;
+                options?: Record<string, unknown>;
+            }>;
+        };
+        const blocks = (proto.__puterRoutes ?? []).filter(
+            (r) => r.path === '/blocks',
+        );
+        expect(blocks.map((r) => r.method.toLowerCase()).sort()).toEqual([
+            'delete',
+            'get',
+            'post',
+        ]);
+        for (const route of blocks) {
+            expect(
+                route.options?.requireUserActor,
+                `${route.method} /blocks`,
+            ).toBe(true);
+            // Security management stays closed to every access token.
+            expect(route.options?.allowFullAccessToken).toBeUndefined();
+        }
     });
 });

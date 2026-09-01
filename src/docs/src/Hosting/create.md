@@ -23,6 +23,8 @@ A string containing the name of the subdomain you want to create.
 
 A string containing the path to the directory you want to serve.
 
+The directory must be one you own. Hosting serves everything under it publicly, including files added later, so a directory someone shared with you can only be published if they gave you `manage` access — [`share()`](/FS/share/) calls that level "Can edit & share".
+
 #### `options` (Object) (optional)
 
 Alternative way to create hosting via options.

@@ -215,6 +215,92 @@ describe('AppPermissionService — own-apps / own-subdomains implicator', () => 
             ),
         ).toBe(false);
     });
+
+    // `write` covers managing them, which includes reading them. Prefix
+    // implication only widens the other way, so this needs the exploder.
+    it.each([
+        ['apps-of-user'],
+        ['subdomains-of-user'],
+    ])('%s: a granted write satisfies a read check', async (namespace) => {
+        const user = await makeUser();
+        const app = await makeApp(user.user.id!);
+        const appActor: Actor = {
+            user: user.user,
+            app: { uid: app.uid, id: app.id },
+        };
+        const uuid = user.user.uuid;
+
+        expect(
+            await permissions.check(appActor, `${namespace}:${uuid}:read`),
+        ).toBe(false);
+
+        await runWithContext({ actor: user }, () =>
+            permissions.grantUserAppPermission(
+                user,
+                app.uid,
+                `${namespace}:${uuid}:write`,
+            ),
+        );
+
+        expect(
+            await permissions.check(appActor, `${namespace}:${uuid}:read`),
+        ).toBe(true);
+        expect(
+            await permissions.check(appActor, `${namespace}:${uuid}:write`),
+        ).toBe(true);
+    });
+
+    // The widening runs one way only: a read grant is not a licence to manage.
+    it('does not let a granted read satisfy a write check', async () => {
+        const user = await makeUser();
+        const app = await makeApp(user.user.id!);
+        const appActor: Actor = {
+            user: user.user,
+            app: { uid: app.uid, id: app.id },
+        };
+        const uuid = user.user.uuid;
+
+        await runWithContext({ actor: user }, () =>
+            permissions.grantUserAppPermission(
+                user,
+                app.uid,
+                `apps-of-user:${uuid}:read`,
+            ),
+        );
+
+        expect(
+            await permissions.check(appActor, `apps-of-user:${uuid}:read`),
+        ).toBe(true);
+        expect(
+            await permissions.check(appActor, `apps-of-user:${uuid}:write`),
+        ).toBe(false);
+    });
+
+    // Another user's namespace stays out of reach however wide the grant.
+    it("does not widen into another user's namespace", async () => {
+        const user = await makeUser();
+        const other = await makeUser();
+        const app = await makeApp(user.user.id!);
+        const appActor: Actor = {
+            user: user.user,
+            app: { uid: app.uid, id: app.id },
+        };
+
+        await runWithContext({ actor: user }, () =>
+            permissions.grantUserAppPermission(
+                user,
+                app.uid,
+                `apps-of-user:${user.user.uuid}:write`,
+            ),
+        );
+
+        expect(
+            await permissions.check(
+                appActor,
+                `apps-of-user:${other.user.uuid}:read`,
+            ),
+        ).toBe(false);
+    });
 });
 
 // -- app-root-dir:<app_uid>:<mode> → fs:<uuid>:<mode> ------------------

@@ -90,28 +90,36 @@ export class NotificationService extends PuterService {
      * (`/notif/mark-ack`), and the delivery receipt below marks it shown —
      * neither can find a row otherwise.
      *
+     * `silent` persists without pushing: the recipient finds it when they next
+     * look, but nothing interrupts them now. For callers that budget how often
+     * they may interrupt someone and must still keep the record straight.
+     *
      * @param userIds Target user ids
      * @param notification Payload — { source, title, text?, icon?, template?,
      *   fields? }
+     * @param opts `{ silent }` to skip the socket push.
      * @returns The uid of the first recipient's notification.
      */
     async notify(
         userIds: number[],
         notification: Record<string, unknown>,
+        opts: { silent?: boolean } = {},
     ): Promise<string> {
         const uidByIndex = userIds.map(() => uuidv4());
 
         // Immediate socket push (before DB write completes)
-        userIds.forEach((userId, i) => {
-            this.clients.event.emit(
-                'outer.gui.notif.message',
-                {
-                    user_id_list: [userId],
-                    response: { uid: uidByIndex[i], notification },
-                },
-                {},
-            );
-        });
+        if (!opts.silent) {
+            userIds.forEach((userId, i) => {
+                this.clients.event.emit(
+                    'outer.gui.notif.message',
+                    {
+                        user_id_list: [userId],
+                        response: { uid: uidByIndex[i], notification },
+                    },
+                    {},
+                );
+            });
+        }
 
         // Async DB inserts — one row per user.
         userIds.forEach((userId, i) => {
@@ -133,7 +141,9 @@ export class NotificationService extends PuterService {
             this.#pendingWrites.set(uid, writePromise);
             writePromise.finally(() => this.#pendingWrites.delete(uid));
 
-            // Fire persisted event once that recipient's write completes
+            // Nothing was pushed when silent, so there is no delivery to
+            // confirm.
+            if (opts.silent) return;
             writePromise.then(() => {
                 this.clients.event.emit(
                     'outer.gui.notif.persisted',
@@ -147,6 +157,42 @@ export class NotificationService extends PuterService {
         });
 
         return uidByIndex[0] ?? uuidv4();
+    }
+
+    /**
+     * Rewrite a notification the recipient hasn't dismissed and deliver it
+     * again — for a story that grows rather than repeats, where a second
+     * notification would just be noise.
+     *
+     * False when there was nothing to rewrite (dismissed in between), which is
+     * the caller's signal to send a fresh one.
+     */
+    async notifyUpdate(
+        uid: string,
+        userId: number,
+        notification: Record<string, unknown>,
+        opts: { silent?: boolean } = {},
+    ): Promise<boolean> {
+        const updated = await this.stores.notification.updateValue(
+            uid,
+            userId,
+            notification,
+        );
+        if (!updated) return false;
+
+        if (!opts.silent) {
+            // Same uid as the original: the client replaces what it is already
+            // showing rather than stacking another copy.
+            this.clients.event.emit(
+                'outer.gui.notif.message',
+                {
+                    user_id_list: [userId],
+                    response: { uid, notification },
+                },
+                {},
+            );
+        }
+        return true;
     }
 
     /**
@@ -197,9 +243,12 @@ export class NotificationService extends PuterService {
             }
         }
 
+        // `created_at` rides along so a client listing these can date them;
+        // without it everything delivered on connect would read as "now".
         const unreads = rows.map((r: Record<string, unknown>) => ({
             uid: r.uid,
             notification: r.value,
+            created_at: r.created_at ?? null,
         }));
 
         this.clients.event.emit(

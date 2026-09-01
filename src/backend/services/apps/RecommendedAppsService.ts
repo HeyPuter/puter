@@ -26,15 +26,15 @@ import { PuterService } from '../types.js';
  * at call time against the apps table.
  */
 const RECOMMENDED_APP_NAMES = [
+    'app-center',
     'builder',
     'editor',
     'camera',
     'recorder',
-    'app-center',
-    'dev-center',
     'calculator',
     'contacts',
     'calendar',
+    'meetings',
     'blockarena',
     'music-player',
     'word-processor',
@@ -50,8 +50,10 @@ const RECOMMENDED_APP_NAMES = [
     'checkers',
     'backgammon',
     'klondike',
+    'sudoku',
     'blockup',
     'basketball-tap',
+    'dev-center',
 ];
 
 export class RecommendedAppsService extends PuterService {

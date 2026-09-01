@@ -2,6 +2,7 @@ import EventListener from '../lib/EventListener.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+import { checkPermissions } from './perms/lib/holds.js';
 
 
 /**
@@ -265,7 +266,21 @@ const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
 // A consent prompt covers a handful of scopes at most, and the popup carries
 // them in its URL.
+/**
+ * An error shaped like the DOM's, so `err.name` reads the way it would from
+ * the native picture-in-picture APIs.
+ */
+const pipError = (name, message) => {
+    if ( typeof DOMException === 'function' ) return new DOMException(message, name);
+    const err = new Error(message);
+    err.name = name;
+    return err;
+};
+
 const MAX_REQUESTED_PERMISSIONS = 16;
+
+// Short on purpose: a request usually spends a user gesture while it waits.
+const PERMISSION_CHECK_TIMEOUT_MS = 2000;
 
 /**
  * An interface for interacting with another app. Returned by the UI methods
@@ -467,6 +482,9 @@ export class UIModule extends EventListener {
 
     #onLaunchedWithItems;
 
+    // Runs when the window from requestPictureInPicture() goes away on its own.
+    #onPictureInPictureClosed = null;
+
     // List of events that can be listened to.
     #eventNames;
 
@@ -658,6 +676,14 @@ export class UIModule extends EventListener {
                     // Reset the lastDraggedOverElement
                     lastDraggedOverElement = null;
                 }
+            }
+            // pictureInPictureClosed: the window requestPictureInPicture()
+            // opened went away without exitPictureInPicture() — the user
+            // closed it, most likely.
+            else if ( e.data.msg === 'pictureInPictureClosed' ) {
+                const onClose = this.#onPictureInPictureClosed;
+                this.#onPictureInPictureClosed = null;
+                onClose?.();
             }
             // windowWillClose
             else if ( e.data.msg === 'windowWillClose' ) {
@@ -1310,6 +1336,72 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Floats a page of this app in a picture-in-picture window: a small
+     * always-on-top window that stays in view while the user works in other
+     * windows or tabs.
+     *
+     * Browsers only let a top-level page open a Document Picture-in-Picture
+     * window, and an app runs in an iframe, so the desktop opens it on the
+     * app's behalf and loads `url` in it. The page must come from this
+     * app's own origin. Inside it, the app's main frame is one of
+     * `window.parent.opener.frames` — probe them in a try/catch, since the
+     * others belong to other origins and throw — so the two can share
+     * objects directly, a MediaStream (which postMessage cannot carry)
+     * included. BroadcastChannel works between them too.
+     *
+     * Call it from a user gesture; browsers refuse otherwise. One window
+     * per app: asking again replaces the one that is up.
+     *
+     * @param {{url: string, width?: number, height?: number, onClose?: () => void}} options
+     *   `url` is resolved against the app's own page. `width`/`height` size
+     *   the window in CSS pixels (the browser may clamp them). `onClose`
+     *   runs when the window goes away other than through
+     *   {@link exitPictureInPicture} — the user closing it, typically.
+     * @returns {Promise<void>} resolves once the window is up. Rejects with
+     *   an error named as the DOM would name it: `NotSupportedError` (no
+     *   Document PiP in this browser, or not running as a desktop app),
+     *   `NotAllowedError` (no user gesture), `SecurityError` (`url` is not
+     *   this app's origin), `TypeError` (`url` is not a URL).
+     */
+    async requestPictureInPicture ({ url, width, height, onClose } = {}) {
+        if ( this.env !== 'app' ) {
+            throw pipError('NotSupportedError', 'requestPictureInPicture() is only available to apps running on the Puter desktop.');
+        }
+        let href;
+        try {
+            href = new URL(String(url), globalThis.location?.href).href;
+        } catch {
+            throw pipError('TypeError', '`url` must be a URL.');
+        }
+        const result = await this.#ipc_stub({
+            method: 'requestPictureInPicture',
+            parameters: { url: href, width, height },
+        });
+        if ( ! result?.ok ) {
+            throw pipError(result?.error?.name ?? 'NotAllowedError',
+                result?.error?.message ?? 'Could not open a picture-in-picture window.');
+        }
+        this.#onPictureInPictureClosed = typeof onClose === 'function' ? onClose : null;
+    }
+
+    /**
+     * Closes the picture-in-picture window opened with
+     * {@link requestPictureInPicture}, if one is up. Its `onClose` does not
+     * run for this — you asked.
+     *
+     * @returns {Promise<boolean>} whether there was a window to close
+     */
+    async exitPictureInPicture () {
+        if ( this.env !== 'app' ) return false;
+        this.#onPictureInPictureClosed = null;
+        const result = await this.#ipc_stub({
+            method: 'exitPictureInPicture',
+            parameters: {},
+        });
+        return result?.wasOpen === true;
+    }
+
+    /**
      * Asks the desktop to show its upgrade flow.
      *
      * @returns {Promise<unknown>}
@@ -1620,6 +1712,47 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Whether every permission in a request is already held, read without
+     * prompting and without changing anything.
+     *
+     * A check that couldn't be made is not an answer: no token, an unreadable
+     * request, a failed read, or one that outlasts its timeout all fall through
+     * to the prompt.
+     *
+     * @param {{ permission?: string, permissions?: string[] }} options
+     * @returns {Promise<boolean>}
+     */
+    async #alreadyHeld (options) {
+        if ( ! this.authToken ) return false;
+        const requested = Array.isArray(options?.permissions)
+            ? options.permissions
+            : [options?.permission];
+        // The prompt paths answer false for a shape they can't read themselves.
+        if ( requested.length === 0
+            || requested.length > MAX_REQUESTED_PERMISSIONS
+            || requested.some(p => typeof p !== 'string' || p === '') ) {
+            return false;
+        }
+        let expiry;
+        try {
+            const held = await Promise.race([
+                checkPermissions(this.puter, [...new Set(requested)]),
+                // Waiting out a stalled read would cost the popup its gesture.
+                new Promise((resolve) => {
+                    expiry = setTimeout(() => resolve(null), PERMISSION_CHECK_TIMEOUT_MS);
+                }),
+            ]);
+            if ( held === null ) return false;
+            // Every scope: one prompt is one decision, so partly-held is unheld.
+            return requested.every(p => held[p] === true);
+        } catch (e) {
+            return false;
+        } finally {
+            clearTimeout(expiry);
+        }
+    }
+
+    /**
      * Asks the user to grant a permission to this app. Inside the Puter GUI
      * the request is relayed to the desktop; on the web the permission
      * dialog is shown in a popup window on the Puter origin.
@@ -1627,10 +1760,19 @@ export class UIModule extends EventListener {
      * One prompt may cover several scopes: pass `permissions` instead of
      * `permission` and the user answers for the whole list at once.
      *
+     * Access already granted resolves `true` without prompting.
+     *
      * @param {{ permission?: string, permissions?: string[] }} options
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      */
     async requestPermission (options) {
+        // Only where a prompt would be raised. Elsewhere this answers false
+        // without asking anyone, and a check must not turn that into a grant.
+        if ( ( this.env === 'app' || this.env === 'web' )
+            && await this.#alreadyHeld(options) ) {
+            return true;
+        }
+
         if ( this.env === 'app' ) {
             const result = await this.#postMessageAsync('requestPermission', { options });
             return result.granted === true;
@@ -1866,12 +2008,13 @@ export class UIModule extends EventListener {
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${puter.authToken}`,
                             },
-                            body: JSON.stringify({ permissions: [permission] }),
+                            body: JSON.stringify({ permissions: requested }),
                             ...(controller ? { signal: controller.signal } : {}),
                         });
                         if ( ! resp.ok ) continue;
                         const data = await resp.json();
-                        if ( data?.permissions?.[permission] === true ) {
+                        // The whole list, since one prompt is one decision.
+                        if ( requested.every(p => data?.permissions?.[p] === true) ) {
                             settle(true);
                         }
                     } catch (e) {
@@ -1942,7 +2085,7 @@ export class UIModule extends EventListener {
         if ( this.env === 'app' ) {
             // The host GUI advertises the IPC dialogs it can answer via
             // `puter.gui_features` on the app iframe's URL (see
-            // launch_app.js). A GUI that predates this feature has no
+            // launchApp.js). A GUI that predates this feature has no
             // handler for the message and would never reply, hanging this
             // never-rejecting promise forever — and a reply timeout can't
             // stand in for the check, because a legitimate reply only

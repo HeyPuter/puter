@@ -1,6 +1,6 @@
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
-import { toShare, toShareItems, toShareRecipients } from './shareUtil.js';
+import { invalidateShareCache, toShare, toShareItems, toShareRecipients } from './shareUtil.js';
 
 /** @typedef {import('../types.js').ShareOptions} ShareOptions */
 /** @typedef {import('../types.js').ShareMode} ShareMode */
@@ -43,7 +43,9 @@ const share = defineOperation({
             },
             transform: (/** @type {{ status: string, results: Record<string, unknown>[] }} */ response) => {
                 const results = response.results ?? [];
-                const ok = results.filter((r) => r.status === 'success');
+                const ok = results.filter(
+                    (r) => r.status === 'success' || r.status === 'pending',
+                );
                 if ( ok.length === 0 && results.length > 0 ) {
                     const first = results[0];
                     throw {
@@ -51,6 +53,7 @@ const share = defineOperation({
                         code: String(first.code ?? 'share_failed'),
                     };
                 }
+                invalidateShareCache(items);
                 return ok.map(toShare);
             },
         };

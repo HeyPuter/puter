@@ -34,6 +34,7 @@ import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 /**
  * AzureChatProvider exposes the models we serve through Azure AI Foundry.
@@ -81,7 +82,7 @@ export class AzureChatProvider implements IChatProvider {
             baseURL: config.apiURL,
         });
     }
-    checkModeration(_text: string): { flagged: boolean; categories: string[] } {
+    checkModeration(_text: string) {
         throw new Error('Method not implemented.');
     }
 
@@ -102,15 +103,7 @@ export class AzureChatProvider implements IChatProvider {
     }
 
     list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     getDefaultModel() {
@@ -180,7 +173,7 @@ export class AzureChatProvider implements IChatProvider {
         // })
 
         const userIdentifier =
-            actor.user?.id + actor.app?.uid ? `:${actor?.app?.uid}` : '';
+            `${actor.user?.id}` + actor.app?.uid ? `:${actor?.app?.uid}` : '';
 
         // Resolve any `puter_path` content parts into inline base64 data URLs.
         // Chat Completions doesn't support file uploads, so this is the only
@@ -233,7 +226,7 @@ export class AzureChatProvider implements IChatProvider {
                           ? { verbosity: requestedVerbosity }
                           : {}),
                   }),
-        } as ChatCompletionCreateParams;
+        } as unknown as ChatCompletionCreateParams;
 
         const completion =
             await this.#openAi.chat.completions.create(completionParams);
