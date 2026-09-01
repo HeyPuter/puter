@@ -92,6 +92,37 @@ describe('GroupStore', () => {
         expect(await memberUsernames(uid)).toEqual([member.username]);
     });
 
+    it('treats re-adding an existing member as a no-op, not a conflict', async () => {
+        const uid = await seedGroup(owner.id);
+
+        await store.addUsers(uid, [member.username]);
+        // Before the unique index this duplicated the row; now it would raise.
+        await expect(
+            store.addUsers(uid, [member.username]),
+        ).resolves.toBeUndefined();
+
+        expect(await memberUsernames(uid)).toEqual([member.username]);
+        const rows = await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `jct_user_group` ' +
+                'WHERE `group_id` = (SELECT id FROM `group` WHERE uid = ?)',
+            [uid],
+        );
+        expect(Number(rows[0].n)).toBe(1);
+    });
+
+    it('adds a new member alongside one that is already present', async () => {
+        const uid = await seedGroup(owner.id);
+        const second = await makeUser();
+
+        await store.addUsers(uid, [member.username]);
+        // The conflicting row must not discard the batch's other inserts.
+        await store.addUsers(uid, [member.username, second.username]);
+
+        expect((await memberUsernames(uid)).sort()).toEqual(
+            [member.username, second.username].sort(),
+        );
+    });
+
     it('ignores usernames that do not resolve to a user', async () => {
         const uid = await seedGroup(owner.id);
         await store.addUsers(uid, ['ghost-user-does-not-exist']);
