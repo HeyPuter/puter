@@ -45,6 +45,14 @@ CREATE INDEX IF NOT EXISTS `idx_audit_team_membership_group`
 CREATE INDEX IF NOT EXISTS `idx_audit_team_membership_user`
     ON `audit_team_membership` (`user_id_keep`, `id`);
 
+-- Without these, SET NULL scans the audit table on every user or group delete.
+CREATE INDEX IF NOT EXISTS `idx_audit_team_membership_group_fk`
+    ON `audit_team_membership` (`group_id`);
+CREATE INDEX IF NOT EXISTS `idx_audit_team_membership_user_fk`
+    ON `audit_team_membership` (`user_id`);
+CREATE INDEX IF NOT EXISTS `idx_audit_team_membership_actor_fk`
+    ON `audit_team_membership` (`actor_user_id`);
+
 -- Mirrors `holder_user_id` from 0067: a `share` row is a listing entry, not the grant.
 ALTER TABLE `share` ADD COLUMN `holder_group_id` INTEGER DEFAULT NULL
     REFERENCES `group` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -53,6 +61,6 @@ CREATE INDEX IF NOT EXISTS `idx_share_holder_group`
     ON `share` (`holder_group_id`, `id`);
 
 -- Team shares leave `holder_user_id` NULL, and NULLs are distinct, so the existing
--- unique index constrains nothing for them.
+-- unique index binds none of them.
 CREATE UNIQUE INDEX IF NOT EXISTS `idx_share_holder_group_entry_issuer`
     ON `share` (`holder_group_id`, `fsentry_id`, `issuer_user_id`);

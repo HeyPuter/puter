@@ -38,6 +38,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_team_membership_group
 CREATE INDEX IF NOT EXISTS idx_audit_team_membership_user
     ON audit_team_membership (user_id_keep, id);
 
+-- SET NULL has to find the child rows; postgres does not index FK columns for you.
+CREATE INDEX IF NOT EXISTS idx_audit_team_membership_group_fk
+    ON audit_team_membership (group_id);
+CREATE INDEX IF NOT EXISTS idx_audit_team_membership_user_fk
+    ON audit_team_membership (user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_team_membership_actor_fk
+    ON audit_team_membership (actor_user_id);
+
 ALTER TABLE share ADD COLUMN IF NOT EXISTS holder_group_id integer
     REFERENCES "group" (id) ON DELETE CASCADE ON UPDATE CASCADE;
 
