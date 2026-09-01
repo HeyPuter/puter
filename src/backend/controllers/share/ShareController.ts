@@ -265,22 +265,9 @@ export class ShareController extends PuterController {
         rateLimit: SHARE_LIST_LIMIT,
     })
     async listSharedWithMe(req: Request, res: Response): Promise<void> {
-        const actor = this.#requireActor(req);
-        const query = this.#query(req);
-
-        const page = await this.services.share.listSharedWithMe(actor, {
-            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
-            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-            includeTotal: query.includeTotal === 'true',
-        });
-
-        res.json({
-            items: await Promise.all(
-                page.items.map((share) => this.#toClientShare(share)),
-            ),
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        await this.#listSharePage(req, res, (actor, opts) =>
+            this.services.share.listSharedWithMe(actor, opts),
+        );
     }
 
     /**
@@ -295,10 +282,31 @@ export class ShareController extends PuterController {
         rateLimit: SHARE_LIST_LIMIT,
     })
     async listSharedByMe(req: Request, res: Response): Promise<void> {
+        await this.#listSharePage(req, res, (actor, opts) =>
+            this.services.share.listSharedByMe(actor, opts),
+        );
+    }
+
+    /**
+     * Parse-and-shape shared by the paginated share listings, so the two cannot
+     * drift: same query contract in, same envelope out.
+     */
+    async #listSharePage(
+        req: Request,
+        res: Response,
+        list: (
+            actor: Actor,
+            opts: { limit?: number; cursor?: string; includeTotal?: boolean },
+        ) => Promise<{
+            items: ResolvedShare[];
+            cursor?: string;
+            total?: number;
+        }>,
+    ): Promise<void> {
         const actor = this.#requireActor(req);
         const query = this.#query(req);
 
-        const page = await this.services.share.listSharedByMe(actor, {
+        const page = await list(actor, {
             limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
             cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
             includeTotal: query.includeTotal === 'true',

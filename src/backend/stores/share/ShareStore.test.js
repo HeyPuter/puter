@@ -651,5 +651,68 @@ describe('ShareStore', () => {
                 }),
             ).rejects.toThrow('are required');
         });
+
+        it('refuses a cursor that decodes but names no id', async () => {
+            const foreign = Buffer.from(
+                JSON.stringify({ appUid: 'not-a-share-cursor' }),
+            ).toString('base64');
+            await expect(
+                store.listByHolder(holder.id, { cursor: foreign }),
+            ).rejects.toThrow('invalid share cursor');
+            await expect(
+                store.listOutbound(issuer.id, {
+                    cursor: Buffer.from(JSON.stringify({ id: 'abc' })).toString(
+                        'base64',
+                    ),
+                }),
+            ).rejects.toThrow('invalid share cursor');
+        });
+
+        it('re-inviting refreshes the invite data, not just the mode', async () => {
+            const entry = await makeEntry(issuer);
+            const email = `refresh-${uuidv4()}@test.local`;
+            const first = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: email,
+                fsentryId: entry.id,
+                mode: 'read',
+                issuerAppUid: 'app-first',
+            });
+            expect(first.row.data.issuedByApp).toBe('app-first');
+
+            // Re-invited by hand: the row now records the latest issuance.
+            const second = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: email,
+                fsentryId: entry.id,
+                mode: 'write',
+            });
+            expect(second.created).toBe(false);
+            expect(second.row.uid).toBe(first.row.uid);
+            expect(second.row.mode).toBe('write');
+            expect(second.row.data.issuedByApp).toBeUndefined();
+        });
+
+        it('drops only one issuer unclaimed invites under a subtree', async () => {
+            const entry = await makeEntry(issuer);
+            const mine = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: `sub-${uuidv4()}@test.local`,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            const theirs = await store.upsertPending({
+                issuerUserId: otherIssuer.id,
+                recipientEmail: `sub-${uuidv4()}@test.local`,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            expect(
+                await store.deletePendingByIssuerSubtree(issuer.id, entry.id),
+            ).toBe(1);
+            expect(await store.getByUid(mine.row.uid)).toBeNull();
+            expect(await store.getByUid(theirs.row.uid)).not.toBeNull();
+        });
     });
 });

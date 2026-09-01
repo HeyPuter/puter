@@ -21,6 +21,7 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     abuseKey,
@@ -76,6 +77,16 @@ export interface ShareInput extends ShareTarget {
     mode: AclMode;
 }
 
+/** What still backs one (holder, entry) pair; see `#grantEvidence`. */
+interface GrantEvidence {
+    /** Issuers with a live, attributable grant. */
+    issuers: Set<number>;
+    /** A live grant that names no issuer — a legacy flat entry. */
+    unattributed: boolean;
+    /** The holder owns the entry outright, so no grant is needed. */
+    owned: boolean;
+}
+
 /** One live share, resolved for a response. */
 export interface ResolvedShare {
     uid: string;
@@ -128,9 +139,17 @@ const SHAREABLE_MODES: ReadonlySet<string> = new Set([
  * Every permission a share of one node can rest on. `manage` is spelled with
  * the prefix leading, so a prefix match on `fs:<uuid>` does not reach it.
  */
-/** The app recorded on a share row, when one issued it. */
+/**
+ * The app recorded on a share row, when one issued it. Two spellings in the
+ * wild: pending rows were written with `issuerAppUid` before the keys were
+ * unified on `issuedByApp`, and claiming carries `data` forward verbatim.
+ */
 const issuedByApp = (row: { data?: unknown }): string | null => {
-    const value = (row.data as { issuedByApp?: unknown } | null)?.issuedByApp;
+    const data = row.data as {
+        issuedByApp?: unknown;
+        issuerAppUid?: unknown;
+    } | null;
+    const value = data?.issuedByApp ?? data?.issuerAppUid;
     return typeof value === 'string' && value !== '' ? value : null;
 };
 
@@ -907,77 +926,188 @@ export class ShareService extends PuterService {
     }
 
     /**
-     * Of `entries`, the uuids `holderId` still holds a live grant on.
+     * What still backs each (holder, entry) pair: the issuers with a live
+     * grant, whether a live grant exists that names no issuer (legacy flat
+     * entries), and whether the holder now owns the entry outright (a move
+     * handed the tree over — no grant row, held all the same).
      *
      * The index is not proof of access: a grant can be withdrawn or downgraded
      * by a path that never touches a share row (an ACL mode change, say), and
-     * this listing publishes name, size and a signed thumbnail URL — so it has
-     * to be checked against the grants themselves.
+     * the listings publish name, size and a signed thumbnail URL — so rows are
+     * checked against the grants themselves.
      *
-     * Two batched reads for the whole page, both keyed on the holder: the
-     * linked rows are indexed on `holder_user_id`, and the flat view is a
-     * multi-get. An ACL walk per row would be the same answer at hundreds of
-     * times the cost.
+     * Two batched reads for all pairs together, however many holders: the
+     * linked rows by `holder IN … AND permission IN …`, the flat view as one
+     * multi-get. Reading per holder here turned a full outbound page into
+     * hundreds of queries on a cold cache.
      */
+    async #grantEvidence(
+        pairs: Array<{ holderId: number; entry: FSEntry }>,
+    ): Promise<Map<string, GrantEvidence>> {
+        const evidence = new Map<string, GrantEvidence>();
+        const unique = new Map<string, { holderId: number; entry: FSEntry }>();
+        for (const pair of pairs) {
+            unique.set(`${pair.holderId}:${pair.entry.id}`, pair);
+        }
+        if (unique.size === 0) return evidence;
+
+        const refs = [...unique.values()].flatMap(({ holderId, entry }) =>
+            entryPermissions(entry.uuid).map((permission) => ({
+                holderUserId: holderId,
+                permission,
+            })),
+        );
+        const [linked, flat] = await Promise.all([
+            this.stores.permission.readLinkedUserUserPermsForHolders(
+                refs.map((ref) => ref.holderUserId),
+                refs.map((ref) => ref.permission),
+            ),
+            this.stores.permission.getFlatUserPermsForRefs(refs),
+        ]);
+
+        // Both reads folded onto (holder, permission); the linked read spans
+        // every holder's permissions, so it can return pairs never asked for —
+        // they simply go unread below.
+        const byHolderPerm = new Map<
+            string,
+            { issuers: Set<number>; unattributed: boolean }
+        >();
+        const record = (
+            holderId: number,
+            permission: string,
+            issuer: unknown,
+        ) => {
+            const key = `${holderId}:${permission}`;
+            const found = byHolderPerm.get(key) ?? {
+                issuers: new Set<number>(),
+                unattributed: false,
+            };
+            const issuerId = Number(issuer);
+            if (Number.isFinite(issuerId)) found.issuers.add(issuerId);
+            else found.unattributed = true;
+            byHolderPerm.set(key, found);
+        };
+        for (const row of linked) {
+            record(
+                Number(row.holder_user_id),
+                row.permission,
+                row.issuer_user_id,
+            );
+        }
+        for (const { ref, value } of flat) {
+            if (value.deleted) continue;
+            record(ref.holderUserId, ref.permission, value.issuer_user_id);
+        }
+
+        for (const [key, { holderId, entry }] of unique) {
+            const merged: GrantEvidence = {
+                issuers: new Set(),
+                unattributed: false,
+                owned: entry.userId === holderId,
+            };
+            for (const permission of entryPermissions(entry.uuid)) {
+                const found = byHolderPerm.get(`${holderId}:${permission}`);
+                if (!found) continue;
+                for (const issuer of found.issuers) merged.issuers.add(issuer);
+                merged.unattributed ||= found.unattributed;
+            }
+            evidence.set(key, merged);
+        }
+        return evidence;
+    }
+
+    /** Of `entries`, the uuids `holderId` still holds a live grant on. */
     async #liveGrants(
         holderId: number,
         entries: FSEntry[],
     ): Promise<Set<string>> {
-        if (entries.length === 0) return new Set();
-        const wanted = entries.flatMap((entry) => entryPermissions(entry.uuid));
-        const [linked, flat] = await Promise.all([
-            this.stores.permission.readLinkedUserUserPerms(holderId, wanted),
-            this.stores.permission.getFlatUserPerms(holderId, wanted),
-        ]);
-
+        const evidence = await this.#grantEvidence(
+            entries.map((entry) => ({ holderId, entry })),
+        );
         const live = new Set<string>();
-        for (const row of linked) {
-            const uuid = uuidFromEntryPermission(row.permission);
-            if (uuid) live.add(uuid);
-        }
-        // Not positional against `wanted`: misses are dropped, keys deduped.
-        for (const value of flat) {
-            if (!value?.permission || value.deleted) continue;
-            const uuid = uuidFromEntryPermission(value.permission);
-            if (uuid) live.add(uuid);
-        }
-        // An owner listing something shared *to* them can't happen, but a
-        // recipient who has since become the owner (a move handed the tree
-        // over) holds it outright and has no grant row.
         for (const entry of entries) {
-            if (entry.userId === holderId) live.add(entry.uuid);
+            const found = evidence.get(`${holderId}:${entry.id}`);
+            if (!found) continue;
+            if (found.owned || found.unattributed || found.issuers.size > 0) {
+                live.add(entry.uuid);
+            }
         }
         return live;
     }
 
-    /** The `<holderId>:<fsentryId>` pairs whose grant is still standing. */
+    /** The (holder, node) pairs `rows` name that both sides resolve for. */
+    #rowPairs(
+        rows: Array<{ holder_user_id: number | null; fsentry_id: number }>,
+        nodeById: Map<number, FSEntry>,
+    ): Array<{ holderId: number; entry: FSEntry }> {
+        const pairs: Array<{ holderId: number; entry: FSEntry }> = [];
+        for (const row of rows) {
+            // `Number(null)` is 0, so a pending row must not slip through as
+            // holder 0.
+            if (!row.holder_user_id) continue;
+            const holderId = Number(row.holder_user_id);
+            const node = nodeById.get(Number(row.fsentry_id));
+            if (!node || !Number.isFinite(holderId)) continue;
+            pairs.push({ holderId, entry: node });
+        }
+        return pairs;
+    }
+
+    /**
+     * The `<holderId>:<fsentryId>` pairs some grant still backs, whoever issued
+     * it. The right bound for fan-out: a holder is reachable through anyone's
+     * grant.
+     */
     async #reachingHolders(
         rows: ShareIndexRow[],
         nodeById: Map<number, FSEntry>,
     ): Promise<Set<string>> {
-        const nodesByHolder = new Map<number, Map<number, FSEntry>>();
+        const evidence = await this.#grantEvidence(
+            this.#rowPairs(rows, nodeById),
+        );
+        const live = new Set<string>();
+        for (const [key, found] of evidence) {
+            if (found.owned || found.unattributed || found.issuers.size > 0) {
+                live.add(key);
+            }
+        }
+        return live;
+    }
+
+    /**
+     * The `<holderId>:<fsentryId>:<issuerId>` triples whose own grant still
+     * stands. Sharper than `#reachingHolders`, and what the listings need: on
+     * the pair alone, an issuer whose grant was withdrawn outside `unshare` is
+     * shown a dead share for as long as anyone else still grants the same
+     * holder the same node. A grant that names no issuer backs every issuer's
+     * row for its pair, but only while no attributable grant exists — once any
+     * does, the attributed set is the answer.
+     */
+    async #reachingGrants(
+        rows: Array<{
+            holder_user_id: number | null;
+            issuer_user_id: number;
+            fsentry_id: number;
+        }>,
+        nodeById: Map<number, FSEntry>,
+    ): Promise<Set<string>> {
+        const evidence = await this.#grantEvidence(
+            this.#rowPairs(rows, nodeById),
+        );
+        const live = new Set<string>();
         for (const row of rows) {
             const holderId = Number(row.holder_user_id);
             const node = nodeById.get(Number(row.fsentry_id));
             if (!node || !Number.isFinite(holderId)) continue;
-            const nodes = nodesByHolder.get(holderId) ?? new Map();
-            nodes.set(node.id as number, node);
-            nodesByHolder.set(holderId, nodes);
+            const found = evidence.get(`${holderId}:${node.id}`);
+            if (!found) continue;
+            const issuerId = Number(row.issuer_user_id);
+            const backed =
+                found.owned ||
+                found.issuers.has(issuerId) ||
+                (found.unattributed && found.issuers.size === 0);
+            if (backed) live.add(`${holderId}:${node.id}:${issuerId}`);
         }
-
-        const live = new Set<string>();
-        await Promise.all(
-            [...nodesByHolder].map(async ([holderId, nodes]) => {
-                const uuids = await this.#liveGrants(holderId, [
-                    ...nodes.values(),
-                ]);
-                for (const node of nodes.values()) {
-                    if (uuids.has(node.uuid)) {
-                        live.add(`${holderId}:${node.id}`);
-                    }
-                }
-            }),
-        );
         return live;
     }
 
@@ -1089,6 +1219,15 @@ export class ShareService extends PuterService {
     ): Promise<number> {
         if (seen.has(issuerId)) return 0;
         seen.add(issuerId);
+
+        // Their unclaimed invites go the same way as their re-shares: an
+        // invite rests on the same authority, and nothing else retires it —
+        // claiming re-checks, but only when the recipient shows up, and until
+        // then the row keeps the entry in the revoked issuer's listing.
+        await this.stores.share.deletePendingByIssuerSubtree(
+            issuerId,
+            entry.id,
+        );
 
         // The whole subtree, not just this node: `manage` inherits downwards,
         // so a grant on a descendant can rest on authority held here.
@@ -1302,26 +1441,15 @@ export class ShareService extends PuterService {
             if (!entry || this.#isTrashed(entry)) continue;
             if (!live.has(entry.uuid)) continue;
             if (!reachable.has(entry.uuid)) continue;
-            const issuer = issuers.get(Number(row.issuer_user_id));
-            const owner = issuers.get(Number(entry.userId));
-            items.push({
-                uid: row.uid,
-                mode: row.mode,
-                path: maskEntryPath(entry),
-                name: entry.name,
-                type: entry.isDir
-                    ? 'folder'
-                    : contentTypeFromMime(entry.name) || null,
-                thumbnail: entry.thumbnail ?? null,
-                entryUid: entry.uuid,
-                isDir: Boolean(entry.isDir),
-                owner: { username: owner?.username ?? null },
-                issuer: { username: issuer?.username ?? null },
-                holder: { username: actor.user.username ?? null },
-                createdAt: row.created_at,
-                modified: entry.modified,
-                size: entry.size,
-            });
+            items.push(
+                this.#resolvedShareRow(row, entry, issuers, {
+                    entryMeta: true,
+                    // Which app the sharer went through is their business, not
+                    // the recipient's.
+                    provenance: false,
+                    holderUsername: actor.user.username ?? null,
+                }),
+            );
         }
 
         return {
@@ -1371,15 +1499,19 @@ export class ShareService extends PuterService {
         const nodeById = new Map<number, FSEntry>(
             [...entries.values()].map((entry) => [entry.id, entry]),
         );
-        // Same two bounds as the inbound listing: the grant behind a row has to
-        // still be there, and an app sees only the part of it the credential
-        // reaches in its own right.
-        const [stillReaches, reachable] = await Promise.all([
-            this.#reachingHolders(
-                rows.filter((row): row is ShareIndexRow =>
-                    Boolean(row.holder_user_id),
-                ),
+        // Three bounds. A claimed row needs the grant *this issuer* made to
+        // still be there — on the pair alone, a grant withdrawn outside
+        // `unshare` stays listed while anyone else grants the same holder the
+        // same node. An invite needs its issuer to still hold the authority it
+        // would grant, or a revoked delegate keeps reading the entry's name
+        // and size out of invites that can never be claimed. And an app sees
+        // only the part of any of it the credential reaches in its own right.
+        const [stillReaches, pendingAllowed, reachable] = await Promise.all([
+            this.#reachingGrants(rows, nodeById),
+            this.#pendingStillAuthorized(
+                rows.filter((row) => !row.holder_user_id),
                 nodeById,
+                users,
             ),
             this.#reachableBy(actor, [...entries.values()]),
         ]);
@@ -1390,50 +1522,18 @@ export class ShareService extends PuterService {
             if (!entry) continue;
             if (!reachable.has(entry.uuid)) continue;
             const pending = !row.holder_user_id;
+            if (pending && !pendingAllowed.has(row.uid)) continue;
             if (
                 !pending &&
-                !stillReaches.has(`${Number(row.holder_user_id)}:${entry.id}`)
+                !stillReaches.has(
+                    `${Number(row.holder_user_id)}:${entry.id}:${Number(row.issuer_user_id)}`,
+                )
             ) {
                 continue;
             }
-            items.push({
-                uid: row.uid,
-                mode: row.mode,
-                path: maskEntryPath(entry),
-                name: entry.name,
-                type: entry.isDir
-                    ? 'folder'
-                    : contentTypeFromMime(entry.name) || null,
-                thumbnail: entry.thumbnail ?? null,
-                entryUid: entry.uuid,
-                isDir: Boolean(entry.isDir),
-                owner: {
-                    username: users.get(Number(entry.userId))?.username ?? null,
-                },
-                issuer: {
-                    username:
-                        users.get(Number(row.issuer_user_id))?.username ?? null,
-                },
-                holder: {
-                    username: pending
-                        ? null
-                        : (users.get(Number(row.holder_user_id))?.username ??
-                          null),
-                },
-                ...(pending
-                    ? {
-                          pending: true,
-                          recipientEmail:
-                              (row.data as { invitedAddress?: string } | null)
-                                  ?.invitedAddress ?? row.recipient_email,
-                      }
-                    : {}),
-                createdAt: row.created_at,
-                issuedByApp: issuedByApp(row),
-                inheritedFrom: null,
-                modified: entry.modified,
-                size: entry.size,
-            });
+            items.push(
+                this.#resolvedShareRow(row, entry, users, { entryMeta: true }),
+            );
         }
 
         return {
@@ -1501,102 +1601,43 @@ export class ShareService extends PuterService {
         const users = await this.stores.user.getByIds(userIds);
         const maskedPath = maskEntryPath(entry);
 
-        // As in `#liveGrants`: an index row outlives the grant it records.
-        const stillReaches = await this.#reachingHolders(
+        // As in `#liveGrants`: an index row outlives the grant it records —
+        // and it names an issuer, so it is that issuer's grant that has to
+        // still be there.
+        const stillReaches = await this.#reachingGrants(
             [...rows, ...inherited.map((i) => i.row)],
             nodeById,
         );
         const isLive = (row: ShareIndexRow): boolean =>
             stillReaches.has(
-                `${Number(row.holder_user_id)}:${Number(row.fsentry_id)}`,
+                `${Number(row.holder_user_id)}:${Number(row.fsentry_id)}:${Number(row.issuer_user_id)}`,
             );
 
+        // Every item reports the queried node — a grant on an ancestor is
+        // still published against the path the caller asked about.
         const inheritedShares: ResolvedShare[] = inherited
             .filter(({ row }) => isLive(row))
-            .map(({ row, via }) => ({
-                uid: String(row.uid),
-                mode: String(row.mode),
-                path: maskedPath,
-                entryUid: entry.uuid,
-                isDir: Boolean(entry.isDir),
-                issuer: {
-                    username:
-                        users.get(Number(row.issuer_user_id))?.username ?? null,
-                },
-                holder: {
-                    username:
-                        users.get(Number(row.holder_user_id))?.username ?? null,
-                },
-                createdAt: row.created_at,
-                issuedByApp: issuedByApp(row),
-                inheritedFrom: via,
-                modified: entry.modified,
-                size: entry.size,
-            }));
+            .map(({ row, via }) =>
+                this.#resolvedShareRow(row, entry, users, {
+                    path: maskedPath,
+                    via,
+                }),
+            );
 
-        const own: ResolvedShare[] = rows.filter(isLive).map(
-            (row: {
-                uid: string;
-                mode: string;
-                issuer_user_id: number;
-                holder_user_id: number;
-                created_at: unknown;
-                data?: unknown;
-            }): ResolvedShare => ({
-                uid: row.uid,
-                mode: row.mode,
-                path: maskedPath,
-                entryUid: entry.uuid,
-                isDir: Boolean(entry.isDir),
-                issuer: {
-                    username:
-                        users.get(Number(row.issuer_user_id))?.username ?? null,
-                },
-                holder: {
-                    username:
-                        users.get(Number(row.holder_user_id))?.username ?? null,
-                },
-                createdAt: row.created_at,
-                issuedByApp: issuedByApp(row),
-                inheritedFrom: null,
-                modified: entry.modified,
-                size: entry.size,
-            }),
-        );
+        const own: ResolvedShare[] = rows
+            .filter(isLive)
+            .map((row: OutboundShareRow) =>
+                this.#resolvedShareRow(row, entry, users, {
+                    path: maskedPath,
+                }),
+            );
         // Nobody holds an invite yet, but whoever manages the node needs to
         // see who was asked, and be able to take it back.
         const pending: ResolvedShare[] = pendingRows.map(
-            (row: {
-                uid: string;
-                mode: string;
-                issuer_user_id: number;
-                recipient_email: string;
-                created_at: unknown;
-                data?: unknown;
-            }): ResolvedShare => ({
-                uid: row.uid,
-                mode: row.mode,
-                path: maskedPath,
-                entryUid: entry.uuid,
-                isDir: Boolean(entry.isDir),
-                issuer: {
-                    username:
-                        users.get(Number(row.issuer_user_id))?.username ?? null,
-                },
-                holder: { username: null },
-                pending: true,
-                // What the sharer typed, when it differs from the canonical
-                // form the row is keyed on — that is the address they will
-                // recognize in the dialog.
-                recipientEmail:
-                    (row.data as { invitedAddress?: string } | null)
-                        ?.invitedAddress ?? row.recipient_email,
-                createdAt: row.created_at,
-                issuedByApp: issuedByApp(row),
-                inheritedFrom: null,
-                modified: entry.modified,
-                size: entry.size,
-            }),
+            (row: OutboundShareRow) =>
+                this.#resolvedShareRow(row, entry, users, {
+                    path: maskedPath,
+                }),
         );
 
         return inheritedShares.concat(own, pending);
@@ -1986,6 +2027,118 @@ export class ShareService extends PuterService {
             await releaseQuota?.();
             throw err;
         }
+    }
+
+    /**
+     * One index row resolved for a listing. The listings' differences are
+     * arguments rather than a hand-built literal per call site: `entry` is the
+     * node the item reports (the row's own node in the flat listings, the
+     * queried node in `listSharesOf`), `entryMeta` adds what the caller can't
+     * stat for themselves, `provenance` withholds who-issued-how from a listing
+     * whose caller it isn't for, and `via` marks access inherited from an
+     * ancestor. A row with no holder is an unclaimed invite and reports the
+     * address it was aimed at — the typed form when that differs from the
+     * canonical one the row is keyed on, since that is what the sharer will
+     * recognize in a dialog.
+     */
+    #resolvedShareRow(
+        row: OutboundShareRow,
+        entry: FSEntry,
+        users: Map<number, UserRow>,
+        opts: {
+            entryMeta?: boolean;
+            provenance?: boolean;
+            holderUsername?: string | null;
+            via?: string | null;
+            path?: string;
+        } = {},
+    ): ResolvedShare {
+        const pending = !row.holder_user_id;
+        return {
+            uid: String(row.uid),
+            mode: String(row.mode),
+            path: opts.path ?? maskEntryPath(entry),
+            ...(opts.entryMeta
+                ? {
+                      name: entry.name,
+                      type: entry.isDir
+                          ? 'folder'
+                          : contentTypeFromMime(entry.name) || null,
+                      thumbnail: entry.thumbnail ?? null,
+                      owner: {
+                          username:
+                              users.get(Number(entry.userId))?.username ?? null,
+                      },
+                  }
+                : {}),
+            entryUid: entry.uuid,
+            isDir: Boolean(entry.isDir),
+            issuer: {
+                username:
+                    users.get(Number(row.issuer_user_id))?.username ?? null,
+            },
+            holder: {
+                username:
+                    opts.holderUsername !== undefined
+                        ? opts.holderUsername
+                        : pending
+                          ? null
+                          : (users.get(Number(row.holder_user_id))?.username ??
+                            null),
+            },
+            ...(pending
+                ? {
+                      pending: true,
+                      recipientEmail:
+                          (row.data as { invitedAddress?: string } | null)
+                              ?.invitedAddress ?? row.recipient_email,
+                  }
+                : {}),
+            createdAt: row.created_at,
+            ...(opts.provenance === false
+                ? {}
+                : {
+                      issuedByApp: issuedByApp(row),
+                      inheritedFrom: opts.via ?? null,
+                  }),
+            modified: entry.modified,
+            size: entry.size,
+        };
+    }
+
+    /**
+     * Of `rows` (unclaimed invites), the uids whose issuer still holds the
+     * authority the invite would grant. A dead invite can never become access —
+     * claiming re-authorizes — but listed it would keep publishing the entry's
+     * name and size to an issuer whose own access was revoked.
+     *
+     * The owner's invites are theirs by definition; only a delegate's cost a
+     * check, and those are rare on any page.
+     */
+    async #pendingStillAuthorized(
+        rows: OutboundShareRow[],
+        nodeById: Map<number, FSEntry>,
+        users: Map<number, UserRow>,
+    ): Promise<Set<string>> {
+        const allowed = new Set<string>();
+        const toCheck: OutboundShareRow[] = [];
+        for (const row of rows) {
+            const entry = nodeById.get(Number(row.fsentry_id));
+            const issuer = users.get(Number(row.issuer_user_id));
+            if (!entry || !issuer?.username) continue;
+            if (entry.userId === issuer.id) allowed.add(row.uid);
+            else toCheck.push(row);
+        }
+        await runWithConcurrencyLimitSettled(toCheck, 8, async (row) => {
+            const entry = nodeById.get(Number(row.fsentry_id)) as FSEntry;
+            const issuer = users.get(Number(row.issuer_user_id)) as UserRow;
+            const ok = await this.services.permission.canManagePermission(
+                this.#actorFor(issuer),
+                entryPermissionForMode(entry.uuid, String(row.mode)),
+            );
+            if (ok) allowed.add(row.uid);
+        });
+        return allowed;
     }
 
     #resolve(

@@ -135,10 +135,12 @@ Sharing is bounded twice: on the calls, and on how many people one account can r
 | -------------------------------------------- | ------------ |
 | `share` / `revoke` calls per minute          | 60           |
 | `share` / `revoke` calls per day             | 500          |
-| Reads (`getShares`, `listShared`) per minute | 600          |
+| Reads (`getShares`, `listShared`, `listSharedByMe`) per minute | 600 |
 | New shares per day                           | 200          |
 | Recipients per request                       | 10           |
 | Items per request                            | 50           |
+
+The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need.
 
 A "new share" is one that gives someone access they didn't already have. Changing the mode on an existing share, or re-sharing an item the recipient already has, costs nothing. Over the daily limit, `share` fails with `share_daily_limit_reached`.
 

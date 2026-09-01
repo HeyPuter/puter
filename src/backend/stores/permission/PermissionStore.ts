@@ -303,6 +303,69 @@ export class PermissionStore extends PuterStore {
         return decoded.filter((row) => wanted.has(row.permission));
     }
 
+    /**
+     * Batched {@link readLinkedUserUserPerms} across holders: an indexed `holder
+     * IN … AND permission IN …` read instead of one row-set per holder, which
+     * on a cold cache fans a listing page out into that many queries. Chunked
+     * to stay under the dialects' placeholder limits.
+     */
+    async readLinkedUserUserPermsForHolders(
+        holderUserIds: number[],
+        permissions: string[],
+    ): Promise<LinkedUserUserPermRow[]> {
+        const holders = [...new Set(holderUserIds)].filter((id) =>
+            Number.isFinite(id),
+        );
+        const perms = [...new Set(permissions)];
+        if (holders.length === 0 || perms.length === 0) return [];
+
+        const rows: LinkedUserUserPermRow[] = [];
+        for (let h = 0; h < holders.length; h += 200) {
+            const holderChunk = holders.slice(h, h + 200);
+            for (let p = 0; p < perms.length; p += 700) {
+                const permChunk = perms.slice(p, p + 700);
+                const found = await this.clients.db.read(
+                    'SELECT * FROM `user_to_user_permissions` WHERE ' +
+                        `\`holder_user_id\` IN (${holderChunk.map(() => '?').join(', ')}) ` +
+                        `AND \`permission\` IN (${permChunk.map(() => '?').join(', ')})`,
+                    [...holderChunk, ...permChunk],
+                );
+                for (const row of found) {
+                    rows.push(this.#decodeExtra<LinkedUserUserPermRow>(row));
+                }
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * Batched {@link getFlatUserPerms} across holders — one multi-get for all of
+     * a listing page's (holder, permission) pairs. Entries come back paired
+     * with the ref they answer, because a flat value doesn't name its holder.
+     */
+    async getFlatUserPermsForRefs(
+        refs: FlatPermRef[],
+    ): Promise<Array<{ ref: FlatPermRef; value: FlatPermValue }>> {
+        if (refs.length === 0) return [];
+        const keys = refs.map(({ holderUserId, permission }) =>
+            PermissionUtil.join(
+                PERM_KEY_PREFIX,
+                String(holderUserId),
+                permission,
+            ),
+        );
+        const { res } = await this.stores.kv.get({ key: keys });
+        const values = Array.isArray(res) ? res : [res];
+        const out: Array<{ ref: FlatPermRef; value: FlatPermValue }> = [];
+        for (let i = 0; i < refs.length; i++) {
+            const value = values[i];
+            if (value !== null && typeof value === 'object') {
+                out.push({ ref: refs[i], value: value as FlatPermValue });
+            }
+        }
+        return out;
+    }
+
     async upsertUserUserPerm(
         holderUserId: number,
         issuerUserId: number,

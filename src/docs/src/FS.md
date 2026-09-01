@@ -310,6 +310,7 @@ These cloud storage features are supported out of the box when using Puter.js:
 - **[`puter.fs.share()`](/FS/share/)** - Give another user access to a file or directory
 - **[`puter.fs.unshare()`](/FS/unshare/)** - Withdraw a user's access
 - **[`puter.fs.listShared()`](/FS/listShared/)** - List what others have shared with you
+- **[`puter.fs.listSharedByMe()`](/FS/listSharedByMe/)** - List everything you have shared out
 - **[`puter.fs.getShares()`](/FS/getShares/)** - List who has access to an item
 
 ## Examples

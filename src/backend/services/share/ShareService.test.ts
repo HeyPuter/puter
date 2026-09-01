@@ -818,6 +818,153 @@ describe('ShareService', () => {
             expect(listed.items[0].holder.username).toBeNull();
         });
 
+        it("drops only the withdrawn issuer's row when another grant keeps the holder reachable", async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const holder = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: holder.email },
+                mode: 'read',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: holder.email },
+                mode: 'read',
+            });
+
+            // The owner's grant goes through the permission API and the index
+            // row is left behind (what `onGrantRevoked` cannot fix when it
+            // can't name the issuer). The delegate's grant still reaches the
+            // holder — that must not keep the owner's dead row listed.
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    holder.user.username!,
+                    `fs:${file.uuid}:read`,
+                ),
+            );
+
+            const listed = await listSharedByMe(owner.actor);
+            const pairs = listed.items
+                .map((i) => `${i.issuer.username}>${i.holder.username}`)
+                .sort();
+            expect(pairs).toEqual(
+                [
+                    `${owner.user.username}>${delegate.user.username}`,
+                    `${delegate.user.username}>${holder.user.username}`,
+                ].sort(),
+            );
+        });
+
+        it("takes a revoked delegate's unclaimed invites with them", async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `orphan-${Math.random()
+                .toString(36)
+                .slice(2, 8)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+            expect(
+                (await listSharedByMe(delegate.actor)).items.some(
+                    (i) => i.pending,
+                ),
+            ).toBe(true);
+
+            await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+            });
+
+            // The row itself is gone, not just hidden: nothing else would
+            // ever retire it.
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+            expect((await listSharedByMe(delegate.actor)).items).toEqual([]);
+        });
+
+        it('hides an invite whose issuer lost their authority outside unshare', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `stale-${Math.random()
+                .toString(36)
+                .slice(2, 8)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // Withdrawn through the permission API: no share-row cleanup runs,
+            // but the listing must not keep publishing the entry to an issuer
+            // whose access is gone.
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    delegate.user.username!,
+                    `manage:fs:${file.uuid}`,
+                ),
+            );
+
+            expect(
+                await server.stores.share.listPendingByEmail(email),
+            ).toHaveLength(1);
+            expect((await listSharedByMe(delegate.actor)).items).toEqual([]);
+            expect(
+                (await listSharedByMe(owner.actor)).items.some(
+                    (i) => i.pending,
+                ),
+            ).toBe(false);
+        });
+
+        it('reads the app off an invite recorded under the legacy key', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `legacy-${Math.random()
+                .toString(36)
+                .slice(2, 8)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+            const [row] = await server.stores.share.listPendingByEmail(email);
+            await server.clients.db.write(
+                'UPDATE `share` SET `data` = ? WHERE `uid` = ?',
+                [JSON.stringify({ issuerAppUid: 'app-legacy' }), row.uid],
+            );
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items).toHaveLength(1);
+            expect(listed.items[0].issuedByApp).toBe('app-legacy');
+        });
+
         it('walks every page through the cursor', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();

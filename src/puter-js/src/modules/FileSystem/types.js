@@ -312,11 +312,11 @@
  * @property {string | null} name The item's name. Not set by `getShares()`,
  * which describes access to an item the caller already named.
  * @property {string | null} type The item's content type, or `'folder'`. Only
- * set by `listShared()`.
+ * set by the listings, `listShared()` and `listSharedByMe()`.
  * @property {string | null} thumbnail URL of the item's thumbnail, if it has
- * one. Only set by `listShared()`.
+ * one. Only set by the listings, `listShared()` and `listSharedByMe()`.
  * @property {string | null} owner Username of the item's owner. Only set by
- * `listShared()`.
+ * the listings, `listShared()` and `listSharedByMe()`.
  * @property {string | null} issuer Username of whoever granted it.
  * @property {string | null} holder Username of whoever received it.
  * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
