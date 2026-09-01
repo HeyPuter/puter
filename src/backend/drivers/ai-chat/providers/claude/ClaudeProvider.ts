@@ -298,9 +298,10 @@ export class ClaudeProvider implements IChatProvider {
             reasoningEffort: requestedReasoningEffort,
             maxTokens: max_tokens,
         });
-        // Fable 5 and Opus 4.7/4.8 error on non-default sampling params; omit temperature entirely.
+        // Fable 5/5.1, Sonnet 5, and Opus 4.7+ reject non-default sampling; omit temperature entirely.
         // Other models require temperature=1 when thinking is enabled.
         const omitsTemperature = [
+            'claude-fable-5-1',
             'claude-fable-5',
             'claude-sonnet-5',
             'claude-opus-4-7',
@@ -313,6 +314,7 @@ export class ClaudeProvider implements IChatProvider {
               ? 1
               : (temperature ?? 0);
         const supportsEffort = [
+            'claude-fable-5-1',
             'claude-fable-5',
             'claude-sonnet-5',
             'claude-opus-5',
@@ -717,12 +719,13 @@ export class ClaudeProvider implements IChatProvider {
     }) {
         if (!reasoningEffort) return undefined;
 
-        // Fable 5, Opus 4.7/4.8, 4.6, and Sonnet 4.6 use adaptive thinking
+        // Fable 5/5.1, Opus 4.7+, 4.6, and Sonnet 4.6 use adaptive thinking
         // (`budget_tokens` is deprecated on 4.6/Sonnet 4.6, removed on
-        // Fable 5 and 4.7+). Fable 5 and Opus 4.7/4.8 omit thinking content
-        // by default; `display: 'summarized'` restores visible reasoning in
-        // the stream.
+        // Fable 5+ and Opus 4.7+). Fable 5/5.1 and Opus 4.7+ omit thinking
+        // content by default; `display: 'summarized'` restores visible
+        // reasoning in the stream.
         if (
+            modelId === 'claude-fable-5-1' ||
             modelId === 'claude-fable-5' ||
             modelId === 'claude-opus-5' ||
             modelId === 'claude-opus-4-8' ||
