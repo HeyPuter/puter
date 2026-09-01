@@ -28,7 +28,11 @@ import {
 } from '../../controllers/auth/AuthController.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { checkHandle } from '../../stores/team/TeamStore.js';
-import type { TeamMemberRow, TeamRow } from '../../stores/team/TeamStore';
+import type {
+    TeamAuditRow,
+    TeamMemberRow,
+    TeamRow,
+} from '../../stores/team/TeamStore';
 import type { UserRow } from '../../stores/user/UserStore';
 import { cleanEmail } from '../../util/email.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
@@ -52,8 +56,7 @@ export const generateTemporaryPassword = (length = 16): string => {
 export const DISABLED_BY_WORKSPACE = 'disabled_by_workspace';
 
 export class TeamService extends PuterService {
-    // -- Authority ----------------------------------------------------
-    // Two checks, and between them the whole authorization model.
+    // -- Authority ---- the whole authorization model ------------------
 
     /** 404 to a non-member so the endpoint is not an existence oracle. */
     async requireMembership(
@@ -70,7 +73,10 @@ export class TeamService extends PuterService {
     }
 
     /** Authority is one test: the caller is the account named by the workspace. */
-    async requireOwner(teamUid: string, actorUserId: number): Promise<TeamRow> {
+    async requireOwner(
+        teamUid: string,
+        actorUserId: number,
+    ): Promise<TeamRow> {
         const team = await this.requireMembership(teamUid, actorUserId);
         if (team.owner_user_id !== actorUserId) {
             throw new HttpError(403, 'Only the workspace owner can do that', {
@@ -172,8 +178,7 @@ export class TeamService extends PuterService {
             }),
         );
 
-        // 0 makes the owner pay for itself and stay an invalid route target.
-        // Unchecked, the owner could never reach their own workspace.
+        // 0 makes the owner pay for itself; unchecked, it is unreachable.
         const admitted = await this.stores.team.addMember(
             team.uid,
             ownerUserId,
@@ -209,8 +214,106 @@ export class TeamService extends PuterService {
         return Number(rows[0]?.n) === 1;
     }
 
-    // -- Provisioning -------------------------------------------------
-    // Usernames come from Puter's global pool, so a taken one is reported.
+    /** Soft delete disables the accounts it created; recovery is via support. */
+    async deleteWorkspace(teamUid: string, actorUserId: number): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+
+        // Otherwise they keep working, unreachable through a deleted workspace.
+        let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
+        for (;;) {
+            for (const member of page.items) {
+                if (Number(member.org_owned) !== 1) continue;
+                await this.#suspend(member.user_id);
+                await this.stores.team.appendAudit({
+                    teamId: team.id,
+                    userId: member.user_id,
+                    actorUserId,
+                    action: 'disable',
+                    reason: 'workspace_deleted',
+                });
+            }
+            if (!page.cursor) break;
+            page = await this.stores.team.listMembers(teamUid, {
+                limit: 200,
+                cursor: page.cursor,
+            });
+        }
+
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: actorUserId,
+            actorUserId,
+            action: 'delete_team',
+        });
+        await this.stores.team.softDelete(teamUid);
+    }
+
+    /** Workspace owner only. Readable after deletion -- that is the point of it. */
+    async listAudit(
+        teamUid: string,
+        actorUserId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ) {
+        const team = await this.#requireOwnedWorkspace(teamUid, actorUserId);
+        return this.#withUsernames(
+            await this.stores.team.listAudit(team.id, opts),
+        );
+    }
+
+    /** The caller's own entries; the only reader who is not the actor. */
+    async listOwnAudit(
+        teamUid: string,
+        actorUserId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ) {
+        const team = await this.requireMembership(teamUid, actorUserId);
+        return this.#withUsernames(
+            await this.stores.team.listAuditForUser(team.id, actorUserId, opts),
+        );
+    }
+
+    /** Resolves a workspace the caller owns, soft-deleted or not. */
+    async #requireOwnedWorkspace(
+        teamUid: string,
+        actorUserId: number,
+    ): Promise<TeamRow> {
+        const live = await this.stores.team.getByUid(teamUid);
+        if (live) return this.requireOwner(teamUid, actorUserId);
+
+        const deleted =
+            await this.stores.team.getByUidIncludingDeleted(teamUid);
+        if (!deleted || deleted.owner_user_id !== actorUserId) {
+            throw new HttpError(404, 'Workspace not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+        return deleted;
+    }
+
+    /** Internal user ids never reach the wire, as `toClientTeam` does for `id`. */
+    async #withUsernames(page: { items: TeamAuditRow[]; cursor?: string }) {
+        const ids = new Set<number>();
+        for (const row of page.items) {
+            ids.add(row.user_id_keep);
+            if (row.actor_user_id !== null) ids.add(row.actor_user_id);
+        }
+        const users = await this.stores.user.getByIds([...ids]);
+        const name = (id: number | null) =>
+            id === null ? null : (users.get(id)?.username ?? null);
+
+        return {
+            items: page.items.map((row) => ({
+                action: row.action,
+                reason: row.reason,
+                created_at: row.created_at,
+                username: name(row.user_id_keep),
+                actor_username: name(row.actor_user_id),
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+        };
+    }
+
+    // -- Provisioning ---- usernames come from the global pool ----------
 
     /** Provisioning must not mint accounts signup itself would refuse. */
     #usernameRejection(username: string): boolean {
@@ -302,8 +405,14 @@ export class TeamService extends PuterService {
             });
         }
 
-        // Returned once for the administrator to deliver out of band; forced
-        // change on first use is what bounds it.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: user.id,
+            actorUserId,
+            action: 'provision',
+        });
+
+        // Returned once; forced change on first use is what bounds it.
         const temporaryPassword = generateTemporaryPassword();
         await this.stores.user.update(user.id, {
             password: await bcrypt.hash(temporaryPassword, 8),
@@ -372,8 +481,7 @@ export class TeamService extends PuterService {
         }
     }
 
-    // -- Disable and re-enable ----------------------------------------
-    // The whole of offboarding: no removal, no transfer, no retention clock.
+    // -- Disable and re-enable ---- the whole of offboarding ------------
 
     /** Rejects the account's next request; its files are untouched. */
     async disableMember(
@@ -381,16 +489,17 @@ export class TeamService extends PuterService {
         actorUserId: number,
         targetUserId: number,
     ): Promise<void> {
-        await this.requireOwner(teamUid, actorUserId);
+        const team = await this.requireOwner(teamUid, actorUserId);
         await this.requireOrgAccount(teamUid, targetUserId);
 
-        // `suspended` is what `userProtected` enforces; the others are siblings.
-        await this.stores.user.update(targetUserId, {
-            suspended: 1,
-            suspended_at: Math.floor(Date.now() / 1000),
-            suspended_reason: DISABLED_BY_WORKSPACE,
+        // Recorded first: a failed append must not leave an unlogged suspension.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: 'disable',
         });
-        await this.#dropSessions(targetUserId);
+        await this.#suspend(targetUserId);
     }
 
     /** Nothing was destroyed, so the account returns as it was. */
@@ -399,7 +508,7 @@ export class TeamService extends PuterService {
         actorUserId: number,
         targetUserId: number,
     ): Promise<void> {
-        await this.requireOwner(teamUid, actorUserId);
+        const team = await this.requireOwner(teamUid, actorUserId);
         await this.requireOrgAccount(teamUid, targetUserId);
 
         // Forced read, as `userProtected` does: a cached row predates this.
@@ -416,12 +525,28 @@ export class TeamService extends PuterService {
             });
         }
 
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: 'enable',
+        });
         await this.stores.user.update(targetUserId, {
             suspended: 0,
             suspended_at: null,
             suspended_reason: null,
         });
         await this.stores.user.invalidateById(targetUserId);
+    }
+
+    /** The three columns together; `suspended` is the one that gates requests. */
+    async #suspend(userId: number): Promise<void> {
+        await this.stores.user.update(userId, {
+            suspended: 1,
+            suspended_at: Math.floor(Date.now() / 1000),
+            suspended_reason: DISABLED_BY_WORKSPACE,
+        });
+        await this.#dropSessions(userId);
     }
 
     /** Via the store: a raw DELETE leaves the session cache serving the row. */

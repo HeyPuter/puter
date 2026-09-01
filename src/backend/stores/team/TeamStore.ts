@@ -60,9 +60,21 @@ export interface TeamMemberRow {
     created_at: string;
 }
 
+/** One entry in the insert-only record of what a workspace did to an account. */
+export interface TeamAuditRow {
+    id: number;
+    user_id_keep: number;
+    actor_user_id: number | null;
+    action: string;
+    reason: string | null;
+    created_at: string;
+}
+
 /** Default and ceiling for `listMembers`, matching the other paginated stores. */
 export const MEMBER_PAGE_SIZE = 50;
 export const MEMBER_PAGE_CAP = 200;
+export const AUDIT_PAGE_SIZE = 50;
+export const AUDIT_PAGE_CAP = 200;
 
 /** Longest handle mysql can store — `varchar(64)` in mysql_mig_26. */
 export const HANDLE_MAX_LENGTH = 64;
@@ -162,6 +174,15 @@ export class TeamStore extends PuterStore {
     async getByUid(uid: string): Promise<TeamRow | null> {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`group\` WHERE \`uid\` = ? AND ${this.#live()}`,
+            [uid, TEAM_KIND],
+        );
+        return (rows[0] as unknown as TeamRow) ?? null;
+    }
+
+    /** Includes soft-deleted rows, so an audit survives its workspace. */
+    async getByUidIncludingDeleted(uid: string): Promise<TeamRow | null> {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `group` WHERE `uid` = ? AND `kind` = ?',
             [uid, TEAM_KIND],
         );
         return (rows[0] as unknown as TeamRow) ?? null;
@@ -345,6 +366,93 @@ export class TeamStore extends PuterStore {
             [userId, opts.orgOwned ? 1 : 0, teamUid, TEAM_KIND],
         );
         return result.anyRowsAffected;
+    }
+
+    /** How many members pay for themselves; the owner should be the only one. */
+    async countPayers(teamId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `jct_user_group` ' +
+                'WHERE `group_id` = ? AND `org_owned` = 0',
+            [teamId],
+        )) as { n: number }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
+    // -- Audit ---- insert-only; no update or delete path exists --------
+
+    /** Records something the workspace did to an account. */
+    async appendAudit(entry: {
+        teamId: number;
+        userId: number;
+        actorUserId: number;
+        action: string;
+        reason?: string | null;
+    }): Promise<void> {
+        await this.clients.db.write(
+            'INSERT INTO `audit_team_membership` ' +
+                '(`group_id`, `group_id_keep`, `user_id`, `user_id_keep`, ' +
+                '`actor_user_id`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+                entry.teamId,
+                entry.teamId,
+                entry.userId,
+                entry.userId,
+                entry.actorUserId,
+                entry.action,
+                entry.reason ?? null,
+            ],
+        );
+    }
+
+    /** The whole workspace's audit, newest first, keyset-paginated on `id`. */
+    async listAudit(
+        teamId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ): Promise<PageResult<TeamAuditRow>> {
+        return this.#pageAudit('`group_id_keep` = ?', [teamId], opts);
+    }
+
+    /** One member's own entries. Scoped by user, not by workspace. */
+    async listAuditForUser(
+        teamId: number,
+        userId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ): Promise<PageResult<TeamAuditRow>> {
+        return this.#pageAudit(
+            '`group_id_keep` = ? AND `user_id_keep` = ?',
+            [teamId, userId],
+            opts,
+        );
+    }
+
+    /** Descending keyset, so older entries are reachable rather than dropped. */
+    async #pageAudit(
+        where: string,
+        params: unknown[],
+        opts: { limit?: unknown; cursor?: string },
+    ): Promise<PageResult<TeamAuditRow>> {
+        const limit =
+            normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
+            AUDIT_PAGE_SIZE;
+        const page = decodeCursor(opts.cursor, 'team audit cursor');
+        const before = typeof page?.id === 'number' ? page.id : null;
+
+        const rows = (await this.clients.db.read(
+            'SELECT `id`, `user_id_keep`, `actor_user_id`, `action`, `reason`, `created_at` ' +
+                `FROM \`audit_team_membership\` WHERE ${where}` +
+                (before === null ? '' : ' AND `id` < ?') +
+                ' ORDER BY `id` DESC LIMIT ?',
+            before === null
+                ? [...params, limit + 1]
+                : [...params, before, limit + 1],
+        )) as unknown as TeamAuditRow[];
+
+        const items = rows.slice(0, limit);
+        const cursor =
+            rows.length > limit
+                ? encodeCursor({ id: items[items.length - 1].id })
+                : undefined;
+        return { items, cursor };
     }
 
     /** Removes a member, returning whether a row was there to remove. */

@@ -32,6 +32,7 @@ import { NotificationController } from './notification/NotificationController.js
 import { OIDCController } from './oidc/OIDCController.js';
 import { PuterAIController } from './puterai/PuterAIController.js';
 import { ShareController } from './share/ShareController.js';
+import { TeamController } from './team/TeamController.js';
 import { StaticAssetsController } from './static/StaticAssetsController.js';
 import { StaticPagesController } from './static/StaticPagesController.js';
 import { SystemController } from './system/SystemController.js';
@@ -57,6 +58,7 @@ export const puterControllers = {
     notification: NotificationController,
     events: EventsController,
     share: ShareController,
+    team: TeamController,
     webdav: WebDAVController,
     oidc: OIDCController,
     wisp: WispController,

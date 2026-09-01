@@ -239,12 +239,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -682,6 +677,13 @@ interface IConfigOptional {
      * this to the public port.
      */
     pub_port: number;
+    /**
+     * Teams and workspaces. Off means `/teams` 404s and the schema is inert, so
+     * the tables can ship to production before anything can create a workspace.
+     * It is also the backout: turning it off removes the feature without
+     * touching data.
+     */
+    teams_enabled: boolean;
     /**
      * Fully-qualified externally-visible URL (protocol + domain + port).
      * Computed from `protocol`/`domain`/`pub_port` if unset.
@@ -1189,7 +1191,8 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];
