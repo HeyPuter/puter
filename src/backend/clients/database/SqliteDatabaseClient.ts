@@ -107,6 +107,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [70, ['0075_event-subscriptions.sql']],
     [71, ['0076_teams.sql']],
     [72, ['0077_jct-user-group-pair-unique.sql']],
+    [73, ['0078_team-audit-and-group-shares.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {
