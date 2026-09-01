@@ -512,6 +512,83 @@ describe('ShareStore', () => {
             expect(await store.countByHolder(pageHolder.id)).toBe(5);
         });
 
+        it('lists what a user issued alongside what was issued on their node', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const ownNode = await makeEntry(owner);
+            const foreignNode = await makeEntry(otherIssuer);
+
+            const mine = await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: ownNode.id,
+                mode: 'read',
+            });
+            const delegated = await store.upsertActive({
+                issuerUserId: delegate.id,
+                holderUserId: recipient.id,
+                fsentryId: ownNode.id,
+                mode: 'read',
+            });
+            const asDelegate = await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: foreignNode.id,
+                mode: 'read',
+            });
+            // Neither issued by the owner nor on anything they own.
+            await store.upsertActive({
+                issuerUserId: delegate.id,
+                holderUserId: recipient.id,
+                fsentryId: foreignNode.id,
+                mode: 'read',
+            });
+            // A legacy invite row names no node, so it is not a share of one.
+            await store.create({
+                issuerUserId: owner.id,
+                recipientEmail: 'legacy@test.local',
+            });
+
+            const page = await store.listOutbound(owner.id);
+            expect(page.items.map((r) => r.uid).sort()).toEqual(
+                [mine.uid, delegated.uid, asDelegate.uid].sort(),
+            );
+            expect(await store.countOutbound(owner.id)).toBe(3);
+        });
+
+        it('pages the outbound listing in id order across both halves', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const uids = [];
+            for (let i = 0; i < 4; i++) {
+                const entry = await makeEntry(owner);
+                const row = await store.upsertActive({
+                    issuerUserId: i % 2 === 0 ? owner.id : delegate.id,
+                    holderUserId: recipient.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                uids.push(row.uid);
+            }
+
+            const seen = [];
+            let cursor;
+            for (let guard = 0; guard < 10; guard++) {
+                const page = await store.listOutbound(owner.id, {
+                    limit: 1,
+                    cursor,
+                });
+                seen.push(...page.items.map((r) => r.uid));
+                cursor = page.cursor;
+                if (!cursor) break;
+            }
+
+            expect(seen).toEqual(uids);
+            expect(cursor).toBeUndefined();
+        });
+
         it('never returns another holder rows', async () => {
             const stranger = await makeUser();
             const entry = await makeEntry(issuer);
@@ -573,6 +650,69 @@ describe('ShareStore', () => {
                     mode: 'read',
                 }),
             ).rejects.toThrow('are required');
+        });
+
+        it('refuses a cursor that decodes but names no id', async () => {
+            const foreign = Buffer.from(
+                JSON.stringify({ appUid: 'not-a-share-cursor' }),
+            ).toString('base64');
+            await expect(
+                store.listByHolder(holder.id, { cursor: foreign }),
+            ).rejects.toThrow('invalid share cursor');
+            await expect(
+                store.listOutbound(issuer.id, {
+                    cursor: Buffer.from(JSON.stringify({ id: 'abc' })).toString(
+                        'base64',
+                    ),
+                }),
+            ).rejects.toThrow('invalid share cursor');
+        });
+
+        it('re-inviting refreshes the invite data, not just the mode', async () => {
+            const entry = await makeEntry(issuer);
+            const email = `refresh-${uuidv4()}@test.local`;
+            const first = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: email,
+                fsentryId: entry.id,
+                mode: 'read',
+                issuerAppUid: 'app-first',
+            });
+            expect(first.row.data.issuedByApp).toBe('app-first');
+
+            // Re-invited by hand: the row now records the latest issuance.
+            const second = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: email,
+                fsentryId: entry.id,
+                mode: 'write',
+            });
+            expect(second.created).toBe(false);
+            expect(second.row.uid).toBe(first.row.uid);
+            expect(second.row.mode).toBe('write');
+            expect(second.row.data.issuedByApp).toBeUndefined();
+        });
+
+        it('drops only one issuer unclaimed invites under a subtree', async () => {
+            const entry = await makeEntry(issuer);
+            const mine = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: `sub-${uuidv4()}@test.local`,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            const theirs = await store.upsertPending({
+                issuerUserId: otherIssuer.id,
+                recipientEmail: `sub-${uuidv4()}@test.local`,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            expect(
+                await store.deletePendingByIssuerSubtree(issuer.id, entry.id),
+            ).toBe(1);
+            expect(await store.getByUid(mine.row.uid)).toBeNull();
+            expect(await store.getByUid(theirs.row.uid)).not.toBeNull();
         });
     });
 });

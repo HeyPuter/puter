@@ -18,12 +18,13 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { HttpError } from '../../core/http/HttpError.js';
 import { encodeCursor, decodeCursor } from '../../util/pagination';
 import { PuterStore } from '../types';
 
-/** Default page size for `listByHolder`. */
-const DEFAULT_HOLDER_PAGE_SIZE = 50;
-const MAX_HOLDER_PAGE_SIZE = 200;
+/** Default page size for the keyset listings. */
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
 
 /** Ids per `IN` list in `getSharedFsentryIds`; a listing can run to thousands. */
 const SHARED_IDS_CHUNK_SIZE = 1000;
@@ -78,12 +79,8 @@ export class ShareStore extends PuterStore {
      * or rename would strand them.
      */
     async listByHolder(holderUserId, { limit, cursor } = {}) {
-        const size = Math.min(
-            Math.max(1, Math.floor(Number(limit) || DEFAULT_HOLDER_PAGE_SIZE)),
-            MAX_HOLDER_PAGE_SIZE,
-        );
-        const decoded = decodeCursor(cursor, 'share cursor');
-        const afterId = Number(decoded?.id ?? 0) || 0;
+        const size = this.#pageSize(limit);
+        const afterId = this.#afterId(cursor);
 
         // One extra row tells us whether another page exists.
         const rows = await this.clients.db.read(
@@ -101,6 +98,75 @@ export class ShareStore extends PuterStore {
             items,
             cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
         };
+    }
+
+    /**
+     * Shares a user has made, keyset-paginated on `id`: the rows they issued
+     * themselves, plus the rows a manage delegate issued on a node they own —
+     * which is the only place those are visible, since the permission tables
+     * are keyed issuer to holder.
+     *
+     * Two reads rather than one `OR` spanning the join, which no index can
+     * serve. The issued half is a pure range scan on `idx_share_issuer`. The
+     * delegated half probes `idx_share_fsentry` per owned node and sorts what
+     * it finds — bounded by how many shares exist on the user's nodes, which
+     * delegates alone can create. Unclaimed invites are included (an invite is
+     * something the user sent); the legacy invite rows that name no node are
+     * not.
+     *
+     * @param {number} userId
+     * @param {{ limit?: number; cursor?: string }} [opts]
+     */
+    async listOutbound(userId, { limit, cursor } = {}) {
+        const size = this.#pageSize(limit);
+        const afterId = this.#afterId(cursor);
+
+        const [issued, delegated] = await Promise.all([
+            this.clients.db.read(
+                'SELECT * FROM `share` WHERE `issuer_user_id` = ? AND ' +
+                    '`fsentry_id` IS NOT NULL AND `id` > ? ORDER BY `id` LIMIT ?',
+                [userId, afterId, size + 1],
+            ),
+            this.clients.db.read(
+                'SELECT `share`.* FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ? ' +
+                    'AND `share`.`id` > ? ORDER BY `share`.`id` LIMIT ?',
+                [userId, userId, afterId, size + 1],
+            ),
+        ]);
+
+        // The halves are disjoint and each ordered by id, so merging them and
+        // cutting at `size` is the true next page: whatever either half lost to
+        // its own limit sorts after the cut and returns on the following one.
+        const merged = [...issued, ...delegated].sort(
+            (a, b) => Number(a.id) - Number(b.id),
+        );
+        const hasMore = merged.length > size;
+        const items = merged.slice(0, size).map((r) => this.#normalizeRow(r));
+        const last = items[items.length - 1];
+        return {
+            items,
+            cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
+        };
+    }
+
+    /** How many rows `listOutbound` walks, both halves counted. */
+    async countOutbound(userId) {
+        const [issued, delegated] = await Promise.all([
+            this.clients.db.read(
+                'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
+                    '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL',
+                [userId],
+            ),
+            this.clients.db.read(
+                'SELECT COUNT(*) AS `count` FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?',
+                [userId, userId],
+            ),
+        ]);
+        return Number(issued[0]?.count ?? 0) + Number(delegated[0]?.count ?? 0);
     }
 
     /** Everyone with an active share on one node, whoever issued it. */
@@ -288,10 +354,20 @@ export class ShareStore extends PuterStore {
                 '`holder_user_id` IS NULL LIMIT 1',
             [recipientEmail, fsentryId, issuerUserId],
         );
+        // Same key an active share records the app under, so one reader covers
+        // an invite and the grant it becomes. Attribution follows the most
+        // recent issuance: re-inviting refreshes `data`, exactly as
+        // `upsertActive` does on conflict.
+        const data = JSON.stringify({
+            ...(issuerAppUid ? { issuedByApp: issuerAppUid } : {}),
+            ...(displayEmail && displayEmail !== recipientEmail
+                ? { invitedAddress: displayEmail }
+                : {}),
+        });
         if (existing[0]?.uid) {
             await this.clients.db.write(
-                'UPDATE `share` SET `mode` = ? WHERE `uid` = ?',
-                [mode, existing[0].uid],
+                'UPDATE `share` SET `mode` = ?, `data` = ? WHERE `uid` = ?',
+                [mode, data, existing[0].uid],
             );
             return {
                 row: await this.getByUid(existing[0].uid),
@@ -303,19 +379,7 @@ export class ShareStore extends PuterStore {
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
                 '`fsentry_id`, `mode`, `data`) VALUES (?, ?, ?, ?, ?, ?)',
-            [
-                uid,
-                issuerUserId,
-                recipientEmail,
-                fsentryId,
-                mode,
-                JSON.stringify({
-                    ...(issuerAppUid ? { issuerAppUid } : {}),
-                    ...(displayEmail && displayEmail !== recipientEmail
-                        ? { invitedAddress: displayEmail }
-                        : {}),
-                }),
-            ],
+            [uid, issuerUserId, recipientEmail, fsentryId, mode, data],
         );
         return { row: await this.getByUid(uid), created: true };
     }
@@ -476,6 +540,41 @@ export class ShareStore extends PuterStore {
         return result?.affectedRows ?? result?.changes ?? 0;
     }
 
+    /**
+     * Drop the unclaimed invites `issuerUserId` sent on a directory and
+     * everything beneath it. Used when an issuer loses their authority over the
+     * node: nothing else retires their invites — the claim path drops them one
+     * by one, but only when the recipient shows up.
+     *
+     * @param {number} issuerUserId
+     * @param {number} fsentryId
+     */
+    async deletePendingByIssuerSubtree(issuerUserId, fsentryId) {
+        // Read-then-delete rather than a CTE inside the DELETE, which the
+        // dialects disagree on. The gap between the two only ever leaves an
+        // invite standing, and the claim path re-checks authority anyway.
+        const rows = await this.clients.db.read(
+            'WITH RECURSIVE `subtree`(`id`) AS (' +
+                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
+                'UNION ALL ' +
+                'SELECT `f`.`id` FROM `fsentries` `f` ' +
+                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
+                ') ' +
+                'SELECT `share`.`uid` FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
+                'WHERE `share`.`holder_user_id` IS NULL AND ' +
+                '`share`.`issuer_user_id` = ?',
+            [fsentryId, issuerUserId],
+        );
+        if (rows.length === 0) return 0;
+        const placeholders = rows.map(() => '?').join(', ');
+        const result = await this.clients.db.write(
+            `DELETE FROM \`share\` WHERE \`uid\` IN (${placeholders})`,
+            rows.map((row) => row.uid),
+        );
+        return result?.affectedRows ?? result?.changes ?? 0;
+    }
+
     async deleteByUid(uid) {
         const result = await this.clients.db.write(
             'DELETE FROM `share` WHERE `uid` = ?',
@@ -529,6 +628,32 @@ export class ShareStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
+
+    /** @param {number} [limit] */
+    #pageSize(limit) {
+        return Math.min(
+            Math.max(1, Math.floor(Number(limit) || DEFAULT_PAGE_SIZE)),
+            MAX_PAGE_SIZE,
+        );
+    }
+
+    /**
+     * The id a keyset page resumes after; 0 for the first page. A cursor that
+     * decodes but names no usable id — another endpoint's cursor, say — is
+     * refused rather than read as page one, which would silently restart a
+     * client's iteration from the top.
+     */
+    #afterId(cursor) {
+        const decoded = decodeCursor(cursor, 'share cursor');
+        if (decoded === undefined) return 0;
+        const id = Number(decoded.id);
+        if (!Number.isInteger(id) || id < 0) {
+            throw new HttpError(400, 'invalid share cursor', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return id;
+    }
 
     #normalizeRow(row) {
         if (!row) return null;

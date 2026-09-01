@@ -152,6 +152,54 @@ export default suite('sharing', {
         );
     },
 
+    'listSharedByMe lists what you shared out, invites included': async (t) => {
+        const path = scratch(t, 'outbound');
+        await t.puter.fs.write(path, 'x');
+        await t.puter.fs.share(path, t.env.users.other.username, 'read');
+        const email = `pending-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        await t.puter.fs.share(path, email);
+
+        const page = await t.puter.fs.listSharedByMe({ includeTotal: true });
+        t.assert.ok(Array.isArray(page.items), 'items should be an array');
+        t.assert.equal(typeof page.total, 'number');
+
+        // Own items appear at their real path, with the holder named.
+        const mine = page.items.filter((share) => share.path === path);
+        t.assert.ok(
+            mine.some((share) => share.holder === t.env.users.other.username),
+            'the claimed share should be listed',
+        );
+        const invite = mine.find((share) => share.pending);
+        t.assert.ok(invite, 'the unclaimed invite should be listed');
+        t.assert.equal(invite!.recipientEmail, email);
+        t.assert.equal(invite!.holder, null);
+    },
+
+    'listSharedByMe pages through the cursor': async (t) => {
+        const paths = [scratch(t, 'page-a'), scratch(t, 'page-b')];
+        for (const path of paths) {
+            await t.puter.fs.write(path, 'x');
+            await t.puter.fs.share(path, t.env.users.other.username, 'read');
+        }
+
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        // Bounded: the account accumulates shares across the suite, but far
+        // fewer than this many pages.
+        for (let page = 0; page < 100; page++) {
+            const listed = await t.puter.fs.listSharedByMe({ limit: 1, cursor });
+            t.assert.ok(listed.items.length <= 1, 'limit should bound the page');
+            seen.push(...listed.items.map((share) => share.path));
+            cursor = listed.cursor;
+            if (!cursor) break;
+        }
+
+        t.assert.equal(cursor, undefined);
+        for (const path of paths) {
+            t.assert.ok(seen.includes(path), `${path} should be paged through`);
+        }
+    },
+
     'sharing an unknown recipient rejects': async (t) => {
         const path = scratch(t, 'nobody');
         await t.puter.fs.write(path, 'x');

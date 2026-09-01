@@ -585,6 +585,423 @@ describe('ShareService', () => {
         });
     });
 
+    describe('the outbound listing', () => {
+        const listSharedByMe = (
+            actor: Actor,
+            opts?: { limit?: number; cursor?: string; includeTotal?: boolean },
+        ) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedByMe(actor, opts),
+            );
+
+        it('gathers shares on unrelated items into one listing', async () => {
+            const owner = await makeUser();
+            const first = await makeUser();
+            const second = await makeUser();
+            const files = [
+                await makeFile(owner.user),
+                await makeFile(owner.user),
+                await makeFile(owner.user),
+            ];
+
+            for (const [index, file] of files.entries()) {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: {
+                        email: index === 2 ? second.email : first.email,
+                    },
+                    mode: 'read',
+                });
+            }
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items.map((i) => i.entryUid).sort()).toEqual(
+                files.map((f) => f.uuid).sort(),
+            );
+            // The caller owns these, so the paths are their own.
+            expect(listed.items.map((i) => i.path).sort()).toEqual(
+                files.map((f) => f.path).sort(),
+            );
+            expect(listed.items.map((i) => i.holder.username).sort()).toEqual(
+                [
+                    first.user.username,
+                    first.user.username,
+                    second.user.username,
+                ].sort(),
+            );
+        });
+
+        it('shows the owner what a manage delegate shared from their item', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            const byHolder = new Map(
+                listed.items.map((i) => [i.holder.username, i]),
+            );
+            expect([...byHolder.keys()].sort()).toEqual(
+                [delegate.user.username, third.user.username].sort(),
+            );
+            expect(byHolder.get(third.user.username)?.issuer.username).toBe(
+                delegate.user.username,
+            );
+            expect(byHolder.get(third.user.username)?.entryUid).toBe(file.uuid);
+        });
+
+        it('masks the owner path on a share the caller issued as a delegate', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+            const unrelated = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(owner.actor, {
+                uid: unrelated.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+
+            // Only what the delegate handed out — the owner's own share of an
+            // item they never touched is not theirs to see.
+            const listed = await listSharedByMe(delegate.actor);
+            expect(listed.items).toHaveLength(1);
+            expect(listed.items[0].entryUid).toBe(file.uuid);
+            expect(listed.items[0].path).toBe(
+                `/${owner.user.username}/${file.uuid}/${file.name}`,
+            );
+            expect(listed.items[0].owner?.username).toBe(
+                owner.user.username,
+            );
+        });
+
+        it('drops a delegate-issued share from both listings once revoked, never from the recipient\'s', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const heldByRecipient = (
+                items: Array<{ holder: { username: string | null } }>,
+            ) => items.some((i) => i.holder.username === recipient.user.username);
+
+            expect(
+                heldByRecipient((await listSharedByMe(owner.actor)).items),
+            ).toBe(true);
+            expect(
+                (await listSharedByMe(delegate.actor)).items.map(
+                    (i) => i.entryUid,
+                ),
+            ).toEqual([file.uuid]);
+            // The recipient only holds the share; that is inbound for them,
+            // not something they issued or own the node for.
+            expect((await listSharedByMe(recipient.actor)).items).toEqual([]);
+
+            await unshare(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+            });
+
+            expect(
+                heldByRecipient((await listSharedByMe(owner.actor)).items),
+            ).toBe(false);
+            expect((await listSharedByMe(delegate.actor)).items).toEqual([]);
+        });
+
+        it('never lists a share another user made', async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const recipient = await makeUser();
+            const ownersFile = await makeFile(owner.user);
+            const othersFile = await makeFile(other.user);
+
+            await share(owner.actor, {
+                uid: ownersFile.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            await share(other.actor, {
+                uid: othersFile.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const listed = await listSharedByMe(other.actor);
+            expect(listed.items.map((i) => i.entryUid)).toEqual([
+                othersFile.uuid,
+            ]);
+        });
+
+        it('drops a share once it is revoked', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            expect(
+                (await listSharedByMe(owner.actor)).items.map(
+                    (i) => i.entryUid,
+                ),
+            ).toEqual([file.uuid]);
+
+            await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+            });
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        it('is an empty page for someone who has shared nothing', async () => {
+            const nobody = await makeUser();
+            const listed = await listSharedByMe(nobody.actor, {
+                includeTotal: true,
+            });
+            expect(listed.items).toEqual([]);
+            expect(listed.cursor).toBeUndefined();
+            expect(listed.total).toBe(0);
+        });
+
+        it('carries an unclaimed invite as pending', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `invitee-${Math.random()
+                .toString(36)
+                .slice(2, 8)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items).toHaveLength(1);
+            expect(listed.items[0].pending).toBe(true);
+            expect(listed.items[0].recipientEmail).toBe(email);
+            expect(listed.items[0].holder.username).toBeNull();
+        });
+
+        it("drops only the withdrawn issuer's row when another grant keeps the holder reachable", async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const holder = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: holder.email },
+                mode: 'read',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: holder.email },
+                mode: 'read',
+            });
+
+            // The owner's grant goes through the permission API and the index
+            // row is left behind (what `onGrantRevoked` cannot fix when it
+            // can't name the issuer). The delegate's grant still reaches the
+            // holder — that must not keep the owner's dead row listed.
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    holder.user.username!,
+                    `fs:${file.uuid}:read`,
+                ),
+            );
+
+            const listed = await listSharedByMe(owner.actor);
+            const pairs = listed.items
+                .map((i) => `${i.issuer.username}>${i.holder.username}`)
+                .sort();
+            expect(pairs).toEqual(
+                [
+                    `${owner.user.username}>${delegate.user.username}`,
+                    `${delegate.user.username}>${holder.user.username}`,
+                ].sort(),
+            );
+        });
+
+        it("takes a revoked delegate's unclaimed invites with them", async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `orphan-${Math.random()
+                .toString(36)
+                .slice(2, 8)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+            expect(
+                (await listSharedByMe(delegate.actor)).items.some(
+                    (i) => i.pending,
+                ),
+            ).toBe(true);
+
+            await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+            });
+
+            // The row itself is gone, not just hidden: nothing else would
+            // ever retire it.
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+            expect((await listSharedByMe(delegate.actor)).items).toEqual([]);
+        });
+
+        it('hides an invite whose issuer lost their authority outside unshare', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `stale-${Math.random()
+                .toString(36)
+                .slice(2, 8)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // Withdrawn through the permission API: no share-row cleanup runs,
+            // but the listing must not keep publishing the entry to an issuer
+            // whose access is gone.
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    delegate.user.username!,
+                    `manage:fs:${file.uuid}`,
+                ),
+            );
+
+            expect(
+                await server.stores.share.listPendingByEmail(email),
+            ).toHaveLength(1);
+            expect((await listSharedByMe(delegate.actor)).items).toEqual([]);
+            expect(
+                (await listSharedByMe(owner.actor)).items.some(
+                    (i) => i.pending,
+                ),
+            ).toBe(false);
+        });
+
+        it('reads the app off an invite recorded under the legacy key', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `legacy-${Math.random()
+                .toString(36)
+                .slice(2, 8)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+            const [row] = await server.stores.share.listPendingByEmail(email);
+            await server.clients.db.write(
+                'UPDATE `share` SET `data` = ? WHERE `uid` = ?',
+                [JSON.stringify({ issuerAppUid: 'app-legacy' }), row.uid],
+            );
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items).toHaveLength(1);
+            expect(listed.items[0].issuedByApp).toBe('app-legacy');
+        });
+
+        it('walks every page through the cursor', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const files = [
+                await makeFile(owner.user),
+                await makeFile(owner.user),
+                await makeFile(owner.user),
+            ];
+            for (const file of files) {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+            }
+
+            const seen: string[] = [];
+            let cursor: string | undefined;
+            let total: number | undefined;
+            for (let page = 0; page < 5; page++) {
+                const listed = await listSharedByMe(owner.actor, {
+                    limit: 1,
+                    cursor,
+                    includeTotal: cursor === undefined,
+                });
+                seen.push(...listed.items.map((i) => i.entryUid));
+                total ??= listed.total;
+                cursor = listed.cursor;
+                if (!cursor) break;
+            }
+
+            expect(cursor).toBeUndefined();
+            expect(seen.sort()).toEqual(files.map((f) => f.uuid).sort());
+            expect(total).toBe(files.length);
+        });
+    });
+
     it('takes downstream access with a delegate who leaves', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();

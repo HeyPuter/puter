@@ -15,6 +15,7 @@ import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
 import getShares from './operations/getShares.js';
 import listShared from './operations/listShared.js';
+import listSharedByMe from './operations/listSharedByMe.js';
 import mkdir from './operations/mkdir.js';
 import move from './operations/move.js';
 import read from './operations/read.js';
@@ -63,6 +64,7 @@ export class PuterJSFileSystemModule extends PuterModule {
     share = share;
     unshare = unshare;
     listShared = listShared;
+    listSharedByMe = listSharedByMe;
     getShares = getShares;
 
     FSItem = FSItem;
