@@ -1970,11 +1970,7 @@ window.initgui = async function (options) {
             // a logged-in user, so drop the overlay. This must happen before
             // the verification gates below: the overlay's max z-index would
             // cover them.
-            const app_landing = document.getElementById('appLanding');
-            if (app_landing) {
-                app_landing.classList.add('fade-out');
-                setTimeout(() => app_landing.remove(), 600);
-            }
+            document.getElementById('appLanding')?.remove();
             // Verification gates run in order: email → phone (SMS) → card,
             // matching the server-side order in assertVerifiedAccount.
             if (whoami.requires_email_confirmation) {
