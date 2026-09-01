@@ -15,14 +15,20 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Deduplicate then constrain. See sqlite/0072 for why duplicates exist and why
--- dropping the higher-id row is lossless.
--- Idempotent: the delete is a no-op once unique, and the index guards itself.
+-- Deduplicate then constrain. See sqlite/0075 for why this is lossless.
 
-DELETE FROM jct_user_group
-WHERE id NOT IN (
-    SELECT MIN(id) FROM jct_user_group GROUP BY user_id, group_id
-);
+-- Guarded because postgres re-runs every file on each boot; `to_regclass` follows
+-- search_path, so it resolves under a test schema too.
+DO $mig15$
+BEGIN
+    IF to_regclass('idx_jct_user_group_pair') IS NULL THEN
+        DELETE FROM jct_user_group
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM jct_user_group GROUP BY user_id, group_id
+        );
+    END IF;
+END
+$mig15$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_jct_user_group_pair
     ON jct_user_group (user_id, group_id);

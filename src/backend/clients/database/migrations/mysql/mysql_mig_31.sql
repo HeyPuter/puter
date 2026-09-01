@@ -15,19 +15,10 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Deduplicate then constrain. See sqlite/0072 for why duplicates exist and why
--- dropping the higher-id row is lossless.
+-- Deduplicate then constrain. See sqlite/0075 for why this is lossless.
 
--- Self-join rather than `id NOT IN (SELECT MIN(id) ... FROM jct_user_group)`,
--- which mysql refuses with error 1093 -- it will not read the table it deletes
--- from in a subquery. Keeps the lowest id of each pair.
-DELETE dup FROM `jct_user_group` dup
-JOIN `jct_user_group` keep
-  ON  dup.`user_id`  = keep.`user_id`
-  AND dup.`group_id` = keep.`group_id`
-  AND dup.`id`       > keep.`id`;
-
--- Guarded because mysql tracks no applied-state per file, so this may re-run.
+-- Both steps sit behind the index check: mysql re-runs this file on every boot, and
+-- guarding them together stops a rolling deploy deleting and indexing concurrently.
 DROP PROCEDURE IF EXISTS _puter_add_membership_pair_index;
 
 DELIMITER //
@@ -39,6 +30,13 @@ BEGIN
       AND TABLE_NAME = 'jct_user_group'
       AND INDEX_NAME = 'idx_jct_user_group_pair'
   ) THEN
+    -- Self-join because mysql refuses `NOT IN (SELECT ... FROM jct_user_group)` (1093).
+    DELETE dup FROM `jct_user_group` dup
+    JOIN `jct_user_group` keep
+      ON  dup.`user_id`  = keep.`user_id`
+      AND dup.`group_id` = keep.`group_id`
+      AND dup.`id`       > keep.`id`;
+
     ALTER TABLE `jct_user_group`
       ADD UNIQUE INDEX `idx_jct_user_group_pair` (`user_id`, `group_id`);
   END IF;
