@@ -65,6 +65,57 @@ interface PuterGuiAddonsEvent {
 }
 
 /**
+ * Pre-paint gate for server-rendered anonymous markup.
+ *
+ * The shell is rendered from the session cookie alone, and a browser drops that
+ * cookie on quit while the GUI's localStorage token lives on. So a returning
+ * user is served the anonymous markup extensions splice in - the marketing
+ * homepage, an `/app/<name>` landing - and the GUI only tears it down once
+ * `whoami` answers, a network round-trip after first paint. That teardown is
+ * the flash.
+ *
+ * This runs in `<head>`, before any of that markup is parsed, so a browser
+ * holding a token never paints it: the rule is already in the cascade when the
+ * element arrives. `initgui` removes the nodes for good once `whoami` confirms
+ * the session, and puts them back if it doesn't (see `has-stored-session`
+ * there).
+ *
+ * Anonymous markup opts in with `class="hide-if-logged-in"`.
+ *
+ * SEO: the HTML is byte-identical for every client - nothing branches on
+ * user-agent. A crawler has no stored token, so it never adds the class and
+ * sees the landing exactly as served. Storage being unreadable (private modes,
+ * blocked site data) fails open the same way.
+ *
+ * The key is the one `gui/src/globals.js` boots `window.auth_token` from
+ * (`AUTH_TOKEN_KEY_V2`); the retired `auth_token` key can no longer
+ * authenticate, so a value under it must not hide anything.
+ */
+const SESSION_GATE = `
+    <style>html.has-stored-session .hide-if-logged-in{display:none!important}</style>
+    <script>
+    (function () {
+        try {
+            if (!localStorage.getItem('auth_token_v2')) return;
+        } catch (e) {
+            // Storage unreadable - fail open and show the markup.
+            return;
+        }
+        document.documentElement.classList.add('has-stored-session');
+        // Self-healing: the token is only a guess until \`whoami\` rules on it,
+        // and \`initgui\` is what settles the guess. If it never gets there -
+        // bundle blocked, boot threw - hiding the markup would leave a blank
+        // page for good, so hand it back.
+        window.addEventListener('load', function () {
+            setTimeout(function () {
+                if (window.__puter_session_settled) return;
+                document.documentElement.classList.remove('has-stored-session');
+            }, 12000);
+        });
+    })();
+    </script>`;
+
+/**
  * Serves the root HTML shell that bootstraps the Puter GUI.
  *
  * Extensions contribute by:
@@ -271,6 +322,7 @@ export class PuterHomepageService extends PuterService {
 <html lang="en">
 <head>
     <title>${e(title)}</title>
+    ${SESSION_GATE}
     ${event.prependHeadContent}
 
     <link rel="preload" href="${guiBundle}" as="script" />
