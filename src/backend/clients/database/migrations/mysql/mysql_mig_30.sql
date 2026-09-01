@@ -25,7 +25,7 @@ CALL _puter_add_col('group', 'handle', '`handle` varchar(64) DEFAULT NULL');
 CALL _puter_add_col('group', 'plan_id', '`plan_id` varchar(64) DEFAULT NULL');
 CALL _puter_add_col('group', 'deleted_at', '`deleted_at` timestamp NULL DEFAULT NULL');
 CALL _puter_add_col('jct_user_group', 'org_owned', '`org_owned` tinyint(1) DEFAULT NULL');
-CALL _puter_add_col('user', 'requires_password_change', '`requires_password_change` tinyint(1) DEFAULT NULL');
+CALL _puter_add_col('user', 'requires_password_change', '`requires_password_change` tinyint(1) NOT NULL DEFAULT ''0''');
 
 DROP PROCEDURE IF EXISTS _puter_add_team_indexes;
 DELIMITER //
