@@ -213,12 +213,17 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         expect(shareColumns.map((r) => r.name)).toContain('holder_group_id');
 
         const indexes = (await client.read(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE ? OR name LIKE ?",
+            "SELECT name FROM sqlite_master WHERE type = 'index' " +
+                'AND (name LIKE ? OR name LIKE ?)',
             ['idx_audit_team_membership%', 'idx_share_holder_group%'],
         )) as { name: string }[];
         expect(indexes.map((r) => r.name).sort()).toEqual([
+            // The `_fk` three stop a user or group delete scanning the audit table.
+            'idx_audit_team_membership_actor_fk',
             'idx_audit_team_membership_group',
+            'idx_audit_team_membership_group_fk',
             'idx_audit_team_membership_user',
+            'idx_audit_team_membership_user_fk',
             'idx_share_holder_group',
             'idx_share_holder_group_entry_issuer',
         ]);
@@ -288,6 +293,20 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         await expect(insertShare('share-team-c', groups[0].id)).rejects.toThrow(
             /UNIQUE/iu,
         );
+    });
+
+    it('matches a handle case-insensitively on lookup, not just on insert', async () => {
+        // Index-only NOCASE would leave `WHERE handle = ?` case-sensitive here while
+        // mysql's utf8mb4_unicode_ci column matched -- one query, two behaviours.
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['design-team'],
+        );
+        await expect(
+            client.read('SELECT `handle` FROM `group` WHERE `handle` = ?', [
+                'Design-Team',
+            ]),
+        ).resolves.toEqual([{ handle: 'design-team' }]);
     });
 
     it('runs the javascript migrations, not just the .sql ones', async () => {

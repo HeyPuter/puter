@@ -30,9 +30,9 @@ CREATE TABLE IF NOT EXISTS `audit_team_membership` (
   PRIMARY KEY (`id`),
   KEY `idx_audit_team_membership_group` (`group_id_keep`, `id`),
   KEY `idx_audit_team_membership_user` (`user_id_keep`, `id`),
-  KEY `fk_audit_team_membership_group` (`group_id`),
-  KEY `fk_audit_team_membership_user` (`user_id`),
-  KEY `fk_audit_team_membership_actor` (`actor_user_id`),
+  KEY `idx_audit_team_membership_group_fk` (`group_id`),
+  KEY `idx_audit_team_membership_user_fk` (`user_id`),
+  KEY `idx_audit_team_membership_actor_fk` (`actor_user_id`),
   -- SET NULL, never CASCADE: deleting an account must not erase what was done to it.
   CONSTRAINT `fk_audit_team_membership_group` FOREIGN KEY (`group_id`)
     REFERENCES `group` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
@@ -57,8 +57,7 @@ BEGIN
   ) THEN
     ALTER TABLE `share` ADD INDEX `idx_share_holder_group` (`holder_group_id`, `id`);
   END IF;
-  -- Team shares leave `holder_user_id` NULL, and NULLs are distinct, so the
-  -- existing unique index constrains nothing for them.
+  -- Team shares leave `holder_user_id` NULL, so the existing unique index binds none.
   IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
     WHERE TABLE_SCHEMA = DATABASE()
