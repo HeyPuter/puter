@@ -40,11 +40,8 @@ export class GroupStore extends PuterStore {
     async addUsers(uid: string, usernames: string[]): Promise<void> {
         if (usernames.length === 0) return;
         const placeholders = `(${usernames.map(() => '?').join(', ')})`;
-        // Ignore conflicts on the (user_id, group_id) unique index added in
-        // 0072. Re-adding a member was previously a silent duplicate row, which
-        // is what that index exists to stop -- without this it becomes a raised
-        // error instead, and every caller here treats a throw as a failed
-        // signup step worth warning about.
+        // Ignore conflicts on the unique pair index from 0072; re-adding a member
+        // was a duplicate row before it, and would raise without this.
         await this.clients.db.write(
             `${this.clients.db.insertIgnoreInto('jct_user_group')} ` +
                 '(`user_id`, `group_id`) ' +
