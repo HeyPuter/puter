@@ -26,6 +26,7 @@ describe('TeamService', () => {
     let server: PuterServer;
     let service: PuterServer['services']['team'];
     let owner: { id: number };
+    let ownerUsername: string;
 
     const makeUser = async (): Promise<{ id: number; username: string }> => {
         const username = `svc_${Math.random().toString(36).slice(2, 10)}`;
@@ -69,6 +70,7 @@ describe('TeamService', () => {
         server = await setupTestServer();
         service = server.services.team;
         owner = await makeUser();
+        ownerUsername = (await server.stores.user.getById(owner.id))!.username;
     });
 
     afterAll(async () => {
@@ -143,8 +145,7 @@ describe('TeamService', () => {
         await service.disableMember(team.uid, owner.id, member.id);
 
         const row = await suspensionOf(member.id);
-        // `userProtected` rejects on `suspended`; the other two are its
-        // siblings and do not gate anything on their own.
+        // `userProtected` rejects on `suspended`; the others gate nothing.
         expect(Boolean(row.suspended)).toBe(true);
         expect(row.suspended_at).toBeGreaterThan(0);
         expect(row.suspended_reason).toBe('disabled_by_workspace');
@@ -159,8 +160,7 @@ describe('TeamService', () => {
 
         await service.disableMember(team.uid, owner.id, member.id);
 
-        // Revoked, not deleted: the row keeps `last_ip` / `last_user_agent`,
-        // which the member-facing audit view reads.
+        // Revoked, not deleted: the row keeps last_ip / last_user_agent.
         const live = await server.clients.db.read(
             'SELECT COUNT(*) AS n FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL',
             [member.id],
@@ -448,5 +448,109 @@ describe('TeamService', () => {
             email: `${u}@test.local`,
         });
         expect(r.temporaryPassword).toBeTruthy();
+    });
+    // -- audit --------------------------------------------------------
+
+    it('records provisioning, disabling and enabling as they happen', async () => {
+        const { team } = await makeWorkspace();
+        const username = `aud_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await service.disableMember(team.uid, owner.id, created.userId);
+        await service.enableMember(team.uid, owner.id, created.userId);
+
+        // Written by the service, so a caller bypassing the route cannot skip it.
+        const { items: entries } = await service.listAudit(team.uid, owner.id);
+        const forMember = entries.filter((e) => e.username === username);
+        expect(forMember.map((e) => e.action)).toEqual([
+            'enable',
+            'disable',
+            'provision',
+        ]);
+        expect(
+            forMember.every((e) => e.actor_username === ownerUsername),
+        ).toBe(true);
+    });
+
+    it('shows a member only their own entries', async () => {
+        const { team } = await makeWorkspace();
+        const a = `one_${Math.random().toString(36).slice(2, 9)}`;
+        const b = `two_${Math.random().toString(36).slice(2, 9)}`;
+        const first = await service.provisionAccount(team.uid, owner.id, {
+            username: a,
+            email: `${a}@test.local`,
+        });
+        await service.provisionAccount(team.uid, owner.id, {
+            username: b,
+            email: `${b}@test.local`,
+        });
+
+        const { items: own } = await service.listOwnAudit(team.uid, first.userId);
+        expect(own).toHaveLength(1);
+        expect(own[0].username).toBe(a);
+        // Internal ids must not reach a caller, as `toClientTeam` does for `id`.
+        expect(own[0]).not.toHaveProperty('user_id_keep');
+        expect(own[0]).not.toHaveProperty('actor_user_id');
+    });
+
+    it('keeps the audit from a member who is not the owner', async () => {
+        const { team, member } = await makeWorkspace();
+        await expect(
+            service.listAudit(team.uid, member.id),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('records a workspace deletion and survives the soft delete', async () => {
+        const { team } = await makeWorkspace();
+        await service.deleteWorkspace(team.uid, owner.id);
+
+        // Gone from reads, but its owner can still read what happened.
+        await expect(server.stores.team.getByUid(team.uid)).resolves.toBeNull();
+        const { items: entries } = await service.listAudit(team.uid, owner.id);
+        expect(entries.map((e) => e.action)).toContain('delete_team');
+    });
+    it('disables the accounts it created when the workspace is deleted', async () => {
+        const { team } = await makeWorkspace();
+        const u = `del_${Math.random().toString(36).slice(2, 9)}`;
+        const provisioned = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+
+        await service.deleteWorkspace(team.uid, owner.id);
+
+        // Otherwise they keep working, unreachable through a deleted workspace.
+        const row = await suspensionOf(provisioned.userId);
+        expect(Boolean(row.suspended)).toBe(true);
+        expect(row.suspended_reason).toBe('disabled_by_workspace');
+    });
+
+    it('leaves the workspace owner alone when its workspace is deleted', async () => {
+        const { team } = await makeWorkspace();
+        await service.deleteWorkspace(team.uid, owner.id);
+
+        // org_owned = 0, so it pays for itself and is not the workspace's to close.
+        expect(Boolean((await suspensionOf(owner.id)).suspended)).toBe(false);
+    });
+
+    it('pages the audit rather than truncating it', async () => {
+        const { team } = await makeWorkspace();
+        for (let i = 0; i < 2; i++) {
+            const u = `pg_${Math.random().toString(36).slice(2, 9)}`;
+            await service.provisionAccount(team.uid, owner.id, {
+                username: u,
+                email: `${u}@test.local`,
+            });
+        }
+
+        const first = await service.listAudit(team.uid, owner.id, { limit: 1 });
+        expect(first.items).toHaveLength(1);
+        expect(first.cursor).toBeTruthy();
+
+        // Older entries stay reachable instead of dropping off the view.
+        const second = await service.listAudit(team.uid, owner.id, { limit: 1 });
+        expect(second.items).toHaveLength(1);
     });
 });
