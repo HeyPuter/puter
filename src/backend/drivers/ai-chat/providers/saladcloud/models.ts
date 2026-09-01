@@ -45,6 +45,45 @@ export const SALADCLOUD_MODELS: IChatModel[] = [
         structured_output: true,
         release_date: '2026-04-17',
     },
+    {
+        id: 'saladcloud:qwen3.6-27b',
+        name: 'Qwen3.6 27B (SaladCloud)',
+        aliases: ['saladcloud/qwen3.6-27b'],
+        description:
+            'Open multimodal Qwen dense model balancing capability and speed',
+        context: 262_144,
+        max_tokens: 262_144,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: usdPerMToken(0.3, 1.2, 0.3),
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        reasoning: true,
+        structured_output: true,
+        release_date: '2026-04-22',
+    },
+    {
+        // SaladCloud publishes no release date for this one and no other
+        // catalog here carries it; the field is left off rather than guessed.
+        id: 'saladcloud:qwen3.5-9b',
+        name: 'Qwen3.5 9B (SaladCloud)',
+        aliases: ['saladcloud/qwen3.5-9b'],
+        description:
+            'Open multimodal Qwen dense model tuned for low-latency, high-volume prompts',
+        context: 262_144,
+        max_tokens: 262_144,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: usdPerMToken(0.06, 0.09, 0.06),
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        reasoning: true,
+        structured_output: true,
+    },
 ];
 
 export const stripSaladCloudPrefix = (modelId: string): string =>

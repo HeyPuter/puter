@@ -34,10 +34,13 @@ const fsService = {} as ConstructorParameters<typeof SaladCloudProvider>[3];
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'SaladCloudProvider (integration)',
     () => {
-        it(
-            'returns a non-empty completion via SaladCloud',
-            { timeout: INTEGRATION_TEST_TIMEOUT_MS },
-            async () => {
+        it.each([
+            'saladcloud:qwen3.6-35b-a3b',
+            'saladcloud:qwen3.6-27b',
+            'saladcloud:qwen3.5-9b',
+        ])(
+            'returns a non-empty completion from %s',
+            async (model) => {
                 const provider = new SaladCloudProvider(
                     { apiKey: optionalEnv(ENV_VAR)! },
                     makeMeteringStub(),
@@ -47,7 +50,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
                 const result = await withTestActor(() =>
                     provider.complete({
-                        model: 'saladcloud:qwen3.6-35b-a3b',
+                        model,
                         messages: [
                             { role: 'user', content: 'Say hi in one word.' },
                         ],
@@ -59,6 +62,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                     .message?.content;
                 expect(typeof text === 'string' && text.length > 0).toBe(true);
             },
+            INTEGRATION_TEST_TIMEOUT_MS,
         );
     },
 );

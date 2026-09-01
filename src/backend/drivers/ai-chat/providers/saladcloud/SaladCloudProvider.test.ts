@@ -92,10 +92,14 @@ describe('SaladCloudProvider construction', () => {
 });
 
 describe('SaladCloudProvider model catalog', () => {
-    it('exposes only Qwen3.6 35B-A3B with SaladCloud pricing', async () => {
+    it('exposes every published SaladCloud model with its listed pricing', async () => {
         const provider = makeProvider();
         expect(provider.models()).toBe(SALADCLOUD_MODELS);
-        expect(provider.models()).toHaveLength(1);
+        expect(provider.models().map((model) => model.id)).toEqual([
+            'saladcloud:qwen3.6-35b-a3b',
+            'saladcloud:qwen3.6-27b',
+            'saladcloud:qwen3.5-9b',
+        ]);
         expect(provider.models()[0]).toMatchObject({
             id: 'saladcloud:qwen3.6-35b-a3b',
             context: 262_144,
@@ -109,10 +113,47 @@ describe('SaladCloudProvider model catalog', () => {
             modalities: { input: ['text', 'image'], output: ['text'] },
             tool_call: true,
         });
+        expect(provider.models()[1]).toMatchObject({
+            id: 'saladcloud:qwen3.6-27b',
+            costs: {
+                tokens: 1_000_000,
+                prompt_tokens: 30,
+                completion_tokens: 120,
+                cached_tokens: 30,
+            },
+        });
+        expect(provider.models()[2]).toMatchObject({
+            id: 'saladcloud:qwen3.5-9b',
+            costs: {
+                tokens: 1_000_000,
+                prompt_tokens: 6,
+                completion_tokens: 9,
+                cached_tokens: 6,
+            },
+        });
         expect(await provider.list()).toEqual([
             'saladcloud:qwen3.6-35b-a3b',
             'saladcloud/qwen3.6-35b-a3b',
+            'saladcloud:qwen3.6-27b',
+            'saladcloud/qwen3.6-27b',
+            'saladcloud:qwen3.5-9b',
+            'saladcloud/qwen3.5-9b',
         ]);
+    });
+
+    it('routes each model to its own upstream id', async () => {
+        for (const [requested, wire] of [
+            ['saladcloud:qwen3.6-27b', 'qwen3.6-27b'],
+            ['saladcloud/qwen3.5-9b', 'qwen3.5-9b'],
+        ]) {
+            createMock.mockReset();
+            createMock.mockResolvedValue(completion);
+            await makeProvider().complete({
+                model: requested,
+                messages: [{ role: 'user', content: 'hi' }],
+            } as ICompleteArguments);
+            expect(createMock.mock.calls[0]![0].model).toBe(wire);
+        }
     });
 });
 
