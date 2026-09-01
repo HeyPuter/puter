@@ -820,6 +820,47 @@ describe('ShareStore', () => {
             expect(second.row.data.issuedByApp).toBeUndefined();
         });
 
+        it('filters and groups a legacy-keyed app row like a current one', async () => {
+            const entry = await makeEntry(issuer);
+            const legacyHolder = await makeUser();
+            const created = await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: legacyHolder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            // A row written before the keys were unified on `issuedByApp`.
+            await server.clients.db.write(
+                'UPDATE `share` SET `data` = ? WHERE `uid` = ?',
+                [JSON.stringify({ issuerAppUid: 'app-legacy' }), created.uid],
+            );
+
+            const scoped = await store.listOutbound(issuer.id, {
+                appUid: 'app-legacy',
+            });
+            expect(scoped.items.map((r) => r.uid)).toEqual([created.uid]);
+            expect(
+                await store.countOutbound(issuer.id, { appUid: 'app-legacy' }),
+            ).toBe(1);
+
+            const grouped = await store.listOutboundApps(issuer.id, {
+                limit: 200,
+            });
+            expect(
+                grouped.items.find((g) => g.appUid === 'app-legacy')?.count,
+            ).toBe(1);
+        });
+
+        it('refuses an apps cursor that decodes but names no appUid', async () => {
+            await expect(
+                store.listOutboundApps(issuer.id, {
+                    cursor: Buffer.from(JSON.stringify({ id: 4 })).toString(
+                        'base64',
+                    ),
+                }),
+            ).rejects.toThrow('invalid share app cursor');
+        });
+
         it('drops only one issuer unclaimed invites under a subtree', async () => {
             const entry = await makeEntry(issuer);
             const mine = await store.upsertPending({

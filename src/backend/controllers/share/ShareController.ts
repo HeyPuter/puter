@@ -289,8 +289,9 @@ export class ShareController extends PuterController {
         rateLimit: SHARE_LIST_LIMIT,
     })
     async listSharedByMe(req: Request, res: Response): Promise<void> {
+        const appUid = this.#appUidFilter(this.#query(req));
         await this.#listSharePage(req, res, (actor, opts) =>
-            this.services.share.listSharedByMe(actor, opts),
+            this.services.share.listSharedByMe(actor, { ...opts, appUid }),
         );
     }
 
@@ -317,7 +318,6 @@ export class ShareController extends PuterController {
             limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
             cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
             includeTotal: query.includeTotal === 'true',
-            appUid: this.#appUidFilter(query),
         });
 
         res.json({
@@ -359,10 +359,14 @@ export class ShareController extends PuterController {
     }
 
     /**
-     * DELETE /share/shared-by-me/:uid — withdraw one listed share.
+     * DELETE /share/shared-by-me/:uid — withdraw one listed share, scoped to
+     * that row's issuer.
      *
-     * An uid the caller's own listing would not show them answers 404 like an
-     * uid that names nothing at all, so this can't be used to learn which.
+     * An uid outside the caller's view — another account's, or another app's to
+     * an app — answers 404 like one that names nothing, so this can't be used
+     * to learn which. Within their view, the revoke's own rules answer: lapsed
+     * authority gets the ACL's error, a grant already withdrawn elsewhere
+     * reports `revoked: 0`.
      */
     @Delete('/shared-by-me/:uid', {
         subdomain: 'api',
@@ -574,10 +578,19 @@ export class ShareController extends PuterController {
      * The app a listing is narrowed to: an uid, `null` for the grants no app
      * issued, or undefined for all of them. `NO_APP` is the drill-in for the
      * group the summary reports with a null `appUid`.
+     *
+     * Malformed input is refused rather than read as "unscoped": a duplicated
+     * query param arrives as an array and an empty string names nothing, and a
+     * caller who believes they filtered must not silently receive everything.
      */
     #appUidFilter(query: Record<string, unknown>): string | null | undefined {
         const value = query.appUid;
-        if (typeof value !== 'string' || value === '') return undefined;
+        if (value === undefined) return undefined;
+        if (typeof value !== 'string' || value === '') {
+            throw new HttpError(400, '`appUid` must be a single app uid', {
+                legacyCode: 'bad_request',
+            });
+        }
         return value === NO_APP ? null : value;
     }
 

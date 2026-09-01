@@ -202,10 +202,15 @@ export class ShareStore extends PuterStore {
     async listOutboundApps(userId, { limit, cursor } = {}) {
         const size = this.#pageSize(limit);
         const decoded = decodeCursor(cursor, 'share app cursor');
-        // The no-app group is the empty string, so a first page cannot seek
-        // past it — it resumes only once a cursor names where it got to.
-        const after =
-            typeof decoded?.appUid === 'string' ? decoded.appUid : null;
+        // A cursor that decodes but names no appUid — another listing's, say —
+        // is refused rather than read as page one. The no-app group is the
+        // empty string, so a first page cannot seek past it.
+        if (decoded !== undefined && typeof decoded.appUid !== 'string') {
+            throw new HttpError(400, 'invalid share app cursor', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const after = decoded === undefined ? null : String(decoded.appUid);
 
         const rows = await this.clients.db.read(
             'SELECT `app_uid`, COUNT(*) AS `count` FROM (' +
@@ -735,19 +740,23 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * The app recorded on a row, as a SQL expression over its `data`.
+     * The app recorded on a row, as a SQL expression over its `data`. Two
+     * spellings in the wild — pending rows were written with `issuerAppUid`
+     * before the keys were unified on `issuedByApp`, and claiming carries
+     * `data` forward — so both are read, matching the service-side reader.
      *
      * The column is typed JSON on mysql and postgres, but sqlite stores
      * whatever it was handed and legacy rows carry plain strings — extracting
      * from one of those aborts the whole query, so there the read is guarded.
      */
     #issuedByAppExpr(dataColumn) {
-        const extract = this.clients.db.jsonTextExtract(dataColumn, [
-            'issuedByApp',
-        ]);
+        const extracts = ['issuedByApp', 'issuerAppUid'].map((key) =>
+            this.clients.db.jsonTextExtract(dataColumn, [key]),
+        );
+        const coalesced = `COALESCE(${extracts.join(', ')})`;
         return this.clients.db.case({
-            sqlite: `CASE WHEN json_valid(${dataColumn}) THEN ${extract} END`,
-            otherwise: extract,
+            sqlite: `CASE WHEN json_valid(${dataColumn}) THEN ${coalesced} END`,
+            otherwise: coalesced,
         });
     }
 

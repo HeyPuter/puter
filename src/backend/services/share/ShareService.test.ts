@@ -1218,6 +1218,129 @@ describe('ShareService', () => {
             expect((await listSharedByMe(owner.actor)).items).toEqual([]);
         });
 
+        it('revokes only the named row when two issuers reach the same pair', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            // The app addresses its own row; the delegate's grant on the same
+            // (file, recipient) pair is not its to take.
+            const listed = await listSharedByMe(asApp(owner, app));
+            expect(listed.items).toHaveLength(1);
+            await revokeByUid(asApp(owner, app), listed.items[0].uid);
+
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+            const remaining = await server.services.share.listSharesOf(
+                owner.actor,
+                { uid: file.uuid },
+            );
+            expect(
+                remaining.some(
+                    (row) =>
+                        row.holder.username === recipient.user.username &&
+                        row.issuer.username === delegate.user.username,
+                ),
+            ).toBe(true);
+        });
+
+        it('takes back an invite whose address registered but never claimed', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `late-${uuidv4().slice(0, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // The address's owner signs up and confirms, but the claim never
+            // runs — the row still has no holder, so recipient-addressed
+            // revocation can't find it. The uid-addressed one must.
+            const late = await makeUser();
+            await server.stores.user.update(late.user.id, {
+                email,
+                clean_email: email,
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items[0].pending).toBe(true);
+            expect(
+                await revokeByUid(owner.actor, listed.items[0].uid),
+            ).toEqual({ revoked: 1 });
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        // One row records one issuance, so attribution follows the most
+        // recent one — in both directions.
+        it('re-attributes a grant to whoever issued it last', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            const viaApp = await listSharedByMe(asApp(owner, app));
+            expect(viaApp.items).toHaveLength(1);
+            const uid = viaApp.items[0].uid;
+
+            // Re-shared by hand: the grant is now the user's own. The app's
+            // scoped view drops it, and its uid-addressed delete no longer
+            // names a row it issued.
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'write',
+            });
+            expect((await listSharedByMe(asApp(owner, app))).items).toEqual(
+                [],
+            );
+            const manual = await listSharedByMe(owner.actor, { appUid: null });
+            expect(manual.items.map((i) => i.uid)).toEqual([uid]);
+            await expect(revokeByUid(asApp(owner, app), uid)).rejects.toMatchObject(
+                { statusCode: 404 },
+            );
+
+            // And back: re-shared through the app, the same row is the app's
+            // again.
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(
+                (await listSharedByMe(asApp(owner, app))).items.map(
+                    (i) => i.uid,
+                ),
+            ).toEqual([uid]);
+        });
+
         // Every uid the caller may not act on answers alike, or the endpoint
         // becomes a way to ask whether one exists.
         it('answers 404 for an unknown uid and for another account\'s', async () => {

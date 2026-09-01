@@ -340,6 +340,26 @@ describe('share endpoints over HTTP', () => {
             expect(replayed.items).toEqual([]);
         });
 
+        // A caller who believes they filtered must not silently receive
+        // everything: a duplicated param arrives as an array, and an empty
+        // string names nothing.
+        it('refuses a malformed appUid instead of listing everything', async () => {
+            const owner = await makeUser();
+            expect(
+                (await get('/share/shared-by-me', owner.token, { appUid: '' }))
+                    .status,
+            ).toBe(400);
+            expect(
+                (
+                    await get(
+                        '/share/shared-by-me?appUid=a&appUid=a',
+                        owner.token,
+                        {},
+                    )
+                ).status,
+            ).toBe(400);
+        });
+
         // The two directions of one listing; a gate on only one of them is a
         // hole in whichever was forgotten.
         it('is gated like the inbound listing', () => {

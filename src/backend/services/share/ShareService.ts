@@ -1189,6 +1189,21 @@ export class ShareService extends PuterService {
         }
         if (issuers.length === 0) issuers = [issuerId];
 
+        return this.#withdrawGrants(actor, entry, holder, issuers);
+    }
+
+    /**
+     * Clear `issuers`' grants to `holder` on this node, and everything the
+     * holder re-shared in turn. The caller has already decided which issuers
+     * are in scope — everyone's for an owner, one row's for the uid-addressed
+     * revoke — and passed the gates for it.
+     */
+    async #withdrawGrants(
+        actor: Actor,
+        entry: FSEntry,
+        holder: { id: number; username: string },
+        issuers: number[],
+    ): Promise<{ revoked: number }> {
         // Whatever the holder re-shared goes with them, and this has to run
         // first: when the holder is the actor, clearing their own grants would
         // strip the very `manage` the cascade needs to do it.
@@ -1200,14 +1215,14 @@ export class ShareService extends PuterService {
                 writer,
                 entry,
                 holder.username,
-                issuer as number,
+                issuer,
             );
             if (didRevoke) revoked++;
             if (authorized) {
                 await this.stores.share.deleteActive({
                     holderUserId: holder.id,
                     fsentryId: entry.id,
-                    issuerUserId: issuer as number,
+                    issuerUserId: issuer,
                 });
             }
         }
@@ -1635,11 +1650,16 @@ export class ShareService extends PuterService {
     /**
      * Withdraw one share the caller listed, named by its own uid.
      *
-     * Everything the caller may not act on answers 404 alike — an uid that
-     * names nothing, another user's row, and another app's row — so the
-     * endpoint can't be used to find out which. The revoke itself is `unshare`,
-     * so a delegate's re-shares go with it exactly as they do from the per-item
-     * path.
+     * An uid the caller may not see answers 404 alike — one that names nothing,
+     * another user's row, an app's view of another app's row — so the endpoint
+     * can't be used to find out which. Past that gate the revoke's own rules
+     * answer: a caller whose authority over the node has lapsed gets the ACL's
+     * error, and a grant already withdrawn elsewhere reports `revoked: 0`.
+     *
+     * Scoped to the named row: only its issuer's grant is withdrawn, and only
+     * this one invite is cancelled — an owner (or an app) addressing one row
+     * must not take another issuer's grant on the same pair with it. The
+     * item-addressed `unshare` is the broad form.
      */
     async revokeSharedByMe(
         actor: Actor,
@@ -1670,24 +1690,34 @@ export class ShareService extends PuterService {
         }
         if (!(await this.#hasOwnReach(actor, entry, 'see'))) throw notFound();
 
-        const holder = row.holder_user_id
-            ? await this.stores.user.getById(Number(row.holder_user_id))
-            : null;
-        const recipient: ShareRecipient = holder?.username
-            ? { username: holder.username }
-            : { email: row.recipient_email };
-        if (!recipient.username && !recipient.email) throw notFound();
+        // An invite is just its row — including one whose address has since
+        // been registered but never claimed: no holder, no grant, so
+        // recipient-addressed revocation would never find it.
+        if (!row.holder_user_id) {
+            const removed = await this.stores.share.deleteByUid(row.uid);
+            return { revoked: removed ? 1 : 0 };
+        }
 
-        return this.unshare(actor, { uid: entry.uuid, recipient });
+        const holder = await this.stores.user.getById(
+            Number(row.holder_user_id),
+        );
+        if (!holder?.username) throw notFound();
+
+        await this.#assertCanManage(actor, entry);
+        if (holder.id === entry.userId) {
+            throw new HttpError(400, 'cannot revoke the owner of an item', {
+                legacyCode: 'cannot_revoke_owner',
+            });
+        }
+
+        return this.#withdrawGrants(actor, entry, holder, [
+            Number(row.issuer_user_id),
+        ]);
     }
 
     /**
      * Which app's grants this actor may see. An app credential is bound to its
      * own app whatever it asks for; a session may filter freely.
-     *
-     * `effectiveApp` is unresolved on an actor literal that skipped
-     * `makeActor`, so `app` backs it up: scoping such an actor to its own app
-     * is the safe reading, opening the cross-app view is not.
      */
     #outboundAppScope(
         actor: Actor,
@@ -1701,9 +1731,14 @@ export class ShareService extends PuterService {
         return { appUid: acting };
     }
 
-    /** The app this credential acts as, or null for a plain user session. */
+    /**
+     * The app this credential acts as, or null for a plain user session.
+     * `effectiveApp` is the one derived field for this question — see
+     * `makeActor`; re-deriving from `app` here would be a second gate to
+     * drift.
+     */
     #actingAppUid(actor: Actor): string | null {
-        return (actor.effectiveApp ?? actor.app)?.uid ?? null;
+        return actor.effectiveApp?.uid ?? null;
     }
 
     /**
