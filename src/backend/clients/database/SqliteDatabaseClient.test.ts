@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 72;
+const CURRENT_SCHEMA_VERSION = 73;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -156,6 +156,24 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
                 'Design-Team',
             ]),
         ).resolves.toEqual([{ handle: 'design-team' }]);
+    });
+
+    it('rejects a duplicate membership pair after 0077', async () => {
+        const [{ user_id, group_id }] = (await client.read(
+            'SELECT (SELECT MIN(`id`) FROM `user`) AS user_id, ' +
+                '(SELECT MIN(`id`) FROM `group`) AS group_id',
+        )) as { user_id: number; group_id: number }[];
+
+        const insert = () =>
+            client.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [user_id, group_id],
+            );
+
+        await insert();
+        // `GroupStore.addUsers` has no conflict clause, so before 0075 this
+        // second call silently doubled every group permission the user reads.
+        await expect(insert()).rejects.toThrow(/UNIQUE/iu);
     });
 
     it('runs the javascript migrations, not just the .sql ones', async () => {
@@ -479,6 +497,66 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
             ).resolves.toEqual([{ value: '"kept"' }]);
             expect(await userVersionOf(second)).toBe(CURRENT_SCHEMA_VERSION);
             second.onServerShutdown();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('deduplicates pre-existing membership rows when 0077 applies', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'puter-sqlite-dedup-'));
+        const path = join(dir, 'puter.sqlite');
+        try {
+            // Stop at 67 so the duplicates exist the way a live database's do:
+            // written before the unique index, not after it.
+            const before = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path, targetVersion: 67 }),
+            );
+            await before.onServerStart();
+
+            const [{ user_id, group_id }] = (await before.read(
+                'SELECT (SELECT MIN(`id`) FROM `user`) AS user_id, ' +
+                    '(SELECT MIN(`id`) FROM `group`) AS group_id',
+            )) as { user_id: number; group_id: number }[];
+
+            for (const pair of [
+                [user_id, group_id],
+                [user_id, group_id],
+                [user_id, group_id],
+                [user_id, group_id + 1],
+            ]) {
+                await before.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                    pair,
+                );
+            }
+            const seeded = (await before.read(
+                'SELECT `id`, `group_id` FROM `jct_user_group` ORDER BY `id`',
+            )) as { id: number; group_id: number }[];
+            expect(seeded).toHaveLength(4);
+            before.onServerShutdown();
+
+            const after = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path }),
+            );
+            await after.onServerStart();
+            expect(await userVersionOf(after)).toBe(CURRENT_SCHEMA_VERSION);
+
+            // Three copies collapse to the lowest id; the distinct pair is left
+            // alone. Losing the higher ids costs nothing -- `addUsers` writes
+            // only the two id columns, so `extra` and `metadata` are NULL.
+            await expect(
+                after.read(
+                    'SELECT `id`, `group_id` FROM `jct_user_group` ORDER BY `id`',
+                ),
+            ).resolves.toEqual([seeded[0], seeded[3]]);
+
+            await expect(
+                after.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                    [user_id, group_id],
+                ),
+            ).rejects.toThrow(/UNIQUE/iu);
+            after.onServerShutdown();
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
