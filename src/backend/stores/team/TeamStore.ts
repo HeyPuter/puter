@@ -1,0 +1,239 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import { PuterStore } from '../types';
+
+/** A workspace: a `group` row with `kind = 'team'`. */
+export interface TeamRow {
+    id: number;
+    uid: string;
+    owner_user_id: number;
+    kind: string;
+    name: string | null;
+    handle: string | null;
+    deleted_at: string | null;
+    created_at: string;
+}
+
+export const TEAM_KIND = 'team';
+
+/** Longest handle mysql can store — `varchar(64)` in mysql_mig_26. */
+export const HANDLE_MAX_LENGTH = 64;
+export const HANDLE_MIN_LENGTH = 3;
+
+/** Mysql declares `name varchar(255)`; sqlite and postgres use TEXT. */
+export const NAME_MAX_LENGTH = 255;
+
+/** Narrower than the column, so the engines' collations cannot disagree. */
+const HANDLE_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
+/** A handle reaching users in email makes an impersonation more convincing. */
+const RESERVED_HANDLES = new Set([
+    'about',
+    'account',
+    'admin',
+    'administrator',
+    'api',
+    'app',
+    'apps',
+    'billing',
+    'blog',
+    'ceo',
+    'contact',
+    'dashboard',
+    'dev',
+    'developer',
+    'docs',
+    'help',
+    'internal',
+    'legal',
+    'login',
+    'mail',
+    'moderator',
+    'official',
+    'owner',
+    'payment',
+    'payments',
+    'puter',
+    'puter-support',
+    'puterteam',
+    'root',
+    'security',
+    'settings',
+    'signup',
+    'staff',
+    'status',
+    'support',
+    'system',
+    'team',
+    'teams',
+    'trust',
+    'trust-safety',
+    'verify',
+    'workspace',
+    'workspaces',
+]);
+
+export type HandleRejection =
+    'too_short' | 'too_long' | 'malformed' | 'reserved';
+
+/** Trimmed and capped, so the same name is accepted on every engine. */
+export const normalizeTeamName = (name: string): string => {
+    const trimmed = name.trim();
+    if (trimmed === '') throw new Error('team name is required');
+    if (trimmed.length > NAME_MAX_LENGTH)
+        throw new Error('team name is too long');
+    return trimmed;
+};
+
+/** Why `handle` is unusable, or null when it is fine. */
+export const checkHandle = (handle: string): HandleRejection | null => {
+    if (handle.length < HANDLE_MIN_LENGTH) return 'too_short';
+    if (handle.length > HANDLE_MAX_LENGTH) return 'too_long';
+    if (!HANDLE_PATTERN.test(handle)) return 'malformed';
+    if (RESERVED_HANDLES.has(handle)) return 'reserved';
+    return null;
+};
+
+export class TeamStore extends PuterStore {
+    /**
+     * Postgres indexes `lower(handle)`; the others are case-insensitive
+     * already.
+     */
+    #handleMatch(): string {
+        return this.clients.db.case({
+            postgres: 'lower(`handle`) = lower(?)',
+            otherwise: '`handle` = ?',
+        });
+    }
+
+    /** Makes the seeded `kind IS NULL` groups unreachable, not merely absent. */
+    #live(): string {
+        return '`kind` = ? AND `deleted_at` IS NULL';
+    }
+
+    // -- Reads --------------------------------------------------------
+
+    /** The workspace with this uid, or null. Soft-deleted ones are excluded. */
+    async getByUid(uid: string): Promise<TeamRow | null> {
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`group\` WHERE \`uid\` = ? AND ${this.#live()}`,
+            [uid, TEAM_KIND],
+        );
+        return (rows[0] as unknown as TeamRow) ?? null;
+    }
+
+    /** For availability checks and console resolution; callers address by uid. */
+    async getByHandle(handle: string): Promise<TeamRow | null> {
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`group\` WHERE ${this.#handleMatch()} AND ${this.#live()}`,
+            [handle, TEAM_KIND],
+        );
+        return (rows[0] as unknown as TeamRow) ?? null;
+    }
+
+    /** Whether the handle is free to claim. Does not validate its spelling. */
+    async isHandleAvailable(handle: string): Promise<boolean> {
+        return (await this.getByHandle(handle)) === null;
+    }
+
+    /** Workspaces this user owns, oldest first. */
+    async listByOwner(ownerUserId: number): Promise<TeamRow[]> {
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`group\` WHERE \`owner_user_id\` = ? AND ${this.#live()} ORDER BY \`id\``,
+            [ownerUserId, TEAM_KIND],
+        );
+        return rows as unknown as TeamRow[];
+    }
+
+    // -- Writes -------------------------------------------------------
+
+    /** Throws on an unusable or taken handle; the unique index is the arbiter. */
+    async create(input: {
+        ownerUserId: number;
+        name: string;
+        handle?: string | null;
+    }): Promise<TeamRow> {
+        const name = normalizeTeamName(input.name);
+        const handle = input.handle ?? null;
+        if (handle !== null) {
+            const rejection = checkHandle(handle);
+            if (rejection) {
+                throw new Error(`unusable team handle: ${rejection}`);
+            }
+        }
+
+        const uid = uuidv4();
+        await this.clients.db.write(
+            'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, `name`, `handle`, `extra`, `metadata`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [uid, input.ownerUserId, TEAM_KIND, name, handle, '{}', '{}'],
+        );
+
+        const created = await this.getByUid(uid);
+        if (!created)
+            throw new Error('team disappeared immediately after insert');
+        return created;
+    }
+
+    /** Null when no live workspace has that uid. `handle: null` releases it. */
+    async update(
+        uid: string,
+        changes: { name?: string; handle?: string | null },
+    ): Promise<TeamRow | null> {
+        const sets: string[] = [];
+        const params: unknown[] = [];
+
+        if (changes.name !== undefined) {
+            sets.push('`name` = ?');
+            params.push(normalizeTeamName(changes.name));
+        }
+        if (changes.handle !== undefined) {
+            if (changes.handle !== null) {
+                const rejection = checkHandle(changes.handle);
+                if (rejection) {
+                    throw new Error(`unusable team handle: ${rejection}`);
+                }
+            }
+            sets.push('`handle` = ?');
+            params.push(changes.handle);
+        }
+        if (sets.length === 0) return this.getByUid(uid);
+
+        await this.clients.db.write(
+            `UPDATE \`group\` SET ${sets.join(', ')} WHERE \`uid\` = ? AND ${this.#live()}`,
+            [...params, uid, TEAM_KIND],
+        );
+        return this.getByUid(uid);
+    }
+
+    /**
+     * Releases the handle since nothing addresses by it; keeps `name` for
+     * history.
+     */
+    async softDelete(uid: string): Promise<boolean> {
+        const result = await this.clients.db.write(
+            `UPDATE \`group\` SET \`deleted_at\` = CURRENT_TIMESTAMP, \`handle\` = NULL ` +
+                `WHERE \`uid\` = ? AND ${this.#live()}`,
+            [uid, TEAM_KIND],
+        );
+        return result.anyRowsAffected;
+    }
+}
