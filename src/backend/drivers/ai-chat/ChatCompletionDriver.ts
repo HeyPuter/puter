@@ -381,7 +381,13 @@ export class ChatCompletionDriver extends PuterDriver {
         // `args.max_tokens`, so the user's requested value has to be kept
         // apart from what the previous attempt was capped to.
         const promptTokenEstimate = estimatePromptTokens(args.messages ?? []);
-        const requestedMaxTokens = args.max_tokens;
+        // Direct driver calls reach here without the controller's coercion, so
+        // a non-finite max_tokens (e.g. NaN from the string "NaN") could still
+        // arrive. Drop it to undefined — a poisoned value would disable the
+        // output cap below and skip the credit hold entirely.
+        const requestedMaxTokens = Number.isFinite(args.max_tokens as number)
+            ? args.max_tokens
+            : undefined;
 
         const completionId = crypto
             .randomUUID()
@@ -902,7 +908,10 @@ export class ChatCompletionDriver extends PuterDriver {
             // unset here: an undefined max_tokens lets the provider run to the
             // model's full output limit (e.g. 128k for Claude), billing far
             // past the user's remaining balance.
-            if (cap < 1) {
+            // `!(cap >= 1)` rather than `cap < 1` so a non-finite cap is caught
+            // too: a NaN requested max_tokens poisons the Math.min above, and
+            // `NaN < 1` is false — letting an uncapped request through.
+            if (!(cap >= 1)) {
                 throw new HttpError(402, 'No usage left for request.', {
                     legacyCode: 'insufficient_funds',
                 });
