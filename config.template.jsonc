@@ -142,13 +142,6 @@
             }
         }
     },
-    // Optional: where each node stores files, keyed by node id. A write can
-    // name one to place bytes near the account that owns them. Omit it and
-    // every write uses `s3_bucket` / `s3_region` below.
-    "_servers_example": {
-        "node-1": { "bucket": "puter-node-1", "bucketRegion": "us-west-2" },
-        "node-2": { "bucket": "puter-node-2", "bucketRegion": "us-east-1" }
-    },
     "s3_bucket": "puter-local",
     "s3_region": "us-west-2",
     "region": "us-west-2",
