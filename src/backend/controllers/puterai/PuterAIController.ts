@@ -340,9 +340,7 @@ export class PuterAIController extends PuterController {
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(body.max_tokens !== undefined
-                ? { max_tokens: Number(body.max_tokens) }
-                : {}),
+            ...(finiteMaxTokens(body.max_tokens) ?? {}),
             ...(body.provider
                 ? { provider: toStringOrEmpty(body.provider) }
                 : { provider: DEFAULTS.openaiChat }),
@@ -500,9 +498,7 @@ export class PuterAIController extends PuterController {
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(body.max_tokens !== undefined
-                ? { max_tokens: Number(body.max_tokens) }
-                : {}),
+            ...(finiteMaxTokens(body.max_tokens) ?? {}),
             ...(body.provider
                 ? { provider: toStringOrEmpty(body.provider) }
                 : { provider: DEFAULTS.openaiCompletion }),
@@ -593,7 +589,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -984,9 +981,7 @@ export class PuterAIController extends PuterController {
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(body.max_tokens !== undefined
-                ? { max_tokens: Number(body.max_tokens) }
-                : {}),
+            ...(finiteMaxTokens(body.max_tokens) ?? {}),
             ...(body.context_management !== undefined
                 ? { context_management: body.context_management }
                 : {}),
@@ -1222,6 +1217,17 @@ const asRecord = (value: unknown): Record<string, unknown> => {
 
 const toStringOrEmpty = (v: unknown): string =>
     typeof v === 'string' ? v : '';
+
+// A user-supplied max_tokens must coerce to a finite number. A non-numeric
+// value (e.g. the string "NaN") becomes NaN, which slips through the credit
+// gate's `?? Infinity` and every `< 1` comparison, disabling the output cap.
+// Drop it instead so the request runs with no client-requested cap rather than
+// a poisoned one.
+const finiteMaxTokens = (v: unknown): { max_tokens: number } | undefined => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? { max_tokens: n } : undefined;
+};
 
 const setSseHeaders = (res: Response): void => {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
