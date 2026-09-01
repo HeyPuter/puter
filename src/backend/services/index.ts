@@ -40,6 +40,7 @@ import { PermissionService } from './permission/PermissionService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { ShareNotificationService } from './share/ShareNotificationService';
 import { ShareService } from './share/ShareService';
+import { TeamService } from './team/TeamService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
@@ -79,6 +80,7 @@ declare module './types' {
         homepage: PuterHomepageService;
         health: ServerHealthService;
         userAccount: UserAccountService;
+        team: TeamService;
     }
 }
 
@@ -110,6 +112,8 @@ export const puterServices = {
     // Declared after `fs` — account teardown tears the user's filesystem down
     // first.
     userAccount: UserAccountService,
+    // Leaf: team + user stores only.
+    team: TeamService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any
