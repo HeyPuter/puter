@@ -158,4 +158,31 @@ describe('GroupStore', () => {
         expect(await memberUsernames(a)).toEqual([]);
         expect(await memberUsernames(b)).toEqual([member.username]);
     });
+    // -- the boundary with TeamStore ----------------------------------
+
+    it('refuses to add a member to a team, leaving that to TeamStore', async () => {
+        const uid = uuidv4();
+        await server.clients.db.write(
+            'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, `name`, `extra`, `metadata`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?)',
+            [uid, owner.id, 'team', 'Not Yours', '{}', '{}'],
+        );
+
+        // Two writers produced the duplicates; the split is enforced in SQL.
+        await store.addUsers(uid, [member.username]);
+        expect(await memberUsernames(uid)).toEqual([]);
+    });
+
+    it('refuses to remove a member from a team', async () => {
+        const uid = uuidv4();
+        await server.clients.db.write(
+            'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, `name`, `extra`, `metadata`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?)',
+            [uid, owner.id, 'team', 'Also Not Yours', '{}', '{}'],
+        );
+        await server.stores.team.addMember(uid, member.id, { orgOwned: true });
+
+        await store.removeUsers(uid, [member.username]);
+        expect(await memberUsernames(uid)).toEqual([member.username]);
+    });
 });
