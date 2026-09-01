@@ -18,6 +18,12 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import {
+    encodeCursor,
+    decodeCursor,
+    normalizeLimit,
+    type PageResult,
+} from '../../util/pagination.js';
 import { PuterStore } from '../types';
 
 /** A workspace: a `group` row with `kind = 'team'`. */
@@ -33,6 +39,30 @@ export interface TeamRow {
 }
 
 export const TEAM_KIND = 'team';
+
+/** A membership row, joined to the member's username. */
+/** A seat, joined to the workspace that pays for it. */
+export interface OrgSeatRow {
+    id: number;
+    user_id: number;
+    uuid: string;
+    username: string;
+    team_uid: string;
+    owner_user_id: number;
+}
+
+export interface TeamMemberRow {
+    id: number;
+    user_id: number;
+    group_id: number;
+    username: string;
+    org_owned: number;
+    created_at: string;
+}
+
+/** Default and ceiling for `listMembers`, matching the other paginated stores. */
+export const MEMBER_PAGE_SIZE = 50;
+export const MEMBER_PAGE_CAP = 200;
 
 /** Longest handle mysql can store — `varchar(64)` in mysql_mig_26. */
 export const HANDLE_MAX_LENGTH = 64;
@@ -113,10 +143,7 @@ export const checkHandle = (handle: string): HandleRejection | null => {
 };
 
 export class TeamStore extends PuterStore {
-    /**
-     * Postgres indexes `lower(handle)`; the others are case-insensitive
-     * already.
-     */
+    /** Postgres indexes lower(handle); the others are already insensitive. */
     #handleMatch(): string {
         return this.clients.db.case({
             postgres: 'lower(`handle`) = lower(?)',
@@ -224,10 +251,7 @@ export class TeamStore extends PuterStore {
         return this.getByUid(uid);
     }
 
-    /**
-     * Releases the handle since nothing addresses by it; keeps `name` for
-     * history.
-     */
+    /** Releases the handle, since nothing addresses by it; keeps `name`. */
     async softDelete(uid: string): Promise<boolean> {
         const result = await this.clients.db.write(
             `UPDATE \`group\` SET \`deleted_at\` = CURRENT_TIMESTAMP, \`handle\` = NULL ` +
@@ -235,5 +259,116 @@ export class TeamStore extends PuterStore {
             [uid, TEAM_KIND],
         );
         return result.anyRowsAffected;
+    }
+
+    // -- Membership ---- sole writer of team rows -----------------------
+
+    /** The membership row for this user in this workspace, or null. */
+    async getMembership(
+        teamUid: string,
+        userId: number,
+    ): Promise<TeamMemberRow | null> {
+        const rows = await this.clients.db.read(
+            'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
+                'ug.`created_at`, u.`username` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE g.\`uid\` = ? AND ug.\`user_id\` = ? AND g.${this.#live()}`,
+            [teamUid, userId, TEAM_KIND],
+        );
+        return (rows[0] as unknown as TeamMemberRow) ?? null;
+    }
+
+    /** Whether this user belongs to this workspace. */
+    async isMember(teamUid: string, userId: number): Promise<boolean> {
+        return (await this.getMembership(teamUid, userId)) !== null;
+    }
+
+    /** A workspace's members, keyset-paginated on `id` per doc/pagination.md. */
+    async listMembers(
+        teamUid: string,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ): Promise<PageResult<TeamMemberRow>> {
+        const limit =
+            normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
+            MEMBER_PAGE_SIZE;
+        const page = decodeCursor(opts.cursor, 'team member cursor');
+        const after = typeof page?.id === 'number' ? page.id : null;
+
+        // One row past the limit is how we know a further page exists.
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
+                'ug.`created_at`, u.`username` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE g.\`uid\` = ? AND g.${this.#live()}` +
+                (after === null ? '' : ' AND ug.`id` > ?') +
+                ' ORDER BY ug.`id` LIMIT ?',
+            after === null
+                ? [teamUid, TEAM_KIND, limit + 1]
+                : [teamUid, TEAM_KIND, after, limit + 1],
+        )) as unknown as TeamMemberRow[];
+
+        const items = rows.slice(0, limit);
+        const cursor =
+            rows.length > limit
+                ? encodeCursor({ id: items[items.length - 1].id })
+                : undefined;
+        return { items, cursor };
+    }
+
+    /** Workspaces this user belongs to, oldest first. */
+    async listTeamsForUser(userId: number): Promise<TeamRow[]> {
+        const rows = await this.clients.db.read(
+            'SELECT g.* FROM `group` g ' +
+                'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                `WHERE ug.\`user_id\` = ? AND g.${this.#live()} ORDER BY g.\`id\``,
+            [userId, TEAM_KIND],
+        );
+        return rows as unknown as TeamRow[];
+    }
+
+    /** `orgOwned` decides who pays: 1 workspace-created, 0 the workspace owner. */
+    async addMember(
+        teamUid: string,
+        userId: number,
+        opts: { orgOwned: boolean },
+    ): Promise<boolean> {
+        // Kind-filtered subquery, so a non-team uid inserts nothing.
+        const result = await this.clients.db.write(
+            `${this.clients.db.insertIgnoreInto('jct_user_group')} ` +
+                '(`user_id`, `group_id`, `org_owned`) ' +
+                'SELECT ?, g.`id`, ? FROM `group` g ' +
+                `WHERE g.\`uid\` = ? AND g.${this.#live()}` +
+                this.clients.db.insertIgnoreSuffix(),
+            // Not `booleanValue`: it yields a real boolean on postgres.
+            [userId, opts.orgOwned ? 1 : 0, teamUid, TEAM_KIND],
+        );
+        return result.anyRowsAffected;
+    }
+
+    /** Removes a member, returning whether a row was there to remove. */
+    async removeMember(teamUid: string, userId: number): Promise<boolean> {
+        const result = await this.clients.db.write(
+            'DELETE FROM `jct_user_group` WHERE `user_id` = ? AND `group_id` = ' +
+                `(SELECT \`id\` FROM \`group\` WHERE \`uid\` = ? AND ${this.#live()})`,
+            [userId, teamUid, TEAM_KIND],
+        );
+        return result.anyRowsAffected;
+    }
+
+    /** The workspace seat this user is, if any. Soft-deleted workspaces count. */
+    async getOrgSeat(userId: number): Promise<OrgSeatRow | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`id`, ug.`user_id`, u.`uuid`, u.`username`, ' +
+                'g.`uid` AS `team_uid`, g.`owner_user_id` ' +
+                'FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                'WHERE ug.`user_id` = ? AND ug.`org_owned` = 1 ' +
+                'AND g.`kind` = ? ORDER BY g.`id` LIMIT 1',
+            [userId, TEAM_KIND],
+        )) as unknown as OrgSeatRow[];
+        return rows[0] ?? null;
     }
 }
