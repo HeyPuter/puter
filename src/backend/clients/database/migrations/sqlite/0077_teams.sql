@@ -15,16 +15,15 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Teams: a `group` row with `kind = 'team'` owns accounts and pays for them.
--- Seeded system groups keep `kind` NULL, so a team query never returns them.
+-- A `group` row with `kind = 'team'` owns accounts and pays for them; seeded
+-- system groups keep `kind` NULL so a team query never returns them.
 
 ALTER TABLE `group` ADD COLUMN `kind`       TEXT      DEFAULT NULL;
 ALTER TABLE `group` ADD COLUMN `name`       TEXT      DEFAULT NULL;
-ALTER TABLE `group` ADD COLUMN `handle`     TEXT      DEFAULT NULL;
+ALTER TABLE `group` ADD COLUMN `handle`     TEXT      COLLATE NOCASE DEFAULT NULL;
 ALTER TABLE `group` ADD COLUMN `deleted_at` TIMESTAMP DEFAULT NULL;
 
--- NOCASE so a handle is unique the way a username is (see 0055). MySQL gets this
--- from utf8mb4_unicode_ci; postgres needs a lower() index. NULLs stay distinct.
+-- NOCASE on both column and index, so lookups match mysql's utf8mb4_unicode_ci.
 CREATE UNIQUE INDEX IF NOT EXISTS `idx_group_handle`
     ON `group` (`handle` COLLATE NOCASE);
 
@@ -38,5 +37,5 @@ ALTER TABLE `jct_user_group` ADD COLUMN `org_owned` INTEGER DEFAULT NULL;
 CREATE INDEX IF NOT EXISTS `idx_jct_user_group_group`
     ON `jct_user_group` (`group_id`, `user_id`);
 
--- Fourth `requires_*` flag, enforced by assertVerifiedAccount. Set on admin reset.
-ALTER TABLE `user` ADD COLUMN `requires_password_change` INTEGER DEFAULT NULL;
+-- Fourth `requires_*` flag; assertVerifiedAccount will enforce it in phase 5.
+ALTER TABLE `user` ADD COLUMN `requires_password_change` INTEGER NOT NULL DEFAULT 0;
