@@ -15,17 +15,11 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- `GroupStore.addUsers` is an INSERT ... SELECT with no conflict clause, so a
--- repeated call inserts a second row for the same (user_id, group_id).
---
--- Each duplicate multiplies every row `readUserGroupPerms` returns, because it
--- joins this table on group_id alone -- two membership rows means every group
--- permission is reported twice. The index below stops that recurring; the
--- delete clears what already accumulated.
---
--- Dropping the higher-id row discards nothing: `addUsers` writes only the two
--- id columns, so `extra` and `metadata` are NULL on every row here, nothing has
--- a foreign key to `jct_user_group.id`, and no code reads it.
+-- `GroupStore.addUsers` had no conflict clause, so a repeat call duplicated the pair.
+-- `readUserGroupPerms` joins this table on group_id alone, so each duplicate reported
+-- every group permission an extra time. The delete clears what accumulated.
+-- Dropping the higher id is lossless: `addUsers` writes only the two id columns, and
+-- nothing references `jct_user_group.id`.
 
 DELETE FROM `jct_user_group`
 WHERE `id` NOT IN (

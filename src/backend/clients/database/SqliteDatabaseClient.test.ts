@@ -81,6 +81,22 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         expect(await userVersionOf(client)).toBe(CURRENT_SCHEMA_VERSION);
     });
 
+    it('stamps a version whose migration did not run (known off-by-one)', async () => {
+        // Existing behaviour, not an endorsement: the stamp overshoots the
+        // applied work by one entry, so 70 is reported without 0074 running.
+        const partial = await bootClient({ targetVersion: 70 });
+        try {
+            expect(await userVersionOf(partial)).toBe(70);
+            await expect(
+                partial.read(
+                    "SELECT 1 FROM pragma_table_info('group') WHERE name = 'handle'",
+                ),
+            ).resolves.toEqual([]);
+        } finally {
+            partial.onServerShutdown();
+        }
+    });
+
     it('applies the team columns and indexes from 0076', async () => {
         const columnsOf = async (table: string) =>
             (
