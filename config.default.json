@@ -22,6 +22,7 @@
     "default_temp_group": "b7220104-7905-4985-b996-649fdcdb3c8f",
     "storage_capacity": 104857600,
     "disable_user_signup": false,
+    "teams_enabled": false,
     "strict_email_verification_required": false,
     "gui_assets_root": "./src/gui",
     "puterjs_root": "./src/puter-js/dist",
