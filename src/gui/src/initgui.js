@@ -1011,6 +1011,40 @@ function authErrorDisplayMessage() {
 }
 
 /**
+ * Settles the shell's server-rendered anonymous markup — the marketing
+ * homepage, an `/app/<name>` landing — once the client knows whether it has a
+ * session.
+ *
+ * The shell renders that markup from the session cookie alone, and a browser
+ * drops that cookie on quit while our localStorage token lives on. So a
+ * returning user gets served it, and `PuterHomepageService`'s `<head>` gate
+ * hides it pre-paint on the strength of the stored token (the
+ * `has-stored-session` class) rather than letting it flash and be torn down a
+ * round-trip later.
+ *
+ * That gate is a guess about a token nothing has verified yet. Here is where it
+ * is settled:
+ *
+ * - `reveal(false)` — `whoami` confirmed the session. The markup is wrong for
+ *   this user, so remove the nodes outright; the class can stay.
+ * - `reveal(true)`  — there is no session after all (no token, or one `whoami`
+ *   rejected). The markup is the correct thing to show, so drop the class.
+ *
+ * @param {boolean} reveal Whether the markup should end up visible.
+ */
+function reveal_anonymous_markup(reveal) {
+    // Stands the gate's own failsafe timer down: the guess has been ruled on.
+    window.__puter_session_settled = true;
+    if (reveal) {
+        document.documentElement.classList.remove('has-stored-session');
+        return;
+    }
+    document
+        .querySelectorAll('.hide-if-logged-in')
+        .forEach((el) => el.remove());
+}
+
+/**
  * Shows a Turnstile challenge modal for first-time temp user creation
  * @param {Object} options - Configuration options
  * @param {Function} options.onSuccess - Callback when challenge is completed successfully
@@ -1778,6 +1812,10 @@ window.initgui = async function (options) {
      * and without authenticating with the server.
      */
     const bad_session_logout = async () => {
+        // The <head> gate hid the anonymous markup on the strength of a stored
+        // token that has just turned out to be dead. Put it back, so the alert
+        // below isn't sitting on an empty page.
+        reveal_anonymous_markup(true);
         try {
             // TODO: i18n
             await UIAlert({
@@ -1963,14 +2001,15 @@ window.initgui = async function (options) {
         }
         // update local user data
         if (whoami) {
-            // The server renders the /app/<name> landing overlay only for
-            // requests it saw as anonymous, but its only signal is the session
-            // cookie — which can be gone (e.g. browser restart) while the
-            // localStorage session is still valid. whoami just proved this is
-            // a logged-in user, so drop the overlay. This must happen before
-            // the verification gates below: the overlay's max z-index would
-            // cover them.
-            document.getElementById('appLanding')?.remove();
+            // The shell renders its anonymous markup — the marketing
+            // homepage, an /app/<name> landing — off the session cookie alone,
+            // and that cookie can be gone (e.g. browser restart) while the
+            // localStorage session is still valid. The shell's <head> gate has
+            // kept it from painting; whoami just proved this is a logged-in
+            // user, so drop it for good. This must happen before the
+            // verification gates below: the landing's max z-index would cover
+            // them.
+            reveal_anonymous_markup(false);
             // Verification gates run in order: email → phone (SMS) → card,
             // matching the server-side order in assertVerifiedAccount.
             if (whoami.requires_email_confirmation) {
@@ -2056,6 +2095,11 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
+    // No session after all: the anonymous markup the shell sent is the correct
+    // thing to show, so undo its <head> gate in case a stored token set it and
+    // then failed to authenticate.
+    if (!window.is_auth()) reveal_anonymous_markup(true);
+
     // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
     // real account even on a first visit — never a temp user. So does a share
     // link: a share only ever reaches a real account, so a temporary one could

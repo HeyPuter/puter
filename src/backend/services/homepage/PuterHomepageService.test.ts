@@ -401,3 +401,150 @@ describe('PuterHomepageService — head metadata', () => {
         expect(html).toContain('<meta name="description" content="long">');
     });
 });
+
+describe('PuterHomepageService — pre-paint session gate', () => {
+    /** The gate's inline script, extracted so it can be run against a fake DOM. */
+    const gateScript = (html: string): string => {
+        const head = html.slice(0, html.indexOf('</head>'));
+        const block = [...head.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+            .map((m) => m[1])
+            .find((body) => body.includes('has-stored-session'));
+        if (!block) throw new Error('no session gate script in rendered head');
+        return block;
+    };
+
+    /** Run the gate with a given localStorage, and report the <html> classes. */
+    const runGate = (
+        html: string,
+        storage: { getItem: (k: string) => string | null },
+    ): string[] => {
+        const classes = new Set<string>();
+        const documentElement = {
+            classList: {
+                add: (c: string) => classes.add(c),
+                remove: (c: string) => classes.delete(c),
+            },
+        };
+        // eslint-disable-next-line no-new-func
+        new Function(
+            'localStorage',
+            'document',
+            'window',
+            gateScript(html),
+        )(storage, { documentElement }, { addEventListener: () => {} });
+        return [...classes];
+    };
+
+    it('hides opted-in markup for a browser holding a session token', async () => {
+        const html = await render(makeService());
+        expect(html).toContain(
+            'html.has-stored-session .hide-if-logged-in{display:none!important}',
+        );
+        expect(
+            runGate(html, { getItem: (k) => (k === 'auth_token_v2' ? 'tok' : null) }),
+        ).toEqual(['has-stored-session']);
+    });
+
+    it('leaves the markup visible for anonymous visitors and crawlers', async () => {
+        const html = await render(makeService());
+        expect(runGate(html, { getItem: () => null })).toEqual([]);
+    });
+
+    it('ignores a value under the retired token key', async () => {
+        const html = await render(makeService());
+        expect(
+            runGate(html, { getItem: (k) => (k === 'auth_token' ? 'old' : null) }),
+        ).toEqual([]);
+    });
+
+    it('fails open when storage is unreadable', async () => {
+        const html = await render(makeService());
+        expect(
+            runGate(html, {
+                getItem: () => {
+                    throw new Error('storage blocked');
+                },
+            }),
+        ).toEqual([]);
+    });
+
+    it('hands the markup back if the GUI never settles the guess', async () => {
+        const html = await render(makeService());
+        const classes = new Set<string>(['has-stored-session']);
+        const listeners: Array<() => void> = [];
+        const timers: Array<() => void> = [];
+        const win: Record<string, unknown> = {
+            addEventListener: (_e: string, fn: () => void) => listeners.push(fn),
+        };
+        // eslint-disable-next-line no-new-func
+        new Function(
+            'localStorage',
+            'document',
+            'window',
+            'setTimeout',
+            gateScript(html),
+        )(
+            { getItem: () => 'tok' },
+            {
+                documentElement: {
+                    classList: {
+                        add: (c: string) => classes.add(c),
+                        remove: (c: string) => classes.delete(c),
+                    },
+                },
+            },
+            win,
+            (fn: () => void) => timers.push(fn),
+        );
+        listeners.forEach((fn) => fn()); // window 'load'
+        timers.forEach((fn) => fn()); // the failsafe deadline
+        expect([...classes]).toEqual([]);
+
+        // ...and stands down once `initgui` has ruled on the token.
+        const settled = new Set<string>(['has-stored-session']);
+        const settledTimers: Array<() => void> = [];
+        const settledListeners: Array<() => void> = [];
+        // eslint-disable-next-line no-new-func
+        new Function(
+            'localStorage',
+            'document',
+            'window',
+            'setTimeout',
+            gateScript(html),
+        )(
+            { getItem: () => 'tok' },
+            {
+                documentElement: {
+                    classList: {
+                        add: (c: string) => settled.add(c),
+                        remove: (c: string) => settled.delete(c),
+                    },
+                },
+            },
+            {
+                addEventListener: (_e: string, fn: () => void) =>
+                    settledListeners.push(fn),
+                __puter_session_settled: true,
+            },
+            (fn: () => void) => settledTimers.push(fn),
+        );
+        settledListeners.forEach((fn) => fn());
+        settledTimers.forEach((fn) => fn());
+        expect([...settled]).toEqual(['has-stored-session']);
+    });
+
+    it('renders the gate ahead of any extension-contributed markup', async () => {
+        const service = makeService({}, async (_key, event) => {
+            const e = event as { prependHeadContent: string; prependBodyContent: string };
+            e.prependHeadContent += '<meta name="from-extension">';
+            e.prependBodyContent += '<main class="hide-if-logged-in">landing</main>';
+        });
+        const html = await render(service);
+        expect(html.indexOf('has-stored-session')).toBeLessThan(
+            html.indexOf('<meta name="from-extension">'),
+        );
+        expect(html.indexOf('has-stored-session')).toBeLessThan(
+            html.indexOf('<main class="hide-if-logged-in">'),
+        );
+    });
+});
