@@ -35,4 +35,4 @@ ALTER TABLE jct_user_group ADD COLUMN IF NOT EXISTS org_owned smallint;
 CREATE INDEX IF NOT EXISTS idx_jct_user_group_group
     ON jct_user_group (group_id, user_id);
 
-ALTER TABLE "user" ADD COLUMN IF NOT EXISTS requires_password_change smallint;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS requires_password_change smallint NOT NULL DEFAULT 0;

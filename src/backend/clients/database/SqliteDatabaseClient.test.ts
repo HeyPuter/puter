@@ -134,14 +134,27 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
             'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
             ['design-team'],
         );
-        // Without COLLATE NOCASE this differs per engine: MySQL rejects it via
-        // utf8mb4_unicode_ci while sqlite and postgres would let it through.
+        // Without NOCASE this differs per engine: mysql rejects, the others accept.
         await expect(
             client.write(
                 'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MAX(`id`) FROM `group`)',
                 ['Design-Team'],
             ),
         ).rejects.toThrow(/UNIQUE/iu);
+    });
+
+    it('matches a handle case-insensitively on lookup, not just on insert', async () => {
+        // Index-only NOCASE would leave `WHERE handle = ?` case-sensitive here while
+        // mysql's utf8mb4_unicode_ci column matched -- one query, two behaviours.
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['design-team'],
+        );
+        await expect(
+            client.read('SELECT `handle` FROM `group` WHERE `handle` = ?', [
+                'Design-Team',
+            ]),
+        ).resolves.toEqual([{ handle: 'design-team' }]);
     });
 
     it('runs the javascript migrations, not just the .sql ones', async () => {
