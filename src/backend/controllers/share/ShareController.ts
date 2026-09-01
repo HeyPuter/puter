@@ -58,6 +58,9 @@ const SHARE_LIST_LIMIT = {
 const SHARE_CONCURRENCY = 8;
 const LIST_LIMIT_CAP = 200;
 
+/** `appUid` value asking for the grants no app issued. App uids are uuids. */
+const NO_APP = 'none';
+
 /**
  * Caps on one request's fan-out. Recipients matter most: that number is how
  * many people a single call can reach, so it stays small by default and only
@@ -275,6 +278,10 @@ export class ShareController extends PuterController {
      * shared out. `GET /share/shares` answers this for one item at a time,
      * which cannot answer it at all for a caller who doesn't know what to ask
      * about.
+     *
+     * `appUid` narrows to one app's grants, or to `none` for the ones the user
+     * made themselves. An app token is bound to its own app regardless, so it
+     * only ever sees what it issued.
      */
     @Get('/shared-by-me', {
         subdomain: 'api',
@@ -282,8 +289,9 @@ export class ShareController extends PuterController {
         rateLimit: SHARE_LIST_LIMIT,
     })
     async listSharedByMe(req: Request, res: Response): Promise<void> {
+        const appUid = this.#appUidFilter(this.#query(req));
         await this.#listSharePage(req, res, (actor, opts) =>
-            this.services.share.listSharedByMe(actor, opts),
+            this.services.share.listSharedByMe(actor, { ...opts, appUid }),
         );
     }
 
@@ -321,6 +329,60 @@ export class ShareController extends PuterController {
         });
     }
 
+    /**
+     * GET /share/shared-by-me/apps — which apps hold shares the caller made,
+     * with a count each. The way into `appUid` for someone who doesn't know
+     * which apps to ask about; the group with a null `appUid` is what they
+     * shared themselves.
+     */
+    @Get('/shared-by-me/apps', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listSharedByMeApps(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
+
+        const page = await this.services.share.listSharedByMeApps(actor, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    /**
+     * DELETE /share/shared-by-me/:uid — withdraw one listed share, scoped to
+     * that row's issuer.
+     *
+     * An uid outside the caller's view — another account's, or another app's to
+     * an app — answers 404 like one that names nothing, so this can't be used
+     * to learn which. Within their view, the revoke's own rules answer: lapsed
+     * authority gets the ACL's error, a grant already withdrawn elsewhere
+     * reports `revoked: 0`.
+     */
+    @Delete('/shared-by-me/:uid', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async revokeSharedByMe(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const uid = String(req.params.uid ?? '');
+        const { revoked } = await this.services.share.revokeSharedByMe(
+            actor,
+            uid,
+        );
+        res.json({ uid, revoked });
+    }
+
     /** GET /share/shares — who can reach one item. */
     @Get('/shares', {
         subdomain: 'api',
@@ -345,6 +407,50 @@ export class ShareController extends PuterController {
             items: await Promise.all(
                 shares.map((share) => this.#toClientShare(share)),
             ),
+        });
+    }
+
+    /**
+     * GET /share/audit — when a grant was made, by whom, and under which app.
+     *
+     * With `uid` or `path`, the trail of everything granted on that item, for
+     * whoever may manage it; with neither, the trail of what the caller
+     * granted. Rows outlive the grants they describe, so this still answers
+     * after a revoke.
+     */
+    @Get('/audit', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listGrantAudit(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
+        const target: ShareTarget = {};
+        if (typeof query.uid === 'string') target.uid = query.uid;
+        if (typeof query.path === 'string')
+            target.path = expandTildePath(query.path, actor.user?.username);
+
+        const page = await this.services.share.listGrantAudit(actor, target, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items.map((entry) => ({
+                action: entry.action,
+                permission: entry.permission,
+                entryUid: entry.entryUid,
+                mode: entry.mode,
+                issuer: entry.issuer.username,
+                holder: entry.holder.username,
+                appUid: entry.appUid,
+                createdAt: entry.createdAt,
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
         });
     }
 
@@ -510,6 +616,26 @@ export class ShareController extends PuterController {
 
     #query(req: Request): Record<string, unknown> {
         return (req.query ?? {}) as Record<string, unknown>;
+    }
+
+    /**
+     * The app a listing is narrowed to: an uid, `null` for the grants no app
+     * issued, or undefined for all of them. `NO_APP` is the drill-in for the
+     * group the summary reports with a null `appUid`.
+     *
+     * Malformed input is refused rather than read as "unscoped": a duplicated
+     * query param arrives as an array and an empty string names nothing, and a
+     * caller who believes they filtered must not silently receive everything.
+     */
+    #appUidFilter(query: Record<string, unknown>): string | null | undefined {
+        const value = query.appUid;
+        if (value === undefined) return undefined;
+        if (typeof value !== 'string' || value === '') {
+            throw new HttpError(400, '`appUid` must be a single app uid', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return value === NO_APP ? null : value;
     }
 
     #recipients(body: Record<string, unknown>): ShareRecipient[] {

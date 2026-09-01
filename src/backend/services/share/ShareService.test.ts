@@ -19,7 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -115,6 +115,34 @@ describe('ShareService', () => {
                 resolveAncestors: () => server.services.fs.getAncestorChain(path),
             },
             'read',
+        );
+
+    const makeApp = async (ownerUserId) =>
+        server.stores.app.create(
+            {
+                name: `share-app-${uuidv4()}`,
+                title: 'Share app',
+                index_url: `https://share-${uuidv4()}.test/`,
+            },
+            { ownerUserId },
+        );
+
+    // Built the way the request path builds it, so `effectiveApp` is derived
+    // rather than left unresolved.
+    const asApp = (owner, app) =>
+        makeActor({
+            user: owner.user,
+            app: { uid: app.uid, id: app.id },
+        });
+
+    /** Hand an app the reach it needs to share one of its user's files. */
+    const grantAppReach = (owner, app, entry, mode = 'read') =>
+        runWithContext({ actor: owner.actor }, () =>
+            server.services.permission.grantUserAppPermission(
+                owner.actor,
+                app.uid,
+                `fs:${entry.uuid}:${mode}`,
+            ),
         );
 
     const share = (actor: Actor, input: Record<string, unknown>) =>
@@ -1002,6 +1030,595 @@ describe('ShareService', () => {
         });
     });
 
+    describe('the outbound listing scoped by app', () => {
+        const listSharedByMe = (
+            actor: Actor,
+            opts?: {
+                limit?: number;
+                cursor?: string;
+                includeTotal?: boolean;
+                appUid?: string | null;
+            },
+        ) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedByMe(actor, opts),
+            );
+
+        const listApps = (
+            actor: Actor,
+            opts?: { limit?: number; cursor?: string; includeTotal?: boolean },
+        ) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedByMeApps(actor, opts),
+            );
+
+        const revokeByUid = (actor: Actor, uid: string) =>
+            runWithContext({ actor }, () =>
+                server.services.share.revokeSharedByMe(actor, uid),
+            );
+
+        /** An owner, a recipient, and one file shared through each app. */
+        const shareThroughApps = async (appCount: number) => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const apps = [];
+            const files = [];
+            for (let i = 0; i < appCount; i++) {
+                const app = await makeApp(owner.user.id);
+                const file = await makeFile(owner.user);
+                await grantAppReach(owner, app, file);
+                await share(asApp(owner, app), {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                });
+                apps.push(app);
+                files.push(file);
+            }
+            return { owner, recipient, apps, files };
+        };
+
+        it('shows an app its own grants and nothing another app issued', async () => {
+            const { owner, apps, files } = await shareThroughApps(2);
+
+            for (const [index, app] of apps.entries()) {
+                const listed = await listSharedByMe(asApp(owner, app), {
+                    includeTotal: true,
+                });
+                expect(listed.items.map((i) => i.entryUid)).toEqual([
+                    files[index].uuid,
+                ]);
+                expect(listed.items[0].issuedByApp).toBe(app.uid);
+                expect(listed.total).toBe(1);
+            }
+        });
+
+        it('gives an app nothing when it asks about another app', async () => {
+            const { owner, apps } = await shareThroughApps(2);
+
+            const listed = await listSharedByMe(asApp(owner, apps[0]), {
+                appUid: apps[1].uid,
+                includeTotal: true,
+            });
+            expect(listed.items).toEqual([]);
+            expect(listed.total).toBe(0);
+        });
+
+        it('lets a session filter to one app, or to what it shared itself', async () => {
+            const { owner, recipient, apps, files } =
+                await shareThroughApps(2);
+            const byHand = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: byHand.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const across = await listSharedByMe(owner.actor);
+            expect(across.items.map((i) => i.entryUid).sort()).toEqual(
+                [...files.map((f) => f.uuid), byHand.uuid].sort(),
+            );
+
+            const scoped = await listSharedByMe(owner.actor, {
+                appUid: apps[0].uid,
+                includeTotal: true,
+            });
+            expect(scoped.items.map((i) => i.entryUid)).toEqual([
+                files[0].uuid,
+            ]);
+            expect(scoped.total).toBe(1);
+
+            const manual = await listSharedByMe(owner.actor, { appUid: null });
+            expect(manual.items.map((i) => i.entryUid)).toEqual([byHand.uuid]);
+        });
+
+        it('groups the listing by app, naming each one', async () => {
+            const { owner, recipient, apps } = await shareThroughApps(1);
+            const byHand = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: byHand.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const grouped = await listApps(owner.actor, { includeTotal: true });
+            expect(grouped.total).toBe(2);
+            const byApp = new Map(grouped.items.map((i) => [i.appUid, i]));
+            expect(byApp.get(null)?.count).toBe(1);
+            expect(byApp.get(apps[0].uid)).toMatchObject({
+                name: apps[0].name,
+                title: apps[0].title,
+                count: 1,
+            });
+        });
+
+        it('keeps the grouped view to user sessions', async () => {
+            const { owner, apps } = await shareThroughApps(1);
+            await expect(
+                listApps(asApp(owner, apps[0])),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('still shows and revokes what a removed app left behind', async () => {
+            const { owner, recipient, apps, files } =
+                await shareThroughApps(1);
+            await server.stores.app.delete(apps[0].id);
+
+            const grouped = await listApps(owner.actor);
+            expect(
+                grouped.items.find((i) => i.appUid === apps[0].uid),
+            ).toMatchObject({ name: null, title: null, count: 1 });
+
+            const listed = await listSharedByMe(owner.actor, {
+                appUid: apps[0].uid,
+            });
+            expect(listed.items.map((i) => i.entryUid)).toEqual([
+                files[0].uuid,
+            ]);
+
+            expect(await canRead(recipient.actor, files[0].path)).toBe(true);
+            await revokeByUid(owner.actor, listed.items[0].uid);
+            expect(await canRead(recipient.actor, files[0].path)).toBe(false);
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        it('settles the grant when a listed share is revoked', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+            expect(await revokeByUid(owner.actor, listed.items[0].uid)).toEqual(
+                { revoked: 1 },
+            );
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        it('takes back an unclaimed invite by its uid', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `invitee-${uuidv4().slice(0, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items[0].pending).toBe(true);
+            await revokeByUid(owner.actor, listed.items[0].uid);
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        it('revokes only the named row when two issuers reach the same pair', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            // The app addresses its own row; the delegate's grant on the same
+            // (file, recipient) pair is not its to take.
+            const listed = await listSharedByMe(asApp(owner, app));
+            expect(listed.items).toHaveLength(1);
+            await revokeByUid(asApp(owner, app), listed.items[0].uid);
+
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+            const remaining = await server.services.share.listSharesOf(
+                owner.actor,
+                { uid: file.uuid },
+            );
+            expect(
+                remaining.some(
+                    (row) =>
+                        row.holder.username === recipient.user.username &&
+                        row.issuer.username === delegate.user.username,
+                ),
+            ).toBe(true);
+        });
+
+        it('takes back an invite whose address registered but never claimed', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `late-${uuidv4().slice(0, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // The address's owner signs up and confirms, but the claim never
+            // runs — the row still has no holder, so recipient-addressed
+            // revocation can't find it. The uid-addressed one must.
+            const late = await makeUser();
+            await server.stores.user.update(late.user.id, {
+                email,
+                clean_email: email,
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items[0].pending).toBe(true);
+            expect(
+                await revokeByUid(owner.actor, listed.items[0].uid),
+            ).toEqual({ revoked: 1 });
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        // One row records one issuance, so attribution follows the most
+        // recent one — in both directions.
+        it('re-attributes a grant to whoever issued it last', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            const viaApp = await listSharedByMe(asApp(owner, app));
+            expect(viaApp.items).toHaveLength(1);
+            const uid = viaApp.items[0].uid;
+
+            // Re-shared by hand: the grant is now the user's own. The app's
+            // scoped view drops it, and its uid-addressed delete no longer
+            // names a row it issued.
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'write',
+            });
+            expect((await listSharedByMe(asApp(owner, app))).items).toEqual(
+                [],
+            );
+            const manual = await listSharedByMe(owner.actor, { appUid: null });
+            expect(manual.items.map((i) => i.uid)).toEqual([uid]);
+            await expect(revokeByUid(asApp(owner, app), uid)).rejects.toMatchObject(
+                { statusCode: 404 },
+            );
+
+            // And back: re-shared through the app, the same row is the app's
+            // again.
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(
+                (await listSharedByMe(asApp(owner, app))).items.map(
+                    (i) => i.uid,
+                ),
+            ).toEqual([uid]);
+        });
+
+        // Every uid the caller may not act on answers alike, or the endpoint
+        // becomes a way to ask whether one exists.
+        it('answers 404 for an unknown uid and for another account\'s', async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            const listed = await listSharedByMe(owner.actor);
+
+            await expect(
+                revokeByUid(owner.actor, uuidv4()),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            await expect(
+                revokeByUid(stranger.actor, listed.items[0].uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('answers 404 when an app names another app\'s share', async () => {
+            const { owner, recipient, apps, files } =
+                await shareThroughApps(2);
+            const listed = await listSharedByMe(asApp(owner, apps[1]));
+
+            await expect(
+                revokeByUid(asApp(owner, apps[0]), listed.items[0].uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(recipient.actor, files[1].path)).toBe(true);
+
+            // Its own, on the other hand, it may take back.
+            await revokeByUid(asApp(owner, apps[1]), listed.items[0].uid);
+            expect(await canRead(recipient.actor, files[1].path)).toBe(false);
+        });
+
+        it('lets the owner revoke a delegate-issued share, leaving the delegate itself alone', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { username: third.user.username },
+                mode: 'read',
+            });
+            expect(await canRead(third.actor, file.path)).toBe(true);
+
+            // The owner's own listing includes what the delegate issued.
+            const listed = await listSharedByMe(owner.actor);
+            const delegateRow = listed.items.find(
+                (i) => i.holder.username === third.user.username,
+            );
+            expect(delegateRow).toBeDefined();
+
+            await revokeByUid(owner.actor, delegateRow!.uid);
+
+            // The third party's access is gone; the delegate's own manage
+            // grant — issued by the owner, not by the delegate — is untouched.
+            expect(await canRead(third.actor, file.path)).toBe(false);
+            expect(await canRead(delegate.actor, file.path)).toBe(true);
+        });
+    });
+
+    describe('the grant audit trail', () => {
+        const audit = (
+            actor: Actor,
+            target?: Record<string, unknown>,
+            opts?: { limit?: number; cursor?: string; includeTotal?: boolean },
+        ) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listGrantAudit(
+                    actor,
+                    target as never,
+                    opts,
+                ),
+            );
+
+        it('names when a grant was made, by whom, and under which app', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(
+                owner.actor,
+                { uid: file.uuid },
+                { includeTotal: true },
+            );
+            expect(trail.total).toBe(trail.items.length);
+            const granted = trail.items.filter((i) => i.action === 'grant');
+            expect(granted.length).toBeGreaterThan(0);
+            for (const row of granted) {
+                expect(row.entryUid).toBe(file.uuid);
+                expect(row.issuer.username).toBe(owner.user.username);
+                expect(row.holder.username).toBe(recipient.user.username);
+                expect(row.appUid).toBe(app.uid);
+                expect(row.createdAt).toBeDefined();
+            }
+            expect(granted.map((i) => i.mode)).toContain('read');
+        });
+
+        it('carries no app for a grant the user made themselves', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(owner.actor, { uid: file.uuid });
+            expect(trail.items.every((i) => i.appUid === null)).toBe(true);
+        });
+
+        // The grant is gone by then; the row is the only record left of it.
+        it('still reads after the grant is revoked, and says so', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+            });
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+            const trail = await audit(owner.actor, { uid: file.uuid });
+            const actions = new Set(trail.items.map((i) => i.action));
+            expect(actions.has('grant')).toBe(true);
+            expect(actions.has('revoke')).toBe(true);
+            expect(
+                trail.items.every(
+                    (i) => i.holder.username === recipient.user.username,
+                ),
+            ).toBe(true);
+        });
+
+        it('shows the owner what a delegate granted on their item', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { username: third.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(owner.actor, { uid: file.uuid });
+            const issuers = new Set(trail.items.map((i) => i.issuer.username));
+            expect(issuers).toEqual(
+                new Set([owner.user.username, delegate.user.username]),
+            );
+        });
+
+        it('lists what the caller granted when no item is named', async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const recipient = await makeUser();
+            const mine = await makeFile(owner.user);
+            const theirs = await makeFile(other.user);
+
+            await share(owner.actor, {
+                uid: mine.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await share(other.actor, {
+                uid: theirs.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(owner.actor);
+            expect(trail.items.length).toBeGreaterThan(0);
+            expect(
+                trail.items.every(
+                    (i) => i.issuer.username === owner.user.username,
+                ),
+            ).toBe(true);
+            expect(
+                trail.items.some((i) => i.entryUid === theirs.uuid),
+            ).toBe(false);
+        });
+
+        it('refuses the trail of an item the caller cannot manage', async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            await expect(
+                audit(stranger.actor, { uid: file.uuid }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            // Holding the share is not authority over what else was granted.
+            await expect(
+                audit(recipient.actor, { uid: file.uuid }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('walks every page through the cursor', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+            });
+
+            const all = await audit(
+                owner.actor,
+                { uid: file.uuid },
+                { includeTotal: true },
+            );
+            expect(all.total).toBe(all.items.length);
+
+            const seen: string[] = [];
+            let cursor: string | undefined;
+            for (let page = 0; page < all.items.length + 2; page++) {
+                const listed = await audit(
+                    owner.actor,
+                    { uid: file.uuid },
+                    { limit: 1, cursor },
+                );
+                seen.push(
+                    ...listed.items.map((i) => `${i.action}:${i.permission}`),
+                );
+                cursor = listed.cursor;
+                if (!cursor) break;
+            }
+
+            expect(cursor).toBeUndefined();
+            expect(seen).toEqual(
+                all.items.map((i) => `${i.action}:${i.permission}`),
+            );
+        });
+    });
+
     it('takes downstream access with a delegate who leaves', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();
@@ -1702,21 +2319,6 @@ describe('ShareService', () => {
     });
 
     describe('an app is bounded by what it was given', () => {
-        const makeApp = async (ownerUserId) =>
-            server.stores.app.create(
-                {
-                    name: `share-app-${uuidv4()}`,
-                    title: 'Share app',
-                    index_url: `https://share-${uuidv4()}.test/`,
-                },
-                { ownerUserId },
-            );
-
-        const asApp = (owner, app) => ({
-            user: owner.user,
-            app: { uid: app.uid, id: app.id },
-        });
-
         /** A real entry under the app's own AppData for `owner`. */
         const makeAppDataFile = async (owner, app) => {
             const now = Math.floor(Date.now() / 1000);

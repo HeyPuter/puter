@@ -373,6 +373,17 @@
  */
 
 /**
+ * @typedef {Object} ListSharedByMeOptionsOwn
+ * @property {string} [appUid] Narrow to the shares one app issued in your
+ * name, or `'none'` for the ones you made yourself.
+ */
+
+/**
+ * @typedef {ListSharedOptionsOwn & ListSharedByMeOptionsOwn &
+ * RequestCallbacks<SharePage>} ListSharedByMeOptions
+ */
+
+/**
  * A page of shares. `cursor` is present only while more pages remain, so
  * iterate until it is absent rather than counting items.
  *

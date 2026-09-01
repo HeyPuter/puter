@@ -28,6 +28,7 @@ import {
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from '../../services/permission/consts';
 import { kv } from '../../util/kvSingleton';
+import { decodeCursor, encodeCursor } from '../../util/pagination';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -35,6 +36,9 @@ import type { UserRow } from '../user/UserStore';
 const U2A_CACHE_TTL_SECONDS = 5 * 60;
 const U2U_CACHE_TTL_SECONDS = 5 * 60;
 const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
+
+const AUDIT_PAGE_SIZE = 50;
+const MAX_AUDIT_PAGE_SIZE = 200;
 
 // Re-export for back-compat — PermissionService et al. import `UserRow` from here.
 // The canonical definition lives in `UserStore`, which owns the user table.
@@ -82,7 +86,28 @@ export interface AccessTokenPermRow {
 export interface AuditEntry {
     action: 'grant' | 'revoke';
     reason: string;
+    /** Recorded on the row, and read back by whoever reads the trail. */
+    extra?: Record<string, unknown> | null;
     [k: string]: unknown;
+}
+
+/** One user-to-user audit row, as read back. */
+export interface UserUserAuditRow {
+    id: number;
+    /** Null once that account is deleted; the FK columns are ON DELETE SET NULL. */
+    issuer_user_id: number | null;
+    holder_user_id: number | null;
+    permission: string;
+    action: string | null;
+    extra: Record<string, unknown> | null;
+    created_at: unknown;
+}
+
+/** What a read of the user-to-user audit trail may be narrowed to. */
+export interface UserUserAuditFilter {
+    issuerUserId?: number;
+    holderUserId?: number;
+    permissions?: string[];
 }
 
 /** One entry in the flat KV view, as addressed by a delete. */
@@ -502,17 +527,121 @@ export class PermissionStore extends PuterStore {
         await this.clients.db.write(
             'INSERT INTO `audit_user_to_user_permissions` (' +
                 '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
-                '`permission`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                '`permission`, `extra`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 entry.holder_user_id,
                 entry.holder_user_id,
                 entry.issuer_user_id,
                 entry.issuer_user_id,
                 entry.permission,
+                entry.extra ? JSON.stringify(entry.extra) : null,
                 entry.action,
                 entry.reason,
             ],
         );
+    }
+
+    /**
+     * The user-to-user audit trail, newest first, keyset-paginated on `id`.
+     *
+     * Rows are never deleted with the grant they describe, so this answers when
+     * something was granted long after it was withdrawn. The caller decides who
+     * may see which rows and narrows `filter` accordingly — this applies it, it
+     * does not authorize it.
+     */
+    async listUserUserAudit(
+        filter: UserUserAuditFilter,
+        opts: { limit?: number; cursor?: string } = {},
+    ): Promise<{ items: UserUserAuditRow[]; cursor?: string }> {
+        const size = Math.min(
+            Math.max(1, Math.floor(Number(opts.limit) || AUDIT_PAGE_SIZE)),
+            MAX_AUDIT_PAGE_SIZE,
+        );
+        const decoded = decodeCursor(opts.cursor, 'audit cursor');
+        const beforeId = Number(decoded?.id ?? 0) || null;
+        const { sql, params } = this.#auditWhere(filter);
+
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `audit_user_to_user_permissions` WHERE ' +
+                sql +
+                (beforeId === null ? '' : ' AND `id` < ?') +
+                ' ORDER BY `id` DESC LIMIT ?',
+            [...params, ...(beforeId === null ? [] : [beforeId]), size + 1],
+        );
+
+        const hasMore = rows.length > size;
+        const items = rows.slice(0, size).map((row) => this.#auditRow(row));
+        const last = items[items.length - 1];
+        return {
+            items,
+            cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
+        };
+    }
+
+    /** How many rows `listUserUserAudit` walks under the same filter. */
+    async countUserUserAudit(filter: UserUserAuditFilter): Promise<number> {
+        const { sql, params } = this.#auditWhere(filter);
+        const rows = await this.clients.db.read(
+            'SELECT COUNT(*) AS `count` FROM `audit_user_to_user_permissions` ' +
+                `WHERE ${sql}`,
+            params,
+        );
+        return Number(rows[0]?.count ?? 0);
+    }
+
+    /**
+     * The filter as SQL. An empty filter would read the whole table, so it is
+     * refused rather than quietly returning everyone's trail.
+     */
+    #auditWhere(filter: UserUserAuditFilter): {
+        sql: string;
+        params: unknown[];
+    } {
+        const clauses: string[] = [];
+        const params: unknown[] = [];
+        if (filter.issuerUserId !== undefined) {
+            clauses.push('`issuer_user_id` = ?');
+            params.push(filter.issuerUserId);
+        }
+        if (filter.holderUserId !== undefined) {
+            clauses.push('`holder_user_id` = ?');
+            params.push(filter.holderUserId);
+        }
+        if (filter.permissions !== undefined) {
+            if (filter.permissions.length === 0) {
+                return { sql: '1 = 0', params: [] };
+            }
+            clauses.push(
+                `\`permission\` IN (${filter.permissions.map(() => '?').join(', ')})`,
+            );
+            params.push(...filter.permissions);
+        }
+        if (clauses.length === 0) {
+            throw new Error('listUserUserAudit requires a filter');
+        }
+        return { sql: clauses.join(' AND '), params };
+    }
+
+    #auditRow(row: Record<string, unknown>): UserUserAuditRow {
+        let extra = row.extra;
+        if (typeof extra === 'string') {
+            try {
+                extra = JSON.parse(extra);
+            } catch {
+                extra = null;
+            }
+        }
+        const userId = (value: unknown) =>
+            value === null || value === undefined ? null : Number(value);
+        return {
+            id: Number(row.id),
+            issuer_user_id: userId(row.issuer_user_id),
+            holder_user_id: userId(row.holder_user_id),
+            permission: String(row.permission),
+            action: (row.action as string | null) ?? null,
+            extra: (extra as Record<string, unknown> | null) ?? null,
+            created_at: row.created_at,
+        };
     }
 
     // -- SQL: user-to-app permissions --------------------------------

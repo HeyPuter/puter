@@ -869,6 +869,7 @@ export class PermissionService extends PuterService {
                 permission,
                 action: 'grant',
                 reason: meta.reason ?? 'granted via PermissionService',
+                extra: this.#auditActorContext(actor),
             })
             .catch((err) => {
                 console.warn(
@@ -963,6 +964,7 @@ export class PermissionService extends PuterService {
                     permission,
                     action: 'revoke',
                     reason: meta.reason ?? 'revoked via PermissionService',
+                    extra: this.#auditActorContext(actor),
                 })
                 .catch((err) => {
                     console.warn(
@@ -976,6 +978,27 @@ export class PermissionService extends PuterService {
         // skipping the bump on a no-op risks leaving a cached allow standing.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
         return revoked;
+    }
+
+    /**
+     * What an audit row records about who was acting: which app asked, which is
+     * the whole question for anything minted under a standing consent.
+     *
+     * A user-user grant belongs to the user, so callers deliberately hand this
+     * layer an app-less actor (`userRelatedActor`) — the app survives only on
+     * the request actor, and is taken from there when it is the same user
+     * acting. A different user in scope is a background pass on someone else's
+     * behalf, whose app says nothing about this grant.
+     */
+    #auditActorContext(actor: Actor): Record<string, unknown> | null {
+        const requestActor = Context.get('actor') as Actor | undefined;
+        const acting =
+            actor.effectiveApp ??
+            actor.app ??
+            (requestActor?.user?.id === actor.user?.id
+                ? (requestActor?.effectiveApp ?? requestActor?.app)
+                : null);
+        return acting?.uid ? { appUid: acting.uid } : null;
     }
 
     /**

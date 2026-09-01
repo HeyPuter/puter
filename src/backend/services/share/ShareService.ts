@@ -29,6 +29,7 @@ import {
     isProviderCanonicalized,
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
+import type { UserUserAuditFilter } from '../../stores/permission/PermissionStore';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
 import {
@@ -85,6 +86,35 @@ interface GrantEvidence {
     unattributed: boolean;
     /** The holder owns the entry outright, so no grant is needed. */
     owned: boolean;
+}
+
+/**
+ * One entry in the grant audit trail. Written when a grant is made or
+ * withdrawn, and kept afterwards — the row is what remains once the grant
+ * itself is gone.
+ */
+export interface GrantAuditEntry {
+    /** 'grant' or 'revoke'; null on a row that predates the column. */
+    action: string | null;
+    permission: string;
+    /** Set when the grant names an fs node; other permissions carry neither. */
+    entryUid: string | null;
+    mode: string | null;
+    issuer: { username: string | null };
+    holder: { username: string | null };
+    /** The app that was acting, when one was. */
+    appUid: string | null;
+    createdAt: unknown;
+}
+
+/** One app in the outbound listing's group-by-app view. */
+export interface OutboundAppSummary {
+    /** Null for the grants the user made themselves, outside any app. */
+    appUid: string | null;
+    /** Null once the app is gone; its grants outlive it. */
+    name: string | null;
+    title: string | null;
+    count: number;
 }
 
 /** One live share, resolved for a response. */
@@ -185,6 +215,15 @@ export const uuidFromEntryPermission = (permission: string): string | null => {
     const fsAt = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
     if (parts[fsAt] !== 'fs') return null;
     return parts[fsAt + 1] || null;
+};
+
+/** The share mode a grant stands for, for the two shapes above. */
+export const modeFromEntryPermission = (permission: string): string | null => {
+    if (!uuidFromEntryPermission(permission)) return null;
+    const parts = permission.split(':');
+    return parts[0] === MANAGE_PERM_PREFIX
+        ? MANAGE_PERM_PREFIX
+        : (parts[2] ?? null);
 };
 
 /**
@@ -874,7 +913,7 @@ export class ShareService extends PuterService {
                 fsentryId: entry.id,
                 mode,
                 recipientEmail: holder.email ?? null,
-                issuerAppUid: actor.app?.uid ?? null,
+                issuerAppUid: this.#actingAppUid(actor),
             });
             return {
                 ...this.#resolve(row, entry, actor, holder),
@@ -1179,6 +1218,21 @@ export class ShareService extends PuterService {
         }
         if (issuers.length === 0) issuers = [issuerId];
 
+        return this.#withdrawGrants(actor, entry, holder, issuers);
+    }
+
+    /**
+     * Clear `issuers`' grants to `holder` on this node, and everything the
+     * holder re-shared in turn. The caller has already decided which issuers
+     * are in scope — everyone's for an owner, one row's for the uid-addressed
+     * revoke — and passed the gates for it.
+     */
+    async #withdrawGrants(
+        actor: Actor,
+        entry: FSEntry,
+        holder: { id: number; username: string },
+        issuers: number[],
+    ): Promise<{ revoked: number }> {
         // Whatever the holder re-shared goes with them, and this has to run
         // first: when the holder is the actor, clearing their own grants would
         // strip the very `manage` the cascade needs to do it.
@@ -1190,14 +1244,14 @@ export class ShareService extends PuterService {
                 writer,
                 entry,
                 holder.username,
-                issuer as number,
+                issuer,
             );
             if (didRevoke) revoked++;
             if (authorized) {
                 await this.stores.share.deleteActive({
                     holderUserId: holder.id,
                     fsentryId: entry.id,
-                    issuerUserId: issuer as number,
+                    issuerUserId: issuer,
                 });
             }
         }
@@ -1469,19 +1523,36 @@ export class ShareService extends PuterService {
      *
      * Trashed items are kept, unlike the inbound listing: the grant on one is
      * still standing, and this is where someone comes to find that out.
+     *
+     * An app credential sees only what its own app issued, whatever `appUid`
+     * asks for; a session may filter by app, and `null` asks for the grants no
+     * app issued.
      */
     async listSharedByMe(
         actor: Actor,
-        opts: { limit?: number; cursor?: string; includeTotal?: boolean } = {},
+        opts: {
+            limit?: number;
+            cursor?: string;
+            includeTotal?: boolean;
+            appUid?: string | null;
+        } = {},
     ): Promise<{
         items: ResolvedShare[];
         cursor?: string;
         total?: number;
     }> {
         const userId = this.#requireUserId(actor);
+        const scope = this.#outboundAppScope(actor, opts.appUid);
+        if (scope.empty) {
+            return {
+                items: [],
+                ...(opts.includeTotal ? { total: 0 } : {}),
+            };
+        }
         const page = await this.stores.share.listOutbound(userId, {
             limit: opts.limit,
             cursor: opts.cursor,
+            appUid: scope.appUid,
         });
         const rows: OutboundShareRow[] = page.items;
 
@@ -1540,9 +1611,232 @@ export class ShareService extends PuterService {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(opts.includeTotal
-                ? { total: await this.stores.share.countOutbound(userId) }
+                ? {
+                      total: await this.stores.share.countOutbound(userId, {
+                          appUid: scope.appUid,
+                      }),
+                  }
                 : {}),
         };
+    }
+
+    /**
+     * Which apps hold shares the caller made — the way into the per-app listing
+     * for someone who doesn't know which apps to ask about. The group with no
+     * `appUid` is what the caller shared themselves.
+     *
+     * Counts come from the index, so they are what `includeTotal` reports on
+     * the listing rather than what survives its per-grant re-checks.
+     */
+    async listSharedByMeApps(
+        actor: Actor,
+        opts: { limit?: number; cursor?: string; includeTotal?: boolean } = {},
+    ): Promise<{
+        items: OutboundAppSummary[];
+        cursor?: string;
+        total?: number;
+    }> {
+        const userId = this.#requireUserId(actor);
+        if (this.#actingAppUid(actor)) {
+            throw new HttpError(
+                403,
+                'This view is only available to user sessions',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        const page = await this.stores.share.listOutboundApps(userId, {
+            limit: opts.limit,
+            cursor: opts.cursor,
+        });
+        const apps = await this.stores.app.getByUids(
+            page.items
+                .map((row: { appUid: string | null }) => row.appUid)
+                .filter((uid: string | null): uid is string => Boolean(uid)),
+        );
+
+        return {
+            items: page.items.map(
+                (row: { appUid: string | null; count: number }) => {
+                    // An app that has since been removed leaves its grants behind,
+                    // so the group stands with nothing to name it.
+                    const app = row.appUid ? apps.get(row.appUid) : null;
+                    return {
+                        appUid: row.appUid,
+                        name: app?.name ?? null,
+                        title: app?.title ?? null,
+                        count: row.count,
+                    };
+                },
+            ),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(opts.includeTotal
+                ? { total: await this.stores.share.countOutboundApps(userId) }
+                : {}),
+        };
+    }
+
+    /**
+     * Withdraw one share the caller listed, named by its own uid.
+     *
+     * An uid the caller may not see answers 404 alike — one that names nothing,
+     * another user's row, an app's view of another app's row — so the endpoint
+     * can't be used to find out which. Past that gate the revoke's own rules
+     * answer: a caller whose authority over the node has lapsed gets the ACL's
+     * error, and a grant already withdrawn elsewhere reports `revoked: 0`.
+     *
+     * Scoped to the named row: only its issuer's grant is withdrawn, and only
+     * this one invite is cancelled — an owner (or an app) addressing one row
+     * must not take another issuer's grant on the same pair with it. The
+     * item-addressed `unshare` is the broad form.
+     */
+    async revokeSharedByMe(
+        actor: Actor,
+        shareUid: string,
+    ): Promise<{ revoked: number }> {
+        const userId = this.#requireUserId(actor);
+        const notFound = () =>
+            new HttpError(404, 'Subject does not exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+
+        const row = await this.stores.share.getByUid(shareUid);
+        if (!row?.fsentry_id) throw notFound();
+
+        const actingApp = this.#actingAppUid(actor);
+        if (actingApp && issuedByApp(row) !== actingApp) throw notFound();
+
+        const entry = await this.stores.fsEntry.getEntryById(
+            Number(row.fsentry_id),
+        );
+        if (!entry) throw notFound();
+        // The row must be one the caller's own listing would show them.
+        if (
+            Number(row.issuer_user_id) !== userId &&
+            Number(entry.userId) !== userId
+        ) {
+            throw notFound();
+        }
+        if (!(await this.#hasOwnReach(actor, entry, 'see'))) throw notFound();
+
+        // An invite is just its row — including one whose address has since
+        // been registered but never claimed: no holder, no grant, so
+        // recipient-addressed revocation would never find it.
+        if (!row.holder_user_id) {
+            const removed = await this.stores.share.deleteByUid(row.uid);
+            return { revoked: removed ? 1 : 0 };
+        }
+
+        const holder = await this.stores.user.getById(
+            Number(row.holder_user_id),
+        );
+        if (!holder?.username) throw notFound();
+
+        await this.#assertCanManage(actor, entry);
+        if (holder.id === entry.userId) {
+            throw new HttpError(400, 'cannot revoke the owner of an item', {
+                legacyCode: 'cannot_revoke_owner',
+            });
+        }
+
+        return this.#withdrawGrants(actor, entry, holder, [
+            Number(row.issuer_user_id),
+        ]);
+    }
+
+    /**
+     * When a grant was made, by which actor, and under which app.
+     *
+     * Named with an item, this is everything granted on it, whoever granted it
+     * — which is what an owner is left with after a revoke, the grant itself
+     * being gone by then. Named with nothing, it is what the caller granted,
+     * wherever it landed. Between them they cover the caller's own trail and
+     * their items', and nothing else: authority over the item is the gate on
+     * the first, and being the issuer is the whole of the second.
+     */
+    async listGrantAudit(
+        actor: Actor,
+        target: ShareTarget = {},
+        opts: { limit?: number; cursor?: string; includeTotal?: boolean } = {},
+    ): Promise<{
+        items: GrantAuditEntry[];
+        cursor?: string;
+        total?: number;
+    }> {
+        const userId = this.#requireUserId(actor);
+
+        let filter: UserUserAuditFilter;
+        if (target.uid || target.path) {
+            const entry = await this.#resolveEntry(target, actor);
+            await this.#assertCanManage(actor, entry);
+            filter = { permissions: entryPermissions(entry.uuid) };
+        } else {
+            filter = { issuerUserId: userId };
+        }
+
+        const page = await this.stores.permission.listUserUserAudit(filter, {
+            limit: opts.limit,
+            cursor: opts.cursor,
+        });
+        const users = await this.stores.user.getByIds(
+            page.items.flatMap((row) =>
+                [row.issuer_user_id, row.holder_user_id].filter(
+                    (id): id is number => typeof id === 'number',
+                ),
+            ),
+        );
+        const username = (id: number | null) =>
+            id === null ? null : (users.get(id)?.username ?? null);
+
+        return {
+            items: page.items.map((row) => ({
+                action: row.action,
+                permission: row.permission,
+                entryUid: uuidFromEntryPermission(row.permission),
+                mode: modeFromEntryPermission(row.permission),
+                issuer: { username: username(row.issuer_user_id) },
+                holder: { username: username(row.holder_user_id) },
+                appUid:
+                    typeof row.extra?.appUid === 'string'
+                        ? row.extra.appUid
+                        : null,
+                createdAt: row.created_at,
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(opts.includeTotal
+                ? {
+                      total: await this.stores.permission.countUserUserAudit(
+                          filter,
+                      ),
+                  }
+                : {}),
+        };
+    }
+
+    /**
+     * Which app's grants this actor may see. An app credential is bound to its
+     * own app whatever it asks for; a session may filter freely.
+     */
+    #outboundAppScope(
+        actor: Actor,
+        requested: string | null | undefined,
+    ): { appUid?: string | null; empty?: boolean } {
+        const acting = this.#actingAppUid(actor);
+        if (!acting) return { appUid: requested };
+        if (requested !== undefined && requested !== acting) {
+            return { empty: true };
+        }
+        return { appUid: acting };
+    }
+
+    /**
+     * The app this credential acts as, or null for a plain user session.
+     * `effectiveApp` is the one derived field for this question — see
+     * `makeActor`; re-deriving from `app` here would be a second gate to
+     * drift.
+     */
+    #actingAppUid(actor: Actor): string | null {
+        return actor.effectiveApp?.uid ?? null;
     }
 
     /**
@@ -2015,7 +2309,7 @@ export class ShareService extends PuterService {
                 displayEmail: email,
                 fsentryId: entry.id,
                 mode,
-                issuerAppUid: actor.app?.uid ?? null,
+                issuerAppUid: this.#actingAppUid(actor),
             });
             return {
                 ...this.#resolve(row, entry, actor, { username: null }),

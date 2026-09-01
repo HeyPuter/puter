@@ -114,25 +114,34 @@ export class ShareStore extends PuterStore {
      * something the user sent); the legacy invite rows that name no node are
      * not.
      *
+     * `appUid` narrows to one app's grants; `null` asks for the ones no app
+     * issued, and omitting it asks for every app.
+     *
      * @param {number} userId
-     * @param {{ limit?: number; cursor?: string }} [opts]
+     * @param {{ limit?: number; cursor?: string; appUid?: string | null }} [opts]
      */
-    async listOutbound(userId, { limit, cursor } = {}) {
+    async listOutbound(userId, { limit, cursor, appUid } = {}) {
         const size = this.#pageSize(limit);
         const afterId = this.#afterId(cursor);
+        const own = this.#appFilter(appUid, '`data`');
+        const joined = this.#appFilter(appUid, '`share`.`data`');
 
         const [issued, delegated] = await Promise.all([
             this.clients.db.read(
                 'SELECT * FROM `share` WHERE `issuer_user_id` = ? AND ' +
-                    '`fsentry_id` IS NOT NULL AND `id` > ? ORDER BY `id` LIMIT ?',
-                [userId, afterId, size + 1],
+                    '`fsentry_id` IS NOT NULL AND `id` > ?' +
+                    own.sql +
+                    ' ORDER BY `id` LIMIT ?',
+                [userId, afterId, ...own.params, size + 1],
             ),
             this.clients.db.read(
                 'SELECT `share`.* FROM `share` JOIN `fsentries` ON ' +
                     '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
                     '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ? ' +
-                    'AND `share`.`id` > ? ORDER BY `share`.`id` LIMIT ?',
-                [userId, userId, afterId, size + 1],
+                    'AND `share`.`id` > ?' +
+                    joined.sql +
+                    ' ORDER BY `share`.`id` LIMIT ?',
+                [userId, userId, afterId, ...joined.params, size + 1],
             ),
         ]);
 
@@ -151,22 +160,97 @@ export class ShareStore extends PuterStore {
         };
     }
 
-    /** How many rows `listOutbound` walks, both halves counted. */
-    async countOutbound(userId) {
+    /**
+     * How many rows `listOutbound` walks, both halves counted, under the same
+     * `appUid` scope.
+     *
+     * @param {number} userId
+     * @param {{ appUid?: string | null }} [opts]
+     */
+    async countOutbound(userId, { appUid } = {}) {
+        const own = this.#appFilter(appUid, '`data`');
+        const joined = this.#appFilter(appUid, '`share`.`data`');
         const [issued, delegated] = await Promise.all([
             this.clients.db.read(
                 'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
-                    '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL',
-                [userId],
+                    '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL' +
+                    own.sql,
+                [userId, ...own.params],
             ),
             this.clients.db.read(
                 'SELECT COUNT(*) AS `count` FROM `share` JOIN `fsentries` ON ' +
                     '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
-                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?',
-                [userId, userId],
+                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?' +
+                    joined.sql,
+                [userId, userId, ...joined.params],
             ),
         ]);
         return Number(issued[0]?.count ?? 0) + Number(delegated[0]?.count ?? 0);
+    }
+
+    /**
+     * The same outbound set folded onto the app that issued each row, keyset-
+     * paginated on the app uid. Rows no app issued group under the empty
+     * string, which sorts first.
+     *
+     * Counts are index rows, as `countOutbound` is: a grant withdrawn outside
+     * the share path is still counted until its row goes.
+     *
+     * @param {number} userId
+     * @param {{ limit?: number; cursor?: string }} [opts]
+     */
+    async listOutboundApps(userId, { limit, cursor } = {}) {
+        const size = this.#pageSize(limit);
+        const decoded = decodeCursor(cursor, 'share app cursor');
+        // A cursor that decodes but names no appUid — another listing's, say —
+        // is refused rather than read as page one. The no-app group is the
+        // empty string, so a first page cannot seek past it.
+        if (decoded !== undefined && typeof decoded.appUid !== 'string') {
+            throw new HttpError(400, 'invalid share app cursor', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const after = decoded === undefined ? null : String(decoded.appUid);
+
+        const rows = await this.clients.db.read(
+            'SELECT `app_uid`, COUNT(*) AS `count` FROM (' +
+                this.#outboundAppsSql() +
+                ') AS `outbound`' +
+                (after === null ? '' : ' WHERE `app_uid` > ?') +
+                ' GROUP BY `app_uid` ORDER BY `app_uid` LIMIT ?',
+            [
+                userId,
+                userId,
+                userId,
+                ...(after === null ? [] : [after]),
+                size + 1,
+            ],
+        );
+
+        const hasMore = rows.length > size;
+        const items = rows.slice(0, size).map((row) => ({
+            appUid: row.app_uid === '' ? null : String(row.app_uid),
+            count: Number(row.count),
+        }));
+        const last = items[items.length - 1];
+        return {
+            items,
+            cursor:
+                hasMore && last
+                    ? encodeCursor({ appUid: last.appUid ?? '' })
+                    : undefined,
+        };
+    }
+
+    /** How many apps `listOutboundApps` walks. */
+    async countOutboundApps(userId) {
+        const rows = await this.clients.db.read(
+            'SELECT COUNT(*) AS `count` FROM (SELECT DISTINCT `app_uid` FROM (' +
+                this.#outboundAppsSql() +
+                ') AS `outbound`) AS `apps`',
+            [userId, userId, userId],
+        );
+        return Number(rows[0]?.count ?? 0);
     }
 
     /** Everyone with an active share on one node, whoever issued it. */
@@ -653,6 +737,63 @@ export class ShareStore extends PuterStore {
             });
         }
         return id;
+    }
+
+    /**
+     * The app recorded on a row, as a SQL expression over its `data`. Two
+     * spellings in the wild — pending rows were written with `issuerAppUid`
+     * before the keys were unified on `issuedByApp`, and claiming carries
+     * `data` forward — so both are read, matching the service-side reader.
+     *
+     * The column is typed JSON on mysql and postgres, but sqlite stores
+     * whatever it was handed and legacy rows carry plain strings — extracting
+     * from one of those aborts the whole query, so there the read is guarded.
+     */
+    #issuedByAppExpr(dataColumn) {
+        const extracts = ['issuedByApp', 'issuerAppUid'].map((key) =>
+            this.clients.db.jsonTextExtract(dataColumn, [key]),
+        );
+        const coalesced = `COALESCE(${extracts.join(', ')})`;
+        return this.clients.db.case({
+            sqlite: `CASE WHEN json_valid(${dataColumn}) THEN ${coalesced} END`,
+            otherwise: coalesced,
+        });
+    }
+
+    /**
+     * `WHERE` fragment scoping a listing to one app. `undefined` means every
+     * app, `null` the rows no app issued.
+     *
+     * @param {string | null | undefined} appUid
+     * @param {string} dataColumn
+     */
+    #appFilter(appUid, dataColumn) {
+        if (appUid === undefined) return { sql: '', params: [] };
+        const expr = this.#issuedByAppExpr(dataColumn);
+        if (appUid === null) return { sql: ` AND ${expr} IS NULL`, params: [] };
+        return { sql: ` AND ${expr} = ?`, params: [appUid] };
+    }
+
+    /**
+     * Both outbound halves projected onto their issuing app. Takes the same
+     * three bound user ids as `listOutbound`, in that order.
+     */
+    #outboundAppsSql() {
+        const own = this.clients.db.nullCoalesce(
+            this.#issuedByAppExpr('`data`'),
+            "''",
+        );
+        const joined = this.clients.db.nullCoalesce(
+            this.#issuedByAppExpr('`share`.`data`'),
+            "''",
+        );
+        return (
+            `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
+            '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL UNION ALL ' +
+            `SELECT ${joined} AS \`app_uid\` FROM \`share\` JOIN \`fsentries\` ` +
+            'ON `fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+            '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?'
+        );
     }
 
     #normalizeRow(row) {

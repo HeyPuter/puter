@@ -27,6 +27,7 @@ An object with the following properties:
 - `limit` (Number) - Maximum shares per page.
 - `cursor` (String) - Continuation token from a previous page.
 - `includeTotal` (Boolean) - Include the total count in the response. Defaults to `false`.
+- `appUid` (String) - Narrow the listing to the shares one app issued in your name, or pass `'none'` for the ones you made yourself. An app calling this is bound to its own grants whatever it asks for.
 
 ## Return value
 

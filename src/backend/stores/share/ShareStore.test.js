@@ -589,6 +589,168 @@ describe('ShareStore', () => {
             expect(cursor).toBeUndefined();
         });
 
+        it('narrows the outbound listing to one app, or to no app at all', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const first = uuidv4();
+            const second = uuidv4();
+
+            const rows = {};
+            for (const [label, appUid] of [
+                ['first', first],
+                ['second', second],
+                ['manual', null],
+            ]) {
+                const entry = await makeEntry(owner);
+                rows[label] = await store.upsertActive({
+                    issuerUserId: owner.id,
+                    holderUserId: recipient.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                    issuerAppUid: appUid,
+                });
+            }
+
+            const uids = async (appUid) =>
+                (await store.listOutbound(owner.id, { appUid })).items
+                    .map((r) => r.uid)
+                    .sort();
+
+            expect(await uids(first)).toEqual([rows.first.uid]);
+            expect(await store.countOutbound(owner.id, { appUid: first })).toBe(
+                1,
+            );
+            expect(await uids(null)).toEqual([rows.manual.uid]);
+            expect(await store.countOutbound(owner.id, { appUid: null })).toBe(
+                1,
+            );
+            expect(await uids(uuidv4())).toEqual([]);
+            expect(await uids(undefined)).toEqual(
+                [rows.first.uid, rows.second.uid, rows.manual.uid].sort(),
+            );
+        });
+
+        it('groups the outbound listing by the app that issued each row', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const appUid = uuidv4();
+
+            // Two through the app (one of them issued by a delegate on the
+            // owner's node), one the owner made themselves.
+            for (const issuerUserId of [owner.id, delegate.id]) {
+                const entry = await makeEntry(owner);
+                await store.upsertActive({
+                    issuerUserId,
+                    holderUserId: recipient.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                    issuerAppUid: appUid,
+                });
+            }
+            const manual = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: manual.id,
+                mode: 'read',
+            });
+
+            const page = await store.listOutboundApps(owner.id);
+            expect(page.items).toEqual([
+                { appUid: null, count: 1 },
+                { appUid, count: 2 },
+            ]);
+            expect(await store.countOutboundApps(owner.id)).toBe(2);
+        });
+
+        it('pages the grouped view and stops once the apps run out', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const appUids = [uuidv4(), uuidv4(), uuidv4()].sort();
+            for (const appUid of appUids) {
+                const entry = await makeEntry(owner);
+                await store.upsertActive({
+                    issuerUserId: owner.id,
+                    holderUserId: recipient.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                    issuerAppUid: appUid,
+                });
+            }
+
+            const seen = [];
+            let cursor;
+            for (let guard = 0; guard < 10; guard++) {
+                const page = await store.listOutboundApps(owner.id, {
+                    limit: 1,
+                    cursor,
+                });
+                seen.push(...page.items.map((r) => r.appUid));
+                cursor = page.cursor;
+                if (!cursor) break;
+            }
+
+            expect(seen).toEqual(appUids);
+            expect(cursor).toBeUndefined();
+        });
+
+        it('returns the no-app group on the first page and resumes past it', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const appUid = uuidv4();
+
+            const manual = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: manual.id,
+                mode: 'read',
+            });
+            const viaApp = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: viaApp.id,
+                mode: 'read',
+                issuerAppUid: appUid,
+            });
+
+            // No cursor at all — the empty-string group sorts first, and a
+            // first page has nothing to seek past.
+            const first = await store.listOutboundApps(owner.id, { limit: 1 });
+            expect(first.items).toEqual([{ appUid: null, count: 1 }]);
+            expect(first.cursor).toBeDefined();
+
+            const second = await store.listOutboundApps(owner.id, {
+                limit: 1,
+                cursor: first.cursor,
+            });
+            expect(second.items).toEqual([{ appUid, count: 1 }]);
+            expect(second.cursor).toBeUndefined();
+        });
+
+        it('records an invite app under the key an active share uses', async () => {
+            const owner = await makeUser();
+            const entry = await makeEntry(owner);
+            const appUid = uuidv4();
+
+            const { row } = await store.upsertPending({
+                issuerUserId: owner.id,
+                recipientEmail: `invite-${uuidv4()}@test.local`,
+                fsentryId: entry.id,
+                mode: 'read',
+                issuerAppUid: appUid,
+            });
+
+            expect(row.data.issuedByApp).toBe(appUid);
+            expect(
+                (await store.listOutbound(owner.id, { appUid })).items.map(
+                    (r) => r.uid,
+                ),
+            ).toEqual([row.uid]);
+        });
+
         it('never returns another holder rows', async () => {
             const stranger = await makeUser();
             const entry = await makeEntry(issuer);
@@ -691,6 +853,47 @@ describe('ShareStore', () => {
             expect(second.row.uid).toBe(first.row.uid);
             expect(second.row.mode).toBe('write');
             expect(second.row.data.issuedByApp).toBeUndefined();
+        });
+
+        it('filters and groups a legacy-keyed app row like a current one', async () => {
+            const entry = await makeEntry(issuer);
+            const legacyHolder = await makeUser();
+            const created = await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: legacyHolder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            // A row written before the keys were unified on `issuedByApp`.
+            await server.clients.db.write(
+                'UPDATE `share` SET `data` = ? WHERE `uid` = ?',
+                [JSON.stringify({ issuerAppUid: 'app-legacy' }), created.uid],
+            );
+
+            const scoped = await store.listOutbound(issuer.id, {
+                appUid: 'app-legacy',
+            });
+            expect(scoped.items.map((r) => r.uid)).toEqual([created.uid]);
+            expect(
+                await store.countOutbound(issuer.id, { appUid: 'app-legacy' }),
+            ).toBe(1);
+
+            const grouped = await store.listOutboundApps(issuer.id, {
+                limit: 200,
+            });
+            expect(
+                grouped.items.find((g) => g.appUid === 'app-legacy')?.count,
+            ).toBe(1);
+        });
+
+        it('refuses an apps cursor that decodes but names no appUid', async () => {
+            await expect(
+                store.listOutboundApps(issuer.id, {
+                    cursor: Buffer.from(JSON.stringify({ id: 4 })).toString(
+                        'base64',
+                    ),
+                }),
+            ).rejects.toThrow('invalid share app cursor');
         });
 
         it('drops only one issuer unclaimed invites under a subtree', async () => {

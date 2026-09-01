@@ -18,6 +18,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { makeActor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
 import {
     createTestUser,
     setupPuterTestEnv,
@@ -56,6 +58,21 @@ describe('share endpoints over HTTP', () => {
         const url = new URL(path, env.apiOrigin);
         for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
         return fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    };
+
+    const del = (path: string, token: string) =>
+        fetch(new URL(path, env.apiOrigin), {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${token}` },
+        });
+
+    /** Fresh accounts: the seeded ones accumulate shares across this file. */
+    const makeUser = async () => {
+        const username = `sbm${Math.random().toString(36).slice(2, 9)}`;
+        return createTestUser(env.server, {
+            username,
+            password: 'puter-test-user-password',
+        });
     };
 
     /** A file in the owner's home. Written directly — these tests are about
@@ -196,15 +213,6 @@ describe('share endpoints over HTTP', () => {
     });
 
     describe('GET /share/shared-by-me', () => {
-        /** Fresh accounts: the shared ones accumulate shares across this file. */
-        const makeUser = async () => {
-            const username = `sbm${Math.random().toString(36).slice(2, 9)}`;
-            return createTestUser(env.server, {
-                username,
-                password: 'puter-test-user-password',
-            });
-        };
-
         it('lists what the caller shared out, across unrelated items', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
@@ -332,6 +340,26 @@ describe('share endpoints over HTTP', () => {
             expect(replayed.items).toEqual([]);
         });
 
+        // A caller who believes they filtered must not silently receive
+        // everything: a duplicated param arrives as an array, and an empty
+        // string names nothing.
+        it('refuses a malformed appUid instead of listing everything', async () => {
+            const owner = await makeUser();
+            expect(
+                (await get('/share/shared-by-me', owner.token, { appUid: '' }))
+                    .status,
+            ).toBe(400);
+            expect(
+                (
+                    await get(
+                        '/share/shared-by-me?appUid=a&appUid=a',
+                        owner.token,
+                        {},
+                    )
+                ).status,
+            ).toBe(400);
+        });
+
         // The two directions of one listing; a gate on only one of them is a
         // hole in whichever was forgotten.
         it('is gated like the inbound listing', () => {
@@ -347,6 +375,235 @@ describe('share endpoints over HTTP', () => {
             const outbound = routes.find((r) => r.path === '/shared-by-me');
             expect(outbound?.method.toLowerCase()).toBe('get');
             expect(outbound?.options).toEqual(inbound?.options);
+        });
+    });
+
+    describe('the outbound listing scoped to an app', () => {
+        const actorFor = async (username: string) => {
+            const user = await env.server.stores.user.getByUsername(username);
+            return makeActor({ user: user! });
+        };
+
+        /** An app of the user's, with a token and reach over one file. */
+        const makeApp = async (
+            owner: { username: string },
+            file: { uid: string },
+        ) => {
+            const actor = await actorFor(owner.username);
+            const app = await env.server.stores.app.create(
+                {
+                    name: `share-http-app-${crypto.randomUUID()}`,
+                    title: 'Share app',
+                    index_url: `https://share-${crypto.randomUUID()}.test/`,
+                },
+                { ownerUserId: actor.user.id },
+            );
+            await runWithContext({ actor }, () =>
+                env.server.services.permission.grantUserAppPermission(
+                    actor,
+                    app.uid,
+                    `fs:${file.uid}:read`,
+                ),
+            );
+            const token = await env.server.services.auth.getUserAppToken(
+                actor,
+                app.uid,
+            );
+            return { ...app, token };
+        };
+
+        /** An owner whose two apps have each shared a file of theirs. */
+        const twoApps = async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const files = [await makeFile(owner), await makeFile(owner)];
+            const apps = [
+                await makeApp(owner, files[0]),
+                await makeApp(owner, files[1]),
+            ];
+            for (const [index, app] of apps.entries()) {
+                const res = await post('/share', app.token, {
+                    recipients: [recipient.username],
+                    items: [{ uid: files[index].uid }],
+                    mode: 'read',
+                });
+                expect(res.status).toBe(200);
+            }
+            return { owner, recipient, files, apps };
+        };
+
+        it('shows an app its own grants only', async () => {
+            const { files, apps } = await twoApps();
+
+            for (const [index, app] of apps.entries()) {
+                const body = (await (
+                    await get('/share/shared-by-me', app.token, {
+                        includeTotal: 'true',
+                    })
+                ).json()) as {
+                    items: Array<Record<string, unknown>>;
+                    total?: number;
+                };
+                expect(body.items.map((i) => i.uid_entry)).toEqual([
+                    files[index].uid,
+                ]);
+                expect(body.items[0].issued_by_app).toBe(app.uid);
+                expect(body.total).toBe(1);
+            }
+
+            // Naming the other app changes nothing: the credential is the scope.
+            const crossed = (await (
+                await get('/share/shared-by-me', apps[0].token, {
+                    appUid: apps[1].uid,
+                })
+            ).json()) as { items: unknown[] };
+            expect(crossed.items).toEqual([]);
+        });
+
+        it('groups a session listing by app and drills back in', async () => {
+            const { owner, recipient, files, apps } = await twoApps();
+            const byHand = await makeFile(owner);
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: byHand.uid }],
+                mode: 'read',
+            });
+
+            const grouped = (await (
+                await get('/share/shared-by-me/apps', owner.token, {
+                    includeTotal: 'true',
+                })
+            ).json()) as {
+                items: Array<{
+                    appUid: string | null;
+                    name: string | null;
+                    count: number;
+                }>;
+                total?: number;
+            };
+            expect(grouped.total).toBe(3);
+            const byApp = new Map(grouped.items.map((i) => [i.appUid, i]));
+            expect(byApp.get(null)?.count).toBe(1);
+            expect(byApp.get(apps[0].uid)).toMatchObject({
+                name: apps[0].name,
+                count: 1,
+            });
+
+            const drilled = (await (
+                await get('/share/shared-by-me', owner.token, {
+                    appUid: apps[0].uid,
+                })
+            ).json()) as { items: Array<{ uid_entry: string }> };
+            expect(drilled.items.map((i) => i.uid_entry)).toEqual([
+                files[0].uid,
+            ]);
+
+            const manual = (await (
+                await get('/share/shared-by-me', owner.token, {
+                    appUid: 'none',
+                })
+            ).json()) as { items: Array<{ uid_entry: string }> };
+            expect(manual.items.map((i) => i.uid_entry)).toEqual([byHand.uid]);
+        });
+
+        it('keeps the grouped view off app tokens', async () => {
+            const { apps } = await twoApps();
+            const res = await get('/share/shared-by-me/apps', apps[0].token, {});
+            expect(res.status).toBe(403);
+        });
+
+        it('revokes a listed share, and answers 404 for one that is not the caller\'s', async () => {
+            const { owner, apps } = await twoApps();
+            const stranger = await makeUser();
+            const listed = (await (
+                await get('/share/shared-by-me', apps[1].token, {})
+            ).json()) as { items: Array<{ uid: string }> };
+            const uid = listed.items[0].uid;
+
+            expect((await del(`/share/shared-by-me/${uid}`, apps[0].token)).status)
+                .toBe(404);
+            expect(
+                (await del(`/share/shared-by-me/${uid}`, stranger.token)).status,
+            ).toBe(404);
+            expect(
+                (
+                    await del(
+                        `/share/shared-by-me/${crypto.randomUUID()}`,
+                        owner.token,
+                    )
+                ).status,
+            ).toBe(404);
+
+            const revoked = await del(`/share/shared-by-me/${uid}`, owner.token);
+            expect(revoked.status).toBe(200);
+            expect(await revoked.json()).toMatchObject({ uid, revoked: 1 });
+
+            const after = (await (
+                await get('/share/shared-by-me', apps[1].token, {})
+            ).json()) as { items: Array<{ uid: string }> };
+            expect(after.items).toEqual([]);
+        });
+
+        it('reads the grant audit trail, and keeps it after a revoke', async () => {
+            const { owner, recipient, files, apps } = await twoApps();
+
+            const trail = async (token: string, params = {}) =>
+                (await (await get('/share/audit', token, params)).json()) as {
+                    items: Array<Record<string, unknown>>;
+                    total?: number;
+                };
+
+            const granted = await trail(owner.token, {
+                uid: files[0].uid,
+                includeTotal: 'true',
+            });
+            expect(granted.total).toBe(granted.items.length);
+            expect(granted.items[0]).toMatchObject({
+                action: 'grant',
+                entryUid: files[0].uid,
+                issuer: owner.username,
+                holder: recipient.username,
+                appUid: apps[0].uid,
+            });
+            // Nothing internal rides along.
+            for (const key of ['issuer_user_id', 'holder_user_id', 'reason']) {
+                expect(granted.items[0]).not.toHaveProperty(key);
+            }
+
+            await post('/share/revoke', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: files[0].uid }],
+            });
+            const afterRevoke = await trail(owner.token, {
+                uid: files[0].uid,
+            });
+            expect(
+                afterRevoke.items.map((i) => i.action),
+            ).toEqual(expect.arrayContaining(['grant', 'revoke']));
+        });
+
+        it('will not hand one account the trail of another\'s', async () => {
+            const { files } = await twoApps();
+            const stranger = await makeUser();
+
+            const res = await get('/share/audit', stranger.token, {
+                uid: files[0].uid,
+            });
+            expect(res.status).toBe(404);
+
+            // Their own listing is theirs alone, and they have granted nothing.
+            const own = (await (
+                await get('/share/audit', stranger.token, {})
+            ).json()) as { items: unknown[] };
+            expect(own.items).toEqual([]);
+        });
+
+        it('keeps the audit trail off app tokens', async () => {
+            const { apps, files } = await twoApps();
+            const res = await get('/share/audit', apps[0].token, {
+                uid: files[0].uid,
+            });
+            expect(res.status).toBe(403);
         });
     });
 

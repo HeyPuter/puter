@@ -1010,4 +1010,92 @@ describe('PermissionStore', () => {
             ).toBe(false);
         });
     });
+
+    describe('the user-to-user audit trail', () => {
+        const record = (
+            issuerUserId: number,
+            holderUserId: number,
+            permission: string,
+            action: 'grant' | 'revoke',
+            extra: Record<string, unknown> | null = null,
+        ) =>
+            store.auditUserUserPerm({
+                holder_user_id: holderUserId,
+                issuer_user_id: issuerUserId,
+                permission,
+                action,
+                reason: 'test',
+                extra,
+            });
+
+        it('reads rows back newest first, with what was recorded on them', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const permission = `fs:${uuidv4()}:read`;
+            const appUid = uuidv4();
+
+            await record(issuer.id, holder.id, permission, 'grant', { appUid });
+            await record(issuer.id, holder.id, permission, 'revoke');
+
+            const page = await store.listUserUserAudit({ permissions: [permission] });
+            expect(page.items.map((r) => r.action)).toEqual(['revoke', 'grant']);
+            expect(page.items[1].extra).toEqual({ appUid });
+            expect(page.items[1].issuer_user_id).toBe(issuer.id);
+            expect(page.items[1].holder_user_id).toBe(holder.id);
+            expect(
+                await store.countUserUserAudit({ permissions: [permission] }),
+            ).toBe(2);
+        });
+
+        it('pages backwards through the cursor', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const permission = `fs:${uuidv4()}:read`;
+            for (let i = 0; i < 3; i++) {
+                await record(issuer.id, holder.id, permission, 'grant');
+            }
+
+            const seen: number[] = [];
+            let cursor: string | undefined;
+            for (let guard = 0; guard < 10; guard++) {
+                const page = await store.listUserUserAudit(
+                    { permissions: [permission] },
+                    { limit: 1, cursor },
+                );
+                seen.push(...page.items.map((r) => r.id));
+                cursor = page.cursor;
+                if (!cursor) break;
+            }
+
+            expect(seen).toHaveLength(3);
+            expect([...seen].sort((a, b) => b - a)).toEqual(seen);
+            expect(cursor).toBeUndefined();
+        });
+
+        it('narrows to one issuer, and refuses to read the table unfiltered', async () => {
+            const issuer = await makeUser();
+            const other = await makeUser();
+            const holder = await makeUser();
+            const permission = `fs:${uuidv4()}:read`;
+
+            await record(issuer.id, holder.id, permission, 'grant');
+            await record(other.id, holder.id, permission, 'grant');
+
+            const page = await store.listUserUserAudit({
+                issuerUserId: issuer.id,
+            });
+            expect(page.items.every((r) => r.issuer_user_id === issuer.id)).toBe(
+                true,
+            );
+            await expect(store.listUserUserAudit({})).rejects.toThrow(
+                /requires a filter/u,
+            );
+        });
+
+        it('matches nothing for an empty permission list', async () => {
+            const page = await store.listUserUserAudit({ permissions: [] });
+            expect(page.items).toEqual([]);
+            expect(await store.countUserUserAudit({ permissions: [] })).toBe(0);
+        });
+    });
 });

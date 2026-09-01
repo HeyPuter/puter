@@ -99,6 +99,7 @@ export type {
     FSItemRead,
     FSItemWithShares,
     GetSharesOptions,
+    ListSharedByMeOptions,
     ListSharedOptions,
     MkdirOptions,
     MoveOptions,
