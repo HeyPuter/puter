@@ -347,6 +347,24 @@ support@puter.com immediately.
 <p>Puter</p>
         `,
     },
+    team_account_created: {
+        subject: 'Your {{team_name}} account on Puter',
+        html: `
+<p>Hi there,</p>
+<p>{{team_name}} has created a Puter account for you: <b>{{username}}</b>.
+They will send you a temporary password separately; you will be asked to
+choose your own the first time you sign in.</p>
+<p>What this means:</p>
+<ul>
+<li>This account belongs to {{team_name}}. They pay for it and can close it.</li>
+<li>{{team_name}} <b>cannot</b> see your files, apps or data.</li>
+<li>{{team_name}} <b>can</b> reset your password, which would let them sign in
+as you. Choose your own password promptly.</li>
+</ul>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     enabled_2fa: {
         subject: '2FA Enabled on your Account',
         html: `
