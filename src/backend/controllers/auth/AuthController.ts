@@ -81,8 +81,8 @@ import {
 } from '../../services/permission/appDataScopes.js';
 import { PuterController } from '../types.js';
 
-const USERNAME_REGEX = /^\w{1,}$/;
-const USERNAME_MAX_LENGTH = 45;
+export const USERNAME_REGEX = /^\w{1,}$/;
+export const USERNAME_MAX_LENGTH = 45;
 const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
 // crafted request from turning a single grant call into a bulk write.
@@ -194,7 +194,7 @@ const cardAlreadyVerified = (user: {
     requires_card_verification?: boolean;
 }): boolean =>
     Boolean(user.card_fingerprint) && !user.requires_card_verification;
-const RESERVED_USERNAMES = new Set([
+export const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
     'root',
@@ -4463,7 +4463,18 @@ export class AuthController extends PuterController {
     ): Promise<UserRow | null> {
         const existing = await this.stores.user.findEmailOwner(email, opts);
         if (!existing) return null;
-        if (existing.email_confirmed || existing.password !== null) {
+        // A provisioned account looks exactly like a claimable placeholder --
+        // no password, unconfirmed -- but claiming it hands a stranger that
+        // workspace's membership.
+        const orgOwned = await this.clients.db.read(
+            'SELECT 1 AS hit FROM `jct_user_group` WHERE `user_id` = ? AND `org_owned` = 1 LIMIT 1',
+            [existing.id],
+        );
+        if (
+            existing.email_confirmed ||
+            existing.password !== null ||
+            orgOwned.length > 0
+        ) {
             throw new HttpError(
                 400,
                 'This email already exists in our database. Please use another one.',

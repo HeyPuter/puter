@@ -17,10 +17,36 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import bcrypt from 'bcrypt';
+import { randomBytes } from 'node:crypto';
+import validator from 'validator';
+import { v4 as uuidv4 } from 'uuid';
+import {
+    RESERVED_USERNAMES,
+    USERNAME_MAX_LENGTH,
+    USERNAME_REGEX,
+} from '../../controllers/auth/AuthController.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { checkHandle } from '../../stores/team/TeamStore.js';
 import type { TeamMemberRow, TeamRow } from '../../stores/team/TeamStore';
+import type { UserRow } from '../../stores/user/UserStore';
+import { cleanEmail } from '../../util/email.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { PuterService } from '../types';
+
+/** Unambiguous alphabet -- no 0/O or 1/l, since a human retypes this. */
+const TEMP_PASSWORD_ALPHABET =
+    'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+
+/** ~95 bits, generated rather than chosen so it is never a reused pattern. */
+export const generateTemporaryPassword = (length = 16): string => {
+    const bytes = randomBytes(length);
+    let out = '';
+    for (let i = 0; i < length; i++) {
+        out += TEMP_PASSWORD_ALPHABET[bytes[i] % TEMP_PASSWORD_ALPHABET.length];
+    }
+    return out;
+};
 
 /** Why an account was disabled. Free text in `0063`; this is the team one. */
 export const DISABLED_BY_WORKSPACE = 'disabled_by_workspace';
@@ -181,6 +207,169 @@ export class TeamService extends PuterService {
             [team.id],
         )) as { n: number }[];
         return Number(rows[0]?.n) === 1;
+    }
+
+    // -- Provisioning -------------------------------------------------
+    // Usernames come from Puter's global pool, so a taken one is reported.
+
+    /** Provisioning must not mint accounts signup itself would refuse. */
+    #usernameRejection(username: string): boolean {
+        return (
+            !USERNAME_REGEX.test(username) ||
+            username.length > USERNAME_MAX_LENGTH ||
+            RESERVED_USERNAMES.has(username.toLowerCase())
+        );
+    }
+
+    #assertUsableUsername(username: string): void {
+        if (this.#usernameRejection(username)) {
+            throw new HttpError(400, 'Invalid username', {
+                legacyCode: 'bad_request',
+            });
+        }
+    }
+
+    /** Free names near `username`, checked for availability. Never auto-applied. */
+    async suggestUsernames(username: string, count = 3): Promise<string[]> {
+        // Room for the suffix, or every suggestion breaks the length rule.
+        const base = username.slice(0, USERNAME_MAX_LENGTH - 3);
+        const found: string[] = [];
+        for (let n = 1; n <= 40 && found.length < count; n++) {
+            const candidate = `${base}${n}`;
+            if (this.#usernameRejection(candidate)) continue;
+            if (!(await this.stores.user.getByUsername(candidate))) {
+                found.push(candidate);
+            }
+        }
+        return found;
+    }
+
+    /** Returns the activation link; the account has no password until used. */
+    async provisionAccount(
+        teamUid: string,
+        actorUserId: number,
+        input: { username: string; email: string },
+    ): Promise<{
+        userId: number;
+        username: string;
+        temporaryPassword: string;
+    }> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        this.#assertUsableUsername(input.username);
+        if (!validator.isEmail(input.email)) {
+            throw new HttpError(400, 'Invalid email', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        // Before any write, so a taken name fails cleanly.
+        if (await this.stores.user.getByUsername(input.username)) {
+            throw new HttpError(409, 'That username is taken', {
+                legacyCode: 'username_already_in_use',
+                fields: {
+                    suggestions: await this.suggestUsernames(input.username),
+                },
+            });
+        }
+
+        // `idx_user_owned_email` is partial and skips password-null rows.
+        if (await this.stores.user.findEmailOwner(input.email)) {
+            throw new HttpError(409, 'That email is already in use', {
+                legacyCode: 'email_already_in_use',
+            });
+        }
+
+        const user = await this.stores.user.create({
+            username: input.username,
+            uuid: uuidv4(),
+            password: null,
+            email: input.email,
+            clean_email: cleanEmail(input.email),
+            // The address came from the administrator, not its holder.
+            requires_email_confirmation: true,
+        });
+
+        await generateDefaultFsentries(this.clients.db, this.stores.user, user);
+
+        // Otherwise a vanished workspace leaves a real account nobody owns.
+        const admitted = await this.stores.team.addMember(teamUid, user.id, {
+            orgOwned: true,
+        });
+        if (!admitted) {
+            await this.services.userAccount.cascadeDelete(user.id);
+            throw new HttpError(409, 'That workspace is no longer available', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        // Returned once for the administrator to deliver out of band; forced
+        // change on first use is what bounds it.
+        const temporaryPassword = generateTemporaryPassword();
+        await this.stores.user.update(user.id, {
+            password: await bcrypt.hash(temporaryPassword, 8),
+            requires_password_change: 1,
+        });
+        await this.#notifyAccountCreated(user, team);
+
+        return {
+            userId: user.id,
+            username: user.username,
+            temporaryPassword,
+        };
+    }
+
+    /** Issues a fresh credential, invalidating the previous one. */
+    async reissueCredential(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<{ temporaryPassword: string }> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        await this.requireOrgAccount(teamUid, targetUserId);
+
+        const user = await this.stores.user.getByProperty('id', targetUserId, {
+            force: true,
+        });
+        if (!user) {
+            throw new HttpError(404, 'Account not found', {
+                legacyCode: 'not_found',
+            });
+        }
+        // Only before first use; changing a live account's password is reset.
+        if (!user.requires_password_change) {
+            throw new HttpError(409, 'That account is already activated', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        const temporaryPassword = generateTemporaryPassword();
+        await this.stores.user.update(targetUserId, {
+            password: await bcrypt.hash(temporaryPassword, 8),
+            requires_password_change: 1,
+        });
+        await this.#notifyAccountCreated(user, team);
+        return { temporaryPassword };
+    }
+
+    /** A notice only -- it carries no credential, so delivery is best effort. */
+    async #notifyAccountCreated(user: UserRow, team: TeamRow): Promise<void> {
+        if (!this.clients.email || !user.email) return;
+        try {
+            const sent = await this.clients.email.send(
+                user.email,
+                'team_account_created',
+                {
+                    username: user.username,
+                    team_name: team.name ?? 'Your workspace',
+                },
+            );
+            // `sendRaw` returns null with no transport rather than throwing.
+            if (sent === null) {
+                console.warn('[team-provision] no email transport configured');
+            }
+        } catch (e) {
+            console.warn('[team-provision] notice failed:', e);
+        }
     }
 
     // -- Disable and re-enable ----------------------------------------

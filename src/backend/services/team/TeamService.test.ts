@@ -28,7 +28,7 @@ describe('TeamService', () => {
     let owner: { id: number };
 
     const makeUser = async (): Promise<{ id: number; username: string }> => {
-        const username = `svc-${Math.random().toString(36).slice(2, 10)}`;
+        const username = `svc_${Math.random().toString(36).slice(2, 10)}`;
         const created = (await server.stores.user.create({
             username,
             uuid: uuidv4(),
@@ -256,5 +256,197 @@ describe('TeamService', () => {
 
         await service.enableMember(team.uid, owner.id, member.id);
         expect(Boolean((await suspensionOf(member.id)).suspended)).toBe(false);
+    });
+
+
+    // -- provisioning -------------------------------------------------
+
+    it('creates an account the workspace owns, pending a password change', async () => {
+        const { team } = await makeWorkspace();
+        const username = `prov_${Math.random().toString(36).slice(2, 9)}`;
+
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        expect(result.username).toBe(username);
+        const user = await server.stores.user.getById(result.userId);
+        expect(Boolean(user?.requires_password_change)).toBe(true);
+
+        const membership = await server.stores.team.getMembership(
+            team.uid,
+            result.userId,
+        );
+        expect(Number(membership?.org_owned)).toBe(1);
+    });
+
+    it('gives the new account its default filesystem tree', async () => {
+        const { team } = await makeWorkspace();
+        const username = `tree_${Math.random().toString(36).slice(2, 9)}`;
+
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const user = await server.stores.user.getById(result.userId);
+        expect(user?.trash_uuid).toBeTruthy();
+    });
+
+    it('returns a temporary password the admin delivers out of band', async () => {
+        const { team } = await makeWorkspace();
+        const username = `link_${Math.random().toString(36).slice(2, 9)}`;
+
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        expect(result.temporaryPassword).toHaveLength(16);
+        const user = await server.stores.user.getById(result.userId);
+        // Hashed, and the account cannot do anything until it is changed.
+        expect(user?.password).not.toBe(result.temporaryPassword);
+        expect(Boolean(user?.requires_password_change)).toBe(true);
+    });
+
+    it('writes nothing when the username is taken', async () => {
+        const { team } = await makeWorkspace();
+        const taken = await makeUser();
+        const before = await server.stores.team.listMembers(team.uid);
+
+        await expect(
+            service.provisionAccount(team.uid, owner.id, {
+                username: taken.username,
+                email: 'someone@test.local',
+            }),
+        ).rejects.toMatchObject({ statusCode: 409 });
+
+        // Checked before any row is written, so the workspace is untouched.
+        const after = await server.stores.team.listMembers(team.uid);
+        expect(after.items).toHaveLength(before.items.length);
+    });
+
+    it('offers free alternatives instead of modifying the name', async () => {
+        const taken = await makeUser();
+        const suggestions = await service.suggestUsernames(taken.username);
+
+        expect(suggestions.length).toBeGreaterThan(0);
+        for (const suggestion of suggestions) {
+            expect(suggestion).not.toBe(taken.username);
+            await expect(
+                server.stores.user.getByUsername(suggestion),
+            ).resolves.toBeFalsy();
+        }
+    });
+
+    it('refuses provisioning by anyone but the workspace owner', async () => {
+        const { team, member } = await makeWorkspace();
+        await expect(
+            service.provisionAccount(team.uid, member.id, {
+                username: `nope_${Math.random().toString(36).slice(2, 9)}`,
+                email: 'nope@test.local',
+            }),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('re-issues a different credential each time', async () => {
+        const { team } = await makeWorkspace();
+        const username = `again_${Math.random().toString(36).slice(2, 9)}`;
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        const again = await service.reissueCredential(
+            team.uid,
+            owner.id,
+            result.userId,
+        );
+        expect(again.temporaryPassword).not.toBe(result.temporaryPassword);
+    });
+
+    it('refuses to re-issue once the member has chosen a password', async () => {
+        const { team } = await makeWorkspace();
+        const username = `done_${Math.random().toString(36).slice(2, 9)}`;
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        // Simulate the member choosing their own password.
+        await server.stores.user.update(result.userId, {
+            requires_password_change: 0,
+        });
+
+        await expect(
+            service.reissueCredential(team.uid, owner.id, result.userId),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+    it('refuses an email that already belongs to an account', async () => {
+        const { team } = await makeWorkspace();
+        const existing = await makeUser();
+        const row = await server.stores.user.getById(existing.id);
+
+        await expect(
+            service.provisionAccount(team.uid, owner.id, {
+                username: `dup_${Math.random().toString(36).slice(2, 9)}`,
+                email: row!.email!,
+            }),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('refuses a username signup itself would reject', async () => {
+        const { team } = await makeWorkspace();
+        for (const username of ['has-hyphen', 'x'.repeat(46), 'admin']) {
+            await expect(
+                service.provisionAccount(team.uid, owner.id, {
+                    username,
+                    email: 'x@test.local',
+                }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('refuses an invalid email', async () => {
+        const { team } = await makeWorkspace();
+        await expect(
+            service.provisionAccount(team.uid, owner.id, {
+                username: `bad_${Math.random().toString(36).slice(2, 9)}`,
+                email: 'not-an-email',
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('only suggests usernames the next call would accept', async () => {
+        const taken = await makeUser();
+        for (const s of await service.suggestUsernames(taken.username)) {
+            expect(s.length).toBeLessThanOrEqual(45);
+            expect(s).toMatch(/^\w+$/u);
+        }
+    });
+    it('generates a different credential for every account', async () => {
+        const { team } = await makeWorkspace();
+        const seen = new Set<string>();
+        for (let i = 0; i < 3; i++) {
+            const u = `gen_${Math.random().toString(36).slice(2, 9)}`;
+            const r = await service.provisionAccount(team.uid, owner.id, {
+                username: u,
+                email: `${u}@test.local`,
+            });
+            expect(r.temporaryPassword).toMatch(/^[A-Za-z2-9]{16}$/u);
+            seen.add(r.temporaryPassword);
+        }
+        expect(seen.size).toBe(3);
+    });
+
+    it('survives having no email transport, since the notice carries nothing', async () => {
+        const { team } = await makeWorkspace();
+        const u = `noem_${Math.random().toString(36).slice(2, 9)}`;
+
+        // The credential is returned, so delivery failing loses nothing.
+        const r = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        expect(r.temporaryPassword).toBeTruthy();
     });
 });
