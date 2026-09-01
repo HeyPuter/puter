@@ -617,6 +617,45 @@ describe('ClaudeProvider.complete request shape', () => {
         });
     });
 
+    it('omits temperature for fable 5.1 (rejects non-default sampling)', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-fable-5-1',
+                messages: [{ role: 'user', content: 'hi' }],
+                temperature: 0.5,
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect('temperature' in args).toBe(false);
+    });
+
+    it('forwards reasoning_effort as adaptive thinking + output_config effort on fable 5.1', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-fable-5-1',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        // Fable 5.1 rejects `budget_tokens` and thinking is always on, so the
+        // only accepted config is adaptive; effort rides in output_config.
+        expect(args.thinking).toEqual({
+            type: 'adaptive',
+            display: 'summarized',
+        });
+        expect(args.output_config).toEqual({ effort: 'high' });
+        expect('temperature' in args).toBe(false);
+    });
+
     it('builds an enabled thinking budget from reasoning_effort on older Sonnet models', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -667,6 +706,22 @@ describe('ClaudeProvider model resolution', () => {
             expect.anything(),
             'claude:claude-haiku-4-5-20251001',
             expect.any(Object),
+        );
+    });
+
+    it('routes the bare claude-fable alias to fable 5.1 rather than fable 5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-fable',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+            'claude-fable-5-1',
         );
     });
 
@@ -733,6 +788,46 @@ describe('ClaudeProvider.complete non-stream output', () => {
         );
         expect(overrides.cache_read_input_tokens).toBe(
             10 * Number(haiku.costs.cache_read_input_tokens),
+        );
+    });
+
+    it('meters fable 5.1 cache reads at its reduced rate, not the 0.1x used elsewhere', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'ok' }],
+            usage: {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_input_tokens: 1000,
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-fable-5-1',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const fable51 = CLAUDE_MODELS.find((m) => m.id === 'claude-fable-5-1')!;
+        const fable5 = CLAUDE_MODELS.find((m) => m.id === 'claude-fable-5')!;
+        // Same per-token price as Fable 5 except cache reads at a quarter of the rate.
+        expect(fable51.costs.input_tokens).toBe(fable5.costs.input_tokens);
+        expect(fable51.costs.output_tokens).toBe(fable5.costs.output_tokens);
+        expect(Number(fable51.costs.cache_read_input_tokens)).toBeCloseTo(
+            Number(fable5.costs.cache_read_input_tokens) / 4,
+        );
+
+        const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+        expect(prefix).toBe('claude:claude-fable-5-1');
+        expect(overrides.input_tokens).toBe(
+            100 * Number(fable51.costs.input_tokens),
+        );
+        expect(overrides.output_tokens).toBe(
+            50 * Number(fable51.costs.output_tokens),
+        );
+        expect(overrides.cache_read_input_tokens).toBeCloseTo(
+            1000 * Number(fable51.costs.cache_read_input_tokens),
         );
     });
 
