@@ -354,11 +354,36 @@ describe('OpenRouterProvider.complete request shape', () => {
         });
     });
 
-    it('retries without max_tokens when OpenRouter rejects with a context-length error', async () => {
+    it('retries under the room left by the window when OpenRouter reports it', async () => {
         const { provider } = makeProvider();
 
-        // First call: simulate the OpenRouter "context length" rejection
-        // shape the provider catches by message prefix.
+        const ctxErr = {
+            error: {
+                message:
+                    "This endpoint's maximum context length is 4096 tokens. However, you requested 5000 tokens (900 of text input, 4100 in the output).",
+            },
+        };
+        createMock
+            .mockRejectedValueOnce(ctxErr)
+            .mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'openrouter:openai/gpt-5-nano',
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 4100,
+            }),
+        );
+
+        expect(createMock).toHaveBeenCalledTimes(2);
+        // 4096 of window less the 900 input tokens the rejection reported.
+        expect(createMock.mock.calls[1]![0].max_tokens).toBe(3196);
+        expect(createMock.mock.calls[0]![0].max_tokens).toBe(4100);
+    });
+
+    it('sizes the retry from the prompt estimate when the rejection omits token counts', async () => {
+        const { provider } = makeProvider();
+
         const ctxErr = {
             error: {
                 message:
@@ -372,17 +397,16 @@ describe('OpenRouterProvider.complete request shape', () => {
         await withTestActor(() =>
             provider.complete({
                 model: 'openrouter:openai/gpt-5-nano',
-                messages: [{ role: 'user', content: 'hi' }],
+                // ~1000 estimated tokens, doubled: the retry assumes the
+                // estimator's whitespace-poor worst case.
+                messages: [{ role: 'user', content: 'x'.repeat(8000) }],
                 max_tokens: 9999999,
             }),
         );
 
-        // Provider mutates a single completionParams object across both calls
-        // (`delete completionParams.max_tokens` after the first throw), so we
-        // can only assert that two calls happened and the surviving shape no
-        // longer carries max_tokens.
         expect(createMock).toHaveBeenCalledTimes(2);
-        expect('max_tokens' in createMock.mock.calls[1]![0]).toBe(false);
+        // 4096 of window less the 2000 the prompt is assumed to occupy.
+        expect(createMock.mock.calls[1]![0].max_tokens).toBe(2096);
     });
 
     it('rethrows non-context-length errors without retrying', async () => {
@@ -405,6 +429,27 @@ describe('OpenRouterProvider.complete request shape', () => {
         // Only one attempt was made.
         expect(createMock).toHaveBeenCalledTimes(1);
         expect(recordSpy).not.toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalled();
+    });
+
+    it('rethrows a transport error as itself rather than masking it', async () => {
+        const { provider } = makeProvider();
+        // No `.error` on the object: the shape a socket failure arrives in.
+        const transportError = new Error('socket hang up');
+        createMock.mockRejectedValueOnce(transportError);
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'openrouter:openai/gpt-5-nano',
+                    messages: [{ role: 'user', content: 'boom' }],
+                    max_tokens: 100,
+                }),
+            ),
+        ).rejects.toBe(transportError);
+
+        expect(createMock).toHaveBeenCalledTimes(1);
         expect(logSpy).toHaveBeenCalled();
     });
 });
