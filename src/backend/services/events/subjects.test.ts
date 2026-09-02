@@ -23,6 +23,7 @@ import { PermissionUtil } from '../permission/permissionUtil.js';
 import {
     fsAnchorToken,
     parseSubject,
+    SUBJECT_MAX_LENGTH,
     type AnchorRef,
     type FsOp,
 } from './subjects.js';
@@ -202,6 +203,26 @@ describe('parseSubject', () => {
         expect(parseSubject('  fs:~/Documents:write  ')).toMatchObject({
             anchorRef: { kind: 'fsPath', path: '~/Documents' },
         });
+    });
+});
+
+describe('subject length', () => {
+    it('rejects a subject longer than the widest path the filesystem stores', () => {
+        const subject = `fs:/alice/${'a'.repeat(SUBJECT_MAX_LENGTH)}`;
+        let thrown: unknown;
+        try {
+            parseSubject(subject);
+        } catch (err) {
+            thrown = err;
+        }
+        expect(thrown).toBeInstanceOf(HttpError);
+        expect((thrown as HttpError).legacyCode).toBe('invalid_subject');
+    });
+
+    it('accepts one right at the cap', () => {
+        const prefix = 'fs:/alice/';
+        const subject = `${prefix}${'a'.repeat(SUBJECT_MAX_LENGTH - prefix.length)}`;
+        expect(parseSubject(subject).family).toBe('fs');
     });
 });
 

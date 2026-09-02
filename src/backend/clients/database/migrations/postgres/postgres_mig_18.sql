@@ -29,9 +29,9 @@ CREATE TABLE IF NOT EXISTS event_subscriptions (
     holder_user_id INTEGER NOT NULL
         REFERENCES "user" (id) ON DELETE CASCADE ON UPDATE CASCADE,
     app_uid VARCHAR(40) DEFAULT NULL,
-    subject VARCHAR(1024) NOT NULL,
+    subject VARCHAR(4096) NOT NULL,
     anchor_uid VARCHAR(36) NOT NULL,
-    anchor_path VARCHAR(1024) NOT NULL,
+    anchor_path VARCHAR(4096) NOT NULL,
     "match" VARCHAR(1024) DEFAULT NULL,
     delivery VARCHAR(16) NOT NULL,
     ops VARCHAR(64) DEFAULT NULL,

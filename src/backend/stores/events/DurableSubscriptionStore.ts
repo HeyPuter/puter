@@ -388,8 +388,8 @@ export class DurableSubscriptionStore extends PuterStore {
     async countForHolder(holderUserId: number): Promise<number> {
         const [row] = await this.clients.db.pread(
             `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
-                `WHERE \`holder_user_id\` = ?`,
-            [holderUserId],
+                `WHERE \`holder_user_id\` = ? AND ${this.#unexpiredClause()}`,
+            [holderUserId, nowSeconds()],
         );
         return Number(row?.total ?? 0);
     }

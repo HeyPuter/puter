@@ -224,6 +224,14 @@ describe('the per-account cap', () => {
         await expect(durable().countForHolder(userId)).resolves.toBe(0);
         await expect(durable().countForHolder(otherUserId)).resolves.toBe(1);
     });
+
+    it('does not count a row that has expired but not yet been swept', async () => {
+        await durable().create(
+            input({ expiresAt: Math.floor(Date.now() / 1000) - 60 }),
+        );
+        await durable().create(input());
+        await expect(durable().countForHolder(userId)).resolves.toBe(1);
+    });
 });
 
 describe('removal', () => {

@@ -33,9 +33,9 @@ CREATE TABLE IF NOT EXISTS `event_subscriptions` (
     -- app that made it, which is what keeps it revocable afterwards.
     `app_uid` char(40) CHARACTER SET latin1 COLLATE latin1_swedish_ci
         DEFAULT NULL,
-    `subject` varchar(1024) NOT NULL,
+    `subject` varchar(4096) NOT NULL,
     `anchor_uid` char(36) NOT NULL,
-    `anchor_path` varchar(1024) NOT NULL,
+    `anchor_path` varchar(4096) NOT NULL,
     `match` varchar(1024) DEFAULT NULL,
     `delivery` varchar(16) NOT NULL,
     `ops` varchar(64) DEFAULT NULL,

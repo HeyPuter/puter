@@ -202,8 +202,11 @@ export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
 
 // -- Expiry sweep -----------------------------------------------------
 
-/** An expiry is a date, not a deadline, so once a day is close enough. */
-const EXPIRY_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** An expiry is a date, not a deadline, so hourly is close enough. */
+const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+// The first pass lands within this long of boot, so a fleet that redeploys more
+// often than the interval still sweeps.
+const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const EXPIRY_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
@@ -302,9 +305,20 @@ const deliveryTarget = (row: DispatchSubscription): SocketSpecifier => {
  * store to take a lease, and a row with no socket target has asked not to be
  * delivered over one.
  */
+const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+/** Past `expiresAt` a durable row is finished, sweep or no sweep. */
+const unexpired = (row: DispatchSubscription): boolean => {
+    if (row.durable !== true) return true;
+    const { expiresAt } = row as DurableSubscription;
+    return expiresAt === null || expiresAt > nowSeconds();
+};
+
 const deliverableOverSockets = (row: DispatchSubscription): boolean =>
-    row.durable !== true ||
-    (row.delivery === 'broadcast' && (row.targets ?? []).includes('socket'));
+    unexpired(row) &&
+    (row.durable !== true ||
+        (row.delivery === 'broadcast' &&
+            (row.targets ?? []).includes('socket')));
 
 // -- Durable request parsing ------------------------------------------
 
@@ -379,6 +393,7 @@ export class EventsService extends PuterService {
     readonly #refreshTimers = new Map<string, ReturnType<typeof setInterval>>();
     #coalescer: DeliveryCoalescer<AddressedDelivery> | null = null;
     #expirySweep: ReturnType<typeof setInterval> | null = null;
+    #expiryKick: ReturnType<typeof setTimeout> | null = null;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -389,15 +404,20 @@ export class EventsService extends PuterService {
                 // Our own emit reaches local listeners too, and that half has
                 // already been applied.
                 if (!(meta as { from_outside?: boolean })?.from_outside) return;
-                const { userId } = (data ?? {}) as { userId?: number };
+                const { userId, durable } = (data ?? {}) as {
+                    userId?: number;
+                    durable?: boolean;
+                };
                 if (typeof userId !== 'number') return;
-                this.invalidateUser(userId);
+                this.invalidateUser(userId, { rebuild: durable === true });
             },
         );
         this.#armExpirySweep();
     }
 
     override onServerPrepareShutdown(): void {
+        if (this.#expiryKick) clearTimeout(this.#expiryKick);
+        this.#expiryKick = null;
         if (this.#expirySweep) clearInterval(this.#expirySweep);
         this.#expirySweep = null;
     }
@@ -499,7 +519,7 @@ export class EventsService extends PuterService {
         };
 
         const bump = await this.stores.eventSubscription.add(sub);
-        this.#publishGeneration(bump);
+        this.#publishGeneration(bump, false);
         this.#startRefresh(holderUserId, socketId);
 
         return { sub: toView(sub) };
@@ -530,7 +550,7 @@ export class EventsService extends PuterService {
 
         const bump = await this.stores.eventSubscription.remove(sub);
         this.#forget(subId);
-        this.#publishGeneration(bump);
+        this.#publishGeneration(bump, false);
     }
 
     /** What this actor holds on one connection, scoped to what it may see. */
@@ -592,7 +612,7 @@ export class EventsService extends PuterService {
             permission: anchor.permission,
             expiresAt,
         });
-        this.#publishGeneration(bump);
+        this.#publishGeneration(bump, true);
 
         return { sub: toDurableView(row) };
     }
@@ -657,7 +677,7 @@ export class EventsService extends PuterService {
 
         const bump = await this.stores.durableSubscription.remove(row);
         this.#forget(subId);
-        this.#publishGeneration(bump);
+        this.#publishGeneration(bump, true);
     }
 
     /**
@@ -750,7 +770,7 @@ export class EventsService extends PuterService {
                 holderUserId,
                 socketId,
             );
-            for (const bump of bumps) this.#publishGeneration(bump);
+            for (const bump of bumps) this.#publishGeneration(bump, false);
         } catch (err) {
             // The TTL backstop exists for exactly this.
             console.warn('[events] failed to reap socket subscriptions', err);
@@ -1082,19 +1102,31 @@ export class EventsService extends PuterService {
      * forgets, and `SubscriptionCache`'s read-side TTL is what bounds a process
      * that never received one at all.
      */
-    invalidateUser(userId: number): void {
+    invalidateUser(
+        userId: number,
+        { rebuild = true }: { rebuild?: boolean } = {},
+    ): void {
         this.#cache.bump(userId);
+        if (!rebuild) return;
         void this.stores.eventSubscription
             .markRegionCold(userId)
             .catch(() => {});
     }
 
-    #publishGeneration({ userId, generation }: GenerationBump): void {
+    /**
+     * `durable` says whether the table changed. Session rows live in this
+     * region's Redis alone, so a peer hearing about one has nothing to rebuild
+     * — only a durable bump is worth a primary read over there.
+     */
+    #publishGeneration(
+        { userId, generation }: GenerationBump,
+        durable: boolean,
+    ): void {
         this.#cache.bump(userId, generation);
         try {
             this.clients.event.emit(
                 'outer.events.generationBumped',
-                { userId, generation },
+                { userId, generation, durable },
                 {},
             );
         } catch {
@@ -1156,11 +1188,19 @@ export class EventsService extends PuterService {
 
     #armExpirySweep(): void {
         if (!this.enabled) return;
-        const sweep = setInterval(() => {
+        const run = () => {
             void this.sweepExpired().catch((err) => {
                 console.warn('[events] expiry sweep failed', err);
             });
-        }, EXPIRY_SWEEP_INTERVAL_MS);
+        };
+        // Jittered so a deploy does not have every node sweep at once.
+        const kick = setTimeout(
+            run,
+            EXPIRY_SWEEP_INITIAL_DELAY_MS * (0.5 + Math.random()),
+        );
+        kick.unref?.();
+        this.#expiryKick = kick;
+        const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
         sweep.unref?.();
         this.#expirySweep = sweep;
     }

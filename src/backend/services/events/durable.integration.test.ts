@@ -148,8 +148,14 @@ const countTableReads = async (run: () => Promise<void>): Promise<number> => {
     }
 };
 
-const settle = () =>
-    vi.waitFor(() => expect(delivered.length).toBeGreaterThan(0), {
+// The coalesce window runs on real time, so a delivery from one test can land
+// after the next has begun. Every wait names the path it is waiting for.
+const pathOf = (envelope: DeliveryEnvelope): string =>
+    (envelope.event as { path?: string }).path ?? '';
+const deliveryOf = (path: string) =>
+    delivered.find((envelope) => pathOf(envelope) === path);
+const settle = (path: string) =>
+    vi.waitFor(() => expect(deliveryOf(path)).toBeDefined(), {
         timeout: EVENTS_COALESCE_WINDOW_MS * 12,
         interval: 25,
     });
@@ -336,16 +342,14 @@ describe('what a write costs once a durable row exists', () => {
         const created = await subscribe(env.users.user.token);
         delivered.length = 0;
 
+        const path = `${anchor}/warm-${uuidv4().slice(0, 8)}.txt`;
         const reads = await countTableReads(async () => {
-            await fs().touch(userId, {
-                path: `${anchor}/warm-${uuidv4().slice(0, 8)}.txt`,
-            });
-            await settle();
+            await fs().touch(userId, { path });
+            await settle(path);
         });
 
         expect(reads).toBe(0);
-        expect(delivered).toHaveLength(1);
-        expect(delivered[0].subId).toBe(created.body.subId);
+        expect(deliveryOf(path)?.subId).toBe(created.body.subId);
     });
 
     it('rebuilds a cold region from the table once, then stops reading it', async () => {
@@ -365,21 +369,18 @@ describe('what a write costs once a durable row exists', () => {
         events().invalidateUser(userId);
         delivered.length = 0;
 
+        const coldPath = `${anchor}/cold-${uuidv4().slice(0, 8)}.txt`;
         const cold = await countTableReads(async () => {
-            await fs().touch(userId, {
-                path: `${anchor}/cold-${uuidv4().slice(0, 8)}.txt`,
-            });
-            await settle();
+            await fs().touch(userId, { path: coldPath });
+            await settle(coldPath);
         });
         expect(cold).toBe(1);
-        expect(delivered[0].subId).toBe(created.body.subId);
+        expect(deliveryOf(coldPath)?.subId).toBe(created.body.subId);
 
-        delivered.length = 0;
+        const warmPath = `${anchor}/again-${uuidv4().slice(0, 8)}.txt`;
         const warm = await countTableReads(async () => {
-            await fs().touch(userId, {
-                path: `${anchor}/again-${uuidv4().slice(0, 8)}.txt`,
-            });
-            await settle();
+            await fs().touch(userId, { path: warmPath });
+            await settle(warmPath);
         });
         expect(warm).toBe(0);
     });
@@ -388,11 +389,10 @@ describe('what a write costs once a durable row exists', () => {
         await clearRows();
         const created = await subscribe(env.users.user.token);
         delivered.length = 0;
-        await fs().touch(userId, {
-            path: `${anchor}/pre-peer-${uuidv4().slice(0, 8)}.txt`,
-        });
-        await settle();
-        expect(delivered[0].subId).toBe(created.body.subId);
+        const before = `${anchor}/pre-peer-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path: before });
+        await settle(before);
+        expect(deliveryOf(before)?.subId).toBe(created.body.subId);
 
         // A peer region settling the row: the primary loses it, but this
         // region is never told directly — only the bump such a removal would
@@ -406,20 +406,43 @@ describe('what a write costs once a durable row exists', () => {
             await env.server.stores.eventSubscription.getGeneration(userId);
         delivered.length = 0;
 
+        const after = `${anchor}/post-peer-${uuidv4().slice(0, 8)}.txt`;
         const reads = await countTableReads(async () => {
             await env.server.clients.event.emitAndWait(
                 'outer.events.generationBumped',
-                { userId, generation: generation + 1 },
+                { userId, generation: generation + 1, durable: true },
                 { from_outside: true },
             );
-            await fs().touch(userId, {
-                path: `${anchor}/post-peer-${uuidv4().slice(0, 8)}.txt`,
-            });
+            await fs().touch(userId, { path: after });
             await quiet();
         });
 
         expect(reads).toBe(1); // the bump alone forced exactly one rebuild
-        expect(delivered).toEqual([]);
+        expect(deliveryOf(after)).toBeUndefined();
+    });
+
+    it('does not re-read the table for a peer`s session bump', async () => {
+        await clearRows();
+        const created = await subscribe(env.users.user.token);
+        const generation =
+            await env.server.stores.eventSubscription.getGeneration(userId);
+        delivered.length = 0;
+
+        // A session subscribe in another region touches only that region's
+        // Redis; the table this region cached from is unchanged.
+        const path = `${anchor}/peer-session-${uuidv4().slice(0, 8)}.txt`;
+        const reads = await countTableReads(async () => {
+            await env.server.clients.event.emitAndWait(
+                'outer.events.generationBumped',
+                { userId, generation: generation + 1, durable: false },
+                { from_outside: true },
+            );
+            await fs().touch(userId, { path });
+            await settle(path);
+        });
+
+        expect(reads).toBe(0);
+        expect(deliveryOf(path)?.subId).toBe(created.body.subId);
     });
 
     it('stops delivering once the subscription is revoked', async () => {
@@ -428,12 +451,11 @@ describe('what a write costs once a durable row exists', () => {
         await unsubscribe(env.users.user.token, created.body.subId as string);
         delivered.length = 0;
 
-        await fs().touch(userId, {
-            path: `${anchor}/revoked-${uuidv4().slice(0, 8)}.txt`,
-        });
+        const path = `${anchor}/revoked-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path });
         await quiet();
 
-        expect(delivered).toEqual([]);
+        expect(deliveryOf(path)).toBeUndefined();
     });
 
     it('stops delivering once the subscription is swept', async () => {
@@ -449,12 +471,11 @@ describe('what a write costs once a durable row exists', () => {
         await expect(events().sweepExpired()).resolves.toBe(1);
         delivered.length = 0;
 
-        await fs().touch(userId, {
-            path: `${anchor}/swept-${uuidv4().slice(0, 8)}.txt`,
-        });
+        const path = `${anchor}/swept-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path });
         await quiet();
 
-        expect(delivered).toEqual([]);
+        expect(deliveryOf(path)).toBeUndefined();
     });
 });
 
@@ -465,10 +486,9 @@ describe('where a durable delivery is addressed', () => {
         const send = vi.spyOn(env.server.services.socket, 'send');
         delivered.length = 0;
 
-        await fs().touch(userId, {
-            path: `${anchor}/app-${uuidv4().slice(0, 8)}.txt`,
-        });
-        await settle();
+        const path = `${anchor}/app-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path });
+        await settle(path);
 
         expect(send).toHaveBeenCalledWith(
             { room: appSocketRoom(userId, appOneUid) },
@@ -484,10 +504,9 @@ describe('where a durable delivery is addressed', () => {
         const send = vi.spyOn(env.server.services.socket, 'send');
         delivered.length = 0;
 
-        await fs().touch(userId, {
-            path: `${anchor}/session-${uuidv4().slice(0, 8)}.txt`,
-        });
-        await settle();
+        const path = `${anchor}/session-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path });
+        await settle(path);
 
         expect(send).toHaveBeenCalledWith(
             { room: String(userId) },
@@ -508,11 +527,13 @@ describe('a durable row`s match filter', () => {
 
         await fs().touch(userId, { path: `${anchor}/not-this.txt` });
         await quiet();
-        expect(delivered).toEqual([]);
+        expect(deliveryOf(`${anchor}/not-this.txt`)).toBeUndefined();
 
         await fs().touch(userId, { path: `${anchor}/only-this.txt` });
-        await settle();
-        expect(delivered[0].subId).toBe(created.body.subId);
+        await settle(`${anchor}/only-this.txt`);
+        expect(deliveryOf(`${anchor}/only-this.txt`)?.subId).toBe(
+            created.body.subId,
+        );
     });
 });
 
@@ -547,8 +568,10 @@ describe('a durable row across a share', () => {
         delivered.length = 0;
 
         await fs().touch(userId, { path: `${sharedPath}/first.txt` });
-        await settle();
-        expect(delivered[0].subId).toBe(created.body.subId);
+        await settle(`${sharedPath}/first.txt`);
+        expect(deliveryOf(`${sharedPath}/first.txt`)?.subId).toBe(
+            created.body.subId,
+        );
 
         const sharedEntry =
             await env.server.stores.fsEntry.getEntryByPath(sharedPath);
@@ -563,7 +586,7 @@ describe('a durable row across a share', () => {
         await fs().touch(userId, { path: `${sharedPath}/second.txt` });
         await quiet();
 
-        expect(delivered).toEqual([]);
+        expect(deliveryOf(`${sharedPath}/second.txt`)).toBeUndefined();
     });
 });
 

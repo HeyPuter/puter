@@ -27,7 +27,10 @@ import {
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
-import { EventSubscriptionStore } from '../../stores/events/EventSubscriptionStore.js';
+import {
+    EventSubscriptionStore,
+    type DurableSubscription,
+} from '../../stores/events/EventSubscriptionStore.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import {
@@ -590,6 +593,25 @@ describe('cross-process invalidation', () => {
         expect(commands).toEqual([]);
     });
 
+    it('re-reads the table for a peer`s durable bump, but not for a session one', async () => {
+        const cold = vi.spyOn(store, 'markRegionCold');
+        const handler = remoteGenerationBumpHandler();
+
+        handler?.(
+            'outer.events.generationBumped',
+            { userId, generation: 1, durable: false },
+            { from_outside: true },
+        );
+        expect(cold).not.toHaveBeenCalled();
+
+        handler?.(
+            'outer.events.generationBumped',
+            { userId, generation: 2, durable: true },
+            { from_outside: true },
+        );
+        expect(cold).toHaveBeenCalledWith(userId);
+    });
+
     it('invalidates on a remote bump regardless of the number it carries', async () => {
         vi.useFakeTimers();
         // `ev:g` is a region-local INCR: a peer's own counter can legitimately
@@ -749,6 +771,48 @@ describe('matching', () => {
         await flush();
 
         expect(sent).toEqual([]);
+    });
+
+    it('stops delivering to a durable row the moment it expires', async () => {
+        const { documents, file } = seedTree();
+        const now = Math.floor(Date.now() / 1000);
+        const row = (over: Partial<DurableSubscription>): DurableSubscription => ({
+            subId: `durable-${seq}-${over.expiresAt}`,
+            token: `f#${documents.uid}`,
+            ownerUserId: userId,
+            holderUserId: userId,
+            subject: `fs:${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+            op: null,
+            appUid: null,
+            permission: 'list',
+            durable: true,
+            delivery: 'broadcast',
+            targets: ['socket'],
+            handlerName: null,
+            context: null,
+            expiresAt: null,
+            suspendedAt: null,
+            suspendedReason: null,
+            createdAt: now,
+            ...over,
+        });
+        // Straight into the region cache, as a cold rebuild would leave them:
+        // one still good for an hour, one that lapsed a minute ago and has not
+        // been swept yet.
+        await store.rebuildDurable(userId, [
+            row({ expiresAt: now + 3600 }),
+            row({ expiresAt: now - 60 }),
+        ]);
+
+        await dispatch(file);
+        await flush();
+
+        expect(sent.map((s) => s.envelope.subId)).toEqual([
+            `durable-${seq}-${now + 3600}`,
+        ]);
     });
 
     it('drops an event the match filter excludes', async () => {
