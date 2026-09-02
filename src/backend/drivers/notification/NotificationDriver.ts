@@ -173,7 +173,11 @@ export class NotificationDriver extends PuterDriver {
         return rows.map((r) => this.#toClient(r));
     }
 
-    /** Mark a notification as shown. Used by GUI when notification is displayed. */
+    /**
+     * Mark a notification as shown. Part of the driver's mailbox surface: the
+     * desktop marks over HTTP, but a client reading through `/drivers/call`
+     * needs a way to mark what it read.
+     */
     async mark_shown(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireUserActor();
         const uid = String(args.uid ?? '');
@@ -185,7 +189,7 @@ export class NotificationDriver extends PuterDriver {
         return { success: ok };
     }
 
-    /** Mark a notification as acknowledged (user dismissed it). */
+    /** Mark a notification as acknowledged (user dismissed it), same surface. */
     async mark_acknowledged(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireUserActor();
         const uid = String(args.uid ?? '');

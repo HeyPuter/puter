@@ -29,10 +29,9 @@ import type { NotificationController } from './NotificationController.js';
 //
 // Boots one PuterServer with the live wired NotificationController.
 // Tests seed real notification rows via the store, then drive the
-// controller's `markAck` / `markRead` handlers with stub req/res
-// objects. The controller's path through NotificationService updates
-// the underlying row, so we verify behaviour by reading the store
-// state back.
+// controller's `markAck` handler with stub req/res objects. The
+// controller's path through NotificationService updates the underlying
+// row, so we verify behaviour by reading the store state back.
 
 let server: PuterServer;
 let controller: NotificationController;
@@ -138,6 +137,14 @@ describe('NotificationController.markAck', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('rejects an empty uid string with 400', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            controller.markAck(makeReq({ body: { uid: '' }, actor }), res),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('rejects a non-string uid with 400', async () => {
         const { actor } = await makeUser();
         const { res } = makeRes();
@@ -174,47 +181,5 @@ describe('NotificationController.markAck', () => {
         // Store update is scoped by user_id — cross-user mutation is a
         // silent no-op rather than an error from the controller.
         expect(after?.acknowledged).toBeFalsy();
-    });
-});
-
-// ── /notif/mark-read ────────────────────────────────────────────────
-
-describe('NotificationController.markRead', () => {
-    it('sets `shown` on the underlying notification row', async () => {
-        const { actor, userId } = await makeUser();
-        const created = await server.stores.notification.create({
-            userId,
-            value: {},
-        });
-
-        const { res, captured } = makeRes();
-        await controller.markRead(
-            makeReq({ body: { uid: created.uid }, actor }),
-            res,
-        );
-
-        expect(captured.body).toEqual({});
-        const after = await server.stores.notification.getByUid(
-            created.uid as string,
-            { userId },
-        );
-        expect(after?.shown).not.toBeNull();
-        // Marking read should NOT also set acknowledged.
-        expect(after?.acknowledged).toBeFalsy();
-    });
-
-    it('rejects an empty uid string with 400', async () => {
-        const { actor } = await makeUser();
-        const { res } = makeRes();
-        await expect(
-            controller.markRead(makeReq({ body: { uid: '' }, actor }), res),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('throws 401 when there is no actor on the request', async () => {
-        const { res } = makeRes();
-        await expect(
-            controller.markRead(makeReq({ body: { uid: 'x' } }), res),
-        ).rejects.toMatchObject({ statusCode: 401 });
     });
 });

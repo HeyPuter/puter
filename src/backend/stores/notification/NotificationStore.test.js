@@ -21,12 +21,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
 
-const unackKey = (userId) => `notifications:unack:${userId}`;
-
 describe('NotificationStore', () => {
     let server;
     let store;
-    let redis;
     let user;
     let other;
 
@@ -43,7 +40,6 @@ describe('NotificationStore', () => {
     beforeAll(async () => {
         server = await setupTestServer();
         store = server.stores.notification;
-        redis = server.clients.redis;
         user = await makeUser();
         other = await makeUser();
     });
@@ -235,65 +231,6 @@ describe('NotificationStore', () => {
         );
     });
 
-    // -- unacknowledged count + cache ----------------------------------
-
-    it('returns zero for a falsy user without touching the database', async () => {
-        expect(await store.countUnacknowledged(undefined)).toBe(0);
-        expect(await store.countUnacknowledged(0)).toBe(0);
-    });
-
-    it('counts unacknowledged notifications and caches the result', async () => {
-        const u = await makeUser();
-        await store.create({ userId: u.id, value: {} });
-        await store.create({ userId: u.id, value: {} });
-
-        expect(await store.countUnacknowledged(u.id)).toBe(2);
-        expect(await redis.get(unackKey(u.id))).toBe('2');
-    });
-
-    it('serves a cached count without re-querying', async () => {
-        const u = await makeUser();
-        await store.create({ userId: u.id, value: {} });
-        await store.countUnacknowledged(u.id);
-
-        await redis.set(unackKey(u.id), '99');
-        expect(await store.countUnacknowledged(u.id)).toBe(99);
-    });
-
-    it('falls back to the database when the cached value is not a number', async () => {
-        const u = await makeUser();
-        await store.create({ userId: u.id, value: {} });
-        await redis.set(unackKey(u.id), 'garbage');
-
-        expect(await store.countUnacknowledged(u.id)).toBe(1);
-    });
-
-    it('invalidates the cached count on create', async () => {
-        const u = await makeUser();
-        await store.create({ userId: u.id, value: {} });
-        expect(await store.countUnacknowledged(u.id)).toBe(1);
-        expect(await redis.get(unackKey(u.id))).toBe('1');
-
-        await store.create({ userId: u.id, value: {} });
-        expect(await redis.get(unackKey(u.id))).toBeNull();
-        expect(await store.countUnacknowledged(u.id)).toBe(2);
-    });
-
-    it('invalidates the cached count on acknowledge and on delete', async () => {
-        const u = await makeUser();
-        const a = await store.create({ userId: u.id, value: {} });
-        const b = await store.create({ userId: u.id, value: {} });
-        await store.countUnacknowledged(u.id);
-
-        expect(await store.markAcknowledged(a.uid, u.id)).toBe(true);
-        expect(await redis.get(unackKey(u.id))).toBeNull();
-        expect(await store.countUnacknowledged(u.id)).toBe(1);
-
-        expect(await store.deleteByUid(b.uid, u.id)).toBe(true);
-        expect(await redis.get(unackKey(u.id))).toBeNull();
-        expect(await store.countUnacknowledged(u.id)).toBe(0);
-    });
-
     // -- mutations -----------------------------------------------------
 
     it('acknowledges only once and only for the owning user', async () => {
@@ -309,17 +246,17 @@ describe('NotificationStore', () => {
         expect(typeof row.acknowledged).toBe('number');
     });
 
-    it('marks shown only once and leaves the unacknowledged count alone', async () => {
+    it('marks shown only once and only for the owning user', async () => {
         const u = await makeUser();
         const n = await store.create({ userId: u.id, value: {} });
-        expect(await store.countUnacknowledged(u.id)).toBe(1);
 
         expect(await store.markShown(n.uid, other.id)).toBe(false);
         expect(await store.markShown(n.uid, u.id)).toBe(true);
         expect(await store.markShown(n.uid, u.id)).toBe(false);
 
-        // Cached count is deliberately untouched by markShown.
-        expect(await redis.get(unackKey(u.id))).toBe('1');
+        // Shown is not dismissed — the row stays unacknowledged.
+        const row = await store.getByUid(n.uid, { userId: u.id });
+        expect(row.acknowledged).toBeNull();
     });
 
     // -- retention -----------------------------------------------------
