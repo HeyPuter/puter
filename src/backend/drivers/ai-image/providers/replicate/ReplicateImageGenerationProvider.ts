@@ -33,6 +33,27 @@ import {
 const DEFAULT_MODEL = 'black-forest-labs/flux-schnell';
 const DEFAULT_RATIO = { w: 1024, h: 1024 };
 
+const PREDICTION_FAILED_PREFIX = 'Prediction failed:';
+const MAX_UPSTREAM_MESSAGE_LENGTH = 300;
+// Model-side content filters, as worded in failed-prediction errors.
+const CONTENT_FILTER_PATTERN =
+    /\bnsfw\b|flagged as sensitive|sensitive content|content policy|\bE005\b/i;
+
+/**
+ * Strips markup and bounds length so an upstream HTML error page never rides
+ * through into a response body or an alarm signature.
+ */
+const sanitizeUpstreamMessage = (raw: string): string => {
+    const text = raw
+        .replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return text.length > MAX_UPSTREAM_MESSAGE_LENGTH
+        ? `${text.slice(0, MAX_UPSTREAM_MESSAGE_LENGTH - 3)}...`
+        : text;
+};
+
 export class ReplicateImageGenerationProvider implements IImageProvider {
     static readonly #CORE_PARAMS: readonly string[] = [
         'prompt',
@@ -173,10 +194,15 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             singleImage,
         });
 
-        const output = await this.#client.run(
-            selectedModel.replicateId as `${string}/${string}`,
-            { input },
-        );
+        let output: unknown;
+        try {
+            output = await this.#client.run(
+                selectedModel.replicateId as `${string}/${string}`,
+                { input },
+            );
+        } catch (err) {
+            throw this.#translatePredictionFailure(err);
+        }
 
         const url = this.#extractUrl(output);
         if (!url) {
@@ -205,6 +231,42 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             (m) => m.id === model || m.aliases?.includes(model ?? ''),
         );
         return found ?? models.find((m) => m.id === DEFAULT_MODEL)!;
+    }
+
+    /**
+     * A prediction that ran and ended `failed` reaches us as a plain Error with
+     * no HTTP status, so the driver boundary cannot classify it and it would
+     * surface as an unhandled 500. Content-filter refusals are the caller's to
+     * act on; anything else is an upstream fault. Errors that do carry a status
+     * (the SDK's ApiError) pass through untouched so the boundary translator
+     * still sees it.
+     */
+    #translatePredictionFailure(err: unknown): unknown {
+        if (!(err instanceof Error)) return err;
+        if (!err.message.startsWith(PREDICTION_FAILED_PREFIX)) return err;
+
+        const detail = sanitizeUpstreamMessage(
+            err.message.slice(PREDICTION_FAILED_PREFIX.length),
+        );
+        const fields = { provider: 'replicate' };
+
+        if (CONTENT_FILTER_PATTERN.test(detail)) {
+            return new HttpError(
+                400,
+                detail || 'Prompt or output was rejected by the content filter',
+                {
+                    legacyCode: 'bad_request',
+                    code: 'moderation_flagged',
+                    fields,
+                    cause: err,
+                },
+            );
+        }
+        return new HttpError(502, detail || 'Replicate prediction failed', {
+            legacyCode: 'upstream_failed',
+            fields,
+            cause: err,
+        });
     }
 
     /**

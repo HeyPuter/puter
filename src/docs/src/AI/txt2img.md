@@ -171,6 +171,18 @@ Absolute paths (`/username/Pictures/sunset.png`) and home-relative paths (`~/Pic
 
 A `Promise` that resolves to an `HTMLImageElement`. The element’s `src` points at a data URL containing the image.
 
+## Errors
+
+A rejection carries the error body as the backend sent it: `{ message, code }`, plus `errorCode` when a more specific code is available alongside a general one.
+
+| Code | Meaning |
+| --- | --- |
+| `errorCode: moderation_flagged` | The model's content filter refused the prompt or the generated image. Arrives as HTTP 400 with `code: bad_request`. Change the prompt rather than retrying it as-is. Not every provider reports refusals distinctly; when one does, this is how. |
+| `upstream_failed` | The provider accepted the request but generation failed on their side. Safe to retry. |
+| `insufficient_funds` | Your balance cannot cover the estimated cost of the image. Arrives as HTTP 402. |
+
+Other `upstream_*` codes mean the provider rejected the request or was unavailable; the `message` carries the provider's reason.
+
 ## Examples
 
 <strong class="example-title">Generate an image of a cat using AI</strong>
