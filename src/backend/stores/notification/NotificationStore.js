@@ -185,6 +185,41 @@ export class NotificationStore extends PuterStore {
         return changed;
     }
 
+    /**
+     * Delete up to `limit` rows created more than `days` ago, and report how
+     * many went — a full batch means there is more behind it.
+     *
+     * Only mysql takes a LIMIT on DELETE — postgres has none and sqlite's needs
+     * an optional build flag — so the other two bound the batch through an id
+     * list. Each engine computes its own cutoff, so no clock crosses the wire.
+     *
+     * @param {number} days @param {number} limit
+     */
+    async deleteCreatedBefore(days, limit) {
+        const retentionDays = Math.floor(Number(days));
+        const batch = Math.floor(Number(limit));
+        if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+        if (!Number.isFinite(batch) || batch <= 0) return 0;
+
+        const cutoff = this.clients.db.case({
+            sqlite: `datetime('now', '-${retentionDays} days')`,
+            postgres: `(NOW() - INTERVAL '${retentionDays} days')`,
+            otherwise: `(NOW() - INTERVAL ${retentionDays} DAY)`,
+        });
+        const statement = this.clients.db.case({
+            mysql:
+                'DELETE FROM `notification` ' +
+                `WHERE \`created_at\` < ${cutoff} ORDER BY \`id\` LIMIT ?`,
+            otherwise:
+                'DELETE FROM `notification` WHERE `id` IN (' +
+                'SELECT `id` FROM `notification` ' +
+                `WHERE \`created_at\` < ${cutoff} ORDER BY \`id\` LIMIT ?)`,
+        });
+
+        const result = await this.clients.db.write(statement, [batch]);
+        return result?.affectedRows ?? result?.changes ?? 0;
+    }
+
     // -- Internals ----------------------------------------------------
 
     #unackCacheKey(userId) {

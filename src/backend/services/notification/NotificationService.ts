@@ -36,6 +36,13 @@ export type {
 } from './notificationTypes.js';
 export { canViewNotification } from './notificationAudience.js';
 
+/** How often the retention sweep runs. */
+const RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+/** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
+const RETENTION_BATCH_SIZE = 500;
+/** Batches one sweep takes, so a large backlog drains over several passes. */
+const RETENTION_MAX_BATCHES = 50;
+
 /**
  * Notification orchestration — glues the NotificationStore (DB) to the event
  * bus (socket push) and handles lifecycle events (user connects → send unreads,
@@ -49,8 +56,11 @@ export class NotificationService extends PuterService {
     #pendingWrites = new Map<string, Promise<unknown>>();
     /** User.id → debounce timeout */
     #connectTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
+    #retentionSweep: ReturnType<typeof setInterval> | null = null;
 
     override onServerStart(): void {
+        this.#armRetentionSweep();
+
         // When a user opens the GUI, send their pending unreads.
         this.clients.event.on(
             'web.socket.user-connected',
@@ -91,6 +101,11 @@ export class NotificationService extends PuterService {
                 void this.#markShownAfterWrite(uid, userId);
             },
         );
+    }
+
+    override onServerPrepareShutdown(): void {
+        if (this.#retentionSweep) clearInterval(this.#retentionSweep);
+        this.#retentionSweep = null;
     }
 
     // -- Public API --------------------------------------------------
@@ -251,6 +266,33 @@ export class NotificationService extends PuterService {
         );
     }
 
+    /**
+     * Drop notifications past the retention window, in batches, and report how
+     * many went. Deleting is all there is to it: nothing is pushed, because a
+     * two-week-old row is not news, and a client listing again simply stops
+     * seeing it.
+     *
+     * Every node sweeps. Batches are small and the delete is idempotent, so two
+     * nodes overlapping costs a few empty batches, not correctness.
+     */
+    async sweepExpired(): Promise<number> {
+        const days = this.#retentionDays();
+        if (days <= 0) return 0;
+
+        let removed = 0;
+        for (let pass = 0; pass < RETENTION_MAX_BATCHES; pass++) {
+            const batch = await this.stores.notification.deleteCreatedBefore(
+                days,
+                RETENTION_BATCH_SIZE,
+            );
+            removed += batch;
+            // A short batch means the window is clean; the next sweep picks up
+            // whatever aged into it meanwhile.
+            if (batch < RETENTION_BATCH_SIZE) break;
+        }
+        return removed;
+    }
+
     /** Mark a notification as shown (user saw it) and push the ack event. */
     async markShown(uid: string, userId: number): Promise<void> {
         await this.stores.notification.markShown(uid, userId);
@@ -265,6 +307,22 @@ export class NotificationService extends PuterService {
     }
 
     // -- Internals ---------------------------------------------------
+
+    #retentionDays(): number {
+        const configured = Number(this.config.notificationRetentionDays ?? 0);
+        return Number.isFinite(configured) && configured > 0 ? configured : 0;
+    }
+
+    #armRetentionSweep(): void {
+        if (this.#retentionDays() <= 0) return;
+        const sweep = setInterval(() => {
+            void this.sweepExpired().catch((err) => {
+                console.warn('[notification] retention sweep failed', err);
+            });
+        }, RETENTION_SWEEP_INTERVAL_MS);
+        sweep.unref?.();
+        this.#retentionSweep = sweep;
+    }
 
     async #sendUnreads(userId: number): Promise<void> {
         // Fetch all unseen + unacknowledged notifications

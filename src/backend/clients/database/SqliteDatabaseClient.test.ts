@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 68;
+const CURRENT_SCHEMA_VERSION = 69;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -365,6 +365,13 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
                 ),
             ).toEqual([]);
         });
+    });
+
+    it('indexes notification.created_at for the retention sweep', async () => {
+        const rows = await client.read('PRAGMA index_list(`notification`)');
+        expect(rows.map((r) => String(r.name))).toContain(
+            'idx_notification_created_at',
+        );
     });
 
     it('leaves an already-migrated database untouched on a second boot', async () => {
