@@ -236,6 +236,115 @@ describe('team endpoints over HTTP', () => {
         );
         expect(theirs.status).toBe(404);
     });
+
+    // -- sharing with a team -------------------------------------
+
+    it('names the team it shared with instead of an empty recipient', async () => {
+        const { team } = await makeTeam();
+        const file = `/${env.users.user.username}/Documents/label-${Math.random()
+            .toString(36)
+            .slice(2, 8)}.txt`;
+        const written = await call('POST', '/fs/write', env.users.user.token, {
+            fileMetadata: { path: file, size: 3, contentType: 'text/plain' },
+            fileContent: 'abc',
+        });
+        expect(written.status).toBe(200);
+
+        const shared = await call('POST', '/share', env.users.user.token, {
+            recipients: [{ team: team.uid }],
+            items: [file],
+            mode: 'read',
+        });
+        expect(shared.status).toBe(200);
+        const body = (await shared.json()) as {
+            results: { recipient: string; status: string }[];
+        };
+
+        expect(body.results[0].status).toBe('success');
+        // Echoes the identifier the caller named; '' would leave a client with
+        // nothing to render or to match its request against.
+        expect(body.results[0].recipient).toBe(team.uid);
+    });
+
+    it('shares with two teams rather than collapsing them into one', async () => {
+        const second = await call('POST', '/teams', env.users.user.token, {
+            name: 'Second',
+            handle: randomHandle(),
+        });
+        expect(second.status).toBe(200);
+        const teamB = (await second.json()) as { uid: string };
+        const { team: teamA } = await makeTeam();
+
+        const file = `/${env.users.user.username}/Documents/two-${Math.random()
+            .toString(36)
+            .slice(2, 8)}.txt`;
+        const written = await call('POST', '/fs/write', env.users.user.token, {
+            fileMetadata: { path: file, size: 3, contentType: 'text/plain' },
+            fileContent: 'abc',
+        });
+        const fileUid = ((await written.json()) as { fsEntry: { uid: string } })
+            .fsEntry.uid;
+
+        const shared = await call('POST', '/share', env.users.user.token, {
+            recipients: [{ team: teamA.uid }, { team: teamB.uid }],
+            items: [file],
+            mode: 'read',
+        });
+        expect(shared.status).toBe(200);
+        const body = (await shared.json()) as {
+            results: { recipient: string; status: string }[];
+        };
+
+        expect(body.results).toHaveLength(2);
+        expect(body.results.every((r) => r.status === 'success')).toBe(true);
+
+        // The response shape alone proves nothing: `results` is built from the
+        // request's pairs, so a collapsed pair still reports two successes with
+        // the right labels. Only the shares that exist afterwards show it.
+        const mine = await call(
+            'GET',
+            '/share/shared-by-me?limit=100',
+            env.users.user.token,
+        );
+        expect(mine.status).toBe(200);
+        const listing = (await mine.json()) as {
+            items: { uid_entry?: string; holder_team?: { uid: string } }[];
+        };
+        const holders = listing.items
+            .filter((i) => i.uid_entry === fileUid)
+            .map((i) => i.holder_team?.uid)
+            .filter(Boolean)
+            .sort();
+        expect(holders).toEqual([teamA.uid, teamB.uid].sort());
+    });
+
+    it('names the team by handle when the caller shared by handle', async () => {
+        const handle = randomHandle();
+        const res = await call('POST', '/teams', env.users.user.token, {
+            name: 'Byhandle',
+            handle,
+        });
+        expect(res.status).toBe(200);
+
+        const file = `/${env.users.user.username}/Documents/handle-${Math.random()
+            .toString(36)
+            .slice(2, 8)}.txt`;
+        await call('POST', '/fs/write', env.users.user.token, {
+            fileMetadata: { path: file, size: 3, contentType: 'text/plain' },
+            fileContent: 'abc',
+        });
+
+        const shared = await call('POST', '/share', env.users.user.token, {
+            recipients: [{ teamHandle: handle }],
+            items: [file],
+            mode: 'read',
+        });
+        expect(shared.status).toBe(200);
+        const body = (await shared.json()) as {
+            results: { recipient: string }[];
+        };
+        expect(body.results[0].recipient).toBe(handle);
+    });
 });
 
 describe('team endpoints with teams_enabled off', () => {
