@@ -113,9 +113,11 @@ const invalidTargets = (): HttpError =>
     );
 
 const pushOnSingle = (): HttpError =>
-    new HttpError(400, 'A `single` subscription may not target `push`', {
-        legacyCode: 'invalid_targets',
-    });
+    new HttpError(
+        400,
+        'A `single` subscription needs a `worker` target and may not target `push`',
+        { legacyCode: 'invalid_targets' },
+    );
 
 const quotaReached = (): HttpError =>
     new HttpError(

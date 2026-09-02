@@ -231,21 +231,87 @@ describe('when there is more than can be held', () => {
 
     it('sheds the region`s oldest backlog first, and says which', async () => {
         const older = `app-x#older-${seq}`;
-        await seedBacklog(older, 3);
-        // Two over the ceiling once this enqueue lands, so the shed stops
-        // inside the oldest backlog and never reaches the newest.
-        await redis.incrby(COUNTER_KEY, EVENTS_REGION_PENDING_CEILING - 2);
+        await seedBacklog(older, 4);
+        // Two over the ceiling once this enqueue lands. Getting back under it
+        // takes three, because the marker left behind holds a place too — and
+        // the shed stops inside the oldest backlog, never reaching the newest.
+        await redis.incrby(COUNTER_KEY, EVENTS_REGION_PENDING_CEILING - 3);
 
         const { shed } = await store.enqueue(subId, event('a'));
 
-        expect(shed).toEqual([{ subId: older, dropped: 2, scope: 'region' }]);
+        expect(shed).toEqual([{ subId: older, dropped: 3, scope: 'region' }]);
         // What it lost, it was told about.
         const marked = await pendingEvents(older);
         expect(marked.filter((event) => event.op === 'gap')).toHaveLength(1);
         // What it did not lose is still owed; the newest end survives a shed.
-        expect(marked.some((event) => event.id === 'seed-2')).toBe(true);
-        expect(marked.some((event) => event.id === 'seed-0')).toBe(false);
+        expect(marked.some((event) => event.id === 'seed-3')).toBe(true);
+        expect(marked.some((event) => event.id === 'seed-2')).toBe(false);
         await expect(store.depth(subId)).resolves.toBe(1);
+        // The region actually got back under, marker included.
+        await expect(store.regionDepth()).resolves.toBe(
+            EVENTS_REGION_PENDING_CEILING,
+        );
+    });
+});
+
+describe('sharing the sweeper between backlogs', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    it('hands the head to exactly one of two concurrent claimers', async () => {
+        await store.enqueue(subId, event('a'));
+
+        const claims = await Promise.all([
+            store.claim(subId),
+            store.claim(subId),
+        ]);
+
+        expect(claims.filter(Boolean)).toHaveLength(1);
+    });
+
+    it('moves a claimed subscription behind the ones still waiting', async () => {
+        const other = `app-x#other-${seq}`;
+        vi.setSystemTime(1_000_000);
+        await store.enqueue(subId, event('first'));
+        vi.setSystemTime(1_001_000);
+        await store.enqueue(other, event('second'));
+        expect((await store.head(2)).map((h) => h.subId)).toEqual([
+            subId,
+            other,
+        ]);
+
+        vi.setSystemTime(1_002_000);
+        await store.claim(subId);
+
+        expect((await store.head(2)).map((h) => h.subId)).toEqual([
+            other,
+            subId,
+        ]);
+    });
+
+    it('defers a subscription behind the others, holdings untouched', async () => {
+        const other = `app-x#other-${seq}`;
+        vi.setSystemTime(1_000_000);
+        await store.enqueue(subId, event('first'));
+        vi.setSystemTime(1_001_000);
+        await store.enqueue(other, event('second'));
+
+        vi.setSystemTime(1_002_000);
+        await store.defer(subId);
+
+        expect((await store.head(2)).map((h) => h.subId)).toEqual([
+            other,
+            subId,
+        ]);
+        await expect(store.depth(subId)).resolves.toBe(1);
+    });
+
+    it('puts a lifetime on a backlog`s keys', async () => {
+        await store.enqueue(subId, event('a'));
+
+        await expect(redis.ttl(pendingKey())).resolves.toBeGreaterThan(0);
+        await expect(redis.ttl(entriesKey())).resolves.toBeGreaterThan(0);
     });
 });
 
@@ -286,18 +352,11 @@ describe('finding the work', () => {
 
 describe('surviving a crash between the write and the reindex', () => {
     it('keeps a first entry discoverable even if the follow-up reindex never runs', async () => {
-        const zrange = redis.zrange.bind(redis);
-        let calls = 0;
-        vi.spyOn(redis, 'zrange').mockImplementation(
-            async (...args: unknown[]) => {
-                calls++;
-                // The first call after the write lands is `#reindex`'s own
-                // read of the pending set's head — exactly where a crash
-                // would land between the entry existing and the index
-                // knowing about it.
-                if (calls === 1) throw new Error('connection lost');
-                return zrange(...(args as Parameters<typeof zrange>));
-            },
+        // The counter write is the first command after the entry's own
+        // transaction lands — exactly where a crash would fall between the
+        // entry existing and the follow-up reindex.
+        vi.spyOn(redis, 'incrby').mockRejectedValueOnce(
+            new Error('connection lost'),
         );
 
         await expect(store.enqueue(subId, event('a'))).rejects.toThrow();

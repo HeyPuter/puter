@@ -93,6 +93,73 @@ const REGION_SHED_MAX_ENTRIES = 1_000;
 /** Arguments one variadic command carries, so a large shed stays in batches. */
 const COMMAND_BATCH = 500;
 
+/** Queues the reconciler measures at once, one command each. */
+const RECONCILE_CONCURRENCY = 50;
+
+/**
+ * Backstop for keys nothing indexes any more: a claim refreshes it, so a
+ * backlog still being retried never lapses, while one left behind by a purge
+ * that raced an enqueue does not sit in Redis forever.
+ */
+export const PENDING_BACKLOG_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+// -- Scripts ----------------------------------------------------------
+// The three keys a subscription owns share its `{subId}` hash tag, so a script
+// over them runs on one node under cluster mode. The index and the counter hash
+// elsewhere and are moved by plain commands around the scripts.
+
+/**
+ * Lease the oldest delivery, if none is in flight. KEYS: entries, pending,
+ * lease. ARGV: now, leaseUntil, ttlSeconds. Returns a status-first tuple.
+ */
+const CLAIM_SCRIPT = `
+local inflight = redis.call('ZRANGEBYSCORE', KEYS[3], ARGV[1], '+inf', 'LIMIT', 0, 1)
+if #inflight > 0 then return { 'inflight' } end
+local head = redis.call('ZRANGE', KEYS[2], 0, 0)
+if #head == 0 then return { 'empty' } end
+local raw = redis.call('HGET', KEYS[1], head[1])
+if not raw then
+    redis.call('ZREM', KEYS[2], head[1])
+    redis.call('ZREM', KEYS[3], head[1])
+    return { 'missing', head[1] }
+end
+redis.call('ZADD', KEYS[3], ARGV[2], head[1])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+redis.call('EXPIRE', KEYS[2], ARGV[3])
+redis.call('EXPIRE', KEYS[3], ARGV[3])
+return { 'claimed', head[1], raw }
+`;
+
+/**
+ * The oldest pending score, or '-1' after deleting a drained subscription's
+ * keys. Checking and deleting in one step is what keeps a concurrent append
+ * from being wiped between the two. KEYS: entries, pending, lease.
+ */
+const REINDEX_SCRIPT = `
+local head = redis.call('ZRANGE', KEYS[2], 0, 0, 'WITHSCORES')
+if #head == 0 then
+    redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+    return '-1'
+end
+return head[2]
+`;
+
+interface PendingScripts {
+    pendingClaim(
+        entries: string,
+        pending: string,
+        lease: string,
+        now: string,
+        leaseUntil: string,
+        ttlSeconds: string,
+    ): Promise<[string, string?, string?]>;
+    pendingReindex(
+        entries: string,
+        pending: string,
+        lease: string,
+    ): Promise<string>;
+}
+
 // -- Shapes -----------------------------------------------------------
 
 /** One delivery, handed out under a lease. */
@@ -146,10 +213,10 @@ const membersOf = (flat: readonly unknown[]): string[] => {
     return members;
 };
 
-const batched = <T>(items: readonly T[]): T[][] => {
+const batched = <T>(items: readonly T[], size = COMMAND_BATCH): T[][] => {
     const batches: T[][] = [];
-    for (let i = 0; i < items.length; i += COMMAND_BATCH)
-        batches.push(items.slice(i, i + COMMAND_BATCH));
+    for (let i = 0; i < items.length; i += size)
+        batches.push(items.slice(i, i + size));
     return batches;
 };
 
@@ -157,6 +224,22 @@ export class PendingDeliveryStore extends PuterStore {
     /** Tells this process's ids from a peer's, so two cannot mint the same. */
     readonly #minter = randomUUID().slice(0, 8);
     #minted = 0;
+    #definedScripts = false;
+
+    #scripts(): PendingScripts {
+        if (!this.#definedScripts) {
+            this.#definedScripts = true;
+            this.clients.redis.defineCommand('pendingClaim', {
+                numberOfKeys: 3,
+                lua: CLAIM_SCRIPT,
+            });
+            this.clients.redis.defineCommand('pendingReindex', {
+                numberOfKeys: 3,
+                lua: REINDEX_SCRIPT,
+            });
+        }
+        return this.clients.redis as unknown as PendingScripts;
+    }
 
     // -- Writes ------------------------------------------------------
 
@@ -189,46 +272,54 @@ export class PendingDeliveryStore extends PuterStore {
         options: { leaseMs?: number } = {},
     ): Promise<ClaimedDelivery | null> {
         const now = Date.now();
-
-        const inFlight = await this.clients.redis.zrangebyscore(
-            leaseKey(subId),
-            now,
-            '+inf',
-            'LIMIT',
-            0,
-            1,
-        );
-        if (inFlight.length > 0) return null;
-
-        const [entryId] = await this.clients.redis.zrange(
+        // One script, so two claimers racing for the same head cannot both
+        // walk away holding it.
+        const [status, entryId, raw] = await this.#scripts().pendingClaim(
+            entriesKey(subId),
             pendingKey(subId),
-            0,
-            0,
+            leaseKey(subId),
+            String(now),
+            String(now + (options.leaseMs ?? PENDING_LEASE_TTL_MS)),
+            String(PENDING_BACKLOG_TTL_SECONDS),
         );
-        if (!entryId) {
+        if (status === 'inflight') return null;
+        if (status === 'empty') {
             // Nothing left, which is also how a drained subscription's keys go.
             await this.#reindex(subId);
             return null;
         }
-
-        const entry = parseEntry(
-            await this.clients.redis.hget(entriesKey(subId), entryId),
-        );
-        if (!entry) {
-            await this.#settleEntry(subId, entryId);
+        if (status === 'missing') {
+            // A queue position with no entry behind it: half a write. The
+            // script already dropped the position; this drops its share.
+            await this.clients.redis.decrby(COUNTER_KEY, 1);
+            await this.#reindex(subId);
             return null;
         }
 
-        await this.clients.redis.zadd(
-            leaseKey(subId),
-            now + (options.leaseMs ?? PENDING_LEASE_TTL_MS),
-            entryId,
-        );
+        const entry = parseEntry(raw ?? null);
+        if (!entryId || !entry) {
+            await this.clients.redis.zrem(pendingKey(subId), String(entryId));
+            await this.#forget(subId, [String(entryId)]);
+            await this.#reindex(subId);
+            return null;
+        }
+
+        // To the back of the sweeper's line: a delivery nobody ever settles
+        // must not hold the head against every other backlog in the region.
+        await this.clients.redis.zadd(INDEX_KEY, 'XX', now, subId);
         return {
             entryId,
             event: entry.event,
             socketAttempts: entry.socketAttempts,
         };
+    }
+
+    /**
+     * Send a subscription to the back of the sweeper's line, holdings
+     * untouched.
+     */
+    async defer(subId: string): Promise<void> {
+        await this.clients.redis.zadd(INDEX_KEY, 'XX', Date.now(), subId);
     }
 
     /** Count one socket attempt against a claimed delivery. */
@@ -324,11 +415,13 @@ export class PendingDeliveryStore extends PuterStore {
         const subIds = await this.clients.redis.zrange(INDEX_KEY, 0, -1);
 
         let total = 0;
-        for (const batch of batched(subIds)) {
-            const read = this.clients.redis.pipeline();
-            for (const subId of batch) read.zcard(pendingKey(subId));
-            const results = (await read.exec()) ?? [];
-            for (const [, count] of results) total += Number(count) || 0;
+        // One command per subscription: the queues hash to different slots,
+        // so under cluster mode they cannot share a pipeline.
+        for (const batch of batched(subIds, RECONCILE_CONCURRENCY)) {
+            const counts = await Promise.all(
+                batch.map((subId) => this.depth(subId)),
+            );
+            for (const count of counts) total += count;
         }
 
         await this.clients.redis.set(COUNTER_KEY, total);
@@ -363,17 +456,26 @@ export class PendingDeliveryStore extends PuterStore {
         const now = Date.now();
         const entryId = this.#mintEntryId(now);
 
-        const write = this.clients.redis.pipeline();
-        write.zadd(INDEX_KEY, 'NX', now, subId);
+        // Index first, so a crash after the entry lands still leaves the
+        // sweeper a way to find it; `NX` keeps an older score in place.
+        await this.clients.redis.zadd(INDEX_KEY, 'NX', now, subId);
+        // The entry and its queue position land together, so a concurrent
+        // drain can never see one without the other. Same slot, so this is a
+        // real transaction under cluster mode.
+        const write = this.clients.redis.multi();
         write.hset(
             entriesKey(subId),
             entryId,
             JSON.stringify({ event, socketAttempts: 0 } satisfies StoredEntry),
         );
         write.zadd(pendingKey(subId), now, entryId);
-        write.incrby(COUNTER_KEY, 1);
+        write.expire(entriesKey(subId), PENDING_BACKLOG_TTL_SECONDS);
+        write.expire(pendingKey(subId), PENDING_BACKLOG_TTL_SECONDS);
         await write.exec();
+        await this.clients.redis.incrby(COUNTER_KEY, 1);
 
+        // A drain that emptied this subscription in between took it out of
+        // the index again; this puts it back, with the right score.
         await this.#reindex(subId);
         return entryId;
     }
@@ -403,9 +505,12 @@ export class PendingDeliveryStore extends PuterStore {
         const shed: PendingShed[] = [];
         for (const { subId } of await this.head(REGION_SHED_SUBSCRIPTIONS)) {
             if (over <= 0) break;
-            const dropped = await this.#shedOldest(subId, over, 'region');
+            // One more than the overflow, as the marker left behind takes a
+            // place of its own; counting it is what lets the region actually
+            // get back under the ceiling rather than hover one over it.
+            const dropped = await this.#shedOldest(subId, over + 1, 'region');
             if (!dropped) continue;
-            over -= dropped.dropped;
+            over -= dropped.dropped - 1;
             shed.push(dropped);
         }
         return shed;
@@ -444,13 +549,6 @@ export class PendingDeliveryStore extends PuterStore {
         return entry?.event.subject ?? '';
     }
 
-    /** Settle one entry that is still in the pending set. */
-    async #settleEntry(subId: string, entryId: string): Promise<void> {
-        await this.clients.redis.zrem(pendingKey(subId), entryId);
-        await this.#forget(subId, [entryId]);
-        await this.#reindex(subId);
-    }
-
     /** Forget entries already out of the pending set, and the space they held. */
     async #forget(subId: string, entryIds: readonly string[]): Promise<void> {
         if (entryIds.length === 0) return;
@@ -469,21 +567,24 @@ export class PendingDeliveryStore extends PuterStore {
      * where every key it owned goes.
      */
     async #reindex(subId: string): Promise<void> {
-        const [entryId, oldestAt] = await this.clients.redis.zrange(
+        const oldest = await this.#scripts().pendingReindex(
+            entriesKey(subId),
             pendingKey(subId),
-            0,
-            0,
-            'WITHSCORES',
+            leaseKey(subId),
         );
-        if (!entryId) {
-            await this.clients.redis.del(
-                entriesKey(subId),
-                pendingKey(subId),
-                leaseKey(subId),
+        if (oldest !== '-1') {
+            await this.clients.redis.zadd(
+                INDEX_KEY,
+                Number(oldest) || 0,
+                subId,
             );
-            await this.clients.redis.zrem(INDEX_KEY, subId);
             return;
         }
-        await this.clients.redis.zadd(INDEX_KEY, Number(oldestAt) || 0, subId);
+        await this.clients.redis.zrem(INDEX_KEY, subId);
+        // The index hashes to another slot, so no script can cover both it and
+        // the queue: an append that landed since the script ran has entries
+        // the ZREM just hid from the sweeper. Put it back if so.
+        if ((await this.depth(subId)) > 0)
+            await this.clients.redis.zadd(INDEX_KEY, 'NX', Date.now(), subId);
     }
 }

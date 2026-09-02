@@ -264,6 +264,17 @@ describe('creating a durable subscription over HTTP', () => {
         expect(refused.body.code).toBe('invalid_targets');
     });
 
+    it('refuses a `single` subscription with no handler to fall back to', async () => {
+        const refused = await subscribe(env.users.user.token, {
+            delivery: 'single',
+            handlerName: 'onWrite',
+            targets: ['socket'],
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('invalid_targets');
+    });
+
     it('refuses an expiry in the past', async () => {
         const refused = await subscribe(env.users.user.token, {
             expiresAt: Math.floor(Date.now() / 1000) - 60,

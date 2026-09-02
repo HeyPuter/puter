@@ -397,7 +397,7 @@ const parseTargets = (
     const targets = [...new Set(value)];
     if (!targetsAllowedForDelivery(delivery, targets))
         throw badRequest(
-            'A `single` subscription may not target `push`',
+            'A `single` subscription needs a `worker` target and may not target `push`',
             'invalid_targets',
         );
     return targets;
@@ -869,8 +869,12 @@ export class EventsService extends PuterService {
                     continue;
                 }
                 // A suspended row keeps what it is owed — what happens to that
-                // backlog is the suspension's decision, not the sweeper's.
-                if (row.suspendedAt !== null) continue;
+                // backlog is the suspension's decision, not the sweeper's. It
+                // goes to the back of the line so it cannot hold the head.
+                if (row.suspendedAt !== null) {
+                    await this.stores.pendingDelivery.defer(subId);
+                    continue;
+                }
                 attempted += await this.#drain(row);
             } catch (err) {
                 console.warn('[events] pending sweep failed', subId, err);
@@ -1163,9 +1167,12 @@ export class EventsService extends PuterService {
                 void this.#owe(row, marker);
                 continue;
             }
+            // A marker rides the socket; a row with none has nowhere to hear
+            // it, and sending nothing must not count as a delivery.
+            if (!targetsOf(row).includes('socket')) continue;
             this.#send({
                 target: deliveryTarget(row),
-                socket: targetsOf(row).includes('socket'),
+                socket: true,
                 envelope: { subId: row.subId, event: marker },
             });
         }
