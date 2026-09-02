@@ -30,6 +30,7 @@ import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
+import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
@@ -1941,14 +1942,8 @@ window.initgui = async function (options) {
         window.location.replace(window.is_dashboard_mode ? '/' : '/desktop');
     });
 
-    const verification_gate_windows = {
-        phone_verification_required: UIWindowPhoneVerificationRequired,
-        email_confirmation_required: UIWindowEmailConfirmationRequired,
-        card_verification_required: UIWindowCardVerificationRequired,
-    };
-    let verification_gate_open = false;
     $(document).ajaxError(async function (event, jqxhr) {
-        if (jqxhr?.status !== 403 || verification_gate_open) {
+        if (jqxhr?.status !== 403) {
             return;
         }
         let body = jqxhr.responseJSON;
@@ -1959,29 +1954,8 @@ window.initgui = async function (options) {
                 body = null;
             }
         }
-        const UIWindowVerificationGate = verification_gate_windows[body?.code];
-        if (!UIWindowVerificationGate) {
-            return;
-        }
-        verification_gate_open = true;
-        try {
-            const is_verified = await UIWindowVerificationGate({
-                show_close_button: false,
-                stay_on_top: true,
-                has_head: false,
-                logout_in_footer: true,
-                window_options: {
-                    is_draggable: false,
-                },
-            });
-            if (is_verified) {
-                await window.refresh_user_data(window.auth_token);
-            }
-        } catch (e) {
-            console.error('verification gate dialog failed:', e);
-        } finally {
-            verification_gate_open = false;
-        }
+        // Single-flighted in the helper; unknown codes are a no-op.
+        await openVerificationGateWindow(body?.code);
     });
 
     // -------------------------------------------------------------------------------------

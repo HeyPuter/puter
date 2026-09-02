@@ -37,6 +37,7 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
+import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
 import { createFeedbackDialogGuard } from './util/feedbackDialogGuard.js';
@@ -232,6 +233,39 @@ const ipc_listener = async (event, handled) => {
             original_msg_id: msg_id,
             msg: 'requestEmailConfirmationResponded',
             response: email_confirm_resp,
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // requestVerificationGate
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'requestVerificationGate' ) {
+        // Raised by puter.js when a request hit a 403 account-verification
+        // gate. The cached user object may not know about a gate applied
+        // mid-session (or one cleared in another tab), so refresh it before
+        // deciding; if the gate is off after the refresh, respond success so
+        // the app replays its request.
+        // Mirrors the server's assertVerifiedAccount conditions.
+        const gate_flags = {
+            email_confirmation_required: (user) => user?.requires_email_confirmation && !user?.email_confirmed,
+            phone_verification_required: (user) => user?.requires_phone_verification,
+            card_verification_required: (user) => user?.requires_card_verification,
+        };
+        const gate_is_on = gate_flags[event.data.code];
+        let response = true;
+        if ( gate_is_on ) {
+            try {
+                await window.refresh_user_data(window.auth_token);
+            } catch (e) {
+                // Stale data is still decidable; the gate window can handle it.
+            }
+            if ( gate_is_on(window.user) ) {
+                response = await openVerificationGateWindow(event.data.code);
+            }
+        }
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'requestVerificationGateResponded',
+            response,
         }, '*');
     }
     //--------------------------------------------------------
