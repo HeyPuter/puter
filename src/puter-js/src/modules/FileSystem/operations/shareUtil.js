@@ -25,9 +25,15 @@ export const toShareRecipients = (value) => {
                     : { username: trimmed };
             }
             const record = /** @type {Record<string, unknown>} */ (entry);
+            // Object form only: a bare-string spelling would reinterpret
+            // strings that already mean something.
             return {
                 ...(record.email ? { email: String(record.email) } : {}),
                 ...(record.username ? { username: String(record.username) } : {}),
+                ...(record.team ? { team: String(record.team) } : {}),
+                ...(record.teamHandle
+                    ? { teamHandle: String(record.teamHandle) }
+                    : {}),
             };
         });
 };
@@ -72,6 +78,14 @@ export const toShare = (row) => ({
     owner: /** @type {string | null} */ (row.owner ?? null),
     issuer: /** @type {string | null} */ (row.issuer ?? null),
     holder: /** @type {string | null} */ (row.holder ?? null),
+    // `holder` is null for a team share; this names who it reached.
+    ...(row.holder_team || row.holderTeam
+        ? {
+            holderTeam: /** @type {{ uid: string, name: string | null, handle: string | null }} */ (
+                row.holder_team ?? row.holderTeam
+            ),
+        }
+        : {}),
     inheritedFrom: /** @type {string | null} */ (row.inherited_from ?? null),
     issuedByApp: /** @type {string | null} */ (row.issued_by_app ?? null),
     ...(row.status === 'pending' || row.pending === true

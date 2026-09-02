@@ -297,7 +297,10 @@
  * Who a share is for. Give an `email` or a `username`; a bare string is read
  * as an email when it contains `@` and a username otherwise.
  *
- * @typedef {string | { email?: string, username?: string }} ShareRecipient
+ * A team is named by `team` (uid) or `teamHandle`, never as a bare
+ * string -- that spelling already means an email or a username.
+ *
+ * @typedef {string | { email?: string, username?: string, team?: string, teamHandle?: string }} ShareRecipient
  */
 
 /**
@@ -318,7 +321,10 @@
  * @property {string | null} owner Username of the item's owner. Only set by
  * the listings, `listShared()` and `listSharedByMe()`.
  * @property {string | null} issuer Username of whoever granted it.
- * @property {string | null} holder Username of whoever received it.
+ * @property {string | null} holder Username of whoever received it. Null for a
+ * team share, which has no individual holder -- see `holderTeam`.
+ * @property {{ uid: string, name: string | null, handle: string | null }} [holderTeam]
+ * The team this was shared with, when it was shared with one.
  * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
  * @property {string | null} [issuedByApp] UID of the app that asked for this
  * share, or `null` when a person made it directly.
