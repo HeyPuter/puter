@@ -25,11 +25,12 @@
 
 /**
  * @typedef {Object} NotificationPayload
- * @property {string} [source] - Who sent it: `sharing`, `worker`, …
+ * @property {string} [type] - What it is, from the server's registry
+ * @property {string} [source] - Legacy sender marker: `sharing`, `worker`, …
  * @property {string} [title]
  * @property {string} [text]
  * @property {string} [icon] - A `window.icons` key
- * @property {string} [template]
+ * @property {string} [template] - Legacy marker, superseded by `type`
  * @property {Object} [fields]
  */
 
@@ -42,14 +43,36 @@
  * @property {number} receivedAt - When this client first saw it (epoch ms)
  */
 
-/** Notifications announcing a share; the two templates the backend writes. */
-const SHARE_TEMPLATES = new Set(['file-shared-with-you', 'file-shared-before-you-joined']);
+/** Notifications announcing a share. */
+const SHARE_TYPES = new Set(['share.received', 'share.claimed']);
 
 /**
- * Senders the notification center leaves out entirely — a worker's deploy
+ * The `source` / `template` markers share and worker notifications carried
+ * before the server sent a `type`. Kept so rows written by the previous
+ * release still read correctly.
+ */
+const LEGACY_SHARE_TEMPLATES = new Set(['file-shared-with-you', 'file-shared-before-you-joined']);
+const LEGACY_HIDDEN_SOURCES = new Set(['worker']);
+
+/**
+ * Notifications the center leaves out entirely — a worker's deploy
  * confirmations are noise next to things that need the user.
  */
-const HIDDEN_SOURCES = new Set(['worker']);
+const HIDDEN_TYPES = new Set(['app.worker.deployed', 'app.worker.deployFailed']);
+
+/**
+ * Whether a notification announces a share, by either the server's `type` or
+ * the markers that preceded it.
+ *
+ * @param {NotificationPayload} notification
+ * @returns {boolean}
+ */
+export const isShareNotification = (notification) => {
+    if ( ! notification || typeof notification !== 'object' ) return false;
+    return SHARE_TYPES.has(notification.type)
+        || notification.source === 'sharing'
+        || LEGACY_SHARE_TEMPLATES.has(notification.template);
+};
 
 // SQLite's CURRENT_TIMESTAMP: UTC with no zone marker, which `Date.parse`
 // would otherwise read as local time.
@@ -99,7 +122,8 @@ export const toEntry = (raw, now) => {
     if ( typeof uid !== 'string' || uid === '' ) return null;
     const payload = raw.notification ?? raw.value;
     const notification = payload && typeof payload === 'object' ? payload : {};
-    if ( HIDDEN_SOURCES.has(notification.source) ) return null;
+    if ( HIDDEN_TYPES.has(notification.type) ) return null;
+    if ( LEGACY_HIDDEN_SOURCES.has(notification.source) ) return null;
     const createdAt = parseCreatedAt(raw.created_at);
     return {
         uid,
@@ -209,18 +233,15 @@ export const isUnread = (entry) => entry.readAt === null;
  */
 export const unreadCount = (entries) => entries.filter(isUnread).length;
 
-/** The senders that have a glyph of their own; anything else gets the bell. */
-const GLYPH_SOURCES = new Set(['sharing']);
-
 /**
- * Which glyph an entry shows, by who sent it. A plain property lookup
- * would let a `source` like `constructor` reach into the prototype.
+ * Which glyph an entry shows. Shares have one of their own; anything else
+ * gets the bell.
  *
  * @param {NotificationPayload} notification
  * @returns {'sharing'|'default'}
  */
 export const glyphKey = (notification) => (
-    GLYPH_SOURCES.has(notification?.source) ? notification.source : 'default'
+    isShareNotification(notification) ? 'sharing' : 'default'
 );
 
 /**
@@ -236,9 +257,7 @@ export const glyphKey = (notification) => (
  * @returns {NotificationTarget}
  */
 export const notificationTarget = (notification) => {
-    if ( ! notification || typeof notification !== 'object' ) return null;
-    const isShare = notification.source === 'sharing' || SHARE_TEMPLATES.has(notification.template);
-    if ( ! isShare ) return null;
+    if ( ! isShareNotification(notification) ) return null;
     const path = notification.fields?.target?.path;
     if ( typeof path === 'string' && path.startsWith('/') ) {
         return { kind: 'shared-item', path };

@@ -81,15 +81,21 @@ describe('ShareNotificationService', () => {
         const calls: Array<{
             userIds: number[];
             payload: Record<string, unknown>;
+            type: string;
             silent: boolean;
         }> = [];
         vi.spyOn(server.services.notification, 'notify').mockImplementation(
             async (
                 userIds: number[],
                 payload: Record<string, unknown>,
-                opts: { silent?: boolean } = {},
+                opts: { type: string; silent?: boolean },
             ) => {
-                calls.push({ userIds, payload, silent: Boolean(opts.silent) });
+                calls.push({
+                    userIds,
+                    payload,
+                    type: opts.type,
+                    silent: Boolean(opts.silent),
+                });
                 return 'stub-uid';
             },
         );
@@ -102,8 +108,7 @@ describe('ShareNotificationService', () => {
             filter: 'unacknowledged',
         });
         return rows.filter(
-            (row: { value?: { template?: string } }) =>
-                row.value?.template === 'file-shared-with-you',
+            (row: { type?: string }) => row.type === 'share.received',
         );
     };
 
@@ -127,7 +132,7 @@ describe('ShareNotificationService', () => {
         const byUser = new Map(calls.map((c) => [c.userIds[0], c.payload]));
         expect(byUser.get(alice.id)?.fields).toMatchObject({ count: 3 });
         expect(byUser.get(bob.id)?.fields).toMatchObject({ count: 2 });
-        expect(byUser.get(alice.id)?.source).toBe('sharing');
+        expect(calls.every((c) => c.type === 'share.received')).toBe(true);
     });
 
     it('says "an item" for one and "items" for several', async () => {

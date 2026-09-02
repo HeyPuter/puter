@@ -82,7 +82,7 @@ const toastIconFor = (notification) => {
         ? window.icons[iconName]
         : null;
     if ( named ) return named;
-    const color = notification?.source === 'sharing' ? '#2563eb' : '#64748b';
+    const color = glyphKey(notification) === 'sharing' ? '#2563eb' : '#64748b';
     // Loaded as an image rather than inlined, the SVG needs its namespace.
     const svg = glyphFor(notification)
         .replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')
@@ -251,7 +251,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
     const rowHtml = (entry) => {
         const { notification } = entry;
-        const source = typeof notification.source === 'string' ? notification.source.replace(/[^a-z0-9_-]/gi, '') : 'default';
+        // A closed set, so it needs no sanitising on the way into the class.
+        const glyph = glyphKey(notification);
         const text = textFor(notification);
         const time = entry.createdAt === null ? '' : `
             <time class="dashboard-notification-time" datetime="${new Date(entry.createdAt).toISOString()}"
@@ -270,7 +271,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return `
             <li class="${classes}" data-uid="${html_encode(entry.uid)}">
                 <${mainTag} class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
-                    <span class="dashboard-notification-icon dashboard-notification-icon-${html_encode(source)}">${glyphFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
+                    <span class="dashboard-notification-icon dashboard-notification-icon-${glyph}">${glyphFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
                     <span class="dashboard-notification-content">
                         <span class="dashboard-notification-title">${unread ? `<span class="dashboard-notification-sr">${i18n('notification_unread')}: </span>` : ''}${html_encode(title)}</span>
                         ${text ? `<span class="dashboard-notification-text">${html_encode(text)}</span>` : ''}

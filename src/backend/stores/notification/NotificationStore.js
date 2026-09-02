@@ -106,8 +106,14 @@ export class NotificationStore extends PuterStore {
      * notification service is what decides which combinations are legal, and
      * the empty `type` written by a caller that names none reads as legacy.
      *
-     * @param {{ userId: number; value: unknown; uid?: string; type?: string;
-     *   audience?: string; appUid?: string | null }} args
+     * @param {{
+     *     userId: number;
+     *     value: unknown;
+     *     uid?: string;
+     *     type?: string;
+     *     audience?: string;
+     *     appUid?: string | null;
+     * }} args
      */
     async create({
         userId,
