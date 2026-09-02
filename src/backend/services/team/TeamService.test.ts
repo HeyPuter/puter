@@ -67,7 +67,8 @@ describe('TeamService', () => {
     };
 
     beforeAll(async () => {
-        server = await setupTestServer();
+        // The policy and resolver are gated on the same flag as the routes.
+        server = await setupTestServer({ teams_enabled: true } as never);
         service = server.services.team;
         owner = await makeUser();
         ownerUsername = (await server.stores.user.getById(owner.id))!.username;
@@ -553,4 +554,5 @@ describe('TeamService', () => {
         const second = await service.listAudit(team.uid, owner.id, { limit: 1 });
         expect(second.items).toHaveLength(1);
     });
+
 });

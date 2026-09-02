@@ -73,10 +73,7 @@ export class TeamService extends PuterService {
     }
 
     /** Authority is one test: the caller is the account named by the workspace. */
-    async requireOwner(
-        teamUid: string,
-        actorUserId: number,
-    ): Promise<TeamRow> {
+    async requireOwner(teamUid: string, actorUserId: number): Promise<TeamRow> {
         const team = await this.requireMembership(teamUid, actorUserId);
         if (team.owner_user_id !== actorUserId) {
             throw new HttpError(403, 'Only the workspace owner can do that', {

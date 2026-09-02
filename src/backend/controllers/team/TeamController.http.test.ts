@@ -100,14 +100,21 @@ describe('team endpoints over HTTP', () => {
     });
 
     it('refuses every administrative route to a member who is not the owner', async () => {
-        const { team } = await makeWorkspace();
-        // Provisioned accounts have no password, so they cannot authenticate.
-        const other = await env.server.stores.user.getByUsername(
-            env.users.other.username,
+        const { team, memberUsername } = await makeWorkspace();
+        // An activated seat: provisioning leaves the email unconfirmed, which
+        // `requireVerified` rejects, so an unactivated one cannot call at all.
+        const provisioned = await env.server.stores.user.getByUsername(
+            memberUsername,
         );
-        await env.server.stores.team.addMember(team.uid, other!.id, {
-            orgOwned: true,
+        await env.server.stores.user.update(provisioned!.id, {
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+            requires_password_change: 0,
         });
+        const seat = await env.server.stores.user.getByUsername(memberUsername);
+        const { token } = await env.server.services.auth.createSessionToken(
+            seat!,
+        );
 
         for (const [method, path] of [
             ['PUT', `/teams/${team.uid}`],
@@ -118,18 +125,14 @@ describe('team endpoints over HTTP', () => {
             const res = await call(
                 method,
                 path,
-                env.users.other.token,
+                token,
                 method === 'GET' ? undefined : { name: 'nope' },
             );
             expect(res.status, `${method} ${path}`).toBe(403);
         }
 
         // Still a member, so reads it is entitled to still work.
-        const readable = await call(
-            'GET',
-            `/teams/${team.uid}`,
-            env.users.other.token,
-        );
+        const readable = await call('GET', `/teams/${team.uid}`, token);
         expect(readable.status).toBe(200);
     });
 

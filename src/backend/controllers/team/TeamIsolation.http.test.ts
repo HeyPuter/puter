@@ -34,6 +34,7 @@ describe('a workspace cannot read its members data', () => {
     let memberUsername: string;
     let memberFile: string;
     let ownerFile: string;
+    let memberToken: string;
 
     /** Written directly: these tests are about reading, not about writing. */
     const makeFile = async (username: string, label: string) => {
@@ -91,11 +92,26 @@ describe('a workspace cannot read its members data', () => {
         });
         teamUid = ((await res.json()) as { uid: string }).uid;
 
-        memberUsername = env.users.other.username;
+        // A real provisioned seat, activated so it can authenticate.
+        memberUsername = `iso_${Math.random().toString(36).slice(2, 9)}`;
+        await env.server.services.team.provisionAccount(
+            teamUid,
+            (await env.server.stores.user.getByUsername(
+                env.users.user.username,
+            ))!.id,
+            { username: memberUsername, email: `${memberUsername}@test.local` },
+        );
         const member = await env.server.stores.user.getByUsername(memberUsername);
-        await env.server.stores.team.addMember(teamUid, member!.id, {
-            orgOwned: true,
+        await env.server.stores.user.update(member!.id, {
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+            requires_password_change: 0,
         });
+        memberToken = (
+            await env.server.services.auth.createSessionToken(
+                (await env.server.stores.user.getByUsername(memberUsername))!,
+            )
+        ).token;
 
         memberFile = await makeFile(memberUsername, 'member');
         ownerFile = await makeFile(env.users.user.username, 'owner');
@@ -146,7 +162,7 @@ describe('a workspace cannot read its members data', () => {
     });
 
     it('lets a member read their own files', async () => {
-        const res = await stat(memberFile, env.users.other.token);
+        const res = await stat(memberFile, memberToken);
         expect(res.status).toBe(200);
     });
 
@@ -190,7 +206,7 @@ describe('a workspace cannot read its members data', () => {
         );
 
         // The member loses access to their own files...
-        const asMember = await stat(untouched, env.users.other.token);
+        const asMember = await stat(untouched, memberToken);
         expect(asMember.status).toBeGreaterThanOrEqual(400);
 
         // ...and the workspace still does not gain it.
