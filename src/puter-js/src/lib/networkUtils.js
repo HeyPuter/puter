@@ -433,6 +433,42 @@ async function resolvePermission(permission) {
     }
 }
 
+// The 403 account-verification gates the hosting GUI can walk a user through.
+const VERIFICATION_GATE_CODES = new Set([
+    'email_confirmation_required',
+    'phone_verification_required',
+    'card_verification_required',
+]);
+
+// Single-flighted verification prompt: concurrent gated requests share one
+// GUI dialog rather than stacking windows.
+let pendingVerificationGate = null;
+
+/**
+ * Drive the hosting GUI's verification flow for a 403 `*_required` gate code.
+ * Only apps hosted by the Puter GUI can prompt; every other environment
+ * resolves unverified and the rejection reaches the caller unchanged.
+ *
+ * @param {string} code - The gate's error code.
+ * @returns {Promise<{ verified: boolean }>}
+ */
+async function resolveVerificationGate(code) {
+    if (globalThis.puter?.env !== 'app') return { verified: false };
+    if (!pendingVerificationGate) {
+        pendingVerificationGate = (async () => {
+            try {
+                const verified = await puter.ui.requestVerificationGate(code);
+                return { verified: verified === true };
+            } catch (e) {
+                return { verified: false };
+            } finally {
+                pendingVerificationGate = null;
+            }
+        })();
+    }
+    return pendingVerificationGate;
+}
+
 /**
  * Send one attempt. Resolves with a terminal outcome: { streamed: true, xhr,
  * lineStream } — NDJSON, resolved at HEADERS_RECEIVED { xhr, status } —
@@ -529,8 +565,9 @@ function sendOnce(spec) {
 }
 
 /**
- * Classify a completed attempt into a retry decision. Reauth and permission are
- * one-shot (tracked in `ctx.done`) and apply to any request; transient backoff
+ * Classify a completed attempt into a retry decision. Reauth, permission, and
+ * the phone-verification gate are one-shot (tracked in `ctx.done`) and apply
+ * to any request; transient backoff
  * applies only to `ctx.retrySafe` requests and honors the autoRetry kill
  * switch. Memoizes the parsed body on `outcome.parsed` and stashes any reauth
  * error on `outcome.reauthError` for the shaper.
@@ -576,6 +613,24 @@ async function classifyRetry(outcome, ctx) {
             const perm = await resolvePermission(ctx.permission);
             if (perm.granted) {
                 ctx.done.add('permission');
+                return { delayMs: 0 };
+            }
+        }
+        return null;
+    }
+
+    // account verification gate (403) — one-shot per gate, any method, no
+    // backoff. The gate rejects in middleware before the handler runs, so
+    // replay is safe once the user clears it; a user behind several gates
+    // clears them one replay at a time (email → phone → card).
+    const gateCode = [parsed?.code, parsed?.error?.code].find((c) =>
+        VERIFICATION_GATE_CODES.has(c),
+    );
+    if (status === 403 && gateCode) {
+        if (!ctx.done.has(gateCode)) {
+            const res = await resolveVerificationGate(gateCode);
+            if (res.verified) {
+                ctx.done.add(gateCode);
                 return { delayMs: 0 };
             }
         }

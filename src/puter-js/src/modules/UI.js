@@ -1057,6 +1057,22 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Asks the desktop to walk the user through clearing an account
+     * verification gate (a 403 `*_required` code — email confirmation, phone
+     * verification, or card verification). Resolves `true` once the gate is
+     * cleared, `false` otherwise.
+     *
+     * @internal
+     * @param {string} code - The gate's error code.
+     * @returns {Promise<boolean>}
+     */
+    requestVerificationGate (code) {
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('requestVerificationGate', resolve, { code });
+        }).then((res) => res?.response === true);
+    };
+
+    /**
      * Shows an alert dialog, blocking the parent window until the user picks a
      * button. Resolves to that button's `value`, or its `label` when no value
      * is set. `callback` is vestigial and never invoked.
