@@ -392,3 +392,94 @@ describe('ReplicateImageGenerationProvider.generate go_fast pricing', () => {
         expect(outputMp?.costOverride).toBe(Math.round(1.2 * 1_000_000));
     });
 });
+
+// -- Upstream rejection handling --
+
+describe('ReplicateImageGenerationProvider.generate upstream rejections', () => {
+    const generate = () =>
+        withTestActor(() =>
+            makeProvider().generate({
+                model: 'black-forest-labs/flux-schnell',
+                prompt: 'hi',
+            }),
+        );
+
+    it('maps an NSFW refusal to 400 moderation_flagged without metering', async () => {
+        runMock.mockRejectedValueOnce(
+            new Error(
+                'Prediction failed: Error generating image: NSFW content detected.',
+            ),
+        );
+
+        await expect(generate()).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            code: 'moderation_flagged',
+            message: 'Error generating image: NSFW content detected.',
+            fields: { provider: 'replicate' },
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('maps a sensitive-content (E005) refusal to 400 moderation_flagged', async () => {
+        runMock.mockRejectedValueOnce(
+            new Error(
+                'Prediction failed: The input or output was flagged as sensitive. Please try again with different inputs. (E005)',
+            ),
+        );
+
+        await expect(generate()).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_flagged',
+        });
+    });
+
+    it('maps any other failed prediction to 502 upstream_failed, keeping the cause', async () => {
+        const raw = new Error(
+            'Prediction failed: q_descale must have shape (batch_size, num_heads_k)',
+        );
+        runMock.mockRejectedValueOnce(raw);
+
+        await expect(generate()).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            message: 'q_descale must have shape (batch_size, num_heads_k)',
+            fields: { provider: 'replicate' },
+            cause: raw,
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('strips markup and bounds the message when upstream returns an HTML error page', async () => {
+        const page =
+            '<html><head><style>body{color:red}</style></head><body>' +
+            "<h1>Our services aren't available right now</h1>" +
+            `<p>${'x'.repeat(500)}</p></body></html>`;
+        runMock.mockRejectedValueOnce(
+            new Error(
+                `Prediction failed: Error generating image: Failed to generate: ${page}`,
+            ),
+        );
+
+        const err = await generate().catch((e) => e);
+        expect(err).toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+        });
+        expect(err.message).toContain("Our services aren't available right now");
+        expect(err.message).not.toMatch(/<|body\{/);
+        expect(err.message.length).toBeLessThanOrEqual(300);
+    });
+
+    it('passes a rejection that carries an HTTP status through untouched for the driver boundary', async () => {
+        const apiError = Object.assign(
+            new Error(
+                'Request to https://api.replicate.com/v1/predictions failed with status 429 Too Many Requests',
+            ),
+            { name: 'ApiError', response: { status: 429 } },
+        );
+        runMock.mockRejectedValueOnce(apiError);
+
+        await expect(generate()).rejects.toBe(apiError);
+    });
+});
