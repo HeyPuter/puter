@@ -88,6 +88,11 @@ export class TeamService extends PuterService {
         return rows[0]?.plan_id || null;
     }
 
+    /** Drops the credit verdict too: the `subscription-changed` handler does. */
+    #invalidateBilling(userUuid: string): void {
+        this.services.metering.invalidateActorSubscription(userUuid);
+    }
+
     /** `free_storage` is the per-account ceiling FSService compares against. */
     async #stampStorage(userId: number, planId: string | null): Promise<void> {
         const policy = planId
@@ -134,7 +139,7 @@ export class TeamService extends PuterService {
                 if (Number(member.org_owned) !== 1) continue;
                 await this.#stampStorage(member.user_id, planId);
                 // Keyed by uuid, and announced to every node.
-                this.services.metering.invalidateActorSubscription(member.uuid);
+                this.#invalidateBilling(member.uuid);
             }
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
@@ -311,7 +316,6 @@ export class TeamService extends PuterService {
         for (;;) {
             for (const member of page.items) {
                 if (Number(member.org_owned) !== 1) continue;
-                await this.#suspend(member.user_id);
                 await this.stores.team.appendAudit({
                     teamId: team.id,
                     userId: member.user_id,
@@ -319,6 +323,10 @@ export class TeamService extends PuterService {
                     action: 'disable',
                     reason: 'workspace_deleted',
                 });
+                await this.#suspend(member.user_id);
+                // Deletion changes what every seat resolves to.
+                await this.#stampStorage(member.user_id, null);
+                this.#invalidateBilling(member.uuid);
             }
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
@@ -494,6 +502,7 @@ export class TeamService extends PuterService {
         }
 
         await this.#stampStorage(user.id, team.plan_id);
+        this.#invalidateBilling(user.uuid);
         await this.stores.team.appendAudit({
             teamId: team.id,
             userId: user.id,
@@ -579,7 +588,7 @@ export class TeamService extends PuterService {
         targetUserId: number,
     ): Promise<void> {
         const team = await this.requireOwner(teamUid, actorUserId);
-        await this.requireOrgAccount(teamUid, targetUserId);
+        const membership = await this.requireOrgAccount(teamUid, targetUserId);
 
         // Recorded first: a failed append must not leave an unlogged suspension.
         await this.stores.team.appendAudit({
@@ -589,6 +598,7 @@ export class TeamService extends PuterService {
             action: 'disable',
         });
         await this.#suspend(targetUserId);
+        this.#invalidateBilling(membership.uuid);
     }
 
     /** Nothing was destroyed, so the account returns as it was. */
@@ -626,6 +636,7 @@ export class TeamService extends PuterService {
             suspended_reason: null,
         });
         await this.stores.user.invalidateById(targetUserId);
+        this.#invalidateBilling(user.uuid);
     }
 
     /** The three columns together; `suspended` is the one that gates requests. */

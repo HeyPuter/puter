@@ -689,4 +689,143 @@ describe('TeamService', () => {
         expect(entry).toBeTruthy();
         expect(entry?.reason).toBe('team-member');
     });
+    // -- billing cache ------------------------------------------------
+
+    /** Populates both caches; `hasAnyUsageCached` is what fills the credit one. */
+    const warmBilling = async (row: { uuid: string }) => {
+        await server.services.metering.getActorSubscription({
+            user: row,
+        } as never);
+        await server.services.metering.hasAnyUsageCached({
+            user: row,
+        } as never);
+    };
+
+    /** Reports whether each cache still holds the user. */
+    const cacheState = async (uuid: string) => {
+        const m = server.services.metering as unknown as {
+            subscriptionCache: Map<string, unknown>;
+            creditCache: Map<string, unknown>;
+        };
+        return {
+            subscription: m.subscriptionCache.has(uuid),
+            credit: m.creditCache.has(uuid),
+        };
+    };
+
+    it('invalidates the new seat when it is provisioned', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+
+        // The seat does not exist yet, so assert the call, not the cache.
+        const spy = vi.spyOn(
+            server.services.metering,
+            'invalidateActorSubscription',
+        );
+        const u = `inv_${Math.random().toString(36).slice(2, 9)}`;
+        const p = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        const seat = await server.stores.user.getById(p.userId);
+
+        expect(spy).toHaveBeenCalledWith(seat!.uuid);
+        spy.mockRestore();
+    });
+
+    it('drops both caches when a seat is disabled', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+        const u = `dis_${Math.random().toString(36).slice(2, 9)}`;
+        const p = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        const row = await server.stores.user.getById(p.userId);
+
+        await warmBilling(row!);
+        expect(await cacheState(row!.uuid)).toEqual({
+            subscription: true,
+            credit: true,
+        });
+
+        await service.disableMember(team.uid, owner.id, p.userId);
+        expect(await cacheState(row!.uuid)).toEqual({
+            subscription: false,
+            credit: false,
+        });
+    });
+
+    it('drops both caches on re-enable', async () => {
+        const { team } = await makeWorkspace();
+        const u = `inv2_${Math.random().toString(36).slice(2, 9)}`;
+        const p = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        const row = await server.stores.user.getById(p.userId);
+        await service.disableMember(team.uid, owner.id, p.userId);
+
+        await warmBilling(row!);
+        expect((await cacheState(row!.uuid)).credit).toBe(true);
+        await service.enableMember(team.uid, owner.id, p.userId);
+
+        expect(await cacheState(row!.uuid)).toEqual({
+            subscription: false,
+            credit: false,
+        });
+    });
+
+    it('drops both caches for every org account on a plan change', async () => {
+        const { team } = await makeWorkspace();
+        const seats = [];
+        for (let i = 0; i < 2; i++) {
+            const u = `inv3_${Math.random().toString(36).slice(2, 9)}`;
+            const p = await service.provisionAccount(team.uid, owner.id, {
+                username: u,
+                email: `${u}@test.local`,
+            });
+            const row = await server.stores.user.getById(p.userId);
+            await warmBilling(row!);
+            seats.push(row!);
+        }
+        for (const row of seats) {
+            expect(await cacheState(row.uuid)).toEqual({
+                subscription: true,
+                credit: true,
+            });
+        }
+
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+
+        // This is the whole of how fast a plan change takes effect.
+        for (const row of seats) {
+            expect(await cacheState(row.uuid)).toEqual({
+                subscription: false,
+                credit: false,
+            });
+        }
+    });
+    it('drops both caches and the storage ceiling when the workspace is deleted', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+        const u = `del2_${Math.random().toString(36).slice(2, 9)}`;
+        const p = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        const row = await server.stores.user.getById(p.userId);
+        await warmBilling(row!);
+
+        await service.deleteWorkspace(team.uid, owner.id);
+
+        // Deletion changes resolution -- the TTL wait this ticket removes.
+        expect(await cacheState(row!.uuid)).toEqual({
+            subscription: false,
+            credit: false,
+        });
+        expect(
+            (await server.stores.user.getById(p.userId))?.free_storage,
+        ).toBeNull();
+    });
 });
