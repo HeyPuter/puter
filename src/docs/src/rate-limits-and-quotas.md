@@ -15,7 +15,7 @@ Three separate mechanisms decide whether a call succeeds. They are independent, 
 
 A credit balance does not buy rate-limit headroom, and an empty balance does not stop metadata reads that cost nothing. Design for all three.
 
-Because of the [User-Pays Model](/user-pays-model), every limit below applies **per user**, not per app: your app's traffic is bounded by each of your users' own accounts, so one heavy user can never exhaust your app for everyone else.
+Because of the [User-Pays Model](/user-pays-model), every limit below applies **per user, per app**: your app's traffic is bounded by each of your users' own accounts, so one heavy user can never exhaust your app for everyone else. Each app a user runs gets its own bucket, and each worker gets its own on top of that, so a busy worker never rate-limits the same user's other apps.
 
 ## Usage credit
 
@@ -37,7 +37,7 @@ AI requests you have in flight count against the balance while they run, at the 
 
 ## Rate limits
 
-Every limit is a rolling window, keyed per user. Where three numbers are shown they are **paid / free / anonymous** — "paid" is any subscription tier.
+Every limit is a rolling window, keyed per user and app (and per worker, for calls made from a worker). Where three numbers are shown they are **paid / free / anonymous** — "paid" is any subscription tier.
 
 ### AI
 

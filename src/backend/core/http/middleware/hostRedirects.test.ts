@@ -23,16 +23,18 @@ import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../../types';
+import { HttpError } from '../HttpError';
 import {
     createNativeAppStatic,
-    createUserSubdomainRedirect,
+    createUserSubdomainNotFound,
     createWwwRedirect,
 } from './hostRedirects';
 
 // ── Tiny harness ────────────────────────────────────────────────────
 //
-// Each middleware either calls next() (pass-through) or res.redirect(...).
-// Capture both so each test can assert against the outcome it cares about.
+// Each middleware calls next() (pass-through), next(err) (rejection), or
+// res.redirect(...). Capture all so each test can assert against the outcome
+// it cares about.
 
 interface CapturedRes {
     redirectArgs?: unknown[];
@@ -73,6 +75,13 @@ const run = (
     const next = vi.fn();
     middleware(req, res, next);
     return { out, next };
+};
+
+const expectNotFound = (next: ReturnType<typeof vi.fn>) => {
+    expect(next).toHaveBeenCalledTimes(1);
+    const err = next.mock.calls[0][0];
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as HttpError).statusCode).toBe(404);
 };
 
 // ── createWwwRedirect ───────────────────────────────────────────────
@@ -140,29 +149,25 @@ describe('createWwwRedirect', () => {
     });
 });
 
-// ── createUserSubdomainRedirect ─────────────────────────────────────
+// ── createUserSubdomainNotFound ─────────────────────────────────────
 
-describe('createUserSubdomainRedirect', () => {
+describe('createUserSubdomainNotFound', () => {
     const config = {
         domain: 'puter.com',
         static_hosting_domain: 'puter.site',
     } as IConfig;
 
-    it('redirects user subdomain to the static hosting domain — preserves path + query', () => {
-        // foo.puter.com/bar?x=1 → 302 foo.puter.site/bar?x=1
+    it('404s a user subdomain on the main domain (never redirects)', () => {
         const { out, next } = run(
-            createUserSubdomainRedirect(config),
+            createUserSubdomainNotFound(config),
             makeReq({
                 subdomains: ['com', 'puter', 'foo'],
                 host: 'foo.puter.com',
                 originalUrl: '/bar?x=1',
             }),
         );
-        expect(out.redirectArgs).toEqual([
-            302,
-            'https://foo.puter.site/bar?x=1',
-        ]);
-        expect(next).not.toHaveBeenCalled();
+        expect(out.redirectArgs).toBeUndefined();
+        expectNotFound(next);
     });
 
     it('passes through reserved subdomains (api, js, native apps, etc.)', () => {
@@ -170,91 +175,82 @@ describe('createUserSubdomainRedirect', () => {
         // `puter-app-icons`, `onlyoffice`, etc. all bypass.
         for (const sub of ['api', 'js', 'docs', 'editor', 'puter-app-icons']) {
             const { out, next } = run(
-                createUserSubdomainRedirect(config),
+                createUserSubdomainNotFound(config),
                 makeReq({
                     subdomains: ['com', 'puter', sub],
                     host: `${sub}.puter.com`,
                 }),
             );
             expect(out.redirectArgs).toBeUndefined();
-            expect(next).toHaveBeenCalledTimes(1);
+            expect(next).toHaveBeenCalledWith();
         }
     });
 
     it('passes through when no subdomain is present (root)', () => {
-        const { out, next } = run(
-            createUserSubdomainRedirect(config),
+        const { next } = run(
+            createUserSubdomainNotFound(config),
             makeReq({ subdomains: [], host: 'puter.com' }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 
     it("passes through hosts that don't end in the configured domain (custom domains)", () => {
-        const { out, next } = run(
-            createUserSubdomainRedirect(config),
+        const { next } = run(
+            createUserSubdomainNotFound(config),
             makeReq({
                 subdomains: ['com', 'example', 'foo'],
                 host: 'foo.example.com',
             }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 
     it('returns a no-op middleware when no static_hosting_domain is configured', () => {
-        // Self-hosted deployments without a separate hosting domain
-        // shouldn't trip user-subdomain redirects at all.
+        // Self-hosted deployments without a separate hosting domain may serve
+        // sites on the main domain; don't 404 them.
         const noStatic = { domain: 'puter.com' } as IConfig;
-        const { out, next } = run(
-            createUserSubdomainRedirect(noStatic),
+        const { next } = run(
+            createUserSubdomainNotFound(noStatic),
             makeReq({
                 subdomains: ['com', 'puter', 'foo'],
                 host: 'foo.puter.com',
             }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 
     it('returns a no-op middleware when no main domain is configured', () => {
         const noDomain = { static_hosting_domain: 'puter.site' } as IConfig;
-        const { out, next } = run(
-            createUserSubdomainRedirect(noDomain),
+        const { next } = run(
+            createUserSubdomainNotFound(noDomain),
             makeReq({
                 subdomains: ['com', 'puter', 'foo'],
                 host: 'foo.puter.com',
             }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 
     it('lowercases the active subdomain when comparing against the reserved set', () => {
         // Reserved-subdomain matching must be case-insensitive — otherwise
-        // a request to `API.puter.com` would accidentally redirect.
-        const { out, next } = run(
-            createUserSubdomainRedirect(config),
+        // a request to `API.puter.com` would accidentally 404.
+        const { next } = run(
+            createUserSubdomainNotFound(config),
             makeReq({
                 subdomains: ['com', 'puter', 'API'],
                 host: 'API.puter.com',
             }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 
-    it('preserves the port when swapping domain suffix (port baked into target)', () => {
-        // The middleware does a raw `endsWith` on `host` to find the
-        // domain suffix, so if production puts a port on `config.domain`,
-        // it has to match exactly. Configure both with the port to
-        // exercise the suffix-swap with a port preserved.
+    it('matches the domain suffix with its port when one is configured', () => {
         const localConfig = {
             domain: 'puter.localhost:4100',
             static_hosting_domain: 'site.puter.localhost:4100',
         } as IConfig;
-        const { out } = run(
-            createUserSubdomainRedirect(localConfig),
+        const { next } = run(
+            createUserSubdomainNotFound(localConfig),
             makeReq({
                 subdomains: ['localhost', 'puter', 'foo'],
                 host: 'foo.puter.localhost:4100',
@@ -262,10 +258,7 @@ describe('createUserSubdomainRedirect', () => {
                 protocol: 'http',
             }),
         );
-        expect(out.redirectArgs).toEqual([
-            302,
-            'http://foo.site.puter.localhost:4100/x',
-        ]);
+        expectNotFound(next);
     });
 
     const selfHosted = {
@@ -276,9 +269,9 @@ describe('createUserSubdomainRedirect', () => {
         private_app_hosting_domain_alt: 'dev.puter.localhost',
     } as IConfig;
 
-    it('still redirects a bare subdomain on the main domain to the hosting domain (self-hosted)', () => {
-        const { out, next } = run(
-            createUserSubdomainRedirect(selfHosted),
+    it('404s a bare subdomain on the main domain (self-hosted)', () => {
+        const { next } = run(
+            createUserSubdomainNotFound(selfHosted),
             makeReq({
                 subdomains: ['localhost', 'puter', 'foo'],
                 host: 'foo.puter.localhost',
@@ -286,24 +279,19 @@ describe('createUserSubdomainRedirect', () => {
                 protocol: 'http',
             }),
         );
-        expect(out.redirectArgs).toEqual([
-            302,
-            'http://foo.site.puter.localhost/bar?x=1',
-        ]);
-        expect(next).not.toHaveBeenCalled();
+        expectNotFound(next);
     });
 
-    it('passes through hosts already on the static hosting domain (no redirect loop)', () => {
-        const { out, next } = run(
-            createUserSubdomainRedirect(selfHosted),
+    it('passes through hosts on the static hosting domain nested under the main domain', () => {
+        const { next } = run(
+            createUserSubdomainNotFound(selfHosted),
             makeReq({
                 subdomains: ['localhost', 'puter', 'site', 'foo'],
                 host: 'foo.site.puter.localhost',
                 originalUrl: '/',
             }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 
     it('passes through hosts on the alt / private-app hosting domains too', () => {
@@ -312,8 +300,8 @@ describe('createUserSubdomainRedirect', () => {
             'foo.app.puter.localhost',
             'foo.dev.puter.localhost',
         ]) {
-            const { out, next } = run(
-                createUserSubdomainRedirect(selfHosted),
+            const { next } = run(
+                createUserSubdomainNotFound(selfHosted),
                 makeReq({
                     subdomains: [
                         'localhost',
@@ -324,40 +312,37 @@ describe('createUserSubdomainRedirect', () => {
                     host,
                 }),
             );
-            expect(out.redirectArgs).toBeUndefined();
-            expect(next).toHaveBeenCalledTimes(1);
+            expect(next).toHaveBeenCalledWith();
         }
     });
 
-    it('passes through the hosting-domain root itself (exact match, no loop)', () => {
-        const { out, next } = run(
-            createUserSubdomainRedirect(selfHosted),
+    it('passes through the hosting-domain root itself', () => {
+        const { next } = run(
+            createUserSubdomainNotFound(selfHosted),
             makeReq({
                 subdomains: ['localhost', 'puter', 'site'],
                 host: 'site.puter.localhost',
             }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 
     it("passes through when the request host has a port the configured domain doesn't", () => {
         // Edge case worth pinning: the suffix check is exact-`endsWith`,
-        // so a port mismatch silently bypasses the redirect. Documenting
-        // it here so a future refactor doesn't change behavior unawares.
+        // so a port mismatch silently bypasses the check. Documenting it
+        // here so a future refactor doesn't change behavior unawares.
         const portlessConfig = {
             domain: 'puter.localhost',
             static_hosting_domain: 'site.puter.localhost',
         } as IConfig;
-        const { out, next } = run(
-            createUserSubdomainRedirect(portlessConfig),
+        const { next } = run(
+            createUserSubdomainNotFound(portlessConfig),
             makeReq({
                 subdomains: ['localhost', 'puter', 'foo'],
                 host: 'foo.puter.localhost:4100',
             }),
         );
-        expect(out.redirectArgs).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
+        expect(next).toHaveBeenCalledWith();
     });
 });
 

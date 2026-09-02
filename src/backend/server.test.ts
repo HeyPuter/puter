@@ -315,7 +315,7 @@ describe('PuterServer host header validation', () => {
  * Express reads subdomains relative to a fixed label count, so a root domain
  * deeper than two labels is the case that breaks: `puter` reads as an active
  * subdomain of the root origin itself, which bounces every root request into
- * the user-site redirect.
+ * the user-subdomain 404.
  */
 describe('PuterServer subdomain routing on a multi-label root domain', () => {
     let server: PuterServer;
@@ -342,24 +342,22 @@ describe('PuterServer subdomain routing on a multi-label root domain', () => {
         await server?.shutdown();
     });
 
-    // Host headers here carry no port: the redirect under test compares the
+    // Host headers here carry no port: the gate under test compares the
     // host against `domain`, which is how it arrives from a proxy in practice.
-    it('serves the root origin instead of redirecting it to the hosting domain', async () => {
+    it('serves the root origin instead of treating it as a user subdomain', async () => {
         const res = await rawRequest(port, '/', {
             host: 'puter.example.localhost',
         });
-        expect(res.status).not.toBe(302);
+        expect(res.status).not.toBe(404);
         expect(res.headers.location).toBeUndefined();
     });
 
-    it('still redirects a user subdomain of that domain to the hosting domain', async () => {
+    it('still 404s a user subdomain of that domain', async () => {
         const res = await rawRequest(port, '/some/path', {
             host: 'alice.puter.example.localhost',
         });
-        expect(res.status).toBe(302);
-        expect(res.headers.location).toBe(
-            'http://alice.site.puter.example.localhost/some/path',
-        );
+        expect(res.status).toBe(404);
+        expect(res.headers.location).toBeUndefined();
     });
 
     it('still recognizes reserved subdomains of that domain', async () => {

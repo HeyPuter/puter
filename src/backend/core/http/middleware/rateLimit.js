@@ -501,7 +501,8 @@ function resolveBackend(name) {
  * Strategies: 'fingerprint' — network hash (IP + headers), refined by the
  * client's device fingerprint when one was supplied (default). Good for
  * unauthenticated endpoints where the same IP may serve many users (offices,
- * VPNs). 'ip' — bare IP. Simpler but coarser. 'user' — actor UUID. Use for
+ * VPNs). 'ip' — bare IP. Simpler but coarser. 'user' — the authenticated actor
+ * (user, plus the app and worker it acts through; see `actorKey`). Use for
  * authenticated endpoints where you want per-account limits regardless of IP.
  * function — custom `(req) => string`.
  */
@@ -520,7 +521,7 @@ function resolveKey(req, scope, strategy) {
                 // on requireAuth routes, but be safe)
                 return prefix + fingerprint(req);
             }
-            return prefix + id;
+            return prefix + actorKey(req.actor, id);
         }
         case 'ip':
             return prefix + ip(req);
@@ -528,6 +529,25 @@ function resolveKey(req, scope, strategy) {
         default:
             return prefix + fingerprint(req);
     }
+}
+
+/**
+ * Bucket identity for an authenticated actor: `<user>[:<app>][:<worker>]`.
+ *
+ * The app segment is the app the actor acts as (`effectiveApp`, so an access
+ * token minted by an app lands in that app's bucket). The worker segment is the
+ * worker's session uid, unique per (user, app, worker name). Without these, a
+ * busy app or worker drains the limit shared by everything else the same user
+ * runs.
+ */
+function actorKey(actor, userId) {
+    const parts = [userId];
+    const app = actor.effectiveApp ?? actor.app;
+    if (app?.uid) parts.push(app.uid);
+    if (actor.session?.kind === 'worker' && actor.session.uid) {
+        parts.push(actor.session.uid);
+    }
+    return parts.join(':');
 }
 
 function ip(req) {
@@ -625,10 +645,18 @@ export function rateLimitGate(opts) {
 
 // -- Driver-call helper ----------------------------------------------
 
+function driverCaller(req) {
+    const actor = req.actor;
+    return actor?.user?.uuid
+        ? actorKey(actor, actor.user.uuid)
+        : fingerprint(req);
+}
+
 /**
  * Check rate limit for a driver call. Called from DriverController's /call
- * handler. Keyed by user + interface:method so different drivers and different
- * methods don't crowd each other.
+ * handler. Keyed by actor (user, app, worker — see `actorKey`) +
+ * interface:method so different drivers, methods, apps and workers don't crowd
+ * each other.
  *
  * `opts` is the resolved per-method spec from the driver's decorator (or
  * imperative `rateLimit` field) — see `resolveDriverRateLimit` in
@@ -641,8 +669,7 @@ export function rateLimitGate(opts) {
  */
 export async function checkDriverRateLimit(req, ifaceName, method, opts = {}) {
     const { window: windowMs = 60_000, backend } = opts;
-    const uid = req.actor?.user?.uuid || fingerprint(req);
-    const key = `driver:${ifaceName}:${method}:${uid}`;
+    const key = `driver:${ifaceName}:${method}:${driverCaller(req)}`;
     const backendPair = resolveBackend(backend);
     try {
         // Drivers can pin a per-subscription limit via `bySubscription`
@@ -876,8 +903,7 @@ export async function acquireDriverConcurrent(req, ifaceName, method, opts) {
         return { ok: true, release: () => {} };
     }
     const { backend } = opts;
-    const uid = req.actor?.user?.uuid || fingerprint(req);
-    const key = `driver:${ifaceName}:${method}:${uid}`;
+    const key = `driver:${ifaceName}:${method}:${driverCaller(req)}`;
     const backendPair = resolveBackend(backend);
     try {
         const limit = await resolveSubscriptionLimit(req, opts);
