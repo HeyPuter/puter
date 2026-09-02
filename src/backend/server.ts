@@ -71,7 +71,7 @@ import {
 } from './core/http/middleware/rateLimit';
 import {
     createWwwRedirect,
-    createUserSubdomainRedirect,
+    createUserSubdomainNotFound,
     createNativeAppStatic,
 } from './core/http/middleware/hostRedirects';
 import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
@@ -464,12 +464,12 @@ export class PuterServer {
         // -- Host header validation ----------------------------------
         this.#installHostValidation();
 
-        // -- Host redirects (www → root, user subdomain → static hosting)
+        // -- Host handling (www → root, user subdomain on main domain → 404)
         // Installed after host validation so we know the host is allowed,
-        // and before CORS/body-parsing so we short-circuit on redirects
-        // without burning work.
+        // and before CORS/body-parsing so we short-circuit without burning
+        // work.
         this.#app.use(createWwwRedirect(this.#config));
-        this.#app.use(createUserSubdomainRedirect(this.#config));
+        this.#app.use(createUserSubdomainNotFound(this.#config));
 
         // -- Native app static serving (editor.*, docs.*, …) ---------
         // No-op when `native_apps_root` is unset.

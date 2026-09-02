@@ -90,6 +90,38 @@ describe('rateLimitGate — memory backend (default)', () => {
         expect(rejected.legacyCode).toBe('too_many_requests');
     });
 
+    it("'user' strategy separates one user's apps and workers", async () => {
+        const opts = {
+            limit: 1,
+            window: 60_000,
+            key: 'user',
+            scope: 'mem-user-app',
+        };
+        const user = { id: 7 };
+        const reqs = [
+            makeReq({ actor: { user, effectiveApp: null } }),
+            makeReq({
+                actor: {
+                    user,
+                    app: { uid: 'app-1' },
+                    effectiveApp: { uid: 'app-1' },
+                },
+            }),
+            makeReq({
+                actor: {
+                    user,
+                    app: { uid: 'app-1' },
+                    effectiveApp: { uid: 'app-1' },
+                    session: { uid: 'w-1', kind: 'worker' },
+                },
+            }),
+        ];
+        for (const req of reqs)
+            expect(await runGate(opts, req)).toBeUndefined();
+        for (const req of reqs)
+            expect(isHttpError(await runGate(opts, req))).toBe(true);
+    });
+
     it("'user' strategy buckets by actor.user.id (different users don't crowd)", async () => {
         const opts = {
             limit: 1,
@@ -588,6 +620,89 @@ describe('configureRateLimit — backend selection', () => {
 describe('checkDriverRateLimit', () => {
     beforeEach(() => {
         configureRateLimit();
+    });
+
+    it('buckets the same user separately per app and per worker', async () => {
+        const user = { uuid: 'user-apps' };
+        const plain = { actor: { user, effectiveApp: null } };
+        const appA = {
+            actor: {
+                user,
+                app: { uid: 'app-a' },
+                effectiveApp: { uid: 'app-a' },
+            },
+        };
+        const appB = {
+            actor: {
+                user,
+                app: { uid: 'app-b' },
+                effectiveApp: { uid: 'app-b' },
+            },
+        };
+        const workerA = {
+            actor: {
+                user,
+                app: { uid: 'app-a' },
+                effectiveApp: { uid: 'app-a' },
+                session: { uid: 'sess-w1', kind: 'worker' },
+            },
+        };
+        const workerA2 = {
+            actor: {
+                user,
+                app: { uid: 'app-a' },
+                effectiveApp: { uid: 'app-a' },
+                session: { uid: 'sess-w2', kind: 'worker' },
+            },
+        };
+        for (const req of [plain, appA, appB, workerA, workerA2]) {
+            expect(await checkDriverRateLimit(req, 'kv', 'get', spec(1))).toBe(
+                true,
+            );
+        }
+        for (const req of [plain, appA, appB, workerA, workerA2]) {
+            expect(await checkDriverRateLimit(req, 'kv', 'get', spec(1))).toBe(
+                false,
+            );
+        }
+    });
+
+    it('lands an app-issued access token in the issuing app bucket', async () => {
+        const user = { uuid: 'user-token' };
+        const app = {
+            actor: {
+                user,
+                app: { uid: 'app-x' },
+                effectiveApp: { uid: 'app-x' },
+            },
+        };
+        const token = { actor: { user, effectiveApp: { uid: 'app-x' } } };
+        expect(await checkDriverRateLimit(app, 'kv', 'get', spec(1))).toBe(
+            true,
+        );
+        expect(await checkDriverRateLimit(token, 'kv', 'get', spec(1))).toBe(
+            false,
+        );
+    });
+
+    it("a non-worker session doesn't add a segment", async () => {
+        const user = { uuid: 'user-web' };
+        const a = {
+            actor: {
+                user,
+                effectiveApp: null,
+                session: { uid: 's1', kind: 'web' },
+            },
+        };
+        const b = {
+            actor: {
+                user,
+                effectiveApp: null,
+                session: { uid: 's2', kind: 'web' },
+            },
+        };
+        expect(await checkDriverRateLimit(a, 'kv', 'get', spec(1))).toBe(true);
+        expect(await checkDriverRateLimit(b, 'kv', 'get', spec(1))).toBe(false);
     });
 
     const spec = (limit, window = 60_000, backend) => ({
@@ -1089,6 +1204,36 @@ describe('concurrencyGate — bySubscription overrides', () => {
 describe('acquireDriverConcurrent', () => {
     beforeEach(() => {
         configureRateLimit();
+    });
+
+    it('slots are per app and per worker for the same user', async () => {
+        const user = { uuid: 'conc-user' };
+        const app = {
+            actor: {
+                user,
+                app: { uid: 'app-c' },
+                effectiveApp: { uid: 'app-c' },
+            },
+        };
+        const worker = {
+            actor: {
+                user,
+                app: { uid: 'app-c' },
+                effectiveApp: { uid: 'app-c' },
+                session: { uid: 'w-c', kind: 'worker' },
+            },
+        };
+        const a = await acquireDriverConcurrent(app, 'kv', 'get', { limit: 1 });
+        expect(a.ok).toBe(true);
+        expect(
+            (await acquireDriverConcurrent(app, 'kv', 'get', { limit: 1 })).ok,
+        ).toBe(false);
+        const w = await acquireDriverConcurrent(worker, 'kv', 'get', {
+            limit: 1,
+        });
+        expect(w.ok).toBe(true);
+        await a.release();
+        await w.release();
     });
 
     it('returns an always-ok handle with a noop release when no spec is declared', async () => {
