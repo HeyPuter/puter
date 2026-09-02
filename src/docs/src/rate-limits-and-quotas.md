@@ -155,6 +155,26 @@ Recipients are emailed by default and opt out with the unsubscribe link the mail
 
 Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
+### Events
+
+One write can reach many subscriptions, so events are bounded on both halves: how much you may register, and how much any one event may turn into.
+
+| Limit                                        | All accounts |
+| -------------------------------------------- | ------------ |
+| Subscriptions per connection                 | 50           |
+| `subscribe` / `unsubscribe` calls per minute | 60           |
+| Matched subscriptions per event              | 50           |
+| Filter evaluations per event                 | 200          |
+| Deliveries per minute, per subscription      | 600          |
+
+Subscriptions live with the connection that made them: they are dropped when it closes, and a reconnecting client subscribes again. The 51st subscription on one connection fails with `events_subscription_limit`; over the call budget, `subscribe` and `unsubscribe` fail with `too_many_requests`. Subscribing to something you cannot read fails with `subject_does_not_exist` — the same answer as subscribing to something that is not there, so the call cannot be used to find out which.
+
+Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**; anything larger is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
+
+**Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
+
+The three per-event ceilings do not fail your call — they truncate the delivery and send a `gap` marker in its place, an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed".
+
 ### Peer connections
 
 | Limit                          | Paid | Free | Anonymous |

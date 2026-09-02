@@ -435,6 +435,19 @@ export type EventMap = {
     'outer.permission.flatInvalidated': {
         entries: Array<{ holderUserId: number; permission: string }>;
     };
+    /**
+     * A user's subscription set changed, so every process must drop its cached
+     * "does this user have any subscriptions" answer. Carries the counter the
+     * bump produced so a listener can order two bumps it sees out of order.
+     *
+     * The dispatch hot path never reads the counter — it is the broadcast that
+     * invalidates, which is what keeps an unsubscribed write at zero Redis
+     * commands.
+     */
+    'outer.events.generationBumped': {
+        userId: number;
+        generation: number;
+    };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries

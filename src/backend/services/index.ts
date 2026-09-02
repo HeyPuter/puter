@@ -28,6 +28,7 @@ import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
 import { CacheReplicationService } from './cache/CacheReplicationService';
+import { EventsService } from './events/EventsService';
 import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
 import { ServerHealthService } from './health/ServerHealthService';
@@ -67,6 +68,7 @@ declare module './types' {
         recommendedApps: RecommendedAppsService;
         suggestedApps: SuggestedAppsService;
         socket: SocketService;
+        events: EventsService;
         notification: NotificationService;
         appFeedback: AppFeedbackService;
         broadcast: BroadcastService;
@@ -117,6 +119,9 @@ export const puterServices = {
     recommendedApps: RecommendedAppsService,
     suggestedApps: SuggestedAppsService,
     socket: SocketService,
+    // Delivers through `socket` and resolves paths through `fs`, so it follows
+    // both; `fs` reaches back for dispatch at call time only.
+    events: EventsService,
     notification: NotificationService,
     // Declared after `auth` (origin → app uid resolution happens through
     // AuthService.appUidFromOrigin).
