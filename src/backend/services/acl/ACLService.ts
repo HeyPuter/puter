@@ -280,6 +280,136 @@ export class ACLService extends PuterService {
      *
      * Caller (controller) validates that both actors are user-type.
      */
+    // -- Group holders ---- one grant, resolved per member at scan time ----
+
+    /** The group analogue of `statUserUser`; no holder actor to validate. */
+    async statUserGroup(
+        issuer: Actor,
+        groupUid: string,
+        resource: ResourceDescriptor,
+    ): Promise<StatPermissionsResult> {
+        if (issuer.app || issuer.accessToken)
+            throw new HttpError(403, 'issuer must be a user actor', {
+                legacyCode: 'forbidden',
+            });
+
+        const out: StatPermissionsResult = {};
+        const ancestors = await resource.resolveAncestors();
+        for (const ancestor of ancestors) {
+            // Both namespaces: `manage:fs:<uid>` sits outside `fs:<uid>`.
+            const prefixes = [
+                PermissionUtil.join('fs', ancestor.uid),
+                PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid),
+            ];
+            const perms = (
+                await Promise.all(
+                    prefixes.map((prefix) =>
+                        this.services.permission.queryIssuerGroupPermissionsByPrefix(
+                            issuer,
+                            groupUid,
+                            prefix,
+                        ),
+                    ),
+                )
+            ).flat();
+            if (perms.length > 0) out[ancestor.path] = perms;
+        }
+        return out;
+    }
+
+    /** Same read-modify-write and one-mode-per-node rule as `setUserUser`. */
+    async setUserGroup(
+        issuer: Actor,
+        groupUid: string,
+        resource: ResourceDescriptor,
+        mode: AclMode,
+        options: { onlyIfHigher?: boolean } = {},
+    ): Promise<boolean> {
+        if (issuer.app || issuer.accessToken)
+            throw new HttpError(403, 'issuer must be a user actor', {
+                legacyCode: 'forbidden',
+            });
+
+        const ancestors = await resource.resolveAncestors();
+        const self = ancestors[0];
+        if (!self)
+            throw new HttpError(
+                400,
+                'resource has no ancestor chain (is it root?)',
+                { legacyCode: 'bad_request' },
+            );
+
+        return this.#withNodeLock(
+            `${issuer.user.id}:group:${groupUid}:${self.uid}`,
+            () =>
+                this.#setUserGroupLocked(
+                    issuer,
+                    groupUid,
+                    resource,
+                    mode,
+                    self.uid,
+                    options,
+                ),
+        );
+    }
+
+    async #setUserGroupLocked(
+        issuer: Actor,
+        groupUid: string,
+        resource: ResourceDescriptor,
+        mode: AclMode,
+        uid: string,
+        options: { onlyIfHigher?: boolean } = {},
+    ): Promise<boolean> {
+        const stat = await this.statUserGroup(issuer, groupUid, resource);
+        const existing = stat[resource.path] ?? [];
+
+        const existingModes = existing.map((p) =>
+            PermissionUtil.isManage(p)
+                ? MANAGE_PERM_PREFIX
+                : PermissionUtil.split(p).at(-1),
+        );
+
+        if (existingModes.includes(mode)) return false;
+
+        if (options.onlyIfHigher) {
+            const higher = MODES_ABOVE[mode] ?? [mode];
+            if (
+                existingModes.some(
+                    (m) =>
+                        m === MANAGE_PERM_PREFIX ||
+                        (m && higher.includes(m as AclMode)),
+                )
+            ) {
+                return false;
+            }
+        }
+
+        const newPerm =
+            mode === MANAGE_PERM_PREFIX
+                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
+                : PermissionUtil.join('fs', uid, mode);
+        await this.services.permission.grantUserGroupPermission(
+            issuer,
+            groupUid,
+            newPerm,
+        );
+
+        // One mode per node per issuer/holder — higher modes supersede lower.
+        for (const perm of existing) {
+            const existingMode = PermissionUtil.isManage(perm)
+                ? MANAGE_PERM_PREFIX
+                : PermissionUtil.split(perm).at(-1);
+            if (existingMode === mode) continue;
+            await this.services.permission.revokeUserGroupPermission(
+                issuer,
+                groupUid,
+                perm,
+            );
+        }
+        return true;
+    }
+
     async statUserUser(
         issuer: Actor,
         holder: Actor,

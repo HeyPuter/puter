@@ -338,6 +338,26 @@ export class TeamStore extends PuterStore {
         return { items, cursor };
     }
 
+    /** Internal ids of this user's live teams, for the share listing. */
+    async listGroupIdsForUser(userId: number): Promise<number[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT g.`id` FROM `group` g ' +
+                'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                `WHERE ug.\`user_id\` = ? AND g.${this.#live()}`,
+            [userId, TEAM_KIND],
+        )) as { id: number }[];
+        return rows.map((r) => Number(r.id));
+    }
+
+    /** By internal id, soft-deleted included: those shares stay revocable. */
+    async getByIdIncludingDeleted(id: number): Promise<TeamRow | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT * FROM `group` WHERE `id` = ? AND `kind` = ?',
+            [id, TEAM_KIND],
+        )) as unknown as TeamRow[];
+        return rows[0] ?? null;
+    }
+
     /** Teams this user belongs to, oldest first. */
     async listTeamsForUser(userId: number): Promise<TeamRow[]> {
         const rows = await this.clients.db.read(

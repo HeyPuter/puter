@@ -429,6 +429,55 @@ describe('stat', () => {
         expect(item.is_shared).toBe(true);
     });
 
+    it('sends a team recipient through instead of dropping it', async () => {
+        FakeXHR.respondWith = () => ({ status: 'success', results: [] });
+        await fs.share({
+            path: '/a/file.txt',
+            recipient: { team: 'ws-uid-1' },
+            mode: 'read',
+        });
+        // Dropped before this mapping existed, so the call shared with nobody
+        // and still reported success.
+        expect(lastBody().recipients).toEqual([{ team: 'ws-uid-1' }]);
+    });
+
+    it('sends a team handle under its own field', async () => {
+        FakeXHR.respondWith = () => ({ status: 'success', results: [] });
+        await fs.share({
+            path: '/a/file.txt',
+            recipient: { teamHandle: 'acme' },
+            mode: 'read',
+        });
+        expect(lastBody().recipients).toEqual([{ teamHandle: 'acme' }]);
+    });
+
+    it('publishes the team a share reached', async () => {
+        FakeXHR.respondWith = () => ({
+            uid: 'u1',
+            is_dir: false,
+            is_shared: true,
+            shares: [
+                {
+                    uid: 's1',
+                    mode: 'read',
+                    uid_entry: 'u1',
+                    is_dir: false,
+                    holder: null,
+                    holder_team: { uid: 'ws-uid-1', name: 'Acme', handle: 'acme' },
+                },
+            ],
+        });
+        const item = await fs.stat('/a/file.txt', { returnShares: true });
+        // `holder` is null for a team share, so without this the client
+        // is told the file is shared with nobody.
+        expect(item.shares[0].holderTeam).toEqual({
+            uid: 'ws-uid-1',
+            name: 'Acme',
+            handle: 'acme',
+        });
+        expect(item.shares[0].holder).toBe(null);
+    });
+
     it('re-reads a cached item after a share is withdrawn', async () => {
         FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: true });
         await fs.stat('/a/file.txt');

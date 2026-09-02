@@ -77,16 +77,27 @@ export class ShareStore extends PuterStore {
      * Returns rows only; the caller hydrates fsentries (batched) and drops any
      * whose entry it can't resolve. Paths are deliberately not stored — a move
      * or rename would strand them.
+     *
+     * @param {number} holderUserId
+     * @param {{ limit?: number; cursor?: string; groupIds?: number[] }} [opts]
      */
-    async listByHolder(holderUserId, { limit, cursor } = {}) {
+    async listByHolder(holderUserId, { limit, cursor, groupIds = [] } = {}) {
         const size = this.#pageSize(limit);
         const afterId = this.#afterId(cursor);
+        const groups = [...new Set(groupIds)].filter(Boolean);
+
+        // Same keyset page: `ORDER BY id` holds whatever the holder is.
+        const holderClause = groups.length
+            ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
+                  .map(() => '?')
+                  .join(', ')}))`
+            : '`holder_user_id` = ?';
 
         // One extra row tells us whether another page exists.
         const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `holder_user_id` = ? AND `id` > ? ' +
+            `SELECT * FROM \`share\` WHERE ${holderClause} AND \`id\` > ? ` +
                 'ORDER BY `id` LIMIT ?',
-            [holderUserId, afterId, size + 1],
+            [holderUserId, ...groups, afterId, size + 1],
         );
 
         const hasMore = rows.length > size;
@@ -332,6 +343,32 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * Team shares reaching these nodes, one row per member. Members hold
+     * through the group, so without this a shared folder never pushes them a
+     * change and goes stale until they refresh.
+     *
+     * @param {number[]} fsentryIds
+     */
+    async listGroupReachingMembers(fsentryIds) {
+        if (fsentryIds.length === 0) return [];
+        const placeholders = fsentryIds.map(() => '?').join(', ');
+        const rows = await this.clients.db.read(
+            'SELECT `share`.*, `ug`.`user_id` AS `member_user_id` FROM `share` ' +
+                'JOIN `jct_user_group` `ug` ON `ug`.`group_id` = `share`.`holder_group_id` ' +
+                'JOIN `group` `g` ON `g`.`id` = `share`.`holder_group_id` ' +
+                `WHERE \`share\`.\`fsentry_id\` IN (${placeholders}) ` +
+                'AND `share`.`holder_group_id` IS NOT NULL ' +
+                'AND `g`.`deleted_at` IS NULL ORDER BY `share`.`id`',
+            fsentryIds,
+        );
+        // Shaped as a holder row, so the caller's fan-out needs no group branch.
+        return rows.map((r) => ({
+            ...this.#normalizeRow(r),
+            holder_user_id: Number(r.member_user_id),
+        }));
+    }
+
+    /**
      * Which of `fsentryIds` carry a share, pending invites included.
      *
      * @param {number[]} fsentryIds
@@ -357,10 +394,21 @@ export class ShareStore extends PuterStore {
         return shared;
     }
 
-    async countByHolder(holderUserId) {
+    /**
+     * @param {number} holderUserId
+     * @param {{ groupIds?: number[] }} [opts] Same union as `listByHolder`, or
+     *   `includeTotal` undercounts a member's team shares.
+     */
+    async countByHolder(holderUserId, { groupIds = [] } = {}) {
+        const groups = [...new Set(groupIds)].filter(Boolean);
+        const holderClause = groups.length
+            ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
+                  .map(() => '?')
+                  .join(', ')}))`
+            : '`holder_user_id` = ?';
         const rows = await this.clients.db.read(
-            'SELECT COUNT(*) AS `count` FROM `share` WHERE `holder_user_id` = ?',
-            [holderUserId],
+            `SELECT COUNT(*) AS \`count\` FROM \`share\` WHERE ${holderClause}`,
+            [holderUserId, ...groups],
         );
         return Number(rows[0]?.count ?? 0);
     }
@@ -383,15 +431,39 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * Team shares on one node. Neither `listByFsentry` (holder rows) nor
+     * the invite feed matches them, so without this the share dialog shows
+     * nothing for a file shared with a team.
+     *
+     * @param {number} fsentryId
+     */
+    async listGroupOnFsentry(fsentryId) {
+        const rows = await this.clients.db.read(
+            'SELECT `share`.* FROM `share` ' +
+                'JOIN `group` `g` ON `g`.`id` = `share`.`holder_group_id` ' +
+                'WHERE `share`.`fsentry_id` = ? ' +
+                'AND `share`.`holder_group_id` IS NOT NULL ' +
+                'AND `g`.`deleted_at` IS NULL ORDER BY `share`.`id`',
+            [fsentryId],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
      * Unclaimed invites on one node, whoever sent them. What someone managing
      * the node needs to see who has been asked but has not arrived.
+     *
+     * A team share also has no `holder_user_id` -- its holder is the group
+     * -- so both columns are checked, or every team share is listed here
+     * as an invite to a blank address.
      *
      * @param {number} fsentryId
      */
     async listPendingOnFsentry(fsentryId) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `share` WHERE `fsentry_id` = ? AND ' +
-                '`holder_user_id` IS NULL ORDER BY `id`',
+                '`holder_user_id` IS NULL AND `holder_group_id` IS NULL ' +
+                'ORDER BY `id`',
             [fsentryId],
         );
         return rows.map((r) => this.#normalizeRow(r));
@@ -542,6 +614,98 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * The team-holder form; `holder_user_id` stays NULL, so `0077`'s group
+     * index constrains these rows rather than the user-holder one.
+     *
+     * @param {object} input
+     * @param {number} input.issuerUserId
+     * @param {number} input.holderGroupId
+     * @param {number} input.fsentryId
+     * @param {string} input.mode
+     * @param {string | null} [input.issuerAppUid]
+     */
+    async upsertActiveGroup({
+        issuerUserId,
+        holderGroupId,
+        fsentryId,
+        mode,
+        issuerAppUid = null,
+    }) {
+        if (!issuerUserId || !holderGroupId || !fsentryId || !mode) {
+            throw new Error(
+                'upsertActiveGroup: issuerUserId, holderGroupId, fsentryId and mode are required',
+            );
+        }
+        const data = JSON.stringify(
+            issuerAppUid ? { issuedByApp: issuerAppUid } : {},
+        );
+        await this.clients.db.write(
+            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
+                '`holder_group_id`, `fsentry_id`, `mode`, `data`, `applied_at`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ' +
+                this.clients.db.upsertClause(
+                    ['holder_group_id', 'fsentry_id', 'issuer_user_id'],
+                    ['mode', 'data'],
+                ),
+            [
+                uuidv4(),
+                issuerUserId,
+                // NOT NULL since `0067`; a team has no address.
+                '',
+                holderGroupId,
+                fsentryId,
+                mode,
+                data,
+                mode,
+                data,
+            ],
+        );
+        return this.getActiveGroup({ holderGroupId, fsentryId, issuerUserId });
+    }
+
+    /**
+     * @param {object} input
+     * @param {number} input.holderGroupId
+     * @param {number} input.fsentryId
+     * @param {number} input.issuerUserId
+     */
+    async getActiveGroup({ holderGroupId, fsentryId, issuerUserId }) {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `share` WHERE `holder_group_id` = ? AND ' +
+                '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
+            [holderGroupId, fsentryId, issuerUserId],
+        );
+        return this.#normalizeRow(rows[0]) ?? null;
+    }
+
+    /** Every team-held share of this node, whoever issued it. */
+    async listGroupSharesByFsentry(fsentryId) {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `holder_group_id` IS NOT NULL',
+            [fsentryId],
+        );
+        return rows.map((row) => this.#normalizeRow(row)).filter(Boolean);
+    }
+
+    /**
+     * @param {object} input
+     * @param {number} input.holderGroupId
+     * @param {number} input.fsentryId
+     * @param {number | null} [input.issuerUserId]
+     */
+    async deleteActiveGroup({ holderGroupId, fsentryId, issuerUserId = null }) {
+        const scoped = issuerUserId !== null && issuerUserId !== undefined;
+        const result = await this.clients.db.write(
+            'DELETE FROM `share` WHERE `holder_group_id` = ? AND `fsentry_id` = ?' +
+                (scoped ? ' AND `issuer_user_id` = ?' : ''),
+            scoped
+                ? [holderGroupId, fsentryId, issuerUserId]
+                : [holderGroupId, fsentryId],
+        );
+        return result.anyRowsAffected;
+    }
+
+    /**
      * @param {object} input
      * @param {number} input.holderUserId
      * @param {number} input.fsentryId
@@ -646,7 +810,10 @@ export class ShareStore extends PuterStore {
                 ') ' +
                 'SELECT `share`.`uid` FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
+                // Group rows also have no holder user; deleting one here would
+                // drop the index row and leave its grant standing.
                 'WHERE `share`.`holder_user_id` IS NULL AND ' +
+                '`share`.`holder_group_id` IS NULL AND ' +
                 '`share`.`issuer_user_id` = ?',
             [fsentryId, issuerUserId],
         );
