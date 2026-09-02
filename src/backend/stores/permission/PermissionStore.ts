@@ -959,14 +959,110 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         let permClause = permissions.map(() => 'p.permission = ?').join(' OR ');
         if (permissions.length > 1) permClause = `(${permClause})`;
+        // Deletion leaves memberships and grants, so a deleted team would
+        // otherwise keep resolving access nothing can withdraw.
         const rows = await this.clients.db.read(
             'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
-                `WHERE ug.user_id = ? AND ${permClause}`,
+                'JOIN `group` g ON g.`id` = ug.group_id ' +
+                `WHERE ug.user_id = ? AND g.\`deleted_at\` IS NULL AND ${permClause}`,
             [userId, ...permissions],
         );
         return rows.map((row) =>
             this.#decodeExtra<LinkedUserGroupPermRow>(row),
+        );
+    }
+
+    /** Any group, seeded or team: a grant does not care which kind it is. */
+    async resolveGroupId(groupUid: string): Promise<number | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT `id` FROM `group` WHERE `uid` = ? LIMIT 1',
+            [groupUid],
+        )) as { id: number }[];
+        return rows[0]?.id ?? null;
+    }
+
+    /** Whose cached readings a grant to this group invalidates. */
+    async listGroupMemberUuids(groupId: number): Promise<string[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'WHERE ug.`group_id` = ?',
+            [groupId],
+        )) as { uuid: string | null }[];
+        return rows
+            .map((r) => r.uuid)
+            .filter((uuid): uuid is string => Boolean(uuid));
+    }
+
+    /** Whose standing access a grant to this group settles. */
+    async listGroupMemberIds(groupId: number): Promise<number[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT `user_id` FROM `jct_user_group` WHERE `group_id` = ?',
+            [groupId],
+        )) as { user_id: number }[];
+        return rows.map((r) => Number(r.user_id));
+    }
+
+    /** `user_id` is the issuer; `group_id` is who receives it. */
+    async upsertUserGroupPerm(
+        groupId: number,
+        issuerUserId: number,
+        permission: string,
+        extra: Record<string, unknown>,
+    ): Promise<void> {
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'group_id', 'permission'],
+            ['extra'],
+        );
+        await this.clients.db.write(
+            'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
+                `VALUES (?, ?, ?, ?) ${upsertClause}`,
+            [
+                issuerUserId,
+                groupId,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ],
+        );
+    }
+
+    /** Scoped to the issuer: one issuer's revoke must not drop another's. */
+    async deleteUserGroupPerm(
+        groupId: number,
+        issuerUserId: number,
+        permission: string,
+    ): Promise<boolean> {
+        const result = await this.clients.db.write(
+            'DELETE FROM `user_to_group_permissions` ' +
+                'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
+            [groupId, issuerUserId, permission],
+        );
+        return result.anyRowsAffected;
+    }
+
+    async auditUserGroupPerm(
+        entry: AuditEntry & {
+            group_id: number;
+            issuer_user_id: number;
+            permission: string;
+        },
+    ): Promise<void> {
+        await this.clients.db.write(
+            'INSERT INTO `audit_user_to_group_permissions` (' +
+                '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
+                '`permission`, `extra`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                entry.issuer_user_id,
+                entry.issuer_user_id,
+                entry.group_id,
+                entry.group_id,
+                entry.permission,
+                entry.extra ? JSON.stringify(entry.extra) : null,
+                entry.action,
+                entry.reason,
+            ],
         );
     }
 
