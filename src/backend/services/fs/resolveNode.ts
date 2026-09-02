@@ -161,15 +161,23 @@ export function normalizeAbsolutePath(path: string): string {
 }
 
 /**
+ * Home-dir shorthand: `~` itself or a `~/`-rooted path. `~backup` is an
+ * ordinary name, not a home path.
+ */
+export function isTildePath(path: string): boolean {
+    return path === '~' || path.startsWith('~/');
+}
+
+/**
  * Expand a leading `~` (home-dir shorthand) to `/<username>`. Preserves
  * non-tilde paths as-is. Throws 400 when the path needs expansion but no
- * username was supplied. Used by legacy FS endpoints (stat/readdir/etc.) that
- * accept user-authored paths verbatim.
+ * username was supplied. This is the one place `~` expands — every caller
+ * routes through here rather than re-deriving it.
  */
 export function expandTildePath(path: string, username?: string): string {
     if (typeof path !== 'string') return path;
     const trimmed = path.trim();
-    if (trimmed !== '~' && !trimmed.startsWith('~/')) return path;
+    if (!isTildePath(trimmed)) return path;
     if (!username) {
         throw new HttpError(400, 'Unable to resolve home path', {
             legacyCode: 'bad_request',

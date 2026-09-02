@@ -63,7 +63,7 @@ import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types.js';
 import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
-import { assertNormalized } from './resolveNode.js';
+import { isTildePath, normalizeAbsolutePath } from './resolveNode.js';
 import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
@@ -422,30 +422,18 @@ export class FSService extends PuterService {
         });
     }
 
+    // Unlike the controllers, this layer refuses `~` rather than expanding it:
+    // the actor's username is a request-scoped fact the write path shouldn't
+    // reach for.
     #normalizePath(path: string): string {
-        const trimmedPath = path.trim();
-        if (trimmedPath.length === 0) {
-            throw new HttpError(400, 'Path cannot be empty', {
-                legacyCode: 'bad_request',
-            });
-        }
-        if (trimmedPath === '~' || trimmedPath.startsWith('~/')) {
+        if (typeof path === 'string' && isTildePath(path.trim())) {
             throw new HttpError(
                 400,
                 'Home path must be resolved before write',
                 { legacyCode: 'bad_request' },
             );
         }
-
-        assertNormalized(trimmedPath);
-        let normalizedPath = trimmedPath;
-        if (!normalizedPath.startsWith('/')) {
-            normalizedPath = `/${normalizedPath}`;
-        }
-        if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
-            normalizedPath = normalizedPath.slice(0, -1);
-        }
-        return normalizedPath;
+        return normalizeAbsolutePath(path);
     }
 
     #resolveBucket(): string {

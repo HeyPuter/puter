@@ -41,6 +41,7 @@ import {
     NON_OWNER_SIGNATURE_TTL_SECONDS,
     verifySignature,
 } from '../../util/fileSigning.js';
+import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { maskEntryPath } from '../../services/fs/sharePathMask.js';
 import {
     buildHostedBackingDenial,
@@ -638,10 +639,7 @@ export class LegacyFSController extends PuterController {
                 typeof body.parent === 'string' &&
                 (body.parent.startsWith('/') || body.parent.startsWith('~'))
             ) {
-                parentPath = this.#expandTilde(
-                    body.parent,
-                    actor.user?.username,
-                );
+                parentPath = expandTildePath(body.parent, actor.user?.username);
             } else {
                 const parent = await resolveV1Selector(
                     this.stores.fsEntry,
@@ -842,7 +840,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1289,7 +1289,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1910,7 +1911,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
@@ -2202,7 +2206,7 @@ export class LegacyFSController extends PuterController {
                         });
                     }
                     const parentPath = getString(record, 'path') ?? '';
-                    const expandedParent = this.#expandTilde(
+                    const expandedParent = expandTildePath(
                         parentPath,
                         username,
                     );
@@ -2267,7 +2271,7 @@ export class LegacyFSController extends PuterController {
                             legacyCode: 'bad_request',
                         });
                     }
-                    const expandedParent = this.#expandTilde(
+                    const expandedParent = expandTildePath(
                         parentPath,
                         username,
                     );
@@ -2320,7 +2324,7 @@ export class LegacyFSController extends PuterController {
                         this.stores.fsEntry,
                         { uid: shortcutToUid },
                     );
-                    const expandedParent = this.#expandTilde(
+                    const expandedParent = expandTildePath(
                         parentPath,
                         username,
                     );
@@ -2552,16 +2556,6 @@ export class LegacyFSController extends PuterController {
         if (Array.isArray(body.operations)) return body.operations;
         if (Array.isArray(body.ops)) return body.ops;
         return [];
-    }
-
-    #expandTilde(path: string, username: string | undefined): string {
-        if (!path) return path;
-        if (path !== '~' && !path.startsWith('~/')) return path;
-        if (!username)
-            throw new HttpError(400, 'Unable to resolve home path', {
-                legacyCode: 'bad_request',
-            });
-        return `/${username}${path.slice(1)}`;
     }
 
     #serializeBatchError(err: unknown): Record<string, unknown> {
