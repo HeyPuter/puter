@@ -1,0 +1,121 @@
+---
+title: puter.events.onLocal()
+description: Subscribe to changes on a file or directory for as long as this client is connected.
+platforms: [websites, apps, nodejs, workers]
+---
+
+<div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
+
+Subscribes to a subject and calls `handler` every time something matching it changes. The subscription belongs to this client's connection: nothing is stored, nothing runs while the page is closed, and it ends when the connection does. See [Events](/Events/) for the subject grammar and the event shape.
+
+## Syntax
+```js
+puter.events.onLocal(subject, handler)
+puter.events.onLocal(subject, handler, options)
+```
+
+## Parameters
+
+#### `subject` (String) (required)
+What to watch: `fs:<path or uid>[:<op>]`. The path may be absolute (`/alice/Documents`) or home-relative (`~/Documents`), may name something that does not exist yet, and may contain `*` (within a path segment) or `**` (across directories). The optional `op` is one of `add`, `write`, `move`, `remove`, `meta` — nothing emits `meta` yet.
+
+#### `handler` (Function) (required)
+Called with a single `{ event }` object per delivery. `event.op === 'gap'` means events were dropped against a limit and the details are not available — re-read what you are watching. A handler that throws is reported on the console and does not end the subscription.
+
+#### `options` (Object) (optional)
+
+- `onError` (Function): Called with `{ message, code }` if the subscription lapses — the connection was lost and re-subscribing failed. The subscription is over at that point; call `onLocal()` again to resume. Without it, a lapse is reported on the console.
+- `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
+
+## Return value
+
+A `Promise` that resolves, once the server has confirmed the subscription, to a subscription object:
+
+- `subId` (String | null): The server's id for the subscription. It changes whenever the connection is rebuilt, so don't store anything against it.
+- `subject` (String): The subject you subscribed with.
+- `anchor` (Object): `{ uid, path }` of the node the subscription is keyed to — the nearest existing ancestor when the subject named something that does not exist yet.
+- `match` (String | null): The pattern events under the anchor are matched against, if the subject had one.
+- `op` (String | null): The single operation this subscription is limited to, or `null` for all of them.
+- `off` (Function): Ends the subscription — see [`subscription.off()`](/Events/off/).
+
+The promise rejects with `{ message, code }`:
+
+| `code` | Meaning |
+| --- | --- |
+| `invalid_subject` | The subject is not a non-empty string, or the server could not parse it. |
+| `invalid_handler` | `handler` is not a function. |
+| `invalid_subject_op` | The `:op` suffix is not one of the five operations. |
+| `invalid_subject_pattern` | The match pattern is past the compile-cost bounds (256 characters, 16 segments). |
+| `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
+| `events_subscription_limit` | This connection already holds the maximum number of subscriptions. |
+| `too_many_requests` | Over the subscribe/unsubscribe call budget. |
+| `events_disabled` | Events are not enabled on this server. |
+| `reauth_required` | The session backing this connection is no longer valid. |
+| `events_connection_failed` | The events connection could not be established, the server did not answer in time, or the server closed the connection. |
+
+## Examples
+
+<strong class="example-title">Watch a directory and print what changes</strong>
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Create a directory to watch
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+
+            // (2) Subscribe to everything under it
+            const sub = await puter.events.onLocal(`fs:${dir}`, ({ event }) => {
+                if (event.op === 'gap') {
+                    puter.print(`missed some changes (${event.reason})<br>`);
+                    return;
+                }
+                puter.print(`${event.op}: ${event.path}<br>`);
+            });
+
+            // (3) Change something — the handler runs
+            await puter.fs.write(`${dir}/hello.txt`, 'Hello!');
+
+            // (4) Stop listening (cleanup)
+            setTimeout(() => sub.off(), 2000);
+        })();
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">React to a file that does not exist yet</strong>
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) A directory to work in. `inbox/` below it does not exist yet.
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+
+            // (2) Subscribe anyway — the subscription anchors on `dir` and
+            //     matches the rest of the path as it appears.
+            const sub = await puter.events.onLocal(
+                `fs:${dir}/inbox/trigger.json:add`,
+                ({ event }) => puter.print(`appeared: ${event.path}<br>`),
+                { onError: (error) => puter.print(`subscription ended: ${error.code}<br>`) },
+            );
+            puter.print(`anchored on ${sub.anchor.path}, matching ${sub.match}<br>`);
+
+            // (3) Create it, several directories deep
+            await puter.fs.write(`${dir}/inbox/trigger.json`, '{}', {
+                createMissingParents: true,
+            });
+
+            setTimeout(() => sub.off(), 2000);
+        })();
+    </script>
+</body>
+</html>
+```

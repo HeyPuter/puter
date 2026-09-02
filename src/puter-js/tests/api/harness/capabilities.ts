@@ -98,6 +98,10 @@ export const loadPuterJsTestOptions = (
         meteringEnforcement: { subscriptions: false },
         // ~500 tests share one account; 'unlimited' means paid-base limits.
         unlimitedMetering: true,
+        // `puter.events` is a socket surface, so the suite needs the server
+        // half switched on. Off, every subscribe answers `events_disabled` and
+        // the suite would only ever cover that one branch.
+        events: { enabled: true },
     };
 
     for (const mapping of MAPPINGS) {
