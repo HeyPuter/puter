@@ -170,12 +170,15 @@ One write can reach many subscriptions, so events are bounded on both halves: ho
 | Deliveries per minute, per subscription      | 600          |
 | Acknowledgements per minute                  | 600          |
 | Undelivered deliveries per subscription      | 10,000       |
+| Suspended subscriptions kept for             | 30 days      |
 
 Subscriptions come in two kinds. A **session** subscription lives with the connection that made it: it is dropped when the connection closes, and a reconnecting client subscribes again. A **durable** subscription outlives every connection — it is created over the API, listed and revoked from the account, and keeps delivering until you remove it or it expires.
 
 The 51st subscription on one connection, and the 501st durable subscription on one account, both fail with `events_subscription_limit`. Over the call budget, `subscribe` and `unsubscribe` fail with `too_many_requests`. Subscribing to something you cannot read fails with `subject_does_not_exist` — the same answer as subscribing to something that is not there, so the call cannot be used to find out which.
 
 A durable subscription may carry a `context`: JSON that is stored with it and handed to its handler on every delivery, capped at **4 KB** and rejected over that with `events_context_too_large`. Listings never return it. An app sees and revokes only the subscriptions it created; a session acting for the account sees them all, including ones left behind by an app that has since been removed.
+
+**A subscription can end without you unsubscribing.** Access is re-checked against the stored permission on every delivery, so a share that is taken back stops delivering immediately; the subscription is then *suspended*, with `suspendedAt` and `suspendedReason: 'permission_revoked'` in `list` and a notification to whoever holds it. The same happens to every subscription an app holds for you when you withdraw that app's access. Re-granting does not bring a suspended subscription back — subscribe again, which is how consent to watch is re-established — and a suspended row is deleted **30 days** after it stops. Deleting the node a subscription is anchored on ends it too, unless the subject named a path or a pattern, in which case it follows that path up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**; anything larger is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 

@@ -45,13 +45,16 @@ describe('NOTIFICATION_TYPES', () => {
     });
 
     it('carries the types the events work will emit', () => {
-        for (const type of ['app.events.ended', 'app.events.suspended']) {
-            const entry = findNotificationType(type);
-            expect(entry).toMatchObject({
-                audience: 'developer',
-                appScoped: true,
-            });
-        }
+        // A handler that keeps failing is the developer's problem; a
+        // subscription that ended is the holder's.
+        expect(findNotificationType('app.events.suspended')).toMatchObject({
+            audience: 'developer',
+            appScoped: true,
+        });
+        expect(findNotificationType('app.events.ended')).toMatchObject({
+            audience: 'app-user',
+            appScoped: false,
+        });
     });
 
     it('projects a subject naming the app, or the recipient when there is none', () => {
@@ -60,10 +63,15 @@ describe('NOTIFICATION_TYPES', () => {
             account.subject({ userUuid: 'user-uuid', appUid: null }),
         ).toBe('notif:user-uuid:account');
 
-        const developer = findNotificationType('app.events.ended')!;
+        const developer = findNotificationType('app.events.suspended')!;
         expect(
             developer.subject({ userUuid: 'user-uuid', appUid: 'app-1' }),
         ).toBe('notif:app-1:developer');
+
+        const holder = findNotificationType('app.events.ended')!;
+        expect(holder.subject({ userUuid: 'user-uuid', appUid: 'app-1' })).toBe(
+            'notif:app-1:app-user',
+        );
 
         // A worker bound to no app has no app to name.
         const worker = findNotificationType('app.worker.deployed')!;
@@ -106,11 +114,17 @@ describe('resolveNotificationWrite', () => {
     });
 
     it('rejects an app-scoped type with no app uid', () => {
-        expect(() => resolveNotificationWrite('app.events.ended', null)).toThrow(
-            'requires an app uid',
-        );
-        expect(() => resolveNotificationWrite('app.events.ended', '')).toThrow(
-            'requires an app uid',
+        expect(() =>
+            resolveNotificationWrite('app.events.suspended', null),
+        ).toThrow('requires an app uid');
+        expect(() =>
+            resolveNotificationWrite('app.events.suspended', ''),
+        ).toThrow('requires an app uid');
+    });
+
+    it('lets a subscription an account made end without naming an app', () => {
+        expect(resolveNotificationWrite('app.events.ended', null).audience).toBe(
+            'app-user',
         );
     });
 });

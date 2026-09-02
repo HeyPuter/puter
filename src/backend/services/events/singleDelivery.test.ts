@@ -208,6 +208,7 @@ beforeEach(async () => {
                 getById: async (id: number) => ({ id, uuid: `user-${id}` }),
             },
             app: { getByUid: async (uid: string) => ({ uid, id: 1 }) },
+            permission: { getCacheGeneration: async () => 1 },
         } as never,
         {
             socket: {

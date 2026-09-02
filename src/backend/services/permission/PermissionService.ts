@@ -977,6 +977,9 @@ export class PermissionService extends PuterService {
         // Unconditional: the flat delete above can't report what it removed, so
         // skipping the bump on a no-op risks leaving a cached allow standing.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
+        // A revoke of a grant that was not there settled nothing; announcing
+        // it would only cost every listener a read.
+        if (revoked) this.#announceRevoked(user.id, null, permission);
         return revoked;
     }
 
@@ -1158,6 +1161,7 @@ export class PermissionService extends PuterService {
                 app.uid,
             );
         }
+        this.#announceRevoked(actor.user.id, app.uid, permission);
     }
 
     async revokeUserAppAll(
@@ -1196,6 +1200,7 @@ export class PermissionService extends PuterService {
                 app.uid,
             );
         }
+        this.#announceRevoked(actor.user.id, app.uid, null);
     }
 
     async grantDevAppPermission(
@@ -1424,6 +1429,27 @@ export class PermissionService extends PuterService {
             keys.map((k) => this.stores.permission.getCacheGeneration(k)),
         );
         return gens.join('.');
+    }
+
+    /**
+     * Tell whatever was standing on a grant that it is gone. Fire-and-forget: a
+     * listener that fails must not fail the revoke, and every check the grant
+     * used to answer already denies on its own.
+     */
+    #announceRevoked(
+        holderUserId: number,
+        appUid: string | null,
+        permission: string | null,
+    ): void {
+        try {
+            this.clients.event.emit(
+                'permission.revoked',
+                { holderUserId, appUid, permission },
+                {},
+            );
+        } catch (err) {
+            console.warn('[PermissionService] revoke announce failed:', err);
+        }
     }
 
     /** Bump a plain user holder (`user:<uuid>`). */

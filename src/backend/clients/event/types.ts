@@ -516,6 +516,23 @@ export type EventMap = {
      */
     'auth.sessions.revoked': { user_id: number; session_uids: string[] };
 
+    /**
+     * A grant was withdrawn, so whatever was standing on it has to be settled
+     * rather than left to fail its next check.
+     *
+     * Local rather than `outer.*` on purpose: a listener settles shared state,
+     * and one region doing it covers every other. Emitted once per revoke call,
+     * not once per row it affects.
+     */
+    'permission.revoked': {
+        /** Whose access went. */
+        holderUserId: number;
+        /** The app the grant was to, or `null` for a user-to-user grant. */
+        appUid: string | null;
+        /** The grant string, or `null` when every grant to the app went. */
+        permission: string | null;
+    };
+
     // ---- Extension hooks / misc ----
     'puter.gui.addons': {
         prependHeadContent?: string[];

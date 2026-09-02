@@ -96,6 +96,19 @@ export interface DurableListOptions {
     includeTotal?: boolean;
 }
 
+/** Why a row is out of service. Never auto-resumes for `permission_revoked`. */
+export type SuspendedReason = 'permission_revoked';
+
+/** Where a row is moving to when its anchor is deleted under it. */
+export interface ReanchorInput {
+    token: string;
+    anchorUid: string;
+    anchorPath: string;
+    match: string;
+    /** The new anchor's owner, which is the keyspace the row is indexed in. */
+    ownerUserId: number;
+}
+
 // -- Errors -----------------------------------------------------------
 
 const contextTooLarge = (): HttpError =>
@@ -278,6 +291,86 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
+     * Take a set of rows out of service without deleting them: one statement
+     * for the table, then each row out of the cache, then one generation per
+     * owner. Suspended rows stay listable — that is how their holder finds out
+     * what happened — but nothing rebuilds them into a watched set again.
+     */
+    async suspend(
+        rows: readonly DurableSubscription[],
+        reason: SuspendedReason,
+    ): Promise<{ suspended: DurableSubscription[]; bumps: GenerationBump[] }> {
+        if (rows.length === 0) return { suspended: [], bumps: [] };
+
+        // One conditional write per row, so two settles racing over the same
+        // rows — an unshare withdraws several grant strings in a row — each
+        // learn exactly which rows they were the one to suspend.
+        const at = nowSeconds();
+        const suspended: DurableSubscription[] = [];
+        for (const row of rows) {
+            const written = await this.clients.db.write(
+                `UPDATE \`${TABLE}\` SET \`suspended_at\` = ?, ` +
+                    '`suspended_reason` = ? ' +
+                    'WHERE `sub_id` = ? AND `suspended_at` IS NULL',
+                [at, reason, row.subId],
+            );
+            if (written.anyRowsAffected)
+                suspended.push({
+                    ...row,
+                    suspendedAt: at,
+                    suspendedReason: reason,
+                });
+        }
+
+        const owners = new Set<number>();
+        for (const row of suspended) {
+            await this.stores.eventSubscription.dropDurable(row);
+            owners.add(row.ownerUserId);
+        }
+        const bumps = await Promise.all(
+            [...owners].map((owner) => this.#bump(owner)),
+        );
+        return { suspended, bumps };
+    }
+
+    /**
+     * Move one row onto a different anchor, keeping its identity. The cache
+     * entry moves with it — including across owners, which is a different
+     * keyspace — so both sides advance and neither is left holding a row that
+     * is no longer theirs.
+     */
+    async reanchor(
+        row: DurableSubscription,
+        next: ReanchorInput,
+    ): Promise<{ row: DurableSubscription; bumps: GenerationBump[] }> {
+        await this.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`token\` = ?, \`anchor_uid\` = ?, ` +
+                '`anchor_path` = ?, `match` = ?, `owner_user_id` = ? ' +
+                'WHERE `sub_id` = ?',
+            [
+                next.token,
+                next.anchorUid,
+                next.anchorPath,
+                next.match,
+                next.ownerUserId,
+                row.subId,
+            ],
+        );
+
+        const moved: DurableSubscription = { ...row, ...next };
+        await this.stores.eventSubscription.dropDurable(row);
+        await this.stores.eventSubscription.cacheDurable([moved]);
+
+        const owners = new Set([row.ownerUserId, next.ownerUserId]);
+        return {
+            row: moved,
+            bumps: await Promise.all(
+                [...owners].map((owner) => this.#bump(owner)),
+            ),
+        };
+    }
+
+    /**
      * Bring this region's cache for one owner up to date with the table, unless
      * it already is. Returns whether the table was read, which is what the
      * hot-path tests assert on.
@@ -294,22 +387,16 @@ export class DurableSubscriptionStore extends PuterStore {
      * stops delivering against it without waiting for a rebuild.
      */
     async sweepExpired(batchSize: number): Promise<number> {
-        const rows = await this.#listExpired(nowSeconds(), batchSize);
-        if (rows.length === 0) return 0;
+        return this.#reap(await this.#listExpired(nowSeconds(), batchSize));
+    }
 
-        await this.clients.db.write(
-            `DELETE FROM \`${TABLE}\` WHERE \`sub_id\` IN ` +
-                `(${rows.map(() => '?').join(', ')})`,
-            rows.map((row) => row.subId),
-        );
-
-        const owners = new Set<number>();
-        for (const row of rows) {
-            await this.stores.eventSubscription.dropDurable(row);
-            owners.add(row.ownerUserId);
-        }
-        for (const ownerUserId of owners) await this.#bump(ownerUserId);
-        return rows.length;
+    /**
+     * Reap rows suspended longer than the retention window. A suspension that
+     * never resumes is a row kept only so its holder can see why it stopped,
+     * and that answer has a shelf life.
+     */
+    async sweepSuspended(cutoff: number, batchSize: number): Promise<number> {
+        return this.#reap(await this.#listSuspendedBefore(cutoff, batchSize));
     }
 
     // -- Reads -------------------------------------------------------
@@ -403,6 +490,35 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
+     * The holder's live rows, which is what a revocation has to consider. Same
+     * index the listing and the quota use — passing `appUid` narrows to one
+     * app's rows, which is what a grant made to that app can have authorized.
+     *
+     * Bounded by the per-account quota, so the whole set fits one read.
+     */
+    async listActiveForHolder(
+        holderUserId: number,
+        appUid: string | null,
+    ): Promise<DurableSubscription[]> {
+        const where = [
+            '`holder_user_id` = ?',
+            '`suspended_at` IS NULL',
+            this.#unexpiredClause(),
+        ];
+        const params: unknown[] = [holderUserId, nowSeconds()];
+        if (appUid !== null) {
+            where.push('`app_uid` = ?');
+            params.push(appUid);
+        }
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                `WHERE ${where.join(' AND ')} ORDER BY \`id\` LIMIT ?`,
+            [...params, EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER],
+        );
+        return rows.map(toRow);
+    }
+
+    /**
      * Every row a region has to be able to deliver for one owner. Read from the
      * primary: this is what a cold region caches, and caching a replica's "no
      * rows yet" would silence a subscription with nothing to correct it.
@@ -443,6 +559,41 @@ export class DurableSubscriptionStore extends PuterStore {
             [cutoff, limit],
         );
         return rows.map(toRow);
+    }
+
+    async #listSuspendedBefore(
+        cutoff: number,
+        batchSize: number,
+    ): Promise<DurableSubscription[]> {
+        const limit = Math.max(1, Math.floor(batchSize));
+        const rows = await this.clients.db.read(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `suspended_at` IS NOT NULL AND `suspended_at` <= ? ' +
+                'ORDER BY `id` LIMIT ?',
+            [cutoff, limit],
+        );
+        return rows.map(toRow);
+    }
+
+    /** Delete a batch and leave no region delivering against any of it. */
+    async #reap(rows: readonly DurableSubscription[]): Promise<number> {
+        if (rows.length === 0) return 0;
+
+        await this.clients.db.write(
+            `DELETE FROM \`${TABLE}\` WHERE \`sub_id\` IN ` +
+                `(${rows.map(() => '?').join(', ')})`,
+            rows.map((row) => row.subId),
+        );
+
+        const owners = new Set<number>();
+        for (const row of rows) {
+            await this.stores.eventSubscription.dropDurable(row);
+            // Whatever was still owed to a row that no longer exists.
+            await this.stores.pendingDelivery.purge(row.subId).catch(() => {});
+            owners.add(row.ownerUserId);
+        }
+        for (const ownerUserId of owners) await this.#bump(ownerUserId);
+        return rows.length;
     }
 
     /**

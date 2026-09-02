@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { makeActor, type Actor } from '../../core/actor.js';
+import { actorUid, makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import type {
@@ -36,7 +36,9 @@ import type {
  * re-run per event, against the node the event is about rather than the anchor:
  * that is what keeps a match filter from reaching anything the holder could not
  * have subscribed to directly, and what makes a revoked share stop delivering
- * without anyone having to find and delete the row.
+ * without anyone having to find and delete the row. The answer is cached by the
+ * permission cache's own generation (`deliveryAuthCache`), so a grant or a
+ * revoke is what re-opens the question.
  *
  * The failure is a `getSafeAclError` failure, not a bare 403: a node the caller
  * cannot even `see` is answered as absent, because a distinguishable
@@ -78,6 +80,8 @@ export interface EventAclDeps {
     ) => Promise<ReadonlyArray<{ uid: string; path: string }>>;
     getUser: (userId: number) => Promise<UserRow | null>;
     getApp: (uid: string) => Promise<{ id?: number } | null>;
+    /** `PermissionStore.getCacheGeneration`, for the re-check cache's key. */
+    getCacheGeneration: (actorUid: string) => Promise<number>;
 }
 
 /**
@@ -114,15 +118,35 @@ export const nodeDescriptor = (
  * the app is resolved rather than taken from the row, because a grant to an app
  * is stored against its numeric id and is invisible to an actor without one.
  */
-const grantActor = async (
+export const resolveGrantActor = async (
     grant: SubscriptionGrant,
-    user: UserRow,
     deps: EventAclDeps,
 ): Promise<Actor | null> => {
+    const user = await deps.getUser(grant.holderUserId);
+    if (!user) return null;
     if (!grant.appUid) return makeActor({ user, app: null });
     const app = await deps.getApp(grant.appUid);
     if (!app) return null;
     return makeActor({ user, app: { uid: grant.appUid, id: app.id } });
+};
+
+/**
+ * The permission-cache counters this identity's readings hang on, read as one
+ * value. An app acts through its user, so either counter moving has to change
+ * the answer — the same pair the permission cache folds into its own keys.
+ *
+ * Joined rather than summed: two counter states must never collide on one tag.
+ */
+export const deliveryGenerationTag = async (
+    actor: Actor,
+    deps: Pick<EventAclDeps, 'getCacheGeneration'>,
+): Promise<string> => {
+    const keys = [actorUid(actor)];
+    if (actor.app && actor.user?.uuid) keys.push(`user:${actor.user.uuid}`);
+    const generations = await Promise.all(
+        keys.map((key) => deps.getCacheGeneration(key)),
+    );
+    return generations.join('.');
 };
 
 /**
@@ -157,18 +181,18 @@ export const assertSubscribeAuthorized = async (
  * Whether a stored subscription may still be delivered an event about `node`.
  * Anything that cannot be decided is a no: a delivery is not worth failing a
  * write over, and silence is the safe direction.
+ *
+ * Takes the resolved identity rather than the row, because the caller has to
+ * resolve it first anyway to know which generation the answer is keyed by.
  */
 export const checkDeliveryAuthorized = async (
-    grant: SubscriptionGrant,
+    actor: Actor,
+    permission: AclMode,
     node: ResourceDescriptor,
-    deps: EventAclDeps,
+    deps: Pick<EventAclDeps, 'acl'>,
 ): Promise<boolean> => {
     try {
-        const user = await deps.getUser(grant.holderUserId);
-        if (!user) return false;
-        const actor = await grantActor(grant, user, deps);
-        if (!actor) return false;
-        return await deps.acl.check(actor, node, grant.permission);
+        return await deps.acl.check(actor, node, permission);
     } catch {
         return false;
     }

@@ -92,12 +92,15 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
+    // The recipient is the subscription's holder, not the app's owner: a
+    // subscription that ended without an unsubscribe is news for whoever made
+    // it. An account made its own carries no app, exactly as a worker row does.
     {
         type: 'app.events.ended',
-        audience: 'developer',
-        appScoped: true,
+        audience: 'app-user',
+        appScoped: false,
         groupable: false,
-        subject: subjectFor('developer'),
+        subject: subjectFor('app-user'),
     },
     {
         type: 'app.events.suspended',

@@ -25,10 +25,12 @@ import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
+    SUSPENDED_ROW_TTL_DAYS,
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import type { ReanchorInput } from '../../stores/events/DurableSubscriptionStore.js';
 import {
     SESSION_SUBSCRIPTION_TTL_SECONDS,
     type DispatchSubscription,
@@ -60,11 +62,14 @@ import { resolveFsAnchor, type FsAnchorDeps } from './anchors.js';
 import {
     assertSubscribeAuthorized,
     checkDeliveryAuthorized,
+    deliveryGenerationTag,
     nodeDescriptor,
+    resolveGrantActor,
     rowInActorScope,
     type EventAclDeps,
 } from './authorization.js';
 import { DeliveryCoalescer } from './coalescer.js';
+import { DeliveryAuthCache } from './deliveryAuthCache.js';
 import {
     FILTER_EVALUATIONS_PER_EVENT,
     compileMatch,
@@ -83,7 +88,7 @@ import {
     type PublicSubject,
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
-import { parseSubject, type FsOp } from './subjects.js';
+import { fsAnchorToken, parseSubject, type FsOp } from './subjects.js';
 import {
     RecordingWorkerInvoker,
     type WorkerInvocation,
@@ -197,6 +202,27 @@ interface AddressedDelivery {
     worker?: WorkerInvocation;
 }
 
+/**
+ * Why a subscription ended without its holder unsubscribing. Both are terminal:
+ * the grant is gone, or the node is, and neither comes back by itself.
+ */
+export type SubscriptionEndReason = 'permission_revoked' | 'anchor_deleted';
+
+/** Who a stored row acts as, and what its cached decisions hang on. */
+interface GrantIdentity {
+    actor: Actor;
+    generation: string;
+}
+
+/** A withdrawn grant, as the settle pass reads it off the bus. */
+export interface RevokedGrant {
+    holderUserId: number;
+    /** The app the grant was to, or `null` for a user-to-user grant. */
+    appUid: string | null;
+    /** The grant string, or `null` when every grant to the app went. */
+    permission: string | null;
+}
+
 /** What a dispatch call site can supply that the event itself does not carry. */
 export interface FsDispatchOptions {
     /**
@@ -228,6 +254,11 @@ const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
 const EXPIRY_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
 const EXPIRY_MAX_BATCHES = 50;
+/**
+ * Subjects one "subscriptions ended" notification names before it stops
+ * listing.
+ */
+const ENDED_SUBJECTS_LISTED = 20;
 
 // -- Owed deliveries --------------------------------------------------
 
@@ -462,6 +493,7 @@ const parseExpiresAt = (value: unknown): number | null => {
 
 export class EventsService extends PuterService {
     readonly #cache = new SubscriptionCache();
+    readonly #deliveryAuth = new DeliveryAuthCache();
     readonly #compiled = new Map<string, CompiledMatch>();
     readonly #lookups = new Map<string, Promise<boolean>>();
     readonly #refreshTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -494,6 +526,16 @@ export class EventsService extends PuterService {
                 this.invalidateUser(userId, { rebuild: durable === true });
             },
         );
+
+        // The delivery re-check would already deny these, but a row nobody can
+        // deliver to still holds an anchor slot, still bills, and still costs a
+        // filter evaluation on every event under it.
+        this.clients.event.on('permission.revoked', (_key, data) => {
+            void this.settleRevokedGrant(data as RevokedGrant).catch((err) => {
+                console.warn('[events] revocation settle failed', err);
+            });
+        });
+
         this.#armExpirySweep();
         this.#armPendingSweep();
     }
@@ -823,12 +865,32 @@ export class EventsService extends PuterService {
      */
     async sweepExpired(): Promise<number> {
         if (!this.enabled) return 0;
+        return this.#sweepInBatches((batchSize) =>
+            this.stores.durableSubscription.sweepExpired(batchSize),
+        );
+    }
+
+    /**
+     * Drop rows that have been suspended longer than they are worth keeping. A
+     * revoked subscription never resumes, so the row survives only as the
+     * answer its holder gets from `list` when they ask why it stopped.
+     */
+    async sweepSuspended(): Promise<number> {
+        if (!this.enabled) return 0;
+        const cutoff =
+            Math.floor(Date.now() / 1000) -
+            SUSPENDED_ROW_TTL_DAYS * 24 * 60 * 60;
+        return this.#sweepInBatches((batchSize) =>
+            this.stores.durableSubscription.sweepSuspended(cutoff, batchSize),
+        );
+    }
+
+    async #sweepInBatches(
+        pass: (batchSize: number) => Promise<number>,
+    ): Promise<number> {
         let removed = 0;
-        for (let pass = 0; pass < EXPIRY_MAX_BATCHES; pass++) {
-            const batch =
-                await this.stores.durableSubscription.sweepExpired(
-                    EXPIRY_BATCH_SIZE,
-                );
+        for (let i = 0; i < EXPIRY_MAX_BATCHES; i++) {
+            const batch = await pass(EXPIRY_BATCH_SIZE);
             removed += batch;
             if (batch < EXPIRY_BATCH_SIZE) break;
         }
@@ -872,7 +934,12 @@ export class EventsService extends PuterService {
                 // backlog is the suspension's decision, not the sweeper's. It
                 // goes to the back of the line so it cannot hold the head.
                 if (row.suspendedAt !== null) {
-                    await this.stores.pendingDelivery.defer(subId);
+                    // Except a revoked row's, which names paths its holder may
+                    // no longer see: anything a dispatch in flight queued after
+                    // the settle's own purge goes now, not at the reap.
+                    if (row.suspendedReason === 'permission_revoked')
+                        await this.stores.pendingDelivery.purge(subId);
+                    else await this.stores.pendingDelivery.defer(subId);
                     continue;
                 }
                 attempted += await this.#drain(row);
@@ -1009,6 +1076,12 @@ export class EventsService extends PuterService {
         if (rows.length === 0) return;
 
         await this.#route(subject, context, rows, options.actingUserId);
+
+        // Only a removal can invalidate an anchor, so nothing else pays for
+        // this — and this pass is already holding the rows that key on the uid
+        // now gone.
+        if (key === 'fs.remove.node')
+            await this.#settleDeletedAnchor(context, rows);
     }
 
     async #route(
@@ -1101,8 +1174,12 @@ export class EventsService extends PuterService {
      * subscription was made must stop delivering at once rather than when the
      * row is next touched.
      *
-     * Last of the filters, because it is the only one that can cost a lookup —
-     * and rows that share an identity and a grant share one decision.
+     * Last of the filters, because it is the only one that can cost a lookup.
+     * Two layers keep that lookup rare: the cross-event cache, keyed by the
+     * permission cache's own generation, answers a subscription being written
+     * to repeatedly without asking anything; and within one event, rows sharing
+     * an identity and a grant share one decision — which is what a fan-out over
+     * one folder is.
      */
     async #stillAuthorized(
         rows: DispatchSubscription[],
@@ -1111,23 +1188,79 @@ export class EventsService extends PuterService {
         if (rows.length === 0) return rows;
 
         const node = this.#eventDescriptor(context);
+        const identities = new Map<string, Promise<GrantIdentity | null>>();
         const decisions = new Map<string, Promise<boolean>>();
         const allowed = await Promise.all(
-            rows.map((row) => {
-                const key = `${row.holderUserId}|${row.appUid ?? ''}|${row.permission}`;
-                let decision = decisions.get(key);
-                if (!decision) {
-                    decision = checkDeliveryAuthorized(
-                        row,
-                        node,
-                        this.#aclDeps(),
-                    );
-                    decisions.set(key, decision);
-                }
-                return decision;
-            }),
+            rows.map((row) =>
+                this.#recheck(row, node, context.entry.uid, {
+                    identities,
+                    decisions,
+                }),
+            ),
         );
         return rows.filter((_row, i) => allowed[i]);
+    }
+
+    async #recheck(
+        row: DispatchSubscription,
+        node: ResourceDescriptor,
+        nodeUid: string,
+        memo: {
+            identities: Map<string, Promise<GrantIdentity | null>>;
+            decisions: Map<string, Promise<boolean>>;
+        },
+    ): Promise<boolean> {
+        const identityKey = `${row.holderUserId}|${row.appUid ?? ''}`;
+        let identity = memo.identities.get(identityKey);
+        if (!identity) {
+            identity = this.#grantIdentity(row);
+            memo.identities.set(identityKey, identity);
+        }
+        // An identity that cannot be resolved — a deleted app, a deleted user —
+        // is one nothing may be delivered to.
+        const resolved = await identity;
+        if (!resolved) return false;
+
+        const key = {
+            subId: row.subId,
+            generation: resolved.generation,
+            nodeUid,
+        };
+        const cached = this.#deliveryAuth.read(key);
+        if (cached !== null) return cached;
+
+        const decisionKey = `${identityKey}|${row.permission}`;
+        let decision = memo.decisions.get(decisionKey);
+        if (!decision) {
+            decision = checkDeliveryAuthorized(
+                resolved.actor,
+                row.permission,
+                node,
+                this.#aclDeps(),
+            );
+            memo.decisions.set(decisionKey, decision);
+        }
+
+        const allowed = await decision;
+        this.#deliveryAuth.write(key, allowed);
+        return allowed;
+    }
+
+    /** Who a row acts as, and the counter its answers are keyed by. */
+    async #grantIdentity(
+        row: DispatchSubscription,
+    ): Promise<GrantIdentity | null> {
+        try {
+            const deps = this.#aclDeps();
+            const actor = await resolveGrantActor(row, deps);
+            if (!actor) return null;
+            return {
+                actor,
+                generation: await deliveryGenerationTag(actor, deps),
+            };
+        } catch {
+            return null;
+        }
     }
 
     /** The event's node as ACL wants it, reusing the walk dispatch already did. */
@@ -1175,6 +1308,330 @@ export class EventsService extends PuterService {
                 socket: true,
                 envelope: { subId: row.subId, event: marker },
             });
+        }
+    }
+
+    // -- Settling ----------------------------------------------------
+
+    /**
+     * Take out of service every durable subscription a withdrawn grant was
+     * holding up. One holder-index read per revocation, not one per row.
+     *
+     * The delivery re-check already refuses these, so this is not what makes a
+     * revocation safe — it is what keeps a revoked subscription from going on
+     * costing its holder an anchor slot, a daily line and a filter evaluation
+     * per event forever. Re-granting does not bring one back: the consent to
+     * watch is re-established by subscribing again.
+     *
+     * Session rows are left to the re-check: finding them means knowing which
+     * connections a holder has, which is a keyspace scan, and one that ends
+     * with the connection anyway.
+     */
+    async settleRevokedGrant(revocation: RevokedGrant): Promise<number> {
+        if (!this.enabled) return 0;
+
+        const held = await this.stores.durableSubscription.listActiveForHolder(
+            revocation.holderUserId,
+            revocation.appUid,
+        );
+        // Withdrawing an app's access wholesale is the user saying the app is
+        // done, so it takes everything the app holds — no per-row question,
+        // and none of the standing exemptions an app enjoys over its own data
+        // keep a background subscription alive past the consent that made it.
+        const settling =
+            revocation.permission === null
+                ? held
+                : await this.#leftUnauthorized(held, revocation.permission);
+        if (settling.length === 0) return 0;
+
+        // Only the rows this pass was the one to suspend are its to purge and
+        // announce: an unshare withdraws several grant strings in a row, and
+        // every one of them runs this settle.
+        const { suspended, bumps } =
+            await this.stores.durableSubscription.suspend(
+                settling,
+                'permission_revoked',
+            );
+        for (const row of suspended) {
+            // Unlike every other suspension, this backlog goes at once: it
+            // holds the paths of a resource its holder has just lost the right
+            // to see, and keeping it for a resume that by design never comes
+            // turns a revocation into a delayed disclosure.
+            await this.stores.pendingDelivery.purge(row.subId).catch(() => {});
+            // Takes the coalesced deliveries with it: one still in flight names
+            // exactly what its holder has stopped being allowed to see.
+            this.#forget(row.subId);
+        }
+        for (const bump of bumps) this.#publishGeneration(bump, true);
+        await this.#notifyEnded(suspended, 'permission_revoked');
+        return suspended.length;
+    }
+
+    /**
+     * Of a holder's rows, the ones a named withdrawn grant has actually left
+     * without access.
+     *
+     * Two steps, and both are needed. The first is implication-aware rather
+     * than string equality: a row's anchor and stored mode compose the
+     * permission its subscribe check ran against, and `list` is answered by
+     * `read`, `write` and `manage`, so withdrawing any of them puts the row in
+     * question. That only narrows, though — the second step asks the access
+     * question for real, because a share whose mode merely _changed_ is
+     * recorded as a grant followed by a revoke, and settling on the revoke
+     * alone would end a subscription whose reach just got wider.
+     *
+     * A grant withdrawn on an _ancestor_ of an anchor is not narrowed to here —
+     * the row names its own node, not the chain above it. Those are left to the
+     * delivery re-check, which stops them immediately and permanently.
+     */
+    async #leftUnauthorized(
+        rows: readonly DurableSubscription[],
+        permission: string,
+    ): Promise<DurableSubscription[]> {
+        const settling: DurableSubscription[] = [];
+        for (const row of rows) {
+            const covered = this.services.acl
+                .permissionsFor(row.anchorUid, row.permission)
+                .includes(permission);
+            if (covered && !(await this.#anchorStillReachable(row)))
+                settling.push(row);
+        }
+        return settling;
+    }
+
+    /** Whether a row's holder can still reach its anchor, asked fresh. */
+    #anchorStillReachable(row: DurableSubscription): Promise<boolean> {
+        return this.#reachable(row, row);
+    }
+
+    /**
+     * Whether a row's holder may watch from `at`, under the mode it subscribed
+     * with.
+     */
+    async #reachable(
+        row: DispatchSubscription,
+        at: { anchorUid: string; anchorPath: string },
+    ): Promise<boolean> {
+        const deps = this.#aclDeps();
+        const actor = await resolveGrantActor(row, deps);
+        if (!actor) return false;
+        return checkDeliveryAuthorized(
+            actor,
+            row.permission,
+            nodeDescriptor({ uid: at.anchorUid, path: at.anchorPath }, deps),
+            deps,
+        );
+    }
+
+    /**
+     * Move a path-form row up to the nearest surviving ancestor its holder may
+     * still watch, or end it. Asked again after each move: a recursive delete
+     * works from the leaves up, so the level just moved to may be gone by the
+     * time the row is written there — and its own removal pass ran before the
+     * row was visible on it.
+     */
+    async #carryForward(
+        row: DispatchSubscription,
+        ancestors: ReadonlyArray<{ uid: string; path: string }>,
+    ): Promise<void> {
+        let current = row;
+        for (let hop = 0; hop <= ancestors.length; hop++) {
+            const next = await this.#nextAnchor(current, ancestors);
+            // Climbing must not land a row where its holder could never have
+            // subscribed: the re-check would deny every delivery, but the row
+            // would still hold an anchor slot and a filter evaluation there.
+            if (!next || !(await this.#reachable(current, next))) {
+                await this.#endSubscription(current, 'anchor_deleted');
+                return;
+            }
+            await this.#reanchor(current, next);
+            if (await resolveNode(this.stores.fsEntry, { uid: next.anchorUid }))
+                return;
+            current = {
+                ...current,
+                token: next.token,
+                anchorUid: next.anchorUid,
+                anchorPath: next.anchorPath,
+                match: next.match,
+                ownerUserId: next.ownerUserId,
+            };
+        }
+    }
+
+    /**
+     * What the removal of an anchor node does to the rows keyed on it. Runs in
+     * the pass that delivered the `remove`, because nothing will ever come
+     * looking for them again: the uid they key on is gone.
+     *
+     * A row carrying a match asked about a _path_, so it follows that path up
+     * to whatever still exists, its match rewritten to lead with the segments
+     * that went. A row with no match asked about that node, whose uid is never
+     * coming back, so it ends.
+     */
+    async #settleDeletedAnchor(
+        context: EventContext,
+        candidates: readonly DispatchSubscription[],
+    ): Promise<void> {
+        const onAnchor = candidates.filter(
+            (row) => row.anchorUid === context.entry.uid,
+        );
+        if (onAnchor.length === 0) return;
+
+        for (const row of onAnchor) {
+            try {
+                if (row.match) await this.#carryForward(row, context.ancestors);
+                else await this.#endSubscription(row, 'anchor_deleted');
+            } catch (err) {
+                console.warn(
+                    '[events] could not settle a subscription whose anchor was removed',
+                    row.subId,
+                    err,
+                );
+            }
+        }
+    }
+
+    /**
+     * Where a path-form row moves to, or `null` when there is nowhere to move
+     * it: nothing left above it, or a rewritten pattern past what may be
+     * compiled.
+     *
+     * The chain holds existing ancestors only, deepest first, so its head is
+     * already the nearest survivor however many levels a recursive delete took
+     * at once. It is still walked rather than indexed, because a delete works
+     * from the leaves up and the level above may have gone since the walk. Root
+     * is where climbing stops on its own — its uid never changes.
+     */
+    async #nextAnchor(
+        row: DispatchSubscription,
+        ancestors: ReadonlyArray<{ uid: string; path: string }>,
+    ): Promise<ReanchorInput | null> {
+        for (const survivor of ancestors) {
+            const climbed = relativeTo(survivor.path, row.anchorPath);
+            if (climbed === null) continue;
+
+            const match = climbed
+                ? `${climbed}/${row.match}`
+                : String(row.match);
+            try {
+                compileMatch(match);
+            } catch {
+                return null;
+            }
+
+            // The keyspace a row is indexed in is the anchor owner's, so a
+            // climb that crosses an ownership boundary moves with it.
+            const entry = await resolveNode(this.stores.fsEntry, {
+                uid: survivor.uid,
+            });
+            if (!entry) continue;
+
+            return {
+                token: fsAnchorToken(survivor.uid),
+                anchorUid: survivor.uid,
+                anchorPath: survivor.path,
+                match,
+                ownerUserId: entry.userId,
+            };
+        }
+        return null;
+    }
+
+    async #reanchor(
+        row: DispatchSubscription,
+        next: ReanchorInput,
+    ): Promise<void> {
+        const bumps =
+            row.durable === true
+                ? (
+                      await this.stores.durableSubscription.reanchor(
+                          row as DurableSubscription,
+                          next,
+                      )
+                  ).bumps
+                : await this.stores.eventSubscription.reanchorSession(
+                      row as SessionSubscription,
+                      { ...(row as SessionSubscription), ...next },
+                  );
+        // The matcher cache keys on the pattern it compiled, so it corrects
+        // itself; the access decisions were about a node this row no longer
+        // watches.
+        this.#deliveryAuth.forget(row.subId);
+        for (const bump of bumps)
+            this.#publishGeneration(bump, row.durable === true);
+    }
+
+    /**
+     * End one subscription that cannot be carried forward. Anything already
+     * coalesced for it is deliberately left alone — the final `remove` is the
+     * last thing it is owed, and cancelling it here would be the delivery this
+     * whole pass exists to make.
+     */
+    async #endSubscription(
+        row: DispatchSubscription,
+        reason: SubscriptionEndReason,
+    ): Promise<void> {
+        this.#compiled.delete(row.subId);
+        this.#deliveryAuth.forget(row.subId);
+
+        if (row.durable !== true) {
+            const bump = await this.stores.eventSubscription.remove(
+                row as SessionSubscription,
+            );
+            this.#publishGeneration(bump, false);
+            return;
+        }
+
+        const durable = row as DurableSubscription;
+        const bump = await this.stores.durableSubscription.remove(durable);
+        // Nothing can drain a stream whose row is gone, so what is still owed
+        // goes with it — the same trade an explicit unsubscribe makes.
+        await this.stores.pendingDelivery.purge(durable.subId).catch(() => {});
+        this.#publishGeneration(bump, true);
+        await this.#notifyEnded([durable], reason);
+    }
+
+    /**
+     * Tell durable holders their subscriptions are over. They did not ask for
+     * this, and silence would read as "still watching" — so it goes to the
+     * holder, not the app's developer. One notification per holder and app:
+     * withdrawing an app's access ends everything it held at once, and that is
+     * one piece of news, not one per row.
+     */
+    async #notifyEnded(
+        rows: readonly DurableSubscription[],
+        reason: SubscriptionEndReason,
+    ): Promise<void> {
+        const groups = new Map<string, DurableSubscription[]>();
+        for (const row of rows) {
+            const key = `${row.holderUserId}|${row.appUid ?? ''}`;
+            groups.set(key, [...(groups.get(key) ?? []), row]);
+        }
+        for (const group of groups.values()) {
+            const [first] = group;
+            try {
+                await this.services.notification.notify(
+                    [first.holderUserId],
+                    {
+                        title:
+                            group.length === 1
+                                ? 'A subscription ended'
+                                : `${group.length} subscriptions ended`,
+                        subject: first.subject,
+                        subjects: group
+                            .slice(0, ENDED_SUBJECTS_LISTED)
+                            .map((row) => row.subject),
+                        count: group.length,
+                        reason,
+                    },
+                    { type: 'app.events.ended', appUid: first.appUid },
+                );
+            } catch (err) {
+                console.warn(
+                    '[events] could not report a subscription ending',
+                    err,
+                );
+            }
         }
     }
 
@@ -1529,6 +1986,7 @@ export class EventsService extends PuterService {
 
     #forget(subId: string): void {
         this.#compiled.delete(subId);
+        this.#deliveryAuth.forget(subId);
         this.#coalesce().cancel((key) => key.startsWith(`${subId}|`));
     }
 
@@ -1545,6 +2003,8 @@ export class EventsService extends PuterService {
             getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
             getUser: (userId) => this.stores.user.getById(userId),
             getApp: (uid) => this.stores.app.getByUid(uid),
+            getCacheGeneration: (uid) =>
+                this.stores.permission.getCacheGeneration(uid),
         };
     }
 
@@ -1580,9 +2040,11 @@ export class EventsService extends PuterService {
     #armExpirySweep(): void {
         if (!this.enabled) return;
         const run = () => {
-            void this.sweepExpired().catch((err) => {
-                console.warn('[events] expiry sweep failed', err);
-            });
+            void this.sweepExpired()
+                .then(() => this.sweepSuspended())
+                .catch((err) => {
+                    console.warn('[events] expiry sweep failed', err);
+                });
         };
         // Jittered so a deploy does not have every node sweep at once.
         const kick = setTimeout(

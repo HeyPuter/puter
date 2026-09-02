@@ -221,6 +221,59 @@ export class EventSubscriptionStore extends PuterStore {
     }
 
     /**
+     * Move one session row onto a different anchor, keeping its id and its
+     * socket. Not `remove` then `add`: this is the same subscription, so it
+     * must not be turned away by the per-connection cap it already occupies a
+     * slot in, and the new anchor may sit in a different owner's keyspace.
+     */
+    async reanchorSession(
+        previous: SessionSubscription,
+        next: SessionSubscription,
+    ): Promise<GenerationBump[]> {
+        await this.#dropRefs(previous.holderUserId, previous.socketId, [
+            {
+                ownerUserId: previous.ownerUserId,
+                token: previous.token,
+                subId: previous.subId,
+            },
+        ]);
+
+        const rows = this.clients.redis.pipeline();
+        const key = tokenKey(next.ownerUserId, next.token);
+        rows.hset(key, next.subId, JSON.stringify(next));
+        rows.expire(key, SESSION_SUBSCRIPTION_TTL_SECONDS);
+        rows.sadd(watchedKey(next.ownerUserId), next.token);
+        rows.expire(
+            watchedKey(next.ownerUserId),
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
+        );
+        await rows.exec();
+
+        const holder = this.clients.redis.pipeline();
+        holder.sadd(
+            socketKey(next.holderUserId, next.socketId),
+            socketRef({
+                ownerUserId: next.ownerUserId,
+                token: next.token,
+                subId: next.subId,
+            }),
+        );
+        holder.expire(
+            socketKey(next.holderUserId, next.socketId),
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
+        );
+        await holder.exec();
+
+        const owners = new Set([previous.ownerUserId, next.ownerUserId]);
+        return Promise.all(
+            [...owners].map(async (userId) => ({
+                userId,
+                generation: await this.bumpGeneration(userId),
+            })),
+        );
+    }
+
+    /**
      * Drop everything a socket held. Runs on disconnect; the TTL is what covers
      * the disconnect that never runs. One socket can hold rows in several
      * owners' keyspaces, so several generations may move.
