@@ -83,7 +83,7 @@ describe('TeamStore', () => {
 
     // -- create and read ----------------------------------------------
 
-    it('creates a workspace and reads it back by uid', async () => {
+    it('creates a team and reads it back by uid', async () => {
         const handle = freeHandle();
         const created = await store.create({
             ownerUserId: owner.id,
@@ -104,7 +104,7 @@ describe('TeamStore', () => {
         });
     });
 
-    it('creates a workspace without a handle', async () => {
+    it('creates a team without a handle', async () => {
         const created = await store.create({
             ownerUserId: owner.id,
             name: 'Unnamed',
@@ -142,7 +142,7 @@ describe('TeamStore', () => {
         ).rejects.toThrow(/unique|duplicate/iu);
     });
 
-    it('returns null for a uid that is not a workspace', async () => {
+    it('returns null for a uid that is not a team', async () => {
         await expect(store.getByUid(uuidv4())).resolves.toBeNull();
         await expect(store.getByHandle(freeHandle())).resolves.toBeNull();
     });
@@ -168,7 +168,7 @@ describe('TeamStore', () => {
 
     // -- update -------------------------------------------------------
 
-    it('renames a workspace without changing its uid', async () => {
+    it('renames a team without changing its uid', async () => {
         const created = await store.create({
             ownerUserId: owner.id,
             name: 'Before',
@@ -214,7 +214,7 @@ describe('TeamStore', () => {
 
     // -- soft delete --------------------------------------------------
 
-    it('excludes a soft-deleted workspace from reads', async () => {
+    it('excludes a soft-deleted team from reads', async () => {
         const handle = freeHandle();
         const created = await store.create({
             ownerUserId: owner.id,
@@ -251,7 +251,7 @@ describe('TeamStore', () => {
         });
     });
 
-    it('keeps `name` on a soft-deleted workspace so history still reads', async () => {
+    it('keeps `name` on a soft-deleted team so history still reads', async () => {
         const created = await store.create({
             ownerUserId: owner.id,
             name: 'Remembered',
@@ -313,7 +313,7 @@ describe('TeamStore', () => {
         await expect(store.isMember(team.uid, member.id)).resolves.toBe(true);
     });
 
-    it('distinguishes the workspace owner by org_owned', async () => {
+    it('distinguishes the team owner by org_owned', async () => {
         const team = await store.create({
             ownerUserId: owner.id,
             name: 'Payer',
@@ -324,6 +324,41 @@ describe('TeamStore', () => {
         const row = await store.getMembership(team.uid, owner.id);
         // Decides who pays, not who may read.
         expect(Boolean(row?.org_owned)).toBe(false);
+    });
+
+    it('refuses to make an account that already has a password a seat', async () => {
+        const team = await store.create({
+            ownerUserId: owner.id,
+            name: 'Adopt',
+            handle: freeHandle(),
+        });
+        // Provisioning creates the row password-less and sets one afterwards,
+        // so a password is what distinguishes an account that predates us.
+        const existing = await makeUser();
+        await server.stores.user.update(existing.id, { password: 'hashed' });
+
+        await expect(
+            store.addMember(team.uid, existing.id, { orgOwned: true }),
+        ).rejects.toThrow(/cannot make an existing account a team seat/);
+        await expect(store.isMember(team.uid, existing.id)).resolves.toBe(
+            false,
+        );
+    });
+
+    it('still admits an account that has a password as the owner', async () => {
+        const team = await store.create({
+            ownerUserId: owner.id,
+            name: 'Payer2',
+            handle: freeHandle(),
+        });
+        // The guard is about seats: the owner joins their own team with a
+        // password already set, and must not be caught by it.
+        const payer = await makeUser();
+        await server.stores.user.update(payer.id, { password: 'hashed' });
+
+        await expect(
+            store.addMember(team.uid, payer.id, { orgOwned: false }),
+        ).resolves.toBe(true);
     });
 
     it('treats a repeated add as a no-op rather than a duplicate', async () => {
@@ -355,7 +390,7 @@ describe('TeamStore', () => {
         await expect(store.isMember(team.uid, member.id)).resolves.toBe(false);
     });
 
-    it('scopes membership to the workspace asked for', async () => {
+    it('scopes membership to the team asked for', async () => {
         const a = await store.create({
             ownerUserId: owner.id,
             name: 'A',
@@ -373,7 +408,7 @@ describe('TeamStore', () => {
         expect((await store.listMembers(b.uid)).items).toEqual([]);
     });
 
-    it('lists the workspaces a user belongs to', async () => {
+    it('lists the teams a user belongs to', async () => {
         const member = await makeUser();
         const a = await store.create({
             ownerUserId: owner.id,
@@ -392,7 +427,7 @@ describe('TeamStore', () => {
         expect(teams.map((t) => t.uid).sort()).toEqual([a.uid, b.uid].sort());
     });
 
-    it('drops a soft-deleted workspace from the user\'s list', async () => {
+    it('drops a soft-deleted team from the user\'s list', async () => {
         const member = await makeUser();
         const team = await store.create({
             ownerUserId: owner.id,
@@ -452,7 +487,7 @@ describe('TeamStore', () => {
             name: 'Capped',
             handle: freeHandle(),
         });
-        // An empty workspace satisfies any cap, so seed enough to page.
+        // An empty team satisfies any cap, so seed enough to page.
         for (let i = 0; i < 3; i++) {
             const m = await makeUser();
             await store.addMember(team.uid, m.id, { orgOwned: true });

@@ -53,7 +53,7 @@ export const generateTemporaryPassword = (length = 16): string => {
 };
 
 /** Why an account was disabled. Free text in `0063`; this is the team one. */
-export const DISABLED_BY_WORKSPACE = 'disabled_by_workspace';
+export const DISABLED_BY_TEAM = 'disabled_by_team';
 
 export class TeamService extends PuterService {
     // -- Authority ---- the whole authorization model ------------------
@@ -65,28 +65,25 @@ export class TeamService extends PuterService {
     ): Promise<TeamRow> {
         const team = await this.stores.team.getByUid(teamUid);
         if (!team || !(await this.stores.team.isMember(teamUid, actorUserId))) {
-            throw new HttpError(404, 'Workspace not found', {
+            throw new HttpError(404, 'Team not found', {
                 legacyCode: 'team_not_found',
             });
         }
         return team;
     }
 
-    /** Authority is one test: the caller is the account named by the workspace. */
-    async requireOwner(
-        teamUid: string,
-        actorUserId: number,
-    ): Promise<TeamRow> {
+    /** Authority is one test: the caller is the account named by the team. */
+    async requireOwner(teamUid: string, actorUserId: number): Promise<TeamRow> {
         const team = await this.requireMembership(teamUid, actorUserId);
         if (team.owner_user_id !== actorUserId) {
-            throw new HttpError(403, 'Only the workspace owner can do that', {
-                legacyCode: 'not_the_workspace_owner',
+            throw new HttpError(403, 'Only the team owner can do that', {
+                legacyCode: 'not_the_team_owner',
             });
         }
         return team;
     }
 
-    /** The workspace owner is never a valid target of a member route. */
+    /** The team owner is never a valid target of a member route. */
     async requireOrgAccount(
         teamUid: string,
         targetUserId: number,
@@ -97,14 +94,14 @@ export class TeamService extends PuterService {
         );
         // Tested explicitly, never inferred from NULL.
         if (!membership || Number(membership.org_owned) !== 1) {
-            throw new HttpError(404, 'Not an account of this workspace', {
+            throw new HttpError(404, 'Not an account of this team', {
                 legacyCode: 'not_an_org_account',
             });
         }
         return membership;
     }
 
-    // -- Workspace lifecycle ------------------------------------------
+    // -- Team lifecycle ------------------------------------------
 
     /** A rejected handle is 400, a taken one 409, never an unhandled 500. */
     async assertHandleUsable(handle: string): Promise<void> {
@@ -142,8 +139,8 @@ export class TeamService extends PuterService {
         }
     }
 
-    /** Renames or re-handles a workspace, refusing an unusable handle. */
-    async updateWorkspace(
+    /** Renames or re-handles a team, refusing an unusable handle. */
+    async updateTeam(
         teamUid: string,
         actorUserId: number,
         changes: { name?: string; handle?: string | null },
@@ -155,15 +152,15 @@ export class TeamService extends PuterService {
             this.stores.team.update(teamUid, changes),
         );
         if (!team) {
-            throw new HttpError(404, 'Workspace not found', {
+            throw new HttpError(404, 'Team not found', {
                 legacyCode: 'team_not_found',
             });
         }
         return team;
     }
 
-    /** Creates a workspace and admits its creator as the workspace owner. */
-    async createWorkspace(
+    /** Creates a team and admits its creator as the team owner. */
+    async createTeam(
         ownerUserId: number,
         input: { name: string; handle?: string | null },
     ): Promise<TeamRow> {
@@ -188,7 +185,7 @@ export class TeamService extends PuterService {
         );
         if (!admitted) {
             await this.stores.team.softDelete(team.uid);
-            throw new HttpError(500, 'Could not create the workspace', {
+            throw new HttpError(500, 'Could not create the team', {
                 legacyCode: 'internal_error',
             });
         }
@@ -215,10 +212,10 @@ export class TeamService extends PuterService {
     }
 
     /** Soft delete disables the accounts it created; recovery is via support. */
-    async deleteWorkspace(teamUid: string, actorUserId: number): Promise<void> {
+    async deleteTeam(teamUid: string, actorUserId: number): Promise<void> {
         const team = await this.requireOwner(teamUid, actorUserId);
 
-        // Otherwise they keep working, unreachable through a deleted workspace.
+        // Otherwise they keep working, unreachable through a deleted team.
         let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
         for (;;) {
             for (const member of page.items) {
@@ -229,7 +226,7 @@ export class TeamService extends PuterService {
                     userId: member.user_id,
                     actorUserId,
                     action: 'disable',
-                    reason: 'workspace_deleted',
+                    reason: 'team_deleted',
                 });
             }
             if (!page.cursor) break;
@@ -248,13 +245,13 @@ export class TeamService extends PuterService {
         await this.stores.team.softDelete(teamUid);
     }
 
-    /** Workspace owner only. Readable after deletion -- that is the point of it. */
+    /** Team owner only. Readable after deletion -- that is the point of it. */
     async listAudit(
         teamUid: string,
         actorUserId: number,
         opts: { limit?: unknown; cursor?: string } = {},
     ) {
-        const team = await this.#requireOwnedWorkspace(teamUid, actorUserId);
+        const team = await this.#requireOwnedTeam(teamUid, actorUserId);
         return this.#withUsernames(
             await this.stores.team.listAudit(team.id, opts),
         );
@@ -272,8 +269,8 @@ export class TeamService extends PuterService {
         );
     }
 
-    /** Resolves a workspace the caller owns, soft-deleted or not. */
-    async #requireOwnedWorkspace(
+    /** Resolves a team the caller owns, soft-deleted or not. */
+    async #requireOwnedTeam(
         teamUid: string,
         actorUserId: number,
     ): Promise<TeamRow> {
@@ -283,7 +280,7 @@ export class TeamService extends PuterService {
         const deleted =
             await this.stores.team.getByUidIncludingDeleted(teamUid);
         if (!deleted || deleted.owner_user_id !== actorUserId) {
-            throw new HttpError(404, 'Workspace not found', {
+            throw new HttpError(404, 'Team not found', {
                 legacyCode: 'team_not_found',
             });
         }
@@ -394,13 +391,13 @@ export class TeamService extends PuterService {
 
         await generateDefaultFsentries(this.clients.db, this.stores.user, user);
 
-        // Otherwise a vanished workspace leaves a real account nobody owns.
+        // Otherwise a vanished team leaves a real account nobody owns.
         const admitted = await this.stores.team.addMember(teamUid, user.id, {
             orgOwned: true,
         });
         if (!admitted) {
             await this.services.userAccount.cascadeDelete(user.id);
-            throw new HttpError(409, 'That workspace is no longer available', {
+            throw new HttpError(409, 'That team is no longer available', {
                 legacyCode: 'conflict',
             });
         }
@@ -469,7 +466,7 @@ export class TeamService extends PuterService {
                 'team_account_created',
                 {
                     username: user.username,
-                    team_name: team.name ?? 'Your workspace',
+                    team_name: team.name ?? 'Your team',
                 },
             );
             // `sendRaw` returns null with no transport rather than throwing.
@@ -515,10 +512,10 @@ export class TeamService extends PuterService {
         const user = await this.stores.user.getByProperty('id', targetUserId, {
             force: true,
         });
-        // Only the workspace's own suspension; a platform one must not lift.
+        // Only the team's own suspension; a platform one must not lift.
         if (
             user?.suspended &&
-            user.suspended_reason !== DISABLED_BY_WORKSPACE
+            user.suspended_reason !== DISABLED_BY_TEAM
         ) {
             throw new HttpError(409, 'That account was suspended by Puter', {
                 legacyCode: 'conflict',
@@ -544,7 +541,7 @@ export class TeamService extends PuterService {
         await this.stores.user.update(userId, {
             suspended: 1,
             suspended_at: Math.floor(Date.now() / 1000),
-            suspended_reason: DISABLED_BY_WORKSPACE,
+            suspended_reason: DISABLED_BY_TEAM,
         });
         await this.#dropSessions(userId);
     }

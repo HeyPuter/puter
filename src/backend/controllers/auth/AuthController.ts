@@ -4480,7 +4480,7 @@ export class AuthController extends PuterController {
         if (!existing) return null;
         // A provisioned account looks exactly like a claimable placeholder --
         // no password, unconfirmed -- but claiming it hands a stranger that
-        // workspace's membership.
+        // team's membership.
         const orgSeat = await this.stores.team.getOrgSeat(existing.id);
         if (
             existing.email_confirmed ||

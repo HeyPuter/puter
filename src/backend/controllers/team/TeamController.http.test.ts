@@ -49,8 +49,8 @@ describe('team endpoints over HTTP', () => {
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
 
-    /** A workspace owned by `user`, with one provisioned member. */
-    const makeWorkspace = async () => {
+    /** A team owned by `user`, with one provisioned member. */
+    const makeTeam = async () => {
         const res = await call('POST', '/teams', env.users.user.token, {
             name: 'Acme',
             handle: randomHandle(),
@@ -73,7 +73,7 @@ describe('team endpoints over HTTP', () => {
 
     // -- the owner-account gate --------------------------------------
 
-    it('creates a workspace and reports the caller as its owner', async () => {
+    it('creates a team and reports the caller as its owner', async () => {
         const res = await call('POST', '/teams', env.users.user.token, {
             name: 'Acme Design',
             handle: randomHandle(),
@@ -88,26 +88,33 @@ describe('team endpoints over HTTP', () => {
     });
 
     it('returns 404, not 403, to a non-member', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
 
         const res = await call(
             'GET',
             `/teams/${team.uid}`,
             env.users.other.token,
         );
-        // 403 would confirm the workspace exists.
+        // 403 would confirm the team exists.
         expect(res.status).toBe(404);
     });
 
     it('refuses every administrative route to a member who is not the owner', async () => {
-        const { team } = await makeWorkspace();
-        // Provisioned accounts have no password, so they cannot authenticate.
-        const other = await env.server.stores.user.getByUsername(
-            env.users.other.username,
+        const { team, memberUsername } = await makeTeam();
+        // An activated seat: provisioning leaves the email unconfirmed, which
+        // `requireVerified` rejects, so an unactivated one cannot call at all.
+        const provisioned = await env.server.stores.user.getByUsername(
+            memberUsername,
         );
-        await env.server.stores.team.addMember(team.uid, other!.id, {
-            orgOwned: true,
+        await env.server.stores.user.update(provisioned!.id, {
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+            requires_password_change: 0,
         });
+        const seat = await env.server.stores.user.getByUsername(memberUsername);
+        const { token } = await env.server.services.auth.createSessionToken(
+            seat!,
+        );
 
         for (const [method, path] of [
             ['PUT', `/teams/${team.uid}`],
@@ -118,25 +125,21 @@ describe('team endpoints over HTTP', () => {
             const res = await call(
                 method,
                 path,
-                env.users.other.token,
+                token,
                 method === 'GET' ? undefined : { name: 'nope' },
             );
             expect(res.status, `${method} ${path}`).toBe(403);
         }
 
         // Still a member, so reads it is entitled to still work.
-        const readable = await call(
-            'GET',
-            `/teams/${team.uid}`,
-            env.users.other.token,
-        );
+        const readable = await call('GET', `/teams/${team.uid}`, token);
         expect(readable.status).toBe(200);
     });
 
     // -- the org_owned guard ------------------------------------------
 
-    it('refuses the workspace owner as the target of a member route', async () => {
-        const { team } = await makeWorkspace();
+    it('refuses the team owner as the target of a member route', async () => {
+        const { team } = await makeTeam();
 
         const res = await call(
             'POST',
@@ -147,7 +150,7 @@ describe('team endpoints over HTTP', () => {
     });
 
     it('lists members with org_owned distinguishing the owner', async () => {
-        const { team, memberUsername } = await makeWorkspace();
+        const { team, memberUsername } = await makeTeam();
 
         const res = await call(
             'GET',
@@ -169,7 +172,7 @@ describe('team endpoints over HTTP', () => {
     // -- provisioning over the wire -----------------------------------
 
     it('never returns the activation link to the administrator', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const username = `secret_${Math.random().toString(36).slice(2, 9)}`;
 
         const res = await call(
@@ -187,7 +190,7 @@ describe('team endpoints over HTTP', () => {
     });
 
     it('refuses a taken username and offers alternatives', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
 
         const res = await call(
             'POST',
@@ -210,8 +213,8 @@ describe('team endpoints over HTTP', () => {
 
     // -- audit --------------------------------------------------------
 
-    it('exposes the workspace audit to the workspace owner only', async () => {
-        const { team } = await makeWorkspace();
+    it('exposes the team audit to the team owner only', async () => {
+        const { team } = await makeTeam();
 
         const mine = await call(
             'GET',
@@ -243,7 +246,7 @@ describe('team endpoints with teams_enabled off', () => {
     });
 
     it('404s every team route, so no team code is reachable', async () => {
-        // Real workspace: 200 with the flag on, so a 404 means no route.
+        // Real team: 200 with the flag on, so a 404 means no route.
         const owner = await env.server.stores.user.getByUsername(
             env.users.user.username,
         );
@@ -285,7 +288,7 @@ describe('team endpoints with teams_enabled off', () => {
             const body = await res.text();
             expect(body, `${method} ${path}`).not.toContain('team_not_found');
             expect(body, `${method} ${path}`).not.toContain(
-                'not_the_workspace_owner',
+                'not_the_team_owner',
             );
         }
     });
@@ -302,7 +305,7 @@ describe('team endpoints with teams_enabled off', () => {
     it('leaves the schema inert rather than absent', async () => {
         // The flag gates reachability, not DDL.
         await expect(
-            env.server.stores.team.getByHandle('no-such-workspace'),
+            env.server.stores.team.getByHandle('no-such-team'),
         ).resolves.toBeNull();
     });
 });

@@ -981,7 +981,7 @@ describe('PermissionStore', () => {
             const issuer = await makeUser();
             const holder = await makeUser();
             const other = await makeUser();
-            const region = 'kv-share:owner:app:workspace:abc';
+            const region = 'kv-share:owner:app:team:abc';
 
             for (const user of [holder, other]) {
                 await store.upsertUserUserPerm(user.id, issuer.id, region, {});
@@ -996,7 +996,7 @@ describe('PermissionStore', () => {
             await store.upsertUserUserPerm(
                 holder.id,
                 issuer.id,
-                'kv-share:owner:app:workspace:abcdef',
+                'kv-share:owner:app:team:abcdef',
                 {},
             );
 
@@ -1010,10 +1010,10 @@ describe('PermissionStore', () => {
             expect(
                 (
                     await store.readLinkedUserUserPerms(holder.id, [
-                        'kv-share:owner:app:workspace:abcdef',
+                        'kv-share:owner:app:team:abcdef',
                     ])
                 ).map((row) => row.permission),
-            ).toEqual(['kv-share:owner:app:workspace:abcdef']);
+            ).toEqual(['kv-share:owner:app:team:abcdef']);
             // The same region granted to somebody else is a different grant.
             expect(
                 await store.readLinkedUserUserPerms(other.id, [

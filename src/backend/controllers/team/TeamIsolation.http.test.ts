@@ -18,7 +18,7 @@
  */
 
 /**
- * A workspace manages accounts and cannot read them. Nobody writes that grant
+ * A team manages accounts and cannot read them. Nobody writes that grant
  * deliberately, but a new implicator or a widened actor would create it and no
  * other test would fail. Asserts outcomes, never that an implicator is absent.
  */
@@ -28,12 +28,13 @@ import { makeActor } from '../../core/actor.js';
 import type { IConfig } from '../../types';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 
-describe('a workspace cannot read its members data', () => {
+describe('a team cannot read its members data', () => {
     let env: PuterTestEnv;
     let teamUid: string;
     let memberUsername: string;
     let memberFile: string;
     let ownerFile: string;
+    let memberToken: string;
 
     /** Written directly: these tests are about reading, not about writing. */
     const makeFile = async (username: string, label: string) => {
@@ -91,11 +92,26 @@ describe('a workspace cannot read its members data', () => {
         });
         teamUid = ((await res.json()) as { uid: string }).uid;
 
-        memberUsername = env.users.other.username;
+        // A real provisioned seat, activated so it can authenticate.
+        memberUsername = `iso_${Math.random().toString(36).slice(2, 9)}`;
+        await env.server.services.team.provisionAccount(
+            teamUid,
+            (await env.server.stores.user.getByUsername(
+                env.users.user.username,
+            ))!.id,
+            { username: memberUsername, email: `${memberUsername}@test.local` },
+        );
         const member = await env.server.stores.user.getByUsername(memberUsername);
-        await env.server.stores.team.addMember(teamUid, member!.id, {
-            orgOwned: true,
+        await env.server.stores.user.update(member!.id, {
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+            requires_password_change: 0,
         });
+        memberToken = (
+            await env.server.services.auth.createSessionToken(
+                (await env.server.stores.user.getByUsername(memberUsername))!,
+            )
+        ).token;
 
         memberFile = await makeFile(memberUsername, 'member');
         ownerFile = await makeFile(env.users.user.username, 'owner');
@@ -107,13 +123,13 @@ describe('a workspace cannot read its members data', () => {
 
     // -- refused ------------------------------------------------------
 
-    it('refuses the workspace owner a members file', async () => {
+    it('refuses the team owner a members file', async () => {
         const res = await stat(memberFile, env.users.user.token);
         // Administering, paying for, and reading an account are three things.
         expect(res.status).toBeGreaterThanOrEqual(400);
     });
 
-    it('refuses the workspace owner a members home directory', async () => {
+    it('refuses the team owner a members home directory', async () => {
         const res = await readdir(`/${memberUsername}`, env.users.user.token);
         expect(res.status).toBeGreaterThanOrEqual(400);
     });
@@ -124,7 +140,7 @@ describe('a workspace cannot read its members data', () => {
         expect(res.status).toBeGreaterThanOrEqual(400);
     });
 
-    it('grants no workspace-wide reach through the team routes', async () => {
+    it('grants no team-wide reach through the team routes', async () => {
         // There is no route to a member's files or KV, and none should appear.
         for (const path of [
             `/teams/${teamUid}/files`,
@@ -140,13 +156,13 @@ describe('a workspace cannot read its members data', () => {
 
     // -- allowed ------------------------------------------------------
 
-    it('lets the workspace owner read its own files', async () => {
+    it('lets the team owner read its own files', async () => {
         const res = await stat(ownerFile, env.users.user.token);
         expect(res.status).toBe(200);
     });
 
     it('lets a member read their own files', async () => {
-        const res = await stat(memberFile, env.users.other.token);
+        const res = await stat(memberFile, memberToken);
         expect(res.status).toBe(200);
     });
 
@@ -159,7 +175,7 @@ describe('a workspace cannot read its members data', () => {
             [memberFile],
         )) as { uuid: string }[];
 
-        // Only the member's own grant changes, never workspace authority.
+        // Only the member's own grant changes, never team authority.
         const before = await stat(memberFile, env.users.user.token);
         expect(before.status).toBeGreaterThanOrEqual(400);
 
@@ -190,10 +206,10 @@ describe('a workspace cannot read its members data', () => {
         );
 
         // The member loses access to their own files...
-        const asMember = await stat(untouched, env.users.other.token);
+        const asMember = await stat(untouched, memberToken);
         expect(asMember.status).toBeGreaterThanOrEqual(400);
 
-        // ...and the workspace still does not gain it.
+        // ...and the team still does not gain it.
         const asOwner = await stat(untouched, env.users.user.token);
         expect(asOwner.status).toBeGreaterThanOrEqual(400);
     });
