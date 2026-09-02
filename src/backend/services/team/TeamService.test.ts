@@ -67,7 +67,8 @@ describe('TeamService', () => {
     };
 
     beforeAll(async () => {
-        server = await setupTestServer();
+        // The policy and resolver are gated on the same flag as the routes.
+        server = await setupTestServer({ teams_enabled: true } as never);
         service = server.services.team;
         owner = await makeUser();
         ownerUsername = (await server.stores.user.getById(owner.id))!.username;
@@ -552,5 +553,140 @@ describe('TeamService', () => {
         // Older entries stay reachable instead of dropping off the view.
         const second = await service.listAudit(team.uid, owner.id, { limit: 1 });
         expect(second.items).toHaveLength(1);
+    });
+
+    // -- billing ------------------------------------------------------
+
+    it('resolves an org account to the workspace plan', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+        const u = `plan_${Math.random().toString(36).slice(2, 9)}`;
+        const provisioned = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+
+        const resolved = await service.planIdForOrgAccount({
+            user: { id: provisioned.userId },
+        } as never);
+        expect(resolved).toBe('team-member');
+    });
+
+    it('leaves the workspace owner on its own plan', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+
+        // org_owned = 0; the payer must not land on the plan they buy.
+        const resolved = await service.planIdForOrgAccount({
+            user: { id: owner.id },
+        } as never);
+        expect(resolved).toBeNull();
+    });
+
+    it('leaves a user outside any workspace alone', async () => {
+        const outsider = await makeUser();
+        const resolved = await service.planIdForOrgAccount({
+            user: { id: outsider.id },
+        } as never);
+        expect(resolved).toBeNull();
+    });
+
+    it('stamps free_storage from the plan at provisioning', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+        const u = `stor_${Math.random().toString(36).slice(2, 9)}`;
+        const provisioned = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+
+        // `free_storage` is the ceiling FSService actually compares against.
+        const row = await server.stores.user.getById(provisioned.userId);
+        expect(Number(row?.free_storage)).toBe(10 * 1024 * 1024 * 1024);
+    });
+
+    it('re-stamps every org account on a plan change, and nobody else', async () => {
+        const { team } = await makeWorkspace();
+        const u = `re_${Math.random().toString(36).slice(2, 9)}`;
+        const provisioned = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        const ownerBefore = (await server.stores.user.getById(owner.id))
+            ?.free_storage;
+
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+
+        const member = await server.stores.user.getById(provisioned.userId);
+        expect(Number(member?.free_storage)).toBe(10 * 1024 * 1024 * 1024);
+        const ownerAfter = (await server.stores.user.getById(owner.id))
+            ?.free_storage;
+        expect(ownerAfter).toBe(ownerBefore);
+    });
+
+    it('refuses a plan change from anyone but the workspace owner', async () => {
+        const { team, member } = await makeWorkspace();
+        await expect(
+            service.applyPlan(team.uid, member.id, 'team-member'),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('resolves through metering itself, not just the service method', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+        const u = `e2e_${Math.random().toString(36).slice(2, 9)}`;
+        const provisioned = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        const row = await server.stores.user.getById(provisioned.userId);
+
+        // Proves the resolver is registered, not merely that the method works.
+        const policy = await server.services.metering.getActorSubscription({
+            user: row,
+        } as never);
+        expect(policy.id).toBe('team-member');
+        // The name metering enforces on; another name leaves it undefined.
+        expect(policy.monthUsageAllowance).toBeGreaterThan(0);
+    });
+    it('lowers free_storage when the plan is cleared', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+        const u = `clr_${Math.random().toString(36).slice(2, 9)}`;
+        const p = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        expect(
+            Number((await server.stores.user.getById(p.userId))?.free_storage),
+        ).toBeGreaterThan(0);
+
+        await service.applyPlan(team.uid, owner.id, null);
+
+        // An early return here would leave them on the paid allowance.
+        expect(
+            (await server.stores.user.getById(p.userId))?.free_storage,
+        ).toBeNull();
+    });
+
+    it('refuses a plan id no policy is registered for', async () => {
+        const { team } = await makeWorkspace();
+        await expect(
+            service.applyPlan(team.uid, owner.id, 'team-membre'),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // The typo must not have been written.
+        const row = await server.stores.team.getByUid(team.uid);
+        expect(row?.plan_id).toBeNull();
+    });
+
+    it('records a plan change in the audit', async () => {
+        const { team } = await makeWorkspace();
+        await service.applyPlan(team.uid, owner.id, 'team-member');
+
+        const { items } = await service.listAudit(team.uid, owner.id);
+        const entry = items.find((e) => e.action === 'plan_change');
+        expect(entry).toBeTruthy();
+        expect(entry?.reason).toBe('team-member');
     });
 });

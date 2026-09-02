@@ -26,6 +26,8 @@ import {
     USERNAME_MAX_LENGTH,
     USERNAME_REGEX,
 } from '../../controllers/auth/AuthController.js';
+import type { Actor } from '../../core/actor.js';
+import { TEAM_MEMBER_POLICY } from '../../data/subPolicies/teamMemberPolicy.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { checkHandle } from '../../stores/team/TeamStore.js';
 import type {
@@ -56,6 +58,92 @@ export const generateTemporaryPassword = (length = 16): string => {
 export const DISABLED_BY_WORKSPACE = 'disabled_by_workspace';
 
 export class TeamService extends PuterService {
+    override async onServerStart(): Promise<void> {
+        // Same gate as the routes: with teams off this query can never hit.
+        if (this.config.teams_enabled !== true) return;
+
+        this.services.metering.registerPolicy(TEAM_MEMBER_POLICY);
+        // First non-empty answer wins, so this claims only org accounts.
+        this.services.metering.registerSubscriptionResolver((actor) =>
+            this.planIdForOrgAccount(actor),
+        );
+    }
+
+    // -- Billing ---- one allowance per account, no pool -----------------
+
+    /** Null for the workspace owner: it keeps the plan it pays for itself. */
+    async planIdForOrgAccount(actor: Actor): Promise<string | null> {
+        const userId = actor.user?.id;
+        if (!userId) return null;
+
+        // `pread` prefers the primary; a replica can re-cache the old plan.
+        const rows = (await this.clients.db.pread(
+            'SELECT g.`plan_id` FROM `group` g ' +
+                'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                'WHERE ug.`user_id` = ? AND ug.`org_owned` = 1 ' +
+                "AND g.`kind` = 'team' AND g.`deleted_at` IS NULL " +
+                'ORDER BY g.`id` LIMIT 1',
+            [userId],
+        )) as { plan_id: string | null }[];
+        return rows[0]?.plan_id || null;
+    }
+
+    /** `free_storage` is the per-account ceiling FSService compares against. */
+    async #stampStorage(userId: number, planId: string | null): Promise<void> {
+        const policy = planId
+            ? this.services.metering.getRegisteredPolicy(planId)
+            : undefined;
+        const bytes = (policy as { monthlyStorageAllowance?: number })
+            ?.monthlyStorageAllowance;
+        // NULL, not a skip: an early return would ratchet the ceiling upward.
+        await this.stores.user.update(userId, {
+            free_storage: typeof bytes === 'number' ? bytes : null,
+        });
+    }
+
+    /** Re-stamps every org account after a plan change; the owner is skipped. */
+    async applyPlan(
+        teamUid: string,
+        actorUserId: number,
+        planId: string | null,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        // Unvalidated, a typo silently downgrades every account to free.
+        if (planId && !this.services.metering.getRegisteredPolicy(planId)) {
+            throw new HttpError(400, 'Unknown plan', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (!(await this.stores.team.setPlan(teamUid, planId))) {
+            throw new HttpError(404, 'Workspace not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: actorUserId,
+            actorUserId,
+            action: 'plan_change',
+            reason: planId,
+        });
+
+        let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
+        for (;;) {
+            for (const member of page.items) {
+                if (Number(member.org_owned) !== 1) continue;
+                await this.#stampStorage(member.user_id, planId);
+                // Keyed by uuid, and announced to every node.
+                this.services.metering.invalidateActorSubscription(member.uuid);
+            }
+            if (!page.cursor) break;
+            page = await this.stores.team.listMembers(teamUid, {
+                limit: 200,
+                cursor: page.cursor,
+            });
+        }
+    }
+
     // -- Authority ---- the whole authorization model ------------------
 
     /** 404 to a non-member so the endpoint is not an existence oracle. */
@@ -405,6 +493,7 @@ export class TeamService extends PuterService {
             });
         }
 
+        await this.#stampStorage(user.id, team.plan_id);
         await this.stores.team.appendAudit({
             teamId: team.id,
             userId: user.id,

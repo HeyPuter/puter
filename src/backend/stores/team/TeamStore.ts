@@ -47,6 +47,7 @@ export interface TeamMemberRow {
     user_id: number;
     group_id: number;
     username: string;
+    uuid: string;
     org_owned: number;
     created_at: string;
 }
@@ -273,6 +274,15 @@ export class TeamStore extends PuterStore {
         return this.getByUid(uid);
     }
 
+    /** The plan every org account in this workspace resolves to. */
+    async setPlan(uid: string, planId: string | null): Promise<boolean> {
+        const result = await this.clients.db.write(
+            `UPDATE \`group\` SET \`plan_id\` = ? WHERE \`uid\` = ? AND ${this.#live()}`,
+            [planId, uid, TEAM_KIND],
+        );
+        return result.anyRowsAffected;
+    }
+
     /** Releases the handle, since nothing addresses by it; keeps `name`. */
     async softDelete(uid: string): Promise<boolean> {
         const result = await this.clients.db.write(
@@ -292,7 +302,7 @@ export class TeamStore extends PuterStore {
     ): Promise<TeamMemberRow | null> {
         const rows = await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
-                'ug.`created_at`, u.`username` FROM `jct_user_group` ug ' +
+                'ug.`created_at`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND ug.\`user_id\` = ? AND g.${this.#live()}`,
@@ -320,7 +330,7 @@ export class TeamStore extends PuterStore {
         // One row past the limit is how we know a further page exists.
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
-                'ug.`created_at`, u.`username` FROM `jct_user_group` ug ' +
+                'ug.`created_at`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND g.${this.#live()}` +
@@ -356,6 +366,17 @@ export class TeamStore extends PuterStore {
         userId: number,
         opts: { orgOwned: boolean },
     ): Promise<boolean> {
+        // A seat is created, never adopted; a password means it predates us.
+        if (opts.orgOwned) {
+            const rows = (await this.clients.db.read(
+                'SELECT 1 AS hit FROM `user` WHERE `id` = ? AND `password` IS NOT NULL LIMIT 1',
+                [userId],
+            )) as { hit: number }[];
+            if (rows.length > 0) {
+                throw new Error('cannot make an existing account a team seat');
+            }
+        }
+
         // Kind-filtered subquery, so a non-team uid inserts nothing.
         const result = await this.clients.db.write(
             `${this.clients.db.insertIgnoreInto('jct_user_group')} ` +
