@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SubscriptionCache } from './subscriptionCache.js';
 
 describe('answers', () => {
@@ -65,9 +65,11 @@ describe('invalidation', () => {
     it('cannot be walked backwards by a bump that arrives late', () => {
         const cache = new SubscriptionCache();
         cache.bump(1, 5);
-        cache.bump(1, 2);
+        // Captured as a lookup would, right after the generation that matters.
+        const epoch = cache.generationOf(1);
+        cache.bump(1, 2); // stale — must not undo generation 5's invalidation
 
-        cache.write(1, 5, true);
+        cache.write(1, epoch, true);
 
         expect(cache.read(1)).toBe(true);
     });
@@ -80,6 +82,60 @@ describe('invalidation', () => {
 
         expect(cache.read(1)).toBeNull();
         expect(cache.generationOf(1)).toBe(1);
+    });
+
+    it('does not let a number-less bump block a real one that follows it', () => {
+        // A number-less invalidation (`invalidateUser`'s bare call, or any
+        // other local reason to forget) must not plant a value a following
+        // *real* generation — a local subscribe's first-ever bump, often a
+        // small number — could compare behind and be ignored for. Mirrors a
+        // stale "nothing subscribed" answer surviving a subscribe that
+        // landed moments later.
+        const cache = new SubscriptionCache();
+        cache.write(1, cache.generationOf(1), false); // cached stale "false"
+        cache.bump(1); // e.g. a number-less invalidation
+        cache.write(1, cache.generationOf(1), false); // re-checked, still "false"
+
+        cache.bump(1, 1); // a real local publish landing shortly after
+
+        expect(cache.read(1)).toBeNull(); // forced to look again, not stuck
+    });
+});
+
+describe('cross-region generation mismatch', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('self-heals on a TTL even when a lower foreign generation is ignored', () => {
+        // A generation counter is region-local: a peer's bump can carry a
+        // number behind what this process already recorded for its own
+        // local traffic, purely because it was counted by a different
+        // counter. `bump()` treats that as already-applied and does not
+        // clear the cached answer — the TTL is what stops it surviving
+        // forever regardless.
+        const cache = new SubscriptionCache(10_000, 2_000);
+        cache.bump(1, 5); // a real local publish
+        cache.write(1, cache.generationOf(1), false); // cached under it
+
+        cache.bump(1, 1); // a peer's bump, numbered behind this process's own
+        expect(cache.read(1)).toBe(false); // not yet invalidated by number
+
+        vi.advanceTimersByTime(2_001);
+        expect(cache.read(1)).toBeNull(); // but stale past the TTL
+    });
+
+    it('keeps answering within the TTL without a bump at all', () => {
+        const cache = new SubscriptionCache(10_000, 2_000);
+        cache.write(1, 0, true);
+
+        vi.advanceTimersByTime(1_000);
+
+        expect(cache.read(1)).toBe(true);
     });
 });
 

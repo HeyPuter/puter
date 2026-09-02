@@ -51,6 +51,16 @@ const userWindow = (
 export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
 
 /**
+ * Durable subscriptions one account may hold, across every app.
+ *
+ * These are table rows that keep costing after the client that made them is
+ * gone — a delivery each time their anchor changes, and a cache entry in every
+ * region that sees a write. Counted over the holder index. Per-plan tiering
+ * arrives with the metering that prices them.
+ */
+export const EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER = 500;
+
+/**
  * Subscribe + unsubscribe calls per minute, per user.
  *
  * Both resolve a path and take a write, so a loop over them is a write loop.
@@ -58,6 +68,12 @@ export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
  * client sets its subscriptions up once and then leaves them alone.
  */
 export const EVENTS_SUBSCRIBE_LIMIT = userWindow('events:subscribe', 60);
+
+/**
+ * Subscription listings per minute, per user. Reads an index and returns one
+ * page, so it is budgeted well above the verbs that write.
+ */
+export const EVENTS_LIST_LIMIT = userWindow('events:list', 120);
 
 // -- Dispatch fan-out ------------------------------------------------
 

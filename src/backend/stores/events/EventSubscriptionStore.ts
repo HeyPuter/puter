@@ -19,14 +19,19 @@
 
 import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { FsOp } from '../../services/events/subjects.js';
-import type { AclMode } from '../../services/acl/ACLService.js';
 import { PuterStore } from '../types.js';
+import type {
+    DispatchSubscription,
+    DurableSubscription,
+    GenerationBump,
+    SessionSubscription,
+} from './types.js';
 
 /**
- * Session subscriptions: Redis only, keyed to the socket that holds them, gone
- * when it disconnects. Nothing here outlives a connection, so none of it
- * belongs in a table.
+ * The region's subscription keyspace. Session rows live here and nowhere else —
+ * keyed to the socket that holds them, gone when it disconnects — and durable
+ * rows are cached here over the table that owns them, so dispatch reads one
+ * place whichever kind answered.
  *
  * Rows are indexed by the **owner of the anchor node**, not by the subscriber:
  * dispatch knows only whose resource changed, and a subscription on a folder
@@ -42,6 +47,8 @@ import { PuterStore } from '../types.js';
  *     ev:t:{<ownerId>}:<token>     HASH  subId -> row, for one watched token
  *     ev:s:{<holderId>}:<socketId> SET   what this socket holds, for reaping
  *     ev:g:{<ownerId>}             STR   subscription-set generation
+ *     ev:dm:{<ownerId>}            HASH  subId -> token, durable rows cached here
+ *     ev:dw:{<ownerId>}            STR   this region's durable cache is warm
  *
  * The socket set is the one keyed by the holder — it is read on disconnect,
  * when all that is known is whose connection went — so its members name the
@@ -56,37 +63,21 @@ import { PuterStore } from '../types.js';
  * disconnect handler leaves keys behind, and the TTL is what collects them — a
  * live socket refreshes its own, so the backstop only ever fires on rows whose
  * socket is gone.
+ *
+ * Durable rows share the row hash and the watched set rather than getting their
+ * own: `ev:w` is the one key on the hot path, and a token still wanted by a
+ * durable row has to stay in it when a session row on the same anchor goes —
+ * which the existing "drop the token once its hash is empty" rule gets right
+ * for free. What durable rows add is the warm marker, which is how a region
+ * tells "nobody is subscribed" apart from "this region has not looked yet".
  */
 
-// -- Types ------------------------------------------------------------
-
-export interface SessionSubscription {
-    subId: string;
-    socketId: string;
-    /** Who subscribed: the delivery target, and whose access is re-checked. */
-    holderUserId: number;
-    /** Owner of the anchor node: the keyspace this row is indexed in. */
-    ownerUserId: number;
-    /** The subject as the client asked for it. */
-    subject: string;
-    /** Anchor token the row is indexed under. */
-    token: string;
-    anchorUid: string;
-    anchorPath: string;
-    /** Glob relative to the anchor, or `null` for a node-form subscription. */
-    match: string | null;
-    op: FsOp | null;
-    /** The app that created the row, and the scope of the three verbs. */
-    appUid: string | null;
-    /** ACL mode the subscribe check passed under; re-checked per delivery. */
-    permission: AclMode;
-}
-
-/** One owner's generation after a change to the set of rows keyed under them. */
-export interface GenerationBump {
-    userId: number;
-    generation: number;
-}
+export type {
+    DispatchSubscription,
+    DurableSubscription,
+    GenerationBump,
+    SessionSubscription,
+} from './types.js';
 
 // -- Keys -------------------------------------------------------------
 
@@ -96,6 +87,8 @@ const tokenKey = (userId: number | string, token: string): string =>
 const socketKey = (userId: number | string, socketId: string): string =>
     `ev:s:{${userId}}:${socketId}`;
 const generationKey = (userId: number | string): string => `ev:g:{${userId}}`;
+const durableMapKey = (userId: number | string): string => `ev:dm:{${userId}}`;
+const durableWarmKey = (userId: number | string): string => `ev:dw:{${userId}}`;
 
 /** `ev:s` members name the row they point at, and the keyspace it is in. */
 interface SocketRef {
@@ -143,6 +136,17 @@ export const SESSION_SUBSCRIPTION_TTL_SECONDS = 60 * 60;
  * again.
  */
 const GENERATION_TTL_SECONDS = 24 * 60 * 60;
+
+/** How long a cached durable row stays readable without being rebuilt. */
+export const DURABLE_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * How long a region trusts its durable cache before reading the table again.
+ * Strictly under the session TTL, because a session refresh re-expires the
+ * shared keys down to that — so the marker always lapses first and a rebuild
+ * always precedes a row quietly expiring out from under it.
+ */
+export const DURABLE_WARM_TTL_SECONDS = 30 * 60;
 
 const subscriptionLimitReached = (): HttpError =>
     new HttpError(
@@ -240,12 +244,7 @@ export class EventSubscriptionStore extends PuterStore {
         return bumps;
     }
 
-    /**
-     * Remove rows and then any token whose rows are all gone. The token leaves
-     * the watched set only once its hash is empty, which is what keeps one
-     * socket's unsubscribe from silencing another's subscription on the same
-     * anchor.
-     */
+    /** Forget a socket's refs, then the rows they point at. */
     async #dropRefs(
         holderUserId: number,
         socketId: string,
@@ -256,27 +255,37 @@ export class EventSubscriptionStore extends PuterStore {
             ...refs.map(socketRef),
         );
 
-        for (const [ownerUserId, owned] of byOwner(refs)) {
-            const drop = this.clients.redis.pipeline();
-            for (const { token, subId } of owned)
-                drop.hdel(tokenKey(ownerUserId, token), subId);
-            await drop.exec();
+        for (const [ownerUserId, owned] of byOwner(refs))
+            await this.#dropRows(ownerUserId, owned);
+    }
 
-            const tokens = [...new Set(owned.map((ref) => ref.token))];
-            const counts = this.clients.redis.pipeline();
-            for (const token of tokens)
-                counts.hlen(tokenKey(ownerUserId, token));
-            const results = (await counts.exec()) ?? [];
+    /**
+     * Drop rows from one owner's keyspace and then any token whose rows are all
+     * gone. Emptiness is what un-watches a token, which is what keeps one
+     * socket's unsubscribe — or a durable row's removal — from silencing
+     * another subscription on the same anchor.
+     */
+    async #dropRows(
+        ownerUserId: number,
+        rows: ReadonlyArray<{ token: string; subId: string }>,
+    ): Promise<void> {
+        if (rows.length === 0) return;
 
-            const orphaned = tokens.filter(
-                (_token, i) => Number(results[i]?.[1] ?? 0) === 0,
-            );
-            if (orphaned.length > 0)
-                await this.clients.redis.srem(
-                    watchedKey(ownerUserId),
-                    ...orphaned,
-                );
-        }
+        const drop = this.clients.redis.pipeline();
+        for (const { token, subId } of rows)
+            drop.hdel(tokenKey(ownerUserId, token), subId);
+        await drop.exec();
+
+        const tokens = [...new Set(rows.map((row) => row.token))];
+        const counts = this.clients.redis.pipeline();
+        for (const token of tokens) counts.hlen(tokenKey(ownerUserId, token));
+        const results = (await counts.exec()) ?? [];
+
+        const orphaned = tokens.filter(
+            (_token, i) => Number(results[i]?.[1] ?? 0) === 0,
+        );
+        if (orphaned.length > 0)
+            await this.clients.redis.srem(watchedKey(ownerUserId), ...orphaned);
     }
 
     /**
@@ -308,6 +317,96 @@ export class EventSubscriptionStore extends PuterStore {
         }
     }
 
+    // -- Durable rows in the region cache ----------------------------
+
+    /**
+     * Cache durable rows so dispatch finds them without the table. Ordering
+     * matches `add`: rows land before their tokens join the watched set.
+     */
+    async cacheDurable(rows: readonly DurableSubscription[]): Promise<void> {
+        if (rows.length === 0) return;
+        const ownerUserId = rows[0].ownerUserId;
+
+        const write = this.clients.redis.pipeline();
+        for (const row of rows) {
+            const key = tokenKey(ownerUserId, row.token);
+            write.hset(key, row.subId, JSON.stringify(row));
+            write.expire(key, DURABLE_CACHE_TTL_SECONDS);
+            write.hset(durableMapKey(ownerUserId), row.subId, row.token);
+        }
+        write.sadd(watchedKey(ownerUserId), ...rows.map((row) => row.token));
+        write.expire(watchedKey(ownerUserId), DURABLE_CACHE_TTL_SECONDS);
+        write.expire(durableMapKey(ownerUserId), DURABLE_CACHE_TTL_SECONDS);
+        await write.exec();
+    }
+
+    /** Forget one cached durable row, un-watching its token if it was the last. */
+    async dropDurable(row: {
+        ownerUserId: number;
+        token: string;
+        subId: string;
+    }): Promise<void> {
+        await this.clients.redis.hdel(
+            durableMapKey(row.ownerUserId),
+            row.subId,
+        );
+        await this.#dropRows(row.ownerUserId, [
+            { token: row.token, subId: row.subId },
+        ]);
+    }
+
+    /**
+     * Replace everything this region has cached for one owner. Rows that are no
+     * longer in the table go, which is how an unsubscribe taken in another
+     * region eventually stops delivering here.
+     */
+    async rebuildDurable(
+        ownerUserId: number,
+        rows: readonly DurableSubscription[],
+    ): Promise<void> {
+        const cached = await this.clients.redis.hgetall(
+            durableMapKey(ownerUserId),
+        );
+        const fresh = new Set(rows.map((row) => row.subId));
+        const stale = Object.entries(cached ?? {})
+            .filter(([subId]) => !fresh.has(subId))
+            .map(([subId, token]) => ({ subId, token: String(token) }));
+
+        if (stale.length > 0) {
+            await this.clients.redis.hdel(
+                durableMapKey(ownerUserId),
+                ...stale.map((row) => row.subId),
+            );
+            await this.#dropRows(ownerUserId, stale);
+        }
+        await this.cacheDurable(rows);
+        await this.markRegionWarm(ownerUserId);
+    }
+
+    /** Whether this region has read the table for this owner recently. */
+    async isRegionWarm(ownerUserId: number): Promise<boolean> {
+        return (
+            (await this.clients.redis.exists(durableWarmKey(ownerUserId))) === 1
+        );
+    }
+
+    async markRegionWarm(ownerUserId: number): Promise<void> {
+        await this.clients.redis.set(
+            durableWarmKey(ownerUserId),
+            '1',
+            'EX',
+            DURABLE_WARM_TTL_SECONDS,
+        );
+    }
+
+    /**
+     * Force the next dispatch in this region to read the table again. What a
+     * generation bump from anywhere lands on.
+     */
+    async markRegionCold(ownerUserId: number): Promise<void> {
+        await this.clients.redis.del(durableWarmKey(ownerUserId));
+    }
+
     // -- Reads -------------------------------------------------------
 
     /**
@@ -334,22 +433,22 @@ export class EventSubscriptionStore extends PuterStore {
         return tokens.filter((_token, i) => Number(flags[i]) === 1);
     }
 
-    /** The rows behind a set of watched tokens. */
+    /** The rows behind a set of watched tokens, session and durable alike. */
     async getForTokens(
         ownerUserId: number,
         tokens: readonly string[],
-    ): Promise<SessionSubscription[]> {
+    ): Promise<DispatchSubscription[]> {
         if (tokens.length === 0) return [];
         const pipeline = this.clients.redis.pipeline();
         for (const token of tokens)
             pipeline.hvals(tokenKey(ownerUserId, token));
         const results = (await pipeline.exec()) ?? [];
 
-        const subs: SessionSubscription[] = [];
+        const subs: DispatchSubscription[] = [];
         for (const [, raw] of results) {
             for (const row of (raw as string[] | null) ?? []) {
                 try {
-                    subs.push(JSON.parse(row) as SessionSubscription);
+                    subs.push(JSON.parse(row) as DispatchSubscription);
                 } catch {
                     // A row we cannot read is a row we cannot deliver against.
                 }
@@ -374,7 +473,12 @@ export class EventSubscriptionStore extends PuterStore {
             const rows = await this.getForTokens(ownerUserId, [
                 ...new Set(owned.map((ref) => ref.token)),
             ]);
-            held.push(...rows.filter((row) => wanted.has(row.subId)));
+            held.push(
+                ...rows.filter(
+                    (row): row is SessionSubscription =>
+                        wanted.has(row.subId) && row.socketId !== undefined,
+                ),
+            );
         }
         return held;
     }

@@ -30,12 +30,23 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     SESSION_SUBSCRIPTION_TTL_SECONDS,
+    type DispatchSubscription,
+    type DurableSubscription,
     type GenerationBump,
     type SessionSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
+import {
+    isSubscriptionTarget,
+    type SubscriptionTarget,
+} from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import type { ResourceDescriptor } from '../acl/ACLService.js';
+import type { PageResult } from '../../util/pagination.js';
+import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
+import {
+    appSocketRoom,
+    type SocketSpecifier,
+} from '../socket/SocketService.js';
 import { PuterService } from '../types.js';
 import { resolveFsAnchor, type FsAnchorDeps } from './anchors.js';
 import {
@@ -55,6 +66,7 @@ import {
 } from './matcher.js';
 import {
     lookupPublicSubject,
+    type DeliveryClass,
     type EventContext,
     type ProjectedEvent,
     type PublicSubject,
@@ -94,6 +106,21 @@ export interface UnsubscribeRequest {
     subId?: unknown;
 }
 
+/** Body of `POST /events/subscribe`. */
+export interface DurableSubscribeRequest extends SubscribeRequest {
+    delivery?: unknown;
+    targets?: unknown;
+    handlerName?: unknown;
+    context?: unknown;
+    expiresAt?: unknown;
+}
+
+export interface DurableListRequest {
+    limit?: number;
+    cursor?: string;
+    includeTotal?: boolean;
+}
+
 /** What a client gets back for a subscription it just made. */
 export interface SubscriptionView {
     subId: string;
@@ -101,6 +128,22 @@ export interface SubscriptionView {
     anchor: { uid: string; path: string };
     match: string | null;
     op: FsOp | null;
+}
+
+/**
+ * A durable row as its holder sees it. `context` is deliberately absent: it is
+ * read on the delivery path and nowhere else, and a listing is the one surface
+ * an app can call repeatedly.
+ */
+export interface DurableSubscriptionView extends SubscriptionView {
+    delivery: DeliveryClass;
+    targets: SubscriptionTarget[];
+    handlerName: string | null;
+    appUid: string | null;
+    createdAt: number;
+    expiresAt: number | null;
+    suspendedAt: number | null;
+    suspendedReason: string | null;
 }
 
 export type VerbAck<T extends object> =
@@ -132,9 +175,9 @@ export interface DeliveryEnvelope {
     event: ProjectedEvent | GapMarker;
 }
 
-/** The envelope plus where it goes. The socket id is not part of the wire. */
+/** The envelope plus where it goes. The address is not part of the wire. */
 interface AddressedDelivery {
-    socketId: string;
+    target: SocketSpecifier;
     envelope: DeliveryEnvelope;
 }
 
@@ -156,6 +199,18 @@ export interface FsDispatchOptions {
 export const EVENTS_SUBSCRIBE_VERB = 'events.subscribe';
 export const EVENTS_UNSUBSCRIBE_VERB = 'events.unsubscribe';
 export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
+
+// -- Expiry sweep -----------------------------------------------------
+
+/** An expiry is a date, not a deadline, so hourly is close enough. */
+const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+// The first pass lands within this long of boot, so a fleet that redeploys more
+// often than the interval still sweeps.
+const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
+/** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
+const EXPIRY_BATCH_SIZE = 500;
+/** Batches one sweep takes, so a large backlog drains over several passes. */
+const EXPIRY_MAX_BATCHES = 50;
 
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
@@ -181,6 +236,15 @@ const tooManyCalls = (): HttpError =>
         legacyCode: 'too_many_requests',
     });
 
+/** Stands until there is a pending-delivery store to take a `single` lease. */
+const deliveryClassUnavailable = (): HttpError =>
+    new HttpError(501, 'Delivery class `single` is not available yet', {
+        legacyCode: 'delivery_class_unavailable',
+    });
+
+const badRequest = (message: string, code: string): HttpError =>
+    new HttpError(400, message, { legacyCode: code });
+
 const errorAck = (err: unknown): VerbAck<never> => {
     if (err instanceof HttpError)
         return {
@@ -196,7 +260,7 @@ const errorAck = (err: unknown): VerbAck<never> => {
     };
 };
 
-const toView = (sub: SessionSubscription): SubscriptionView => ({
+const toView = (sub: DispatchSubscription): SubscriptionView => ({
     subId: sub.subId,
     subject: sub.subject,
     anchor: { uid: sub.anchorUid, path: sub.anchorPath },
@@ -204,15 +268,132 @@ const toView = (sub: SessionSubscription): SubscriptionView => ({
     op: sub.op,
 });
 
+const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
+    ...toView(sub),
+    delivery: sub.delivery,
+    targets: sub.targets,
+    handlerName: sub.handlerName,
+    appUid: sub.appUid,
+    createdAt: sub.createdAt,
+    expiresAt: sub.expiresAt,
+    suspendedAt: sub.suspendedAt,
+    suspendedReason: sub.suspendedReason,
+});
+
 /** Coalescing is per (subscription, subject), which is what the key says. */
 const coalesceKey = (subId: string, subject: string): string =>
     `${subId}|${subject}`;
 
+/**
+ * Where one row's deliveries go. A session row is addressed at the connection
+ * that made it. A durable row has no connection to name, so it is addressed at
+ * a room: the app's own room for a row an app created, and the holder's user
+ * room for one their session created — which is every desktop tab they have
+ * open, and the only handle that reaches an account rather than a connection.
+ */
+const deliveryTarget = (row: DispatchSubscription): SocketSpecifier => {
+    if (row.socketId !== undefined) return { socket: row.socketId };
+    return {
+        room: row.appUid
+            ? appSocketRoom(row.holderUserId, row.appUid)
+            : String(row.holderUserId),
+    };
+};
+
+/**
+ * Rows this pass can actually deliver. Durable `single` rows need the pending
+ * store to take a lease, and a row with no socket target has asked not to be
+ * delivered over one.
+ */
+const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+/** Past `expiresAt` a durable row is finished, sweep or no sweep. */
+const unexpired = (row: DispatchSubscription): boolean => {
+    if (row.durable !== true) return true;
+    const { expiresAt } = row as DurableSubscription;
+    return expiresAt === null || expiresAt > nowSeconds();
+};
+
+const deliverableOverSockets = (row: DispatchSubscription): boolean =>
+    unexpired(row) &&
+    (row.durable !== true ||
+        (row.delivery === 'broadcast' &&
+            (row.targets ?? []).includes('socket')));
+
+// -- Durable request parsing ------------------------------------------
+
+/** Transports a durable row takes unless the caller says otherwise. */
+const DEFAULT_DURABLE_TARGETS: SubscriptionTarget[] = ['socket', 'worker'];
+
+/** Longest a `handlerName` may be, matching the column that holds it. */
+const HANDLER_NAME_MAX_LENGTH = 128;
+
+const parseDelivery = (value: unknown): DeliveryClass => {
+    if (value === undefined || value === null || value === 'broadcast')
+        return 'broadcast';
+    // Creatable but inert is worse than refused: a `single` row would take a
+    // lease nothing in this build can settle.
+    if (value === 'single') throw deliveryClassUnavailable();
+    throw badRequest(`Unknown delivery class: ${String(value)}`, 'bad_request');
+};
+
+const parseTargets = (value: unknown): SubscriptionTarget[] => {
+    if (value === undefined || value === null) return DEFAULT_DURABLE_TARGETS;
+    if (!Array.isArray(value) || value.length === 0)
+        throw badRequest(
+            'targets must be a non-empty array',
+            'invalid_targets',
+        );
+    if (!value.every(isSubscriptionTarget))
+        throw badRequest('Unknown delivery target', 'invalid_targets');
+    return [...new Set(value)];
+};
+
+const parseHandlerName = (value: unknown): string | null => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'string' || value.length === 0)
+        throw badRequest('handlerName must be a string', 'bad_request');
+    if (value.length > HANDLER_NAME_MAX_LENGTH)
+        throw badRequest(
+            `handlerName may not exceed ${HANDLER_NAME_MAX_LENGTH} characters`,
+            'bad_request',
+        );
+    return value;
+};
+
+/** Stored as JSON text; the byte cap is the store's to enforce. */
+const parseContext = (value: unknown): string | null => {
+    if (value === undefined || value === null) return null;
+    try {
+        return JSON.stringify(value);
+    } catch {
+        throw badRequest('context must be JSON-serializable', 'bad_request');
+    }
+};
+
+/** Unix seconds or an ISO-8601 string, and it has to be in the future. */
+const parseExpiresAt = (value: unknown): number | null => {
+    if (value === undefined || value === null) return null;
+    const seconds =
+        typeof value === 'number'
+            ? Math.floor(value)
+            : Math.floor(Date.parse(String(value)) / 1000);
+    if (!Number.isFinite(seconds) || seconds <= Math.floor(Date.now() / 1000))
+        throw badRequest(
+            'expiresAt must be a future time',
+            'invalid_expires_at',
+        );
+    return seconds;
+};
+
 export class EventsService extends PuterService {
     readonly #cache = new SubscriptionCache();
     readonly #compiled = new Map<string, CompiledMatch>();
+    readonly #lookups = new Map<string, Promise<boolean>>();
     readonly #refreshTimers = new Map<string, ReturnType<typeof setInterval>>();
     #coalescer: DeliveryCoalescer<AddressedDelivery> | null = null;
+    #expirySweep: ReturnType<typeof setInterval> | null = null;
+    #expiryKick: ReturnType<typeof setTimeout> | null = null;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -223,14 +404,22 @@ export class EventsService extends PuterService {
                 // Our own emit reaches local listeners too, and that half has
                 // already been applied.
                 if (!(meta as { from_outside?: boolean })?.from_outside) return;
-                const { userId, generation } = (data ?? {}) as {
+                const { userId, durable } = (data ?? {}) as {
                     userId?: number;
-                    generation?: number;
+                    durable?: boolean;
                 };
                 if (typeof userId !== 'number') return;
-                this.#cache.bump(userId, generation);
+                this.invalidateUser(userId, { rebuild: durable === true });
             },
         );
+        this.#armExpirySweep();
+    }
+
+    override onServerPrepareShutdown(): void {
+        if (this.#expiryKick) clearTimeout(this.#expiryKick);
+        this.#expiryKick = null;
+        if (this.#expirySweep) clearInterval(this.#expirySweep);
+        this.#expirySweep = null;
     }
 
     override onServerShutdown(): void {
@@ -312,45 +501,13 @@ export class EventsService extends PuterService {
         await this.#spendCallBudget(holderUserId);
 
         const rawSubject = String(request?.subject ?? '');
-        const parsed = parseSubject(rawSubject);
-        if (parsed.family !== 'fs')
-            throw new HttpError(
-                400,
-                `Subject family not subscribable yet: ${parsed.family}`,
-                { legacyCode: 'invalid_subject' },
-            );
-
-        const anchor = await resolveFsAnchor(parsed, this.#anchorDeps(), {
-            username: actor.user?.username,
-        });
-
-        // The resolver answers where a subscription keys, not whose it is, so
-        // the owner comes from the anchor node itself — and that is the
-        // keyspace the row is indexed in, because dispatch only ever knows
-        // whose resource changed.
-        const entry = await resolveNode(this.stores.fsEntry, {
-            uid: anchor.uid,
-        });
-        if (!entry)
-            throw new HttpError(404, `No such entry: ${anchor.path}`, {
-                legacyCode: 'subject_does_not_exist',
-            });
-        const permission = await assertSubscribeAuthorized(
-            actor,
-            { uid: anchor.uid, path: anchor.path },
-            rawSubject,
-            this.#aclDeps(),
-        );
-
-        // Compile now so an unusable pattern fails this call rather than every
-        // event under the anchor.
-        if (anchor.match) compileMatch(anchor.match);
+        const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
         const sub: SessionSubscription = {
             subId: randomUUID(),
             socketId,
             holderUserId,
-            ownerUserId: entry.userId,
+            ownerUserId: anchor.ownerUserId,
             subject: rawSubject,
             token: anchor.token,
             anchorUid: anchor.uid,
@@ -358,11 +515,11 @@ export class EventsService extends PuterService {
             match: anchor.match,
             op: anchor.op,
             appUid: actor.effectiveApp?.uid ?? null,
-            permission,
+            permission: anchor.permission,
         };
 
         const bump = await this.stores.eventSubscription.add(sub);
-        this.#publishGeneration(bump);
+        this.#publishGeneration(bump, false);
         this.#startRefresh(holderUserId, socketId);
 
         return { sub: toView(sub) };
@@ -393,7 +550,7 @@ export class EventsService extends PuterService {
 
         const bump = await this.stores.eventSubscription.remove(sub);
         this.#forget(subId);
-        this.#publishGeneration(bump);
+        this.#publishGeneration(bump, false);
     }
 
     /** What this actor holds on one connection, scoped to what it may see. */
@@ -410,6 +567,190 @@ export class EventsService extends PuterService {
             socketId,
         );
         return held.filter((sub) => rowInActorScope(actor, sub)).map(toView);
+    }
+
+    // -- Durable subscriptions ---------------------------------------
+
+    /**
+     * Register a subscription that outlives the connection that made it. Same
+     * subject resolution and same ACL check as the session verb — what differs
+     * is where the row lands and who it is later addressed as.
+     */
+    async subscribeDurable(
+        actor: Actor,
+        request: DurableSubscribeRequest,
+    ): Promise<{ sub: DurableSubscriptionView }> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+
+        await this.#spendCallBudget(holderUserId);
+
+        const delivery = parseDelivery(request?.delivery);
+        const targets = parseTargets(request?.targets);
+        const handlerName = parseHandlerName(request?.handlerName);
+        const context = parseContext(request?.context);
+        const expiresAt = parseExpiresAt(request?.expiresAt);
+
+        const rawSubject = String(request?.subject ?? '');
+        const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
+
+        const { row, bump } = await this.stores.durableSubscription.create({
+            holderUserId,
+            ownerUserId: anchor.ownerUserId,
+            appUid: actor.effectiveApp?.uid ?? null,
+            subject: rawSubject,
+            token: anchor.token,
+            anchorUid: anchor.uid,
+            anchorPath: anchor.path,
+            match: anchor.match,
+            op: anchor.op,
+            delivery,
+            targets,
+            handlerName,
+            context,
+            permission: anchor.permission,
+            expiresAt,
+        });
+        this.#publishGeneration(bump, true);
+
+        return { sub: toDurableView(row) };
+    }
+
+    /**
+     * What this actor holds durably. An app-context actor is confined to its
+     * own rows by the index the query runs on; an account-context one sees
+     * across apps, which is what makes the account the revoke surface for a row
+     * whose app is long gone.
+     */
+    async listDurable(
+        actor: Actor,
+        request: DurableListRequest = {},
+    ): Promise<PageResult<DurableSubscriptionView>> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+
+        const app = actor.effectiveApp;
+        // Unresolved is not "no app" — reading it that way is what would hand
+        // an app the account-wide view.
+        if (app === undefined) return { items: [] };
+
+        const page = await this.stores.durableSubscription.listForHolder(
+            holderUserId,
+            {
+                appUid: app?.uid ?? null,
+                limit: request.limit,
+                cursor: request.cursor,
+                includeTotal: request.includeTotal,
+            },
+        );
+        return {
+            items: page.items.map(toDurableView),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        };
+    }
+
+    async unsubscribeDurable(
+        actor: Actor,
+        request: UnsubscribeRequest,
+    ): Promise<void> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+
+        await this.#spendCallBudget(holderUserId);
+
+        const subId = String(request?.subId ?? '');
+        if (!subId) throw unknownSubscription();
+
+        const row = await this.stores.durableSubscription.getBySubId(subId);
+        // Someone else's id — or one another app created — reads as absent
+        // rather than refused: a 403 here is an oracle for subIds.
+        if (
+            !row ||
+            row.holderUserId !== holderUserId ||
+            !rowInActorScope(actor, row)
+        )
+            throw unknownSubscription();
+
+        const bump = await this.stores.durableSubscription.remove(row);
+        this.#forget(subId);
+        this.#publishGeneration(bump, true);
+    }
+
+    /**
+     * Drop rows past their expiry, in batches, and report how many went. Every
+     * node sweeps; the delete is idempotent, so two overlapping costs a few
+     * empty batches rather than correctness.
+     */
+    async sweepExpired(): Promise<number> {
+        if (!this.enabled) return 0;
+        let removed = 0;
+        for (let pass = 0; pass < EXPIRY_MAX_BATCHES; pass++) {
+            const batch =
+                await this.stores.durableSubscription.sweepExpired(
+                    EXPIRY_BATCH_SIZE,
+                );
+            removed += batch;
+            if (batch < EXPIRY_BATCH_SIZE) break;
+        }
+        return removed;
+    }
+
+    /**
+     * Resolve, authorize and compile one subscribe request. Shared so a durable
+     * row cannot be created under a weaker check than a session one.
+     */
+    async #resolveSubscribeAnchor(
+        actor: Actor,
+        rawSubject: string,
+    ): Promise<{
+        token: string;
+        uid: string;
+        path: string;
+        match: string | null;
+        op: FsOp | null;
+        ownerUserId: number;
+        permission: AclMode;
+    }> {
+        const parsed = parseSubject(rawSubject);
+        if (parsed.family !== 'fs')
+            throw new HttpError(
+                400,
+                `Subject family not subscribable yet: ${parsed.family}`,
+                { legacyCode: 'invalid_subject' },
+            );
+
+        const anchor = await resolveFsAnchor(parsed, this.#anchorDeps(), {
+            username: actor.user?.username,
+        });
+
+        // The resolver answers where a subscription keys, not whose it is, so
+        // the owner comes from the anchor node itself — and that is the
+        // keyspace the row is indexed in, because dispatch only ever knows
+        // whose resource changed.
+        const entry = await resolveNode(this.stores.fsEntry, {
+            uid: anchor.uid,
+        });
+        if (!entry)
+            throw new HttpError(404, `No such entry: ${anchor.path}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+
+        const permission = await assertSubscribeAuthorized(
+            actor,
+            { uid: anchor.uid, path: anchor.path },
+            rawSubject,
+            this.#aclDeps(),
+        );
+
+        // Compile now so an unusable pattern fails this call rather than every
+        // event under the anchor.
+        if (anchor.match) compileMatch(anchor.match);
+
+        return { ...anchor, ownerUserId: entry.userId, permission };
     }
 
     /** Disconnect handler; also covers a socket the server dropped. */
@@ -429,7 +770,7 @@ export class EventsService extends PuterService {
                 holderUserId,
                 socketId,
             );
-            for (const bump of bumps) this.#publishGeneration(bump);
+            for (const bump of bumps) this.#publishGeneration(bump, false);
         } catch (err) {
             // The TTL backstop exists for exactly this.
             console.warn('[events] failed to reap socket subscriptions', err);
@@ -484,9 +825,12 @@ export class EventsService extends PuterService {
     async #route(
         subject: PublicSubject,
         context: EventContext,
-        rows: SessionSubscription[],
+        candidates: DispatchSubscription[],
         actingUserId: number | undefined,
     ): Promise<void> {
+        const rows = candidates.filter(deliverableOverSockets);
+        if (rows.length === 0) return;
+
         // One throwaway projection reads the op off the registry entry rather
         // than re-deriving it from the subject string.
         const { op } = subject.project({ ...context, self: false, seq: 0 });
@@ -513,7 +857,7 @@ export class EventsService extends PuterService {
                 seq: seq++,
             });
             this.#coalesce().push(coalesceKey(row.subId, event.subject), {
-                socketId: row.socketId,
+                target: deliveryTarget(row),
                 envelope: { subId: row.subId, event },
             });
         }
@@ -540,7 +884,7 @@ export class EventsService extends PuterService {
     }
 
     /** Op filter first — a comparison, where the glob is not. */
-    #passes(row: SessionSubscription, op: FsOp, matchOn: string): boolean {
+    #passes(row: DispatchSubscription, op: FsOp, matchOn: string): boolean {
         if (row.op !== null && row.op !== op) return false;
         if (!row.match) return true;
 
@@ -560,9 +904,9 @@ export class EventsService extends PuterService {
      * and rows that share an identity and a grant share one decision.
      */
     async #stillAuthorized(
-        rows: SessionSubscription[],
+        rows: DispatchSubscription[],
         context: EventContext,
-    ): Promise<SessionSubscription[]> {
+    ): Promise<DispatchSubscription[]> {
         if (rows.length === 0) return rows;
 
         const node = this.#eventDescriptor(context);
@@ -593,7 +937,7 @@ export class EventsService extends PuterService {
         );
     }
 
-    #matcherFor(row: SessionSubscription): CompiledMatch {
+    #matcherFor(row: DispatchSubscription): CompiledMatch {
         const cached = this.#compiled.get(row.subId);
         if (cached && cached.pattern === row.match) return cached;
         const compiled = compileMatch(row.match as string);
@@ -602,14 +946,14 @@ export class EventsService extends PuterService {
     }
 
     #gap(
-        rows: SessionSubscription[],
+        rows: DispatchSubscription[],
         subject: PublicSubject,
         context: EventContext,
         reason: GapReason,
     ): void {
         for (const row of rows)
             this.#send({
-                socketId: row.socketId,
+                target: deliveryTarget(row),
                 envelope: {
                     subId: row.subId,
                     event: {
@@ -646,7 +990,7 @@ export class EventsService extends PuterService {
             }
             const event = delivery.envelope.event as ProjectedEvent;
             this.#send({
-                socketId: delivery.socketId,
+                target: delivery.target,
                 envelope: {
                     subId: delivery.envelope.subId,
                     event: {
@@ -664,14 +1008,15 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * Addressed at the socket's own id, which socket.io joins every socket to —
-     * so the adapter carries it to whichever node terminates the connection.
+     * Addressed at a socket id — which socket.io joins every socket to — or at
+     * a room, so either way the adapter carries it to whichever node terminates
+     * the connection.
      */
     #send(delivery: AddressedDelivery): void {
         try {
             void this.services.socket
                 .send(
-                    { socket: delivery.socketId },
+                    delivery.target,
                     EVENTS_DELIVERY_CHANNEL,
                     delivery.envelope,
                 )
@@ -698,18 +1043,42 @@ export class EventsService extends PuterService {
 
     /**
      * Whether this user has anything subscribed at all. Warm, a `Map` read;
-     * cold, one `EXISTS`. The generation is captured before the read, so a
-     * subscribe that lands mid-flight is not cached over.
+     * cold, one `EXISTS` — behind, at most once per warm window, the table read
+     * that teaches this region about durable rows it has never seen. Without
+     * that, an empty watched set is ambiguous: it means "nobody is listening"
+     * in a region that has looked, and nothing at all in one that has not.
+     *
+     * The epoch is captured before the read and is part of the in-flight key,
+     * so a bump landing mid-flight — a subscribe discovering the very folder a
+     * fire-and-forget dispatch is still warming up against, say — starts its
+     * own fresh lookup rather than being handed the answer an older,
+     * now-superseded one is about to compute.
      */
     async #userHasAny(userId: number): Promise<boolean> {
         const cached = this.#cache.read(userId);
         if (cached !== null) return cached;
 
-        const generation = this.#cache.generationOf(userId);
+        const epoch = this.#cache.generationOf(userId);
+        const key = `${userId}|${epoch}`;
+
+        // Concurrent writes at the same epoch miss together, and each miss
+        // can cost a table read. One lookup answers all of them.
+        const inFlight = this.#lookups.get(key);
+        if (inFlight) return inFlight;
+
+        const lookup = this.#lookUpHasAny(userId, epoch).finally(() => {
+            this.#lookups.delete(key);
+        });
+        this.#lookups.set(key, lookup);
+        return lookup;
+    }
+
+    async #lookUpHasAny(userId: number, epoch: number): Promise<boolean> {
         try {
+            await this.stores.durableSubscription.warmRegion(userId);
             const hasAny =
                 await this.stores.eventSubscription.userHasAny(userId);
-            this.#cache.write(userId, generation, hasAny);
+            this.#cache.write(userId, epoch, hasAny);
             return hasAny;
         } catch {
             // Not being able to tell is the same outcome as no subscribers,
@@ -718,12 +1087,46 @@ export class EventsService extends PuterService {
         }
     }
 
-    #publishGeneration({ userId, generation }: GenerationBump): void {
+    /**
+     * Forget what this process, and this region, believe about one user's
+     * subscriptions. Where a generation bump from anywhere else lands: the
+     * process drops its answer, and the region rebuilds its durable rows from
+     * the table on the next dispatch.
+     *
+     * Bumps unconditionally rather than passing a remote generation through to
+     * the cache's own number check: `ev:g` is a region-local counter, so a
+     * peer's bump can carry a number this process's own counter has already
+     * passed for entirely unrelated reasons, and comparing them would let a
+     * real invalidation be silently ignored as "already applied". There is
+     * nothing to order a cross-region signal against, so every one just
+     * forgets, and `SubscriptionCache`'s read-side TTL is what bounds a process
+     * that never received one at all.
+     */
+    invalidateUser(
+        userId: number,
+        { rebuild = true }: { rebuild?: boolean } = {},
+    ): void {
+        this.#cache.bump(userId);
+        if (!rebuild) return;
+        void this.stores.eventSubscription
+            .markRegionCold(userId)
+            .catch(() => {});
+    }
+
+    /**
+     * `durable` says whether the table changed. Session rows live in this
+     * region's Redis alone, so a peer hearing about one has nothing to rebuild
+     * — only a durable bump is worth a primary read over there.
+     */
+    #publishGeneration(
+        { userId, generation }: GenerationBump,
+        durable: boolean,
+    ): void {
         this.#cache.bump(userId, generation);
         try {
             this.clients.event.emit(
                 'outer.events.generationBumped',
-                { userId, generation },
+                { userId, generation, durable },
                 {},
             );
         } catch {
@@ -781,6 +1184,25 @@ export class EventsService extends PuterService {
         );
         timer.unref?.();
         this.#refreshTimers.set(key, timer);
+    }
+
+    #armExpirySweep(): void {
+        if (!this.enabled) return;
+        const run = () => {
+            void this.sweepExpired().catch((err) => {
+                console.warn('[events] expiry sweep failed', err);
+            });
+        };
+        // Jittered so a deploy does not have every node sweep at once.
+        const kick = setTimeout(
+            run,
+            EXPIRY_SWEEP_INITIAL_DELAY_MS * (0.5 + Math.random()),
+        );
+        kick.unref?.();
+        this.#expiryKick = kick;
+        const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
+        sweep.unref?.();
+        this.#expirySweep = sweep;
     }
 
     #stopRefresh(holderUserId: number, socketId: string): void {

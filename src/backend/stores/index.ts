@@ -21,6 +21,7 @@ import { AppFeedbackStore } from './appFeedback/AppFeedbackStore.js';
 import { AppStore } from './app/AppStore.js';
 import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore.js';
+import { DurableSubscriptionStore } from './events/DurableSubscriptionStore.js';
 import { EventSubscriptionStore } from './events/EventSubscriptionStore.js';
 import { CreditHoldStore } from './metering/CreditHoldStore.js';
 import { MeteringBufferStore } from './metering/MeteringBufferStore.js';
@@ -62,6 +63,7 @@ declare module './types.js' {
         oidc: OIDCStore;
         userBlock: UserBlockStore;
         eventSubscription: EventSubscriptionStore;
+        durableSubscription: DurableSubscriptionStore;
     }
 }
 
@@ -93,4 +95,6 @@ export const puterStores = {
     userBlock: UserBlockStore,
     // Redis only, no peer stores.
     eventSubscription: EventSubscriptionStore,
+    // Writes through the Redis keyspace above, so it comes after it.
+    durableSubscription: DurableSubscriptionStore,
 } satisfies IPuterStoreRegistry;

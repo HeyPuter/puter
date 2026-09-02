@@ -447,6 +447,8 @@ export type EventMap = {
     'outer.events.generationBumped': {
         userId: number;
         generation: number;
+        /** Whether the table changed; only then does a peer need to re-read it. */
+        durable: boolean;
     };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**

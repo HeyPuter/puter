@@ -25,8 +25,35 @@
  * nothing: after the first miss the answer is in memory and dispatch never
  * touches Redis again. That only holds if invalidation is pushed rather than
  * polled, so entries are keyed by a per-user generation the subscribe and
- * unsubscribe paths bump and broadcast — never by a timer, which would put the
- * round trip back on the hot path at whatever rate the timer expired.
+ * unsubscribe paths bump and broadcast.
+ *
+ * Two different numbers share the name "generation" in the surrounding code,
+ * and this cache keeps them as two separate fields rather than one:
+ *
+ * - `epoch` — purely local, bumped on every invalidation this process makes of
+ *   its own answer, whatever the reason. `write()` captures it before a lookup
+ *   starts and compares on the way back in: a mismatch means something
+ *   invalidated while the lookup was in flight, and the computed answer is
+ *   dropped rather than cached stale. It never needs to mean anything to
+ *   another process.
+ * - `redisGeneration` — the store's `ev:g` value, real only when a _local_
+ *   subscribe/unsubscribe supplied one (`#publishGeneration`). Two such bumps
+ *   can race and arrive out of order, and this is what lets the later one win
+ *   regardless.
+ *
+ * Conflating them was the bug: `ev:g` is a region-local `INCR`, so a peer
+ * region's bump can carry a number behind one this process already recorded for
+ * entirely unrelated reasons (its own local traffic, or an earlier invalidation
+ * that had no number to report), and comparing them let a real invalidation be
+ * silently ignored as "already applied". A bump with no number —
+ * `invalidateUser`'s only mode; see its own comment — advances `epoch`
+ * unconditionally and leaves `redisGeneration` untouched, so it can never
+ * falsely outrank, or be outranked by, a store-issued one. `read()` is the
+ * remaining backstop: a definite answer only survives a short TTL before it is
+ * treated as unknown again, exactly the "~2 s local-gen TTL trade" the
+ * permission cache makes (`PermissionStore.ts`,
+ * `PERMISSION_CACHE_GENERATION_LOCAL_TTL_SECONDS`) — bounding staleness by time
+ * wherever a counter cannot order it.
  *
  * Bounded, because one process sees an unbounded number of users over its
  * lifetime and the useful entries are the ones being written to right now.
@@ -35,34 +62,50 @@
  */
 
 interface CacheEntry {
-    generation: number;
-    /** `null` while unknown — a bump leaves the generation and clears this. */
+    epoch: number;
+    /** `null` until a local subscribe/unsubscribe has supplied a real one. */
+    redisGeneration: number | null;
+    /** `null` while unknown — a bump leaves the epoch and clears this. */
     hasAny: boolean | null;
+    /** When `hasAny` was last written; what the read-side TTL measures from. */
+    cachedAt: number;
 }
 
 export const SUBSCRIPTION_CACHE_MAX_USERS = 10_000;
 
+/**
+ * How long a definite answer survives without a bump. Mirrors the permission
+ * cache's local TTL.
+ */
+export const SUBSCRIPTION_CACHE_TTL_MS = 2_000;
+
 export class SubscriptionCache {
     readonly #entries = new Map<number, CacheEntry>();
     readonly #maxUsers: number;
+    readonly #ttlMs: number;
 
-    constructor(maxUsers: number = SUBSCRIPTION_CACHE_MAX_USERS) {
+    constructor(
+        maxUsers: number = SUBSCRIPTION_CACHE_MAX_USERS,
+        ttlMs: number = SUBSCRIPTION_CACHE_TTL_MS,
+    ) {
         this.#maxUsers = Math.max(1, maxUsers);
+        this.#ttlMs = Math.max(0, ttlMs);
     }
 
     get size(): number {
         return this.#entries.size;
     }
 
-    /** The generation this process believes the user is on. */
+    /** The epoch a lookup must capture before reading, to write safely after. */
     generationOf(userId: number): number {
-        return this.#entries.get(userId)?.generation ?? 0;
+        return this.#entries.get(userId)?.epoch ?? 0;
     }
 
     /** The cached answer, or `null` when this process has to go and look. */
     read(userId: number): boolean | null {
         const entry = this.#entries.get(userId);
         if (!entry) return null;
+        if (Date.now() - entry.cachedAt > this.#ttlMs) return null;
         // Touch on a hit so the hot users are the ones that survive eviction.
         this.#entries.delete(userId);
         this.#entries.set(userId, entry);
@@ -70,30 +113,43 @@ export class SubscriptionCache {
     }
 
     /**
-     * Record an answer against the generation it was read under. A bump that
-     * landed while the read was in flight leaves the generations mismatched,
-     * and the answer is dropped rather than cached stale.
+     * Record an answer against the epoch it was read under. A bump that landed
+     * while the read was in flight leaves the epochs mismatched, and the answer
+     * is dropped rather than cached stale.
      */
-    write(userId: number, generation: number, hasAny: boolean): void {
+    write(userId: number, epoch: number, hasAny: boolean): void {
         const entry = this.#entries.get(userId);
-        if (entry && entry.generation !== generation) return;
-        this.#set(userId, { generation, hasAny });
+        if (entry && entry.epoch !== epoch) return;
+        this.#set(userId, {
+            epoch,
+            redisGeneration: entry?.redisGeneration ?? null,
+            hasAny,
+            cachedAt: Date.now(),
+        });
     }
 
     /**
-     * Invalidate a user, moving them to `generation` when it is ahead of what
-     * this process has. Two bumps can arrive out of order — the counter is what
-     * orders them, so the later one cannot be undone by the earlier.
+     * Invalidate a user. With `generation`, this is a local subscribe or
+     * unsubscribe reporting the store's own new value: applied only when it is
+     * ahead of the last one this process recorded, so two racing local bumps
+     * can't land out of order. Without one — `invalidateUser`'s bare call — the
+     * epoch still advances unconditionally, because there is nothing to compare
+     * a number-less invalidation against; the previously recorded
+     * `redisGeneration`, if any, is left exactly as it was.
      */
     bump(userId: number, generation?: number): void {
-        const current = this.#entries.get(userId)?.generation ?? 0;
-        if (generation === undefined) {
-            this.#set(userId, { generation: current + 1, hasAny: null });
-            return;
+        const entry = this.#entries.get(userId);
+        if (generation !== undefined) {
+            const current = entry?.redisGeneration ?? 0;
+            // Already applied, or superseded by one that arrived first.
+            if (generation <= current) return;
         }
-        // Already applied, or superseded by one that arrived first.
-        if (generation <= current) return;
-        this.#set(userId, { generation, hasAny: null });
+        this.#set(userId, {
+            epoch: (entry?.epoch ?? 0) + 1,
+            redisGeneration: generation ?? entry?.redisGeneration ?? null,
+            hasAny: null,
+            cachedAt: Date.now(),
+        });
     }
 
     clear(): void {

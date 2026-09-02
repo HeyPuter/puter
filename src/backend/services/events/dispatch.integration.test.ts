@@ -43,8 +43,15 @@ let delivered: DeliveryEnvelope[];
 const events = () => env.server.services.events;
 const fs = () => env.server.services.fs;
 
-const settle = () =>
-    vi.waitFor(() => expect(delivered.length).toBeGreaterThan(0), {
+// The coalesce window runs on real time, so a delivery from one test can land
+// after the next has begun. Waits name what they wait for, and assertions look
+// only at their own folder.
+const pathOf = (envelope: DeliveryEnvelope): string =>
+    (envelope.event as { path?: string }).path ?? '';
+const deliveredUnder = (folder: string) =>
+    delivered.filter((envelope) => pathOf(envelope).startsWith(`${folder}/`));
+const settle = (predicate: (envelope: DeliveryEnvelope) => boolean) =>
+    vi.waitFor(() => expect(delivered.some(predicate)).toBe(true), {
         timeout: EVENTS_COALESCE_WINDOW_MS * 8,
         interval: 25,
     });
@@ -76,17 +83,15 @@ describe('the write path reaches subscribers', () => {
         const folder = `/${username}/watch-create`;
         await fs().mkdir(userId, { path: folder, createMissingParents: true });
         const sub = await subscribeTo(`fs:${folder}`);
-        delivered.length = 0;
 
-        await fs().touch(userId, { path: `${folder}/made.txt` });
-        await settle();
+        const made = `${folder}/made.txt`;
+        await fs().touch(userId, { path: made });
+        await settle((d) => pathOf(d) === made);
 
-        expect(delivered).toHaveLength(1);
-        expect(delivered[0].subId).toBe(sub.subId);
-        expect(delivered[0].event).toMatchObject({
-            op: 'add',
-            path: `${folder}/made.txt`,
-        });
+        const mine = deliveredUnder(folder);
+        expect(mine).toHaveLength(1);
+        expect(mine[0].subId).toBe(sub.subId);
+        expect(mine[0].event).toMatchObject({ op: 'add', path: made });
     });
 
     it('delivers a rename and a remove on the same subscription', async () => {
@@ -94,17 +99,16 @@ describe('the write path reaches subscribers', () => {
         await fs().mkdir(userId, { path: folder, createMissingParents: true });
         await subscribeTo(`fs:${folder}`);
         const file = await fs().touch(userId, { path: `${folder}/before.txt` });
-        await settle();
-        delivered.length = 0;
+        await settle((d) => pathOf(d) === `${folder}/before.txt`);
+
+        const inFolder = (op: string) => (d: DeliveryEnvelope) =>
+            d.event.op === op && pathOf(d).startsWith(`${folder}/`);
 
         const renamed = await fs().rename(userId, file, 'after.txt');
-        await settle();
-        expect(delivered.map((d) => d.event.op)).toContain('move');
-        delivered.length = 0;
+        await settle(inFolder('move'));
 
         await fs().remove(userId, { entry: renamed });
-        await settle();
-        expect(delivered.map((d) => d.event.op)).toContain('remove');
+        await settle(inFolder('remove'));
     });
 
     it('addresses the delivery at the socket that subscribed', async () => {
@@ -112,10 +116,10 @@ describe('the write path reaches subscribers', () => {
         await fs().mkdir(userId, { path: folder, createMissingParents: true });
         await subscribeTo(`fs:${folder}`);
         const send = vi.spyOn(env.server.services.socket, 'send');
-        delivered.length = 0;
 
-        await fs().touch(userId, { path: `${folder}/addressed.txt` });
-        await settle();
+        const addressed = `${folder}/addressed.txt`;
+        await fs().touch(userId, { path: addressed });
+        await settle((d) => pathOf(d) === addressed);
 
         expect(send).toHaveBeenCalledWith(
             { socket: SOCKET_ID },
@@ -128,14 +132,13 @@ describe('the write path reaches subscribers', () => {
     it('leaves an unwatched folder alone', async () => {
         const folder = `/${username}/watch-nothing`;
         await fs().mkdir(userId, { path: folder, createMissingParents: true });
-        delivered.length = 0;
 
         await fs().touch(userId, { path: `${folder}/ignored.txt` });
         await new Promise((resolve) =>
             setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 2),
         );
 
-        expect(delivered).toEqual([]);
+        expect(deliveredUnder(folder)).toEqual([]);
     });
 });
 
@@ -188,13 +191,12 @@ describe('unsubscribing and disconnecting', () => {
         const sub = await subscribeTo(`fs:${folder}`);
 
         await events().unsubscribe(actor, SOCKET_ID, { subId: sub.subId });
-        delivered.length = 0;
         await fs().touch(userId, { path: `${folder}/after.txt` });
         await new Promise((resolve) =>
             setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 2),
         );
 
-        expect(delivered).toEqual([]);
+        expect(deliveredUnder(folder)).toEqual([]);
     });
 
     it('leaves no watched token behind when the socket goes', async () => {

@@ -162,12 +162,18 @@ One write can reach many subscriptions, so events are bounded on both halves: ho
 | Limit                                        | All accounts |
 | -------------------------------------------- | ------------ |
 | Subscriptions per connection                 | 50           |
+| Durable subscriptions per account            | 500          |
 | `subscribe` / `unsubscribe` calls per minute | 60           |
+| Subscription listings per minute             | 120          |
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
 | Deliveries per minute, per subscription      | 600          |
 
-Subscriptions live with the connection that made them: they are dropped when it closes, and a reconnecting client subscribes again. The 51st subscription on one connection fails with `events_subscription_limit`; over the call budget, `subscribe` and `unsubscribe` fail with `too_many_requests`. Subscribing to something you cannot read fails with `subject_does_not_exist` — the same answer as subscribing to something that is not there, so the call cannot be used to find out which.
+Subscriptions come in two kinds. A **session** subscription lives with the connection that made it: it is dropped when the connection closes, and a reconnecting client subscribes again. A **durable** subscription outlives every connection — it is created over the API, listed and revoked from the account, and keeps delivering until you remove it or it expires.
+
+The 51st subscription on one connection, and the 501st durable subscription on one account, both fail with `events_subscription_limit`. Over the call budget, `subscribe` and `unsubscribe` fail with `too_many_requests`. Subscribing to something you cannot read fails with `subject_does_not_exist` — the same answer as subscribing to something that is not there, so the call cannot be used to find out which.
+
+A durable subscription may carry a `context`: JSON that is stored with it and handed to its handler on every delivery, capped at **4 KB** and rejected over that with `events_context_too_large`. Listings never return it. An app sees and revokes only the subscriptions it created; a session acting for the account sees them all, including ones left behind by an app that has since been removed.
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**; anything larger is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 

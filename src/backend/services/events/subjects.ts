@@ -72,6 +72,9 @@ export const FS_OPS: readonly FsOp[] = Object.freeze([
  */
 export const KV_TOKEN_SEGMENT_CAP = 6;
 
+/** Longest subject accepted: the widest path the filesystem itself stores. */
+export const SUBJECT_MAX_LENGTH = 4096;
+
 const GLOB_CHARS = /[*?]/;
 
 // -- Anchor tokens ----------------------------------------------------
@@ -207,6 +210,7 @@ const parseNotifSubject = (subject: string, parts: string[]): ParsedSubject => {
 export function parseSubject(subject: string): ParsedSubject {
     if (typeof subject !== 'string' || subject.trim().length === 0)
         throw invalidSubject(String(subject));
+    if (subject.length > SUBJECT_MAX_LENGTH) throw invalidSubject(subject);
 
     const trimmed = subject.trim();
     const parts = PermissionUtil.split(trimmed);
