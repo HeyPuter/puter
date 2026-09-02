@@ -18,6 +18,7 @@
  */
 
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
+import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import type { PuterServer } from '../../server.js';
@@ -29,8 +30,10 @@ import {
 } from '../../testUtil.js';
 import type { AuthResult } from '../auth/AuthService.js';
 import {
+    accountSocketRoom,
     buildSocketReauthError,
     decideSocketAuth,
+    socketRoomsFor,
     SocketService,
     type SocketReauthError,
 } from './SocketService.js';
@@ -106,12 +109,51 @@ describe('decideSocketAuth', () => {
         expect((decision.reject as { data?: unknown }).data).toBeUndefined();
     });
 
+    it('admits an app-under-user actor where app sockets are allowed', () => {
+        const decision = decideSocketAuth({ actor: appActor } as AuthResult, {
+            allowAppActors: true,
+        });
+        expect(decision).toEqual({ accept: appActor });
+    });
+
     it('rejects an access-token actor with a specific message', () => {
         const decision = decideSocketAuth({
             actor: accessTokenActor,
         } as AuthResult);
         if (!('reject' in decision)) throw new Error('expected reject');
         expect(decision.reject.message).toMatch(/only user tokens/);
+    });
+
+    it('keeps rejecting an access-token actor where app sockets are allowed', () => {
+        // Including one an app issued: the allowance is for app-under-user
+        // credentials, not for anything that resolves to an app.
+        const issuedByApp: Actor = {
+            ...accessTokenActor,
+            accessToken: {
+                uid: 'tok-2',
+                issuer: appActor,
+                authorized: null,
+            },
+            effectiveApp: appActor.app,
+        };
+        for (const actor of [accessTokenActor, issuedByApp]) {
+            const decision = decideSocketAuth({ actor } as AuthResult, {
+                allowAppActors: true,
+            });
+            if (!('reject' in decision)) throw new Error('expected reject');
+            expect(decision.reject.message).toMatch(/only user tokens/);
+        }
+    });
+
+    it('applies the account gates to an admitted app actor', () => {
+        const decision = decideSocketAuth(
+            {
+                actor: { ...appActor, user: { ...appActor.user, suspended: 1 } },
+            } as unknown as AuthResult,
+            { allowAppActors: true },
+        );
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(/suspended/i);
     });
 
     it('rejects a suspended user — the HTTP gate the handshake never runs', () => {
@@ -158,6 +200,25 @@ describe('decideSocketAuth', () => {
         expect((decision.reject as SocketReauthError).data.reason).toBe(
             'token_v1',
         );
+    });
+});
+
+// -- socketRoomsFor ----------------------------------------------------
+
+describe('socketRoomsFor', () => {
+    it('puts a session in the user room', () => {
+        expect(
+            socketRoomsFor({ user: { id: 7, uuid: 'u-7', username: 'u' } }),
+        ).toEqual(['7', accountSocketRoom(7)]);
+    });
+
+    it('keeps an app out of the user room and in its own', () => {
+        const rooms = socketRoomsFor({
+            user: { id: 7, uuid: 'u-7', username: 'u' },
+            app: { uid: 'app-1' },
+        });
+        expect(rooms).toEqual(['u7:aapp-1', accountSocketRoom(7)]);
+        expect(rooms).not.toContain('7');
     });
 });
 
@@ -230,6 +291,23 @@ describe('SocketService (live socket.io)', () => {
         // A full-access API token is an access-token actor, which the socket
         // handshake refuses even though it authenticates fine over HTTP.
         await expect(connect({ auth_token: user.apiToken })).rejects.toThrow(
+            /only user tokens/,
+        );
+    });
+
+    it('rejects an app-under-user token while events are off', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const appUid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+            [appUid, appUid, appUid, `https://${appUid}.example/`, row!.id],
+        );
+        const appToken = await server.services.auth.getUserAppToken(
+            { user: row as never, effectiveApp: null },
+            appUid,
+        );
+
+        await expect(connect({ auth_token: appToken })).rejects.toThrow(
             /only user tokens/,
         );
     });
