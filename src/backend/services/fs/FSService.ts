@@ -3819,10 +3819,7 @@ export class FSService extends PuterService {
                 .dispatchFs(key, entry, {
                     actingUserId: (Context.get('actor') as Actor | undefined)
                         ?.user?.id,
-                    ancestorUids: async () =>
-                        (await this.getAncestorChain(entry.path)).map(
-                            (ancestor) => ancestor.uid,
-                        ),
+                    ancestors: () => this.getAncestorChain(entry.path),
                 })
                 .catch((err: unknown) => {
                     console.warn('[fs] event dispatch failed', err);

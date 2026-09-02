@@ -50,8 +50,8 @@ export interface ProjectedEvent {
 export interface EventContext {
     key: EventKey;
     entry: FSEntry;
-    /** Ancestor uids of `entry`, deepest first. */
-    ancestorUids: readonly string[];
+    /** Existing ancestors of `entry`, deepest first. */
+    ancestors: ReadonlyArray<{ uid: string; path: string }>;
     id: string;
     ts: number;
 }
@@ -99,7 +99,7 @@ export interface UnpublishedInternalEvent {
 // uid alone and a deep write still matches.
 const fsTokens = (event: EventContext): string[] => [
     fsAnchorToken(event.entry.uid),
-    ...event.ancestorUids.map(fsAnchorToken),
+    ...event.ancestors.map((ancestor) => fsAnchorToken(ancestor.uid)),
 ];
 
 const fsMatchOn = (event: EventContext): string => event.entry.path;

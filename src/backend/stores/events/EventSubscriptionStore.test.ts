@@ -41,7 +41,8 @@ const makeSub = (
 ): SessionSubscription => ({
     subId: over.subId ?? `sub-${Math.random().toString(36).slice(2)}`,
     socketId: 'socket-a',
-    userId: USER,
+    holderUserId: USER,
+    ownerUserId: USER,
     subject: 'fs:/testuser/Documents',
     token: 'f#anchor',
     anchorUid: 'anchor',
@@ -49,8 +50,16 @@ const makeSub = (
     match: null,
     op: null,
     appUid: null,
+    permission: 'list',
     ...over,
 });
+
+/** A row on someone else's node: the shared-folder case, in one place. */
+const sharedWith = (
+    holderUserId: number,
+    over: Partial<SessionSubscription> = {},
+): SessionSubscription =>
+    makeSub({ holderUserId, ownerUserId: USER, ...over });
 
 beforeEach(() => {
     USER = ++userSeq;
@@ -73,6 +82,26 @@ describe('registration', () => {
         ).resolves.toEqual(['f#anchor']);
         await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
             sub,
+        ]);
+    });
+
+    it('indexes a shared anchor under its owner, not its subscriber', async () => {
+        const holder = USER + 5000;
+        const sub = sharedWith(holder);
+
+        const bump = await store.add(sub);
+
+        // Dispatch only knows whose resource changed, so that is the side the
+        // row has to be findable from.
+        expect(bump.userId).toBe(USER);
+        await expect(store.userHasAny(USER)).resolves.toBe(true);
+        await expect(store.userHasAny(holder)).resolves.toBe(false);
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
+            sub,
+        ]);
+        // The socket set is the one side that is the holder's.
+        expect(await redis.smembers(`ev:s:{${holder}}:socket-a`)).toEqual([
+            `${USER}|f#anchor|${sub.subId}`,
         ]);
     });
 
@@ -100,6 +129,20 @@ describe('registration', () => {
             SESSION_SUBSCRIPTION_TTL_SECONDS - 10,
         );
     });
+
+    it('refreshes the owner`s keys, not only the holder`s', async () => {
+        const holder = USER + 5000;
+        await store.add(sharedWith(holder));
+        await redis.expire(`ev:w:{${USER}}`, 5);
+        await redis.expire(`ev:t:{${USER}}:f#anchor`, 5);
+
+        await store.refresh(holder, 'socket-a');
+
+        for (const key of [`ev:w:{${USER}}`, `ev:t:{${USER}}:f#anchor`])
+            expect(await redis.ttl(key)).toBeGreaterThan(
+                SESSION_SUBSCRIPTION_TTL_SECONDS - 10,
+            );
+    });
 });
 
 describe('the per-socket cap', () => {
@@ -123,7 +166,7 @@ describe('the per-socket cap', () => {
 
         await expect(
             store.add(makeSub({ subId: 'b-0', socketId: 'socket-b' })),
-        ).resolves.toBeGreaterThan(0);
+        ).resolves.toMatchObject({ userId: USER });
     });
 });
 
@@ -132,7 +175,7 @@ describe('removal', () => {
         const sub = makeSub();
         await store.add(sub);
 
-        await store.remove(USER, sub.socketId, sub.subId);
+        await store.remove(sub);
 
         await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual(
             [],
@@ -146,7 +189,7 @@ describe('removal', () => {
         await store.add(mine);
         await store.add(theirs);
 
-        await store.remove(USER, 'socket-a', 'mine');
+        await store.remove(mine);
 
         await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual([
             'f#anchor',
@@ -156,12 +199,32 @@ describe('removal', () => {
         ]);
     });
 
-    it('reports an id this socket never held as absent', async () => {
-        await store.add(makeSub({ subId: 'mine', socketId: 'socket-a' }));
+    it('reads back only what the asking socket holds', async () => {
+        const mine = makeSub({ subId: 'mine', socketId: 'socket-a' });
+        await store.add(mine);
 
         await expect(
-            store.remove(USER, 'socket-b', 'mine'),
+            store.getForSocket(USER, 'socket-a', 'mine'),
+        ).resolves.toEqual(mine);
+        await expect(
+            store.getForSocket(USER, 'socket-b', 'mine'),
         ).resolves.toBeNull();
+        await expect(
+            store.getForSocket(USER, 'socket-a', 'not-a-sub'),
+        ).resolves.toBeNull();
+    });
+
+    it('finds a shared-anchor row from the holder`s socket', async () => {
+        const holder = USER + 5000;
+        const sub = sharedWith(holder, { subId: 'shared' });
+        await store.add(sub);
+
+        await expect(
+            store.getForSocket(holder, 'socket-a', 'shared'),
+        ).resolves.toEqual(sub);
+
+        await store.remove(sub);
+        await expect(store.userHasAny(USER)).resolves.toBe(false);
     });
 });
 
@@ -196,7 +259,29 @@ describe('disconnect', () => {
     });
 
     it('says nothing changed when the socket held nothing', async () => {
-        await expect(store.reapSocket(USER, 'socket-z')).resolves.toBeNull();
+        await expect(store.reapSocket(USER, 'socket-z')).resolves.toEqual([]);
+    });
+
+    it('moves the generation of every owner the socket watched', async () => {
+        const holder = USER + 5000;
+        const otherOwner = USER + 6000;
+        await store.add(sharedWith(holder));
+        await store.add(
+            makeSub({
+                subId: 'elsewhere',
+                holderUserId: holder,
+                ownerUserId: otherOwner,
+                token: 'f#other',
+            }),
+        );
+
+        const bumps = await store.reapSocket(holder, 'socket-a');
+
+        expect(bumps.map((bump) => bump.userId).sort()).toEqual(
+            [USER, otherOwner].sort(),
+        );
+        await expect(store.userHasAny(USER)).resolves.toBe(false);
+        await expect(store.userHasAny(otherOwner)).resolves.toBe(false);
     });
 });
 
@@ -204,11 +289,11 @@ describe('the generation counter', () => {
     it('advances on every registration and removal', async () => {
         const first = await store.add(makeSub({ subId: 'a' }));
         const second = await store.add(makeSub({ subId: 'b', token: 'f#two' }));
-        expect(second).toBeGreaterThan(first);
+        expect(second.generation).toBeGreaterThan(first.generation);
 
-        const third = await store.remove(USER, 'socket-a', 'a');
-        expect(third).toBeGreaterThan(second);
-        await expect(store.getGeneration(USER)).resolves.toBe(third);
+        const third = await store.remove(makeSub({ subId: 'a' }));
+        expect(third.generation).toBeGreaterThan(second.generation);
+        await expect(store.getGeneration(USER)).resolves.toBe(third.generation);
     });
 
     it('outlives the subscriptions it orders', async () => {

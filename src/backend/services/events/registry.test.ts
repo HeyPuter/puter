@@ -80,7 +80,10 @@ const entry = {
 const delivery: DeliveryContext = {
     key: 'fs.write.file',
     entry,
-    ancestorUids: ['uid-parent', 'uid-home'],
+    ancestors: [
+        { uid: 'uid-parent', path: '/u/Documents' },
+        { uid: 'uid-home', path: '/u' },
+    ],
     id: 'ev-1',
     ts: 1_700_000_001,
     self: true,
