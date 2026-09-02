@@ -928,6 +928,12 @@ interface IConfigOptional {
     s3_region: string;
     /** Fallback AWS region. */
     region: string;
+    /**
+     * Where each node stores files, keyed by node id - the same ids `user.home`
+     * names. A write may pass one to place its bytes there; absent, or absent
+     * an entry, every write uses `s3_bucket` / `s3_region`.
+     */
+    servers?: Record<string, { bucket: string; bucketRegion: string }>;
     /** Default storage capacity per user (bytes). */
     storage_capacity: number;
     /** When false, storage is effectively unlimited (bounded by device space). */

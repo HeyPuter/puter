@@ -460,9 +460,37 @@ export class FSService extends PuterService {
         return bucketRegion;
     }
 
+    /**
+     * Where a write's bytes should land. A home region this deployment knows
+     * about names its own bucket; anything else — an unmapped region, a
+     * single-node deployment, no hint at all — falls back to this server's own
+     * bucket, because placement is an optimisation and storing the bytes is
+     * not.
+     */
+    #resolvePlacement(homeRegion?: string): {
+        bucket: string;
+        bucketRegion: string;
+    } {
+        const place = homeRegion
+            ? this.config.servers?.[homeRegion]
+            : undefined;
+        if (homeRegion && !place) {
+            console.warn(
+                `[fs] no storage configured for region '${homeRegion}'; using this server's bucket`,
+            );
+        }
+        return (
+            place ?? {
+                bucket: this.#resolveBucket(),
+                bucketRegion: this.#resolveBucketRegion(),
+            }
+        );
+    }
+
     #normalizeWriteInput(
         userId: number,
         metadata: FSEntryWriteInput,
+        homeRegion?: string,
     ): NormalizedWriteInput {
         const normalizedPath = this.#normalizePath(metadata.path);
         if (normalizedPath === '/') {
@@ -498,8 +526,7 @@ export class FSService extends PuterService {
             immutable: Boolean(metadata.immutable),
             isPublic: metadata.isPublic,
             multipartPartSize: metadata.multipartPartSize,
-            bucket: this.#resolveBucket(),
-            bucketRegion: this.#resolveBucketRegion(),
+            ...this.#resolvePlacement(homeRegion),
         };
     }
 
@@ -2798,10 +2825,15 @@ export class FSService extends PuterService {
         writeRequest: WriteRequest,
         uploadTracker?: UploadProgressTrackerLike,
         storageAllowanceMax?: number,
+        homeRegion?: string,
     ): Promise<WriteResponse> {
+        // Server-only, and a positional argument for that reason: the
+        // controllers build `writeRequest` out of the parsed request body, so a
+        // field there would let a caller choose its own bucket.
         let normalizedInput = this.#normalizeWriteInput(
             userId,
             writeRequest.fileMetadata,
+            homeRegion,
         );
         const [resolvedTarget] = await this.#resolveWriteTargets(userId, [
             {
