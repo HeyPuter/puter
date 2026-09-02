@@ -20,12 +20,13 @@
 /**
  * Tokens a run of text is worth.
  *
- * The v1 estimator: average the two cheap approximations (characters over four,
- * words times four thirds) and halve the result. It runs low on purpose — it
- * gates and estimates rather than prices, and the real count arrives from the
- * provider a moment later. The one estimator is shared by the chat credit gate,
- * the chat unreported-stream backstop, and image-prompt pricing, so a future
- * calibration moves all of them at once.
+ * The v1 estimator: the mean of two cheap approximations — characters over
+ * four, words times four thirds. On prose the two agree and the mean lands
+ * within a few percent of the real count; on text with few whitespace
+ * boundaries the word term collapses and the mean runs about half low on JSON
+ * and code, and a fraction of the real count on base64, logs, or CJK prose.
+ * Shared by the chat credit gate, the chat unreported-stream backstop, and
+ * image-prompt pricing, so a calibration moves all of them at once.
  *
  * @see https://help.openai.com/en/articles/4936856
  */

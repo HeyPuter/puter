@@ -25,6 +25,10 @@ import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { kv } from '../../../../util/kvSingleton.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import {
+    contextLengthRetryParams,
+    isContextLengthError,
+} from '../../utils/contextLimit.js';
 import type {
     IChatModel,
     IChatProvider,
@@ -146,27 +150,23 @@ export class OpenRouterProvider implements IChatProvider {
             completion =
                 await this.#openai.chat.completions.create(completionParams);
         } catch (e: unknown) {
-            // If you overestimate allowed max_tokens on openrouter then it will throw an error.
-            // Since we know the user has enough for the query anyways, we should reexecute the
-            // request without max_tokens.
-            const err = e as { error: Error };
-            if (
-                err &&
-                err.error &&
-                err.error.message &&
-                err.error.message.startsWith(
-                    "This endpoint's maximum context length is ",
-                )
-            ) {
-                delete completionParams.max_tokens;
-                completion =
-                    await this.#openai.chat.completions.create(
-                        completionParams,
-                    );
-            } else {
-                console.log('Openarouter error: ', err.error.message);
+            if (!isContextLengthError(e)) {
+                console.log(
+                    'Openrouter error: ',
+                    (e as { error?: { message?: string } })?.error?.message,
+                );
                 throw e;
             }
+            // OpenRouter rejects an overlarge max_tokens rather than
+            // truncating. Retry under the room the window leaves, still
+            // bounded by the cap the credit gate set.
+            const retryParams = contextLengthRetryParams(completionParams, {
+                error: e,
+                contextWindow: modelUsed.context,
+            });
+            if (!retryParams) throw e;
+            completion =
+                await this.#openai.chat.completions.create(retryParams);
         }
 
         return OpenAIUtil.handle_completion_output({
