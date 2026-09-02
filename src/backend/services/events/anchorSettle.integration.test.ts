@@ -272,3 +272,51 @@ describe('a node-form subscription whose anchor is deleted', () => {
         expect(delivered).toEqual([]);
     });
 });
+
+describe('a path-form subscription held over a share', () => {
+    it('ends rather than climbing onto a folder its holder cannot see', async () => {
+        const guestRow = await env.server.stores.user.getByUsername(
+            env.users.other.username,
+        );
+        const guest = makeActor({ user: guestRow as never });
+        const shared = await folder(`${home}/reanchor-shared`);
+        await env.server.services.acl.setUserUser(
+            user.actor,
+            guest,
+            {
+                path: shared,
+                resolveAncestors: () => fs().getAncestorChain(shared),
+            },
+            'list',
+        );
+        const sub = (
+            await events().subscribeDurable(guest, {
+                subject: `fs:${shared}/**`,
+            })
+        ).sub;
+
+        // The nearest survivor is the owner's home, which the guest was never
+        // allowed to watch; the row ends instead of moving there.
+        await removeAt(shared);
+        await gone(sub.subId);
+
+        const ended = await vi.waitFor(
+            async () => {
+                const rows = await env.server.stores.notification.listByUserId(
+                    guestRow!.id,
+                    {},
+                );
+                const match = rows.find(
+                    (row: { type?: string }) => row.type === 'app.events.ended',
+                );
+                expect(match).toBeDefined();
+                return match as { value: unknown };
+            },
+            { timeout: 5_000, interval: 25 },
+        );
+        expect(ended.value).toMatchObject({
+            subject: `fs:${shared}/**`,
+            reason: 'anchor_deleted',
+        });
+    });
+});

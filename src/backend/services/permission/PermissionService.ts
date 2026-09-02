@@ -977,7 +977,9 @@ export class PermissionService extends PuterService {
         // Unconditional: the flat delete above can't report what it removed, so
         // skipping the bump on a no-op risks leaving a cached allow standing.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
-        this.#announceRevoked(user.id, null, permission);
+        // A revoke of a grant that was not there settled nothing; announcing
+        // it would only cost every listener a read.
+        if (revoked) this.#announceRevoked(user.id, null, permission);
         return revoked;
     }
 

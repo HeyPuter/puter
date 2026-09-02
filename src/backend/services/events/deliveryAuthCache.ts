@@ -65,6 +65,8 @@ interface CacheEntry {
 
 export class DeliveryAuthCache {
     readonly #entries = new Map<string, CacheEntry>();
+    /** Entry ids by subscription, so forgetting one is not a scan of all. */
+    readonly #bySub = new Map<string, Set<string>>();
     readonly #maxEntries: number;
     readonly #ttlMs: number;
 
@@ -86,7 +88,7 @@ export class DeliveryAuthCache {
         const entry = this.#entries.get(id);
         if (!entry) return null;
         if (Date.now() - entry.cachedAt > this.#ttlMs) {
-            this.#entries.delete(id);
+            this.#drop(key.subId, id);
             return null;
         }
         this.#entries.delete(id);
@@ -98,11 +100,25 @@ export class DeliveryAuthCache {
         const id = cacheKey(key);
         this.#entries.delete(id);
         this.#entries.set(id, { allowed, cachedAt: Date.now() });
+        const ids = this.#bySub.get(key.subId) ?? new Set<string>();
+        ids.add(id);
+        this.#bySub.set(key.subId, ids);
         while (this.#entries.size > this.#maxEntries) {
             const oldest = this.#entries.keys().next();
             if (oldest.done) break;
-            this.#entries.delete(oldest.value);
+            this.#drop(
+                oldest.value.slice(0, oldest.value.indexOf('|')),
+                oldest.value,
+            );
         }
+    }
+
+    #drop(subId: string, id: string): void {
+        this.#entries.delete(id);
+        const ids = this.#bySub.get(subId);
+        if (!ids) return;
+        ids.delete(id);
+        if (ids.size === 0) this.#bySub.delete(subId);
     }
 
     /**
@@ -111,12 +127,12 @@ export class DeliveryAuthCache {
      * has not moved and the old answers are about a node it no longer watches.
      */
     forget(subId: string): void {
-        const prefix = `${subId}|`;
-        for (const id of this.#entries.keys())
-            if (id.startsWith(prefix)) this.#entries.delete(id);
+        for (const id of this.#bySub.get(subId) ?? []) this.#entries.delete(id);
+        this.#bySub.delete(subId);
     }
 
     clear(): void {
         this.#entries.clear();
+        this.#bySub.clear();
     }
 }

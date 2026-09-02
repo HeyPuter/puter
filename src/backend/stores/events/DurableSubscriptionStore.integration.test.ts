@@ -451,3 +451,17 @@ describe('warming a cold region', () => {
         expect(page.items[0]?.suspendedReason).toBe('permission_revoked');
     });
 });
+
+describe('suspending', () => {
+    it('suspends a row once, and tells a later pass it was not the one', async () => {
+        const { row } = await durable().create(input());
+
+        const first = await durable().suspend([row], 'permission_revoked');
+        expect(first.suspended.map((r) => r.subId)).toEqual([row.subId]);
+        expect(first.bumps).toHaveLength(1);
+
+        const second = await durable().suspend([row], 'permission_revoked');
+        expect(second.suspended).toEqual([]);
+        expect(second.bumps).toEqual([]);
+    });
+});

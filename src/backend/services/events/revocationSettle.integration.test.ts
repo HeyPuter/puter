@@ -157,6 +157,13 @@ const rowOf = async (
 };
 
 /** Wait for the settle the revoke kicked off on the bus to land. */
+const endedNotifications = async (
+    userId: number,
+): Promise<Array<{ value: unknown }>> =>
+    (await env.server.stores.notification.listByUserId(userId, {})).filter(
+        (row: { type?: string }) => row.type === 'app.events.ended',
+    ) as Array<{ value: unknown }>;
+
 const suspendedRow = (subId: string) =>
     vi.waitFor(
         async () => {
@@ -585,6 +592,71 @@ describe('what a revoked grant settles', () => {
 
         expect(await events().sweepSuspended()).toBe(1);
         expect(await rowOf(sub.subId)).toBeUndefined();
+    });
+
+    it('tells an app holder once when its access is withdrawn wholesale', async () => {
+        await clearRows();
+        const one = await folder(`/${owner.username}/settle-once-one`);
+        const two = await folder(`/${owner.username}/settle-once-two`);
+        const appActor = await makeApp(one);
+        await env.server.services.permission.grantUserAppPermission(
+            owner.actor,
+            appActor.app!.uid,
+            `fs:${await uidOf(two)}:list`,
+        );
+        const held = [
+            (await events().subscribeDurable(appActor, { subject: `fs:${one}` }))
+                .sub,
+            (await events().subscribeDurable(appActor, { subject: `fs:${two}` }))
+                .sub,
+        ];
+        const before = (await endedNotifications(owner.id)).length;
+
+        await env.server.services.permission.revokeUserAppAll(
+            owner.actor,
+            appActor.app!.uid,
+        );
+        for (const sub of held) await suspendedRow(sub.subId);
+        await quiet();
+
+        const ended = await endedNotifications(owner.id);
+        expect(ended).toHaveLength(before + 1);
+        expect(ended[0].value).toMatchObject({
+            count: 2,
+            reason: 'permission_revoked',
+        });
+        expect(
+            (ended[0].value as { subjects: string[] }).subjects.sort(),
+        ).toEqual([`fs:${one}`, `fs:${two}`].sort());
+    });
+
+    it('settles a row once however many times the same withdrawal is heard', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/settle-twice`);
+        await share(path, 'list');
+        const sub = (
+            await events().subscribeDurable(guest.actor, {
+                subject: `fs:${path}`,
+            })
+        ).sub;
+        const before = (await endedNotifications(guest.id)).length;
+        const revocation = {
+            holderUserId: guest.id,
+            appUid: null,
+            permission: `fs:${await uidOf(path)}:list`,
+        };
+
+        // The unshare announces once on its own; two more passes race it.
+        await unshare(path, 'list');
+        const settled = await Promise.all([
+            events().settleRevokedGrant(revocation),
+            events().settleRevokedGrant(revocation),
+        ]);
+        await suspendedRow(sub.subId);
+        await quiet();
+
+        expect(settled.reduce((sum, n) => sum + n, 0)).toBeLessThanOrEqual(1);
+        expect(await endedNotifications(guest.id)).toHaveLength(before + 1);
     });
 
     it('never fails the revoke when the settle listener throws', async () => {

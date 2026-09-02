@@ -299,22 +299,38 @@ export class DurableSubscriptionStore extends PuterStore {
     async suspend(
         rows: readonly DurableSubscription[],
         reason: SuspendedReason,
-    ): Promise<GenerationBump[]> {
-        if (rows.length === 0) return [];
+    ): Promise<{ suspended: DurableSubscription[]; bumps: GenerationBump[] }> {
+        if (rows.length === 0) return { suspended: [], bumps: [] };
 
-        await this.clients.db.write(
-            `UPDATE \`${TABLE}\` SET \`suspended_at\` = ?, ` +
-                '`suspended_reason` = ? WHERE `sub_id` IN ' +
-                `(${rows.map(() => '?').join(', ')})`,
-            [nowSeconds(), reason, ...rows.map((row) => row.subId)],
-        );
+        // One conditional write per row, so two settles racing over the same
+        // rows — an unshare withdraws several grant strings in a row — each
+        // learn exactly which rows they were the one to suspend.
+        const at = nowSeconds();
+        const suspended: DurableSubscription[] = [];
+        for (const row of rows) {
+            const written = await this.clients.db.write(
+                `UPDATE \`${TABLE}\` SET \`suspended_at\` = ?, ` +
+                    '`suspended_reason` = ? ' +
+                    'WHERE `sub_id` = ? AND `suspended_at` IS NULL',
+                [at, reason, row.subId],
+            );
+            if (written.anyRowsAffected)
+                suspended.push({
+                    ...row,
+                    suspendedAt: at,
+                    suspendedReason: reason,
+                });
+        }
 
         const owners = new Set<number>();
-        for (const row of rows) {
+        for (const row of suspended) {
             await this.stores.eventSubscription.dropDurable(row);
             owners.add(row.ownerUserId);
         }
-        return Promise.all([...owners].map((owner) => this.#bump(owner)));
+        const bumps = await Promise.all(
+            [...owners].map((owner) => this.#bump(owner)),
+        );
+        return { suspended, bumps };
     }
 
     /**
@@ -572,6 +588,8 @@ export class DurableSubscriptionStore extends PuterStore {
         const owners = new Set<number>();
         for (const row of rows) {
             await this.stores.eventSubscription.dropDurable(row);
+            // Whatever was still owed to a row that no longer exists.
+            await this.stores.pendingDelivery.purge(row.subId).catch(() => {});
             owners.add(row.ownerUserId);
         }
         for (const ownerUserId of owners) await this.#bump(ownerUserId);
