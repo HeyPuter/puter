@@ -26,7 +26,7 @@ import {
 } from '../../util/pagination.js';
 import { PuterStore } from '../types';
 
-/** A workspace: a `group` row with `kind = 'team'`. */
+/** A team: a `group` row with `kind = 'team'`. */
 export interface TeamRow {
     id: number;
     uid: string;
@@ -41,7 +41,7 @@ export interface TeamRow {
 export const TEAM_KIND = 'team';
 
 /** A membership row, joined to the member's username. */
-/** A seat, joined to the workspace that pays for it. */
+/** A seat, joined to the team that pays for it. */
 export interface OrgSeatRow {
     id: number;
     user_id: number;
@@ -56,11 +56,12 @@ export interface TeamMemberRow {
     user_id: number;
     group_id: number;
     username: string;
+    uuid: string;
     org_owned: number;
     created_at: string;
 }
 
-/** One entry in the insert-only record of what a workspace did to an account. */
+/** One entry in the insert-only record of what a team did to an account. */
 export interface TeamAuditRow {
     id: number;
     user_id_keep: number;
@@ -129,8 +130,8 @@ const RESERVED_HANDLES = new Set([
     'trust',
     'trust-safety',
     'verify',
-    'workspace',
-    'workspaces',
+    'team',
+    'teams',
 ]);
 
 export type HandleRejection =
@@ -170,7 +171,7 @@ export class TeamStore extends PuterStore {
 
     // -- Reads --------------------------------------------------------
 
-    /** The workspace with this uid, or null. Soft-deleted ones are excluded. */
+    /** The team with this uid, or null. Soft-deleted ones are excluded. */
     async getByUid(uid: string): Promise<TeamRow | null> {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`group\` WHERE \`uid\` = ? AND ${this.#live()}`,
@@ -179,7 +180,7 @@ export class TeamStore extends PuterStore {
         return (rows[0] as unknown as TeamRow) ?? null;
     }
 
-    /** Includes soft-deleted rows, so an audit survives its workspace. */
+    /** Includes soft-deleted rows, so an audit survives its team. */
     async getByUidIncludingDeleted(uid: string): Promise<TeamRow | null> {
         const rows = await this.clients.db.read(
             'SELECT * FROM `group` WHERE `uid` = ? AND `kind` = ?',
@@ -202,7 +203,7 @@ export class TeamStore extends PuterStore {
         return (await this.getByHandle(handle)) === null;
     }
 
-    /** Workspaces this user owns, oldest first. */
+    /** Teams this user owns, oldest first. */
     async listByOwner(ownerUserId: number): Promise<TeamRow[]> {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`group\` WHERE \`owner_user_id\` = ? AND ${this.#live()} ORDER BY \`id\``,
@@ -241,7 +242,7 @@ export class TeamStore extends PuterStore {
         return created;
     }
 
-    /** Null when no live workspace has that uid. `handle: null` releases it. */
+    /** Null when no live team has that uid. `handle: null` releases it. */
     async update(
         uid: string,
         changes: { name?: string; handle?: string | null },
@@ -271,7 +272,6 @@ export class TeamStore extends PuterStore {
         );
         return this.getByUid(uid);
     }
-
     /** Releases the handle, since nothing addresses by it; keeps `name`. */
     async softDelete(uid: string): Promise<boolean> {
         const result = await this.clients.db.write(
@@ -284,14 +284,14 @@ export class TeamStore extends PuterStore {
 
     // -- Membership ---- sole writer of team rows -----------------------
 
-    /** The membership row for this user in this workspace, or null. */
+    /** The membership row for this user in this team, or null. */
     async getMembership(
         teamUid: string,
         userId: number,
     ): Promise<TeamMemberRow | null> {
         const rows = await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
-                'ug.`created_at`, u.`username` FROM `jct_user_group` ug ' +
+                'ug.`created_at`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND ug.\`user_id\` = ? AND g.${this.#live()}`,
@@ -300,12 +300,12 @@ export class TeamStore extends PuterStore {
         return (rows[0] as unknown as TeamMemberRow) ?? null;
     }
 
-    /** Whether this user belongs to this workspace. */
+    /** Whether this user belongs to this team. */
     async isMember(teamUid: string, userId: number): Promise<boolean> {
         return (await this.getMembership(teamUid, userId)) !== null;
     }
 
-    /** A workspace's members, keyset-paginated on `id` per doc/pagination.md. */
+    /** A team's members, keyset-paginated on `id` per doc/pagination.md. */
     async listMembers(
         teamUid: string,
         opts: { limit?: unknown; cursor?: string } = {},
@@ -319,7 +319,7 @@ export class TeamStore extends PuterStore {
         // One row past the limit is how we know a further page exists.
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
-                'ug.`created_at`, u.`username` FROM `jct_user_group` ug ' +
+                'ug.`created_at`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND g.${this.#live()}` +
@@ -338,7 +338,7 @@ export class TeamStore extends PuterStore {
         return { items, cursor };
     }
 
-    /** Workspaces this user belongs to, oldest first. */
+    /** Teams this user belongs to, oldest first. */
     async listTeamsForUser(userId: number): Promise<TeamRow[]> {
         const rows = await this.clients.db.read(
             'SELECT g.* FROM `group` g ' +
@@ -349,12 +349,23 @@ export class TeamStore extends PuterStore {
         return rows as unknown as TeamRow[];
     }
 
-    /** `orgOwned` decides who pays: 1 workspace-created, 0 the workspace owner. */
+    /** `orgOwned` decides who pays: 1 team-created, 0 the team owner. */
     async addMember(
         teamUid: string,
         userId: number,
         opts: { orgOwned: boolean },
     ): Promise<boolean> {
+        // A seat is created, never adopted; a password means it predates us.
+        if (opts.orgOwned) {
+            const rows = (await this.clients.db.read(
+                'SELECT 1 AS hit FROM `user` WHERE `id` = ? AND `password` IS NOT NULL LIMIT 1',
+                [userId],
+            )) as { hit: number }[];
+            if (rows.length > 0) {
+                throw new Error('cannot make an existing account a team seat');
+            }
+        }
+
         // Kind-filtered subquery, so a non-team uid inserts nothing.
         const result = await this.clients.db.write(
             `${this.clients.db.insertIgnoreInto('jct_user_group')} ` +
@@ -380,7 +391,7 @@ export class TeamStore extends PuterStore {
 
     // -- Audit ---- insert-only; no update or delete path exists --------
 
-    /** Records something the workspace did to an account. */
+    /** Records something the team did to an account. */
     async appendAudit(entry: {
         teamId: number;
         userId: number;
@@ -404,7 +415,7 @@ export class TeamStore extends PuterStore {
         );
     }
 
-    /** The whole workspace's audit, newest first, keyset-paginated on `id`. */
+    /** The whole team's audit, newest first, keyset-paginated on `id`. */
     async listAudit(
         teamId: number,
         opts: { limit?: unknown; cursor?: string } = {},
@@ -412,7 +423,7 @@ export class TeamStore extends PuterStore {
         return this.#pageAudit('`group_id_keep` = ?', [teamId], opts);
     }
 
-    /** One member's own entries. Scoped by user, not by workspace. */
+    /** One member's own entries. Scoped by user, not by team. */
     async listAuditForUser(
         teamId: number,
         userId: number,
@@ -465,7 +476,7 @@ export class TeamStore extends PuterStore {
         return result.anyRowsAffected;
     }
 
-    /** The workspace seat this user is, if any. Soft-deleted workspaces count. */
+    /** The team seat this user is, if any. Soft-deleted teams count. */
     async getOrgSeat(userId: number): Promise<OrgSeatRow | null> {
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, u.`uuid`, u.`username`, ' +

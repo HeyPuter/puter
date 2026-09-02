@@ -47,7 +47,7 @@ const TEAM_READ_LIMIT = {
     key: 'user' as const,
 };
 
-/** What a workspace looks like on the wire. `id` stays internal. */
+/** What a team looks like on the wire. `id` stays internal. */
 const toClientTeam = (team: TeamRow, isOwner: boolean) => ({
     uid: team.uid,
     name: team.name,
@@ -75,7 +75,7 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         const body = this.#body(req);
 
-        const team = await this.services.team.createWorkspace(userId, {
+        const team = await this.services.team.createTeam(userId, {
             name: this.#requireString(body.name, 'name'),
             handle:
                 body.handle === undefined || body.handle === null
@@ -149,7 +149,7 @@ export class TeamController extends PuterController {
     })
     async deleteTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.deleteWorkspace(
+        await this.services.team.deleteTeam(
             this.#param(req, 'uid'),
             userId,
         );
@@ -355,7 +355,7 @@ export class TeamController extends PuterController {
     }
 
     #notFound(): HttpError {
-        return new HttpError(404, 'Workspace not found', {
+        return new HttpError(404, 'Team not found', {
             legacyCode: 'team_not_found',
         });
     }
@@ -366,7 +366,7 @@ export class TeamController extends PuterController {
             this.#param(req, 'username'),
         );
         if (!user)
-            throw new HttpError(404, 'Not an account of this workspace', {
+            throw new HttpError(404, 'Not an account of this team', {
                 legacyCode: 'not_an_org_account',
             });
         return user.id;

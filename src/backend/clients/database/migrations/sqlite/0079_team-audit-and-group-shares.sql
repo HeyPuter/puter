@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS `audit_team_membership` (
     FOREIGN KEY("actor_user_id") REFERENCES "user"  ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
--- The admin's view: one workspace, newest first.
+-- The admin's view: one team, newest first.
 CREATE INDEX IF NOT EXISTS `idx_audit_team_membership_group`
     ON `audit_team_membership` (`group_id_keep`, `id`);
 

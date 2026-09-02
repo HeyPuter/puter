@@ -30,10 +30,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS `idx_group_handle`
 -- mysql and postgres already index this column; sqlite does not.
 CREATE INDEX IF NOT EXISTS `idx_group_owner` ON `group` (`owner_user_id`);
 
--- 1 = workspace-created, 0 = the workspace owner. Decides who pays, not who may read.
+-- 1 = team-created, 0 = the team owner. Decides who pays, not who may read.
 ALTER TABLE `jct_user_group` ADD COLUMN `org_owned` INTEGER DEFAULT NULL;
 
--- Covers "list this workspace's members"; the unique pair index lands in 0072.
+-- Covers "list this team's members"; the unique pair index lands in 0072.
 CREATE INDEX IF NOT EXISTS `idx_jct_user_group_group`
     ON `jct_user_group` (`group_id`, `user_id`);
 
