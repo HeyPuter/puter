@@ -1,17 +1,9 @@
 import { suite, type TestContext } from '../harness/types.ts';
 
-/**
- * `puter.events` rides a socket, and not every runtime the SDK ships to can
- * carry one — a worker isolate has no WebSocket client at all. So each test
- * that needs a delivery opens its subscription through `open()`, which either
- * hands back a live subscription or asserts the SDK's documented answer for a
- * runtime that cannot connect (`events_connection_failed`) and lets the test
- * end there. The decision is made from what the SDK actually did, not from
- * `t.platform`, so the same file covers whatever each runtime turns out to
- * support.
- */
+// `puter.events` rides a socket; every runtime the suite runs on (node,
+// browser, workerd) carries one, so a subscribe that fails is a failure here.
 
-/** Short enough that a runtime with no transport doesn't stall the suite. */
+/** Short enough that a runtime that cannot connect fails fast, not at 30 s. */
 const SUBSCRIBE_TIMEOUT_MS = 5000;
 const DELIVERY_TIMEOUT_MS = 15000;
 /** Deliveries are coalesced server-side over 250 ms. */
@@ -58,35 +50,14 @@ const makeDir = async (t: TestContext, name: string): Promise<string> => {
     return path;
 };
 
-/**
- * Subscribe, or establish that this runtime cannot. Returns `null` after
- * asserting the no-transport contract, so callers can stop.
- */
-const open = async (
+const open = (
     t: TestContext,
     subject: string,
     handler: (event: Delivered) => void,
-): Promise<Subscription | null> => {
-    try {
-        return await t.puter.events.onLocal(
-            subject,
-            ({ event }) => handler(event as Delivered),
-            { timeout: SUBSCRIBE_TIMEOUT_MS },
-        );
-    } catch (error) {
-        t.assert.equal(
-            codeOf(error),
-            'events_connection_failed',
-            `subscribe to ${subject} failed with an unexpected code: ${codeOf(error)}`,
-        );
-        t.assert.ok(
-            typeof (error as Error).message === 'string' &&
-                (error as Error).message.length > 0,
-            'a connection failure carries a message',
-        );
-        return null;
-    }
-};
+): Promise<Subscription> =>
+    t.puter.events.onLocal(subject, ({ event }) => handler(event as Delivered), {
+        timeout: SUBSCRIBE_TIMEOUT_MS,
+    });
 
 export default suite('events', {
     'exposes onLocal': async (t) => {
@@ -272,9 +243,6 @@ export default suite('events', {
                     }),
                 `${subject} should be refused`,
             );
-            // On a runtime with no socket transport the SDK never gets far
-            // enough to be told why — that answer is asserted too.
-            if (codeOf(error) === 'events_connection_failed') continue;
             t.assert.equal(
                 codeOf(error),
                 expected,

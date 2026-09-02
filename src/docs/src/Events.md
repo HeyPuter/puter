@@ -87,7 +87,7 @@ await puter.events.onLocal('fs:~/Documents', async ({ event }) => {
 
 `onLocal()` subscriptions are **session-scoped**: nothing is stored, nothing runs while the page is closed, and the server drops them when the connection goes away. Every subscription this client makes rides one connection, which opens on the first `onLocal()` and closes when the last subscription ends. In a worker that means the subscription lasts as long as the invocation that made it, and no longer.
 
-When the connection drops and comes back — a reconnect, a sign-in, an API origin change — the SDK subscribes again for you. The handler and the subscription object stay the same; only `subId` changes, which is why nothing should be stored against it. If re-subscribing fails (the access is gone, the account signed out), the subscription ends and your `onError` callback is told:
+When the connection drops and comes back — a reconnect, a sign-in, an API origin change — the SDK subscribes again for you. The handler and the subscription object stay the same; only `subId` changes, which is why nothing should be stored against it. If re-subscribing fails (the access is gone, the account signed out), or the server closes the connection outright (a revoked session, too many connections), the subscription ends and your `onError` callback is told:
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', handler, {

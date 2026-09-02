@@ -51,7 +51,7 @@ The promise rejects with `{ message, code }`:
 | `too_many_requests` | Over the subscribe/unsubscribe call budget. |
 | `events_disabled` | Events are not enabled on this server. |
 | `reauth_required` | The session backing this connection is no longer valid. |
-| `events_connection_failed` | The events connection could not be established, or the server did not answer in time. |
+| `events_connection_failed` | The events connection could not be established, the server did not answer in time, or the server closed the connection. |
 
 ## Examples
 

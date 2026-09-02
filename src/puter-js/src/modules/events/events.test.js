@@ -338,6 +338,77 @@ describe('reconnect', () => {
         expect(survivorSeen).toHaveLength(1);
         expect(survivorSeen[0].path).toBe('/user/a/one.txt');
     });
+
+    it('ends every subscription when the server closes the connection', async () => {
+        const events = makeModule();
+        const lapses = [];
+        const sub = await subscribed(events, 'fs:~/a', () => {}, {
+            onError: error => lapses.push(error),
+        });
+
+        // A server-side disconnect is final: socket.io will not reconnect it.
+        sockets[0].active = false;
+        sockets[0].fire('disconnect', 'io server disconnect');
+
+        expect(lapses).toHaveLength(1);
+        expect(lapses[0].code).toBe('events_connection_failed');
+        expect(sub.subId).toBe(null);
+        expect(sockets[0].disconnected).toBe(true);
+
+        // The next subscribe starts over on a fresh connection.
+        await subscribed(events, 'fs:~/b', () => {}, {}, 'sub-2');
+        expect(sockets).toHaveLength(2);
+    });
+
+    it('closes the connection when the last subscription lapses', async () => {
+        const events = makeModule();
+        await subscribed(events, 'fs:~/a', () => {}, { onError: () => {} });
+
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+        sockets[0].answer('events.subscribe', {
+            ok: false,
+            error: { code: 'subject_does_not_exist', message: 'gone' },
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(sockets[0].disconnected).toBe(true);
+        expect(events.channel.socket).toBe(null);
+    });
+
+    it('retries a re-subscribe that was turned away for rate limiting', async () => {
+        vi.useFakeTimers();
+        try {
+            const events = makeModule();
+            const lapses = [];
+            const sub = await subscribed(events, 'fs:~/a', () => {}, {
+                onError: error => lapses.push(error),
+            });
+
+            sockets[0].fire('disconnect');
+            sockets[0].fire('connect');
+            sockets[0].answer('events.subscribe', {
+                ok: false,
+                error: { code: 'too_many_requests', message: 'slow down' },
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(lapses).toEqual([]);
+            expect(sub.subId).toBe(null);
+            const sent = () => sockets[0].sent.filter(s => s.verb === 'events.subscribe').length;
+            const before = sent();
+
+            await vi.advanceTimersByTimeAsync(10000);
+            expect(sent()).toBe(before + 1);
+            sockets[0].answer('events.subscribe', okSub('sub-2', 'fs:~/a'));
+            await Promise.resolve();
+            expect(sub.subId).toBe('sub-2');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 describe('ack timeout', () => {

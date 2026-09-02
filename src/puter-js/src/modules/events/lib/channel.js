@@ -30,6 +30,10 @@ const DELIVERY_CHANNEL = 'events.delivery';
 /** How long a verb waits for its ack before the call is called lost. */
 export const DEFAULT_TIMEOUT_MS = 30000;
 
+// A reconnect re-issues every subscription at once, so the ones past the
+// per-minute call budget wait this long for another pass rather than lapsing.
+const RESUBSCRIBE_RETRY_MS = 10000;
+
 /** Raised when the connection itself is the problem, never by the server. */
 const connectionError = (message) =>
     new PuterJSError(message, 'events_connection_failed');
@@ -99,6 +103,8 @@ export class EventChannel {
          *   refused.
          */
         this.generation = 0;
+        /** @internal @type {ReturnType<typeof setTimeout> | null} */
+        this.retryTimer = null;
     }
 
     /**
@@ -174,7 +180,16 @@ export class EventChannel {
         });
 
         socket.on('connect', () => this.resubscribe());
-        socket.on('disconnect', () => this.orphan());
+        socket.on('disconnect', () => {
+            // socket.io reconnects on its own after a transport drop, but not
+            // after the server hangs up: that socket is finished, and so is
+            // everything riding it.
+            if ( socket.active ) {
+                this.orphan();
+                return;
+            }
+            this.fail(connectionError('The events connection was closed by the server'));
+        });
         socket.on('connect_error', error => {
             // socket.io retries on its own while the socket is still active;
             // only a refusal it will not retry is the client's problem.
@@ -272,9 +287,33 @@ export class EventChannel {
                     // The connection went away under it — a flaky reconnect is
                     // not a refusal, and the next connect tries again.
                     if ( this.generation !== generation ) return;
-                    this.lapse(sub, PuterJSError.from(error));
+                    const failure = PuterJSError.from(error);
+                    // Over the call budget says nothing about this subject.
+                    if ( failure.code === 'too_many_requests' ) {
+                        this.retryResubscribe(generation);
+                        return;
+                    }
+                    this.lapse(sub, failure);
                 });
         }
+    }
+
+    /**
+     * Run `resubscribe` again once the call budget has had time to refill.
+     * One timer covers every subscription that was turned away.
+     *
+     * @internal
+     * @param {number} generation
+     * @returns {void}
+     */
+    retryResubscribe (generation) {
+        if ( this.retryTimer ) return;
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            if ( this.generation !== generation || ! this.socket?.connected ) return;
+            this.resubscribe();
+        }, RESUBSCRIBE_RETRY_MS);
+        this.retryTimer?.unref?.();
     }
 
     /**
@@ -316,13 +355,14 @@ export class EventChannel {
         sub.subId = null;
         if ( ! sub.onError ) {
             console.warn(`[puter.events] subscription to ${sub.subject} lapsed`, error);
-            return;
+        } else {
+            try {
+                sub.onError(error);
+            } catch (handlerError) {
+                console.error('[puter.events] onError handler failed', handlerError);
+            }
         }
-        try {
-            sub.onError(error);
-        } catch (handlerError) {
-            console.error('[puter.events] onError handler failed', handlerError);
-        }
+        this.closeIfIdle();
     }
 
     /**
@@ -372,6 +412,8 @@ export class EventChannel {
      * @returns {void}
      */
     close () {
+        if ( this.retryTimer ) clearTimeout(this.retryTimer);
+        this.retryTimer = null;
         const socket = this.socket;
         if ( ! socket ) return;
         this.socket = null;
