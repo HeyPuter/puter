@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import type { EventKey } from '../../clients/event/types.js';
 import {
+    EVENTS_ACK_LIMIT,
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
@@ -35,8 +36,15 @@ import {
     type GenerationBump,
     type SessionSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
+import type {
+    ClaimedDelivery,
+    PendingShed,
+} from '../../stores/events/PendingDeliveryStore.js';
 import {
+    DEFAULT_DURABLE_TARGETS,
+    SESSION_TARGETS,
     isSubscriptionTarget,
+    targetsAllowedForDelivery,
     type SubscriptionTarget,
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
@@ -66,13 +74,21 @@ import {
 } from './matcher.js';
 import {
     lookupPublicSubject,
+    type DeliverableEvent,
     type DeliveryClass,
     type EventContext,
+    type GapMarker,
+    type GapReason,
     type ProjectedEvent,
     type PublicSubject,
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import { parseSubject, type FsOp } from './subjects.js';
+import {
+    RecordingWorkerInvoker,
+    type WorkerInvocation,
+    type WorkerInvokerSeam,
+} from './workerSeam.js';
 
 /**
  * Subscribe, unsubscribe, and the dispatch hot path.
@@ -100,10 +116,17 @@ import { parseSubject, type FsOp } from './subjects.js';
 
 export interface SubscribeRequest {
     subject?: unknown;
+    targets?: unknown;
 }
 
 export interface UnsubscribeRequest {
     subId?: unknown;
+}
+
+/** Body of the `events.ack` verb: which subscription, and which delivery. */
+export interface AckRequest {
+    subId?: unknown;
+    id?: unknown;
 }
 
 /** Body of `POST /events/subscribe`. */
@@ -128,6 +151,7 @@ export interface SubscriptionView {
     anchor: { uid: string; path: string };
     match: string | null;
     op: FsOp | null;
+    targets: SubscriptionTarget[];
 }
 
 /**
@@ -137,7 +161,6 @@ export interface SubscriptionView {
  */
 export interface DurableSubscriptionView extends SubscriptionView {
     delivery: DeliveryClass;
-    targets: SubscriptionTarget[];
     handlerName: string | null;
     appUid: string | null;
     createdAt: number;
@@ -150,35 +173,28 @@ export type VerbAck<T extends object> =
     | ({ ok: true } & T)
     | { ok: false; error: { code: string; message: string } };
 
-export type GapReason =
-    | 'matched_subscription_limit'
-    | 'filter_evaluation_limit'
-    | 'delivery_rate_limit';
-
-/**
- * `gap` says an event existed and was not delivered. It rides the delivery
- * channel because a subscriber that never saw one would read the silence as
- * "nothing happened", and carries no `uid`/`path` — what was dropped is exactly
- * what it cannot name.
- */
-export interface GapMarker {
-    id: string;
-    subject: string;
-    op: 'gap';
-    reason: GapReason;
-    ts: number;
-}
+export type { GapMarker, GapReason } from './registry.js';
 
 /** One delivery, as the client receives it. */
 export interface DeliveryEnvelope {
     subId: string;
-    event: ProjectedEvent | GapMarker;
+    event: DeliverableEvent;
+    /** Set on a `single`: nothing else takes this until `events.ack` settles it. */
+    ackRequired?: true;
+    /** The handle `events.ack` names — the delivery, not the event. */
+    ackId?: string;
 }
 
-/** The envelope plus where it goes. The address is not part of the wire. */
+/**
+ * The envelope plus where it goes. The address is not part of the wire, and
+ * neither is the handler a durable row may want run alongside the socket copy.
+ */
 interface AddressedDelivery {
     target: SocketSpecifier;
     envelope: DeliveryEnvelope;
+    /** False for a row that asked for its handler and no socket copy. */
+    socket: boolean;
+    worker?: WorkerInvocation;
 }
 
 /** What a dispatch call site can supply that the event itself does not carry. */
@@ -198,6 +214,7 @@ export interface FsDispatchOptions {
 
 export const EVENTS_SUBSCRIBE_VERB = 'events.subscribe';
 export const EVENTS_UNSUBSCRIBE_VERB = 'events.unsubscribe';
+export const EVENTS_ACK_VERB = 'events.ack';
 export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
 
 // -- Expiry sweep -----------------------------------------------------
@@ -211,6 +228,27 @@ const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
 const EXPIRY_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
 const EXPIRY_MAX_BATCHES = 50;
+
+// -- Owed deliveries --------------------------------------------------
+
+/**
+ * Socket attempts one `single` delivery gets before its handler takes it. Two,
+ * because the second is what a client that reconnected — or a second connection
+ * of the same account — is worth trying; a third is just a slower hand-off.
+ */
+const SINGLE_SOCKET_ATTEMPTS = 2;
+
+/** How often expired leases are reclaimed and owed deliveries retried. */
+const PENDING_SWEEP_INTERVAL_MS = 10_000;
+
+/** Subscriptions one sweep pass looks at, taken from the oldest end. */
+const PENDING_SWEEP_SUBSCRIPTIONS = 100;
+
+/**
+ * Deliveries one subscription may be handed in a row. A consumer that settles
+ * inline would otherwise drain a whole backlog inside one ack.
+ */
+const PENDING_DRAIN_BATCH = 25;
 
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
@@ -236,10 +274,9 @@ const tooManyCalls = (): HttpError =>
         legacyCode: 'too_many_requests',
     });
 
-/** Stands until there is a pending-delivery store to take a `single` lease. */
-const deliveryClassUnavailable = (): HttpError =>
-    new HttpError(501, 'Delivery class `single` is not available yet', {
-        legacyCode: 'delivery_class_unavailable',
+const handlerRequired = (): HttpError =>
+    new HttpError(400, 'A `single` subscription needs a handlerName', {
+        legacyCode: 'events_handler_required',
     });
 
 const badRequest = (message: string, code: string): HttpError =>
@@ -266,12 +303,12 @@ const toView = (sub: DispatchSubscription): SubscriptionView => ({
     anchor: { uid: sub.anchorUid, path: sub.anchorPath },
     match: sub.match,
     op: sub.op,
+    targets: sub.targets ?? SESSION_TARGETS,
 });
 
 const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
     ...toView(sub),
     delivery: sub.delivery,
-    targets: sub.targets,
     handlerName: sub.handlerName,
     appUid: sub.appUid,
     createdAt: sub.createdAt,
@@ -300,10 +337,17 @@ const deliveryTarget = (row: DispatchSubscription): SocketSpecifier => {
     };
 };
 
+/** Transports a row is asking for, whichever store it came from. */
+const targetsOf = (row: DispatchSubscription): SubscriptionTarget[] =>
+    row.durable === true
+        ? (row.targets ?? DEFAULT_DURABLE_TARGETS)
+        : SESSION_TARGETS;
+
 /**
- * Rows this pass can actually deliver. Durable `single` rows need the pending
- * store to take a lease, and a row with no socket target has asked not to be
- * delivered over one.
+ * Whether this pass has anywhere to put the row. A `single` is queued whether
+ * or not anything is listening right now — that is what it is for — while a
+ * `broadcast` whose only transport is one this build cannot carry has no
+ * target, and an event with no target is dropped rather than held.
  */
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
@@ -314,16 +358,18 @@ const unexpired = (row: DispatchSubscription): boolean => {
     return expiresAt === null || expiresAt > nowSeconds();
 };
 
-const deliverableOverSockets = (row: DispatchSubscription): boolean =>
-    unexpired(row) &&
-    (row.durable !== true ||
-        (row.delivery === 'broadcast' &&
-            (row.targets ?? []).includes('socket')));
+const deliverable = (row: DispatchSubscription): boolean => {
+    if (row.durable !== true) return true;
+    if (!unexpired(row)) return false;
+    if (row.delivery === 'single') return true;
+    const targets = targetsOf(row);
+    return targets.includes('socket') || targets.includes('worker');
+};
+
+const isSingle = (row: DispatchSubscription): boolean =>
+    row.durable === true && row.delivery === 'single';
 
 // -- Durable request parsing ------------------------------------------
-
-/** Transports a durable row takes unless the caller says otherwise. */
-const DEFAULT_DURABLE_TARGETS: SubscriptionTarget[] = ['socket', 'worker'];
 
 /** Longest a `handlerName` may be, matching the column that holds it. */
 const HANDLER_NAME_MAX_LENGTH = 128;
@@ -331,13 +377,14 @@ const HANDLER_NAME_MAX_LENGTH = 128;
 const parseDelivery = (value: unknown): DeliveryClass => {
     if (value === undefined || value === null || value === 'broadcast')
         return 'broadcast';
-    // Creatable but inert is worse than refused: a `single` row would take a
-    // lease nothing in this build can settle.
-    if (value === 'single') throw deliveryClassUnavailable();
+    if (value === 'single') return 'single';
     throw badRequest(`Unknown delivery class: ${String(value)}`, 'bad_request');
 };
 
-const parseTargets = (value: unknown): SubscriptionTarget[] => {
+const parseTargets = (
+    value: unknown,
+    delivery: DeliveryClass,
+): SubscriptionTarget[] => {
     if (value === undefined || value === null) return DEFAULT_DURABLE_TARGETS;
     if (!Array.isArray(value) || value.length === 0)
         throw badRequest(
@@ -346,7 +393,34 @@ const parseTargets = (value: unknown): SubscriptionTarget[] => {
         );
     if (!value.every(isSubscriptionTarget))
         throw badRequest('Unknown delivery target', 'invalid_targets');
-    return [...new Set(value)];
+
+    const targets = [...new Set(value)];
+    if (!targetsAllowedForDelivery(delivery, targets))
+        throw badRequest(
+            'A `single` subscription needs a `worker` target and may not target `push`',
+            'invalid_targets',
+        );
+    return targets;
+};
+
+/**
+ * A session row is one connection, so the socket is the only transport it can
+ * have: a handler runs long after the connection is gone, and a device
+ * notification is not addressed to a connection at all.
+ */
+const parseSessionTargets = (value: unknown): SubscriptionTarget[] => {
+    if (value === undefined || value === null) return SESSION_TARGETS;
+    if (!Array.isArray(value) || value.length === 0)
+        throw badRequest(
+            'targets must be a non-empty array',
+            'invalid_targets',
+        );
+    if (!value.every((target) => target === 'socket'))
+        throw badRequest(
+            'A session subscription may only target `socket`',
+            'invalid_targets',
+        );
+    return SESSION_TARGETS;
 };
 
 const parseHandlerName = (value: unknown): string | null => {
@@ -394,6 +468,14 @@ export class EventsService extends PuterService {
     #coalescer: DeliveryCoalescer<AddressedDelivery> | null = null;
     #expirySweep: ReturnType<typeof setInterval> | null = null;
     #expiryKick: ReturnType<typeof setTimeout> | null = null;
+    #pendingSweep: ReturnType<typeof setInterval> | null = null;
+
+    /**
+     * What runs an app's handler. The default records the intent and settles
+     * nothing, so a delivery handed to it stays owed until there is a real
+     * invoker to take it.
+     */
+    worker: WorkerInvokerSeam = new RecordingWorkerInvoker();
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -413,6 +495,7 @@ export class EventsService extends PuterService {
             },
         );
         this.#armExpirySweep();
+        this.#armPendingSweep();
     }
 
     override onServerPrepareShutdown(): void {
@@ -420,6 +503,8 @@ export class EventsService extends PuterService {
         this.#expiryKick = null;
         if (this.#expirySweep) clearInterval(this.#expirySweep);
         this.#expirySweep = null;
+        if (this.#pendingSweep) clearInterval(this.#pendingSweep);
+        this.#pendingSweep = null;
     }
 
     override onServerShutdown(): void {
@@ -462,6 +547,13 @@ export class EventsService extends PuterService {
             });
         }) as (...args: never[]) => void);
 
+        socket.on(EVENTS_ACK_VERB, ((payload: AckRequest, ack: unknown) => {
+            void this.#answer(ack, async () => {
+                await this.ackDelivery(actor, payload);
+                return {};
+            });
+        }) as (...args: never[]) => void);
+
         socket.once('disconnect', (() => {
             void this.reapSocket(userId, socket.id);
         }) as (...args: never[]) => void);
@@ -500,6 +592,7 @@ export class EventsService extends PuterService {
 
         await this.#spendCallBudget(holderUserId);
 
+        const targets = parseSessionTargets(request?.targets);
         const rawSubject = String(request?.subject ?? '');
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
@@ -516,6 +609,7 @@ export class EventsService extends PuterService {
             op: anchor.op,
             appUid: actor.effectiveApp?.uid ?? null,
             permission: anchor.permission,
+            targets,
         };
 
         const bump = await this.stores.eventSubscription.add(sub);
@@ -587,10 +681,15 @@ export class EventsService extends PuterService {
         await this.#spendCallBudget(holderUserId);
 
         const delivery = parseDelivery(request?.delivery);
-        const targets = parseTargets(request?.targets);
+        const targets = parseTargets(request?.targets, delivery);
         const handlerName = parseHandlerName(request?.handlerName);
         const context = parseContext(request?.context);
         const expiresAt = parseExpiresAt(request?.expiresAt);
+
+        // A `single` is owed to exactly one consumer, and the handler is the
+        // only one that is always there to take it. Whether the handler exists
+        // is the publish surface's question, not this one's.
+        if (delivery === 'single' && !handlerName) throw handlerRequired();
 
         const rawSubject = String(request?.subject ?? '');
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
@@ -676,8 +775,45 @@ export class EventsService extends PuterService {
             throw unknownSubscription();
 
         const bump = await this.stores.durableSubscription.remove(row);
+        // Whatever it was still owed goes with it: a backlog held for a
+        // subscription nobody can consume is memory, and the paths it names are
+        // ones its holder just gave up asking about.
+        await this.stores.pendingDelivery.purge(subId);
         this.#forget(subId);
         this.#publishGeneration(bump, true);
+    }
+
+    /**
+     * Settle a `single` delivery the client took. An id this subscription is
+     * not holding — one already settled, or one reclaimed and handed on — is
+     * not an error: at-least-once makes a duplicate ack routine.
+     */
+    async ackDelivery(actor: Actor, request: AckRequest): Promise<void> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+
+        const subId = String(request?.subId ?? '');
+        const entryId = String(request?.id ?? '');
+        if (!subId || !entryId) throw unknownSubscription();
+
+        const ok = await checkRateLimit(
+            `${EVENTS_ACK_LIMIT.scope}:${holderUserId}`,
+            EVENTS_ACK_LIMIT.limit,
+            EVENTS_ACK_LIMIT.window,
+        );
+        if (!ok) throw tooManyCalls();
+
+        const row = await this.stores.durableSubscription.getBySubId(subId);
+        if (
+            !row ||
+            row.holderUserId !== holderUserId ||
+            !rowInActorScope(actor, row)
+        )
+            throw unknownSubscription();
+
+        await this.stores.pendingDelivery.settle(subId, entryId);
+        await this.#drain(row);
     }
 
     /**
@@ -697,6 +833,59 @@ export class EventsService extends PuterService {
             if (batch < EXPIRY_BATCH_SIZE) break;
         }
         return removed;
+    }
+
+    /**
+     * Retry what nobody took. Reads the pending index from its oldest end — the
+     * subscriptions that have waited longest — so finding the work costs one
+     * ordered read rather than a walk of the keyspace, which is exactly the
+     * thing that gets expensive when there is a backlog to find.
+     *
+     * A lease that lapsed is what makes a delivery claimable again, so this
+     * needs no notion of failure: it retries whatever is not currently held.
+     */
+    async sweepPending(): Promise<number> {
+        if (!this.enabled) return 0;
+
+        // A partial write can move a pending set without its share of the
+        // region counter going with it, in either direction. This is what
+        // keeps that drift from being permanent.
+        await this.stores.pendingDelivery
+            .reconcileRegionDepth()
+            .catch((err) => {
+                console.warn('[events] pending counter reconcile failed', err);
+            });
+
+        let attempted = 0;
+        for (const { subId } of await this.stores.pendingDelivery.head(
+            PENDING_SWEEP_SUBSCRIPTIONS,
+        )) {
+            try {
+                const row =
+                    await this.stores.durableSubscription.getBySubId(subId);
+                // Nothing left to deliver to, so nothing left to hold.
+                if (!row || this.#isOver(row)) {
+                    await this.stores.pendingDelivery.purge(subId);
+                    continue;
+                }
+                // A suspended row keeps what it is owed — what happens to that
+                // backlog is the suspension's decision, not the sweeper's. It
+                // goes to the back of the line so it cannot hold the head.
+                if (row.suspendedAt !== null) {
+                    await this.stores.pendingDelivery.defer(subId);
+                    continue;
+                }
+                attempted += await this.#drain(row);
+            } catch (err) {
+                console.warn('[events] pending sweep failed', subId, err);
+            }
+        }
+        return attempted;
+    }
+
+    /** Past its expiry, so the daily reaper is only a matter of time. */
+    #isOver(row: DurableSubscription): boolean {
+        return row.expiresAt !== null && row.expiresAt <= Date.now() / 1000;
     }
 
     /**
@@ -828,7 +1017,7 @@ export class EventsService extends PuterService {
         candidates: DispatchSubscription[],
         actingUserId: number | undefined,
     ): Promise<void> {
-        const rows = candidates.filter(deliverableOverSockets);
+        const rows = candidates.filter(deliverable);
         if (rows.length === 0) return;
 
         // One throwaway projection reads the op off the registry entry rather
@@ -856,9 +1045,21 @@ export class EventsService extends PuterService {
                     actingUserId === row.holderUserId,
                 seq: seq++,
             });
+
+            // A `single` is owed rather than sent: it is queued, and never
+            // coalesced or broadcast — collapsing two of them would drop one
+            // the subscription was promised.
+            if (isSingle(row)) {
+                await this.#owe(row, event);
+                continue;
+            }
+
+            const targets = targetsOf(row);
             this.#coalesce().push(coalesceKey(row.subId, event.subject), {
                 target: deliveryTarget(row),
                 envelope: { subId: row.subId, event },
+                socket: targets.includes('socket'),
+                worker: this.#workerInvocation(row, event),
             });
         }
 
@@ -951,20 +1152,191 @@ export class EventsService extends PuterService {
         context: EventContext,
         reason: GapReason,
     ): void {
-        for (const row of rows)
+        for (const row of rows) {
+            const marker: GapMarker = {
+                id: context.id,
+                subject: subject.subject,
+                op: 'gap',
+                reason,
+                ts: context.ts,
+            };
+            // A marker is a delivery, so it takes the same route its
+            // subscription's events would: queued for a `single`, sent for the
+            // rest.
+            if (isSingle(row)) {
+                void this.#owe(row, marker);
+                continue;
+            }
+            // A marker rides the socket; a row with none has nowhere to hear
+            // it, and sending nothing must not count as a delivery.
+            if (!targetsOf(row).includes('socket')) continue;
             this.#send({
                 target: deliveryTarget(row),
+                socket: true,
+                envelope: { subId: row.subId, event: marker },
+            });
+        }
+    }
+
+    // -- Owed deliveries ---------------------------------------------
+
+    /**
+     * Queue a `single` and try to hand it straight over. The queue comes first:
+     * an attempt that fails after it is recorded is a retry, where one that
+     * fails before it is a lost event.
+     */
+    async #owe(
+        row: DispatchSubscription,
+        event: DeliverableEvent,
+    ): Promise<void> {
+        try {
+            const { shed } = await this.stores.pendingDelivery.enqueue(
+                row.subId,
+                event,
+            );
+            this.#reportShed(shed);
+            await this.#drain(row);
+        } catch (err) {
+            this.#enqueueFailed(row, err);
+        }
+    }
+
+    /**
+     * Hand this subscription what it is owed, oldest first, until something
+     * takes a lease and holds it. Stops after a batch so one consumer that
+     * settles inline cannot drain a whole backlog inside one call.
+     */
+    async #drain(row: DispatchSubscription): Promise<number> {
+        let handed = 0;
+        for (let pass = 0; pass < PENDING_DRAIN_BATCH; pass++) {
+            const claimed = await this.stores.pendingDelivery.claim(row.subId);
+            if (!claimed) return handed;
+            handed++;
+            // Anything still holding the lease is the next consumer's answer to
+            // give, so this pass is over.
+            if (!(await this.#handOut(row, claimed))) return handed;
+        }
+        return handed;
+    }
+
+    /**
+     * One attempt at one owed delivery. Sockets first and one at a time, the
+     * handler once they are spent — a client that is there answers faster than
+     * anything else, and one that is not must not stall the delivery forever.
+     *
+     * Returns whether the delivery settled, which is what says the next one may
+     * go out now rather than when this lease lapses.
+     */
+    async #handOut(
+        row: DispatchSubscription,
+        claimed: ClaimedDelivery,
+    ): Promise<boolean> {
+        const targets = targetsOf(row);
+        const target = deliveryTarget(row);
+
+        // Only this region's own connections are visible here; the ones other
+        // regions hold arrive with presence.
+        const overSocket =
+            targets.includes('socket') &&
+            claimed.socketAttempts < SINGLE_SOCKET_ATTEMPTS &&
+            this.services.socket.has(target);
+
+        if (overSocket) {
+            await this.stores.pendingDelivery.recordSocketAttempt(
+                row.subId,
+                claimed.entryId,
+            );
+            this.#send({
+                target,
+                socket: true,
                 envelope: {
                     subId: row.subId,
-                    event: {
-                        id: context.id,
-                        subject: subject.subject,
-                        op: 'gap',
-                        reason,
-                        ts: context.ts,
-                    },
+                    event: claimed.event,
+                    ackRequired: true,
+                    ackId: claimed.entryId,
                 },
             });
+            return false;
+        }
+
+        // Nowhere to put it yet: the lease is what paces the next attempt.
+        if (!targets.includes('worker')) return false;
+
+        const invocation = this.#workerInvocation(row, claimed.event);
+        if (!invocation) return false;
+
+        const outcome = await this.worker.invoke(invocation);
+        this.onDelivered({ subId: row.subId, event: claimed.event });
+        if (outcome !== 'settled') return false;
+
+        await this.stores.pendingDelivery.settle(row.subId, claimed.entryId);
+        return true;
+    }
+
+    /** What the handler seam is handed, or null for a row that wants none. */
+    #workerInvocation(
+        row: DispatchSubscription,
+        event: DeliverableEvent,
+    ): WorkerInvocation | null {
+        if (row.durable !== true) return null;
+        if (!targetsOf(row).includes('worker')) return null;
+        return {
+            subId: row.subId,
+            holderUserId: row.holderUserId,
+            appUid: row.appUid,
+            handlerName: row.handlerName ?? null,
+            event,
+            context: row.context ?? null,
+        };
+    }
+
+    /**
+     * Say that deliveries were dropped to stay inside a cap. The subscriptions
+     * that lost them are told by the gap marker the store queued in their
+     * place; this is the half nobody else would see.
+     */
+    #reportShed(shed: readonly PendingShed[]): void {
+        for (const dropped of shed) {
+            if (dropped.scope === 'subscription') {
+                console.warn(
+                    `[events] dropped ${dropped.dropped} undelivered event(s) of ${dropped.subId}: backlog full`,
+                );
+                continue;
+            }
+            console.error(
+                `[events] dropped ${dropped.dropped} undelivered event(s) of ${dropped.subId}: too many held in this region`,
+            );
+            this.clients.alarm.create(
+                'events_pending_ceiling',
+                'Too many undelivered events are being held here — the oldest were dropped',
+                { subId: dropped.subId, dropped: dropped.dropped },
+                'warning',
+                { dedup: true },
+            );
+        }
+    }
+
+    /**
+     * A `single` that could not be queued is an event its subscription was
+     * promised and will never see, and nothing downstream will notice on its
+     * own. The write that produced it still succeeded.
+     */
+    #enqueueFailed(row: DispatchSubscription, err: unknown): void {
+        console.error(
+            `[events] could not queue an event for ${row.subId}`,
+            err,
+        );
+        this.clients.alarm.create(
+            'events_pending_enqueue_failed',
+            'An event owed to a subscription could not be queued and is lost',
+            {
+                subId: row.subId,
+                holderUserId: row.holderUserId,
+                error: err instanceof Error ? err : new Error(String(err)),
+            },
+            'warning',
+            { dedup: true },
+        );
     }
 
     // -- Delivery ----------------------------------------------------
@@ -991,6 +1363,7 @@ export class EventsService extends PuterService {
             const event = delivery.envelope.event as ProjectedEvent;
             this.#send({
                 target: delivery.target,
+                socket: delivery.socket,
                 envelope: {
                     subId: delivery.envelope.subId,
                     event: {
@@ -1010,22 +1383,40 @@ export class EventsService extends PuterService {
     /**
      * Addressed at a socket id — which socket.io joins every socket to — or at
      * a room, so either way the adapter carries it to whichever node terminates
-     * the connection.
+     * the connection. A durable row may also want its handler run, which
+     * happens alongside the socket copy and at most once per delivery.
      */
     #send(delivery: AddressedDelivery): void {
-        try {
-            void this.services.socket
-                .send(
-                    delivery.target,
-                    EVENTS_DELIVERY_CHANNEL,
-                    delivery.envelope,
-                )
-                .catch((err: unknown) => {
-                    console.warn('[events] socket send failed', err);
-                });
-        } catch (err) {
-            console.warn('[events] socket send failed', err);
+        if (delivery.socket) {
+            try {
+                void this.services.socket
+                    .send(
+                        delivery.target,
+                        EVENTS_DELIVERY_CHANNEL,
+                        delivery.envelope,
+                    )
+                    .catch((err: unknown) => {
+                        console.warn('[events] socket send failed', err);
+                    });
+            } catch (err) {
+                console.warn('[events] socket send failed', err);
+            }
         }
+
+        if (delivery.worker) {
+            const invocation = delivery.worker;
+            // At-most-once by construction: a `broadcast` invocation is never
+            // retried, which is why the docs ask handlers to be idempotent
+            // rather than promising them each event exactly once.
+            try {
+                void this.worker.invoke(invocation).catch((err: unknown) => {
+                    console.warn('[events] handler invocation failed', err);
+                });
+            } catch (err) {
+                console.warn('[events] handler invocation failed', err);
+            }
+        }
+
         this.onDelivered(delivery.envelope);
     }
 
@@ -1203,6 +1594,17 @@ export class EventsService extends PuterService {
         const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
         sweep.unref?.();
         this.#expirySweep = sweep;
+    }
+
+    #armPendingSweep(): void {
+        if (!this.enabled) return;
+        const sweep = setInterval(() => {
+            void this.sweepPending().catch((err) => {
+                console.warn('[events] pending sweep failed', err);
+            });
+        }, PENDING_SWEEP_INTERVAL_MS);
+        sweep.unref?.();
+        this.#pendingSweep = sweep;
     }
 
     #stopRefresh(holderUserId: number, socketId: string): void {

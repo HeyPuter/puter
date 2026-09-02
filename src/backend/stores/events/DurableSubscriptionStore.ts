@@ -33,6 +33,7 @@ import type { GenerationBump } from './EventSubscriptionStore.js';
 import {
     isSubscriptionTarget,
     SUBSCRIPTION_TARGETS,
+    targetsAllowedForDelivery,
     type DurableSubscription,
     type SubscriptionTarget,
 } from './types.js';
@@ -108,6 +109,13 @@ const invalidTargets = (): HttpError =>
     new HttpError(
         400,
         `targets must be a subset of ${SUBSCRIPTION_TARGETS.join(', ')}`,
+        { legacyCode: 'invalid_targets' },
+    );
+
+const pushOnSingle = (): HttpError =>
+    new HttpError(
+        400,
+        'A `single` subscription needs a `worker` target and may not target `push`',
         { legacyCode: 'invalid_targets' },
     );
 
@@ -202,7 +210,7 @@ export class DurableSubscriptionStore extends PuterStore {
     async create(
         input: DurableSubscriptionInput,
     ): Promise<{ row: DurableSubscription; bump: GenerationBump }> {
-        const targets = this.#assertTargets(input.targets);
+        const targets = this.#assertTargets(input.delivery, input.targets);
         this.#assertContext(input.context);
 
         const held = await this.countForHolder(input.holderUserId);
@@ -437,11 +445,22 @@ export class DurableSubscriptionStore extends PuterStore {
         return rows.map(toRow);
     }
 
-    #assertTargets(targets: readonly string[]): SubscriptionTarget[] {
+    /**
+     * The row cannot exist with transports its delivery class cannot use. Held
+     * here rather than only at the API, so a writer that never passes through
+     * one cannot leave an unsatisfiable row behind.
+     */
+    #assertTargets(
+        delivery: DeliveryClass,
+        targets: readonly string[],
+    ): SubscriptionTarget[] {
         if (!Array.isArray(targets) || targets.length === 0)
             throw invalidTargets();
         if (!targets.every(isSubscriptionTarget)) throw invalidTargets();
-        return [...new Set(targets as SubscriptionTarget[])];
+
+        const unique = [...new Set(targets as SubscriptionTarget[])];
+        if (!targetsAllowedForDelivery(delivery, unique)) throw pushOnSingle();
+        return unique;
     }
 
     #assertContext(context: string | null): void {

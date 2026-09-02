@@ -1,0 +1,499 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import MockRedis from 'ioredis-mock';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_REGION_PENDING_CEILING,
+} from '../../controllers/events/limits.js';
+import type { Actor } from '../../core/actor.js';
+import { EventSubscriptionStore } from '../../stores/events/EventSubscriptionStore.js';
+import { PendingDeliveryStore } from '../../stores/events/PendingDeliveryStore.js';
+import type {
+    DurableSubscription,
+    SubscriptionTarget,
+} from '../../stores/events/types.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type { IConfig } from '../../types.js';
+import { EventsService, type DeliveryEnvelope } from './EventsService.js';
+import { fsAnchorToken } from './subjects.js';
+import type {
+    WorkerInvocation,
+    WorkerInvocationOutcome,
+} from './workerSeam.js';
+
+/**
+ * The promises each delivery class makes, held against each other.
+ *
+ * A `single` is owed to exactly one consumer: the socket if someone is there,
+ * the handler once the socket has had its turns, and never both. A `broadcast`
+ * is at-most-once to everyone who is: its handler runs alongside the socket
+ * copies rather than instead of them, and a row nothing can carry delivers —
+ * and meters — nothing at all.
+ */
+
+let seq = 0;
+let userId = 0;
+let redis: InstanceType<typeof MockRedis.Cluster>;
+let subscriptions: EventSubscriptionStore;
+let pending: PendingDeliveryStore;
+let service: EventsService;
+let sent: DeliveryEnvelope[];
+let delivered: DeliveryEnvelope[];
+let invoked: WorkerInvocation[];
+let rows: Map<string, DurableSubscription>;
+let entries: Map<string, FSEntry>;
+let alarms: ReturnType<typeof vi.fn>;
+
+/** Whether this region holds a connection for the row being delivered to. */
+let socketConnected = true;
+/** What the handler seam reports back, which is what settles a lease or not. */
+let workerOutcome: WorkerInvocationOutcome = 'deferred';
+
+const entry = (over: Partial<FSEntry> = {}): FSEntry =>
+    ({
+        uid: `file-${seq}`,
+        uuid: `file-${seq}`,
+        path: `/u${userId}/Documents/notes.txt`,
+        userId,
+        isDir: false,
+        ...over,
+    }) as FSEntry;
+
+const actorFor = (asUserId = userId): Actor =>
+    ({
+        user: {
+            id: asUserId,
+            uuid: `user-${asUserId}`,
+            username: `u${asUserId}`,
+        },
+        effectiveApp: null,
+    }) as unknown as Actor;
+
+const anchorUid = (): string => `docs-${seq}`;
+const anchorPath = (): string => `/u${userId}/Documents`;
+
+const ancestors = (): Array<{ uid: string; path: string }> => [
+    { uid: anchorUid(), path: anchorPath() },
+];
+
+const durableRow = (
+    over: Partial<DurableSubscription> = {},
+): DurableSubscription => ({
+    durable: true,
+    subId: `app-${seq}#${over.subId ?? 'sub'}`,
+    holderUserId: userId,
+    ownerUserId: userId,
+    subject: `fs:${anchorPath()}`,
+    token: fsAnchorToken(anchorUid()),
+    anchorUid: anchorUid(),
+    anchorPath: anchorPath(),
+    match: null,
+    op: null,
+    appUid: null,
+    permission: 'list',
+    delivery: 'single',
+    targets: ['socket', 'worker'] as SubscriptionTarget[],
+    handlerName: 'onWrite',
+    context: null,
+    expiresAt: null,
+    suspendedAt: null,
+    suspendedReason: null,
+    createdAt: Math.floor(Date.now() / 1000),
+    ...over,
+});
+
+/** Put a row where dispatch reads it, and where a later ack looks it up. */
+const register = async (
+    over: Partial<DurableSubscription> = {},
+): Promise<DurableSubscription> => {
+    const row = durableRow(over);
+    rows.set(row.subId, row);
+    await subscriptions.cacheDurable([row]);
+    service.invalidateUser(userId);
+    return row;
+};
+
+const dispatch = (node = entry()): Promise<void> =>
+    service.dispatchFs('fs.write.file', node, {
+        actingUserId: userId,
+        ancestors: async () => ancestors(),
+    });
+
+/** Wait out the coalescing window a `broadcast` delivery sits in. */
+const flushed = (count = 1): Promise<void> =>
+    vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(count), {
+        timeout: EVENTS_COALESCE_WINDOW_MS * 12,
+        interval: 25,
+    });
+
+const jump = (ms: number): void => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + ms);
+};
+
+const keysOf = async (subId: string): Promise<string[]> =>
+    (await redis.keys('*')).filter((key: string) => key.includes(subId));
+
+beforeEach(async () => {
+    seq++;
+    userId = 7000 + seq;
+    socketConnected = true;
+    workerOutcome = 'deferred';
+    sent = [];
+    delivered = [];
+    invoked = [];
+    rows = new Map();
+    entries = new Map();
+    alarms = vi.fn();
+
+    redis = new MockRedis.Cluster(['redis://localhost:7001']);
+    await redis.del('ev:qx', 'ev:qc');
+
+    subscriptions = new EventSubscriptionStore(
+        {} as IConfig,
+        { redis } as never,
+        {} as never,
+    );
+    pending = new PendingDeliveryStore(
+        {} as IConfig,
+        { redis } as never,
+        {} as never,
+    );
+
+    entries.set(`uid:${anchorUid()}`, entry({ uid: anchorUid(), isDir: true }));
+
+    service = new EventsService(
+        { events: { enabled: true } } as IConfig,
+        {
+            redis,
+            event: { on: vi.fn(), emit: vi.fn() },
+            alarm: { create: alarms },
+        } as never,
+        {
+            eventSubscription: subscriptions,
+            pendingDelivery: pending,
+            durableSubscription: {
+                warmRegion: async () => false,
+                getBySubId: async (subId: string) => rows.get(subId) ?? null,
+                remove: async (row: DurableSubscription) => {
+                    rows.delete(row.subId);
+                    return { userId: row.holderUserId, generation: 1 };
+                },
+            },
+            fsEntry: {
+                getEntryByUuid: async (uid: string) =>
+                    entries.get(`uid:${uid}`) ?? null,
+                getEntryByPath: async () => null,
+                getEntryById: async () => null,
+            },
+            user: {
+                getById: async (id: number) => ({ id, uuid: `user-${id}` }),
+            },
+            app: { getByUid: async (uid: string) => ({ uid, id: 1 }) },
+        } as never,
+        {
+            socket: {
+                send: vi.fn(async (_spec, _key, data) => {
+                    sent.push(data as DeliveryEnvelope);
+                }),
+                has: () => socketConnected,
+            },
+            fs: { getAncestorChain: async () => ancestors() },
+            acl: {
+                check: async () => true,
+                getSafeAclError: async () => ({
+                    status: 404,
+                    message: 'Subject does not exist',
+                    fields: { code: 'subject_does_not_exist' },
+                }),
+            },
+        } as never,
+    );
+    service.onDelivered = (envelope) => delivered.push(envelope);
+    service.worker = {
+        invoke: async (invocation: WorkerInvocation) => {
+            invoked.push(invocation);
+            return workerOutcome;
+        },
+    };
+});
+
+afterEach(() => {
+    vi.useRealTimers();
+});
+
+describe('a delivery owed to exactly one consumer', () => {
+    it('goes to the connected socket, and not to the handler as well', async () => {
+        const row = await register();
+
+        await dispatch();
+
+        expect(invoked).toEqual([]);
+        expect(sent).toHaveLength(1);
+        expect(sent[0]).toMatchObject({
+            subId: row.subId,
+            ackRequired: true,
+            event: { op: 'write' },
+        });
+        expect(sent[0].ackId).toEqual(expect.any(String));
+        expect(delivered).toHaveLength(1);
+    });
+
+    it('stays owed until the client acks it', async () => {
+        const row = await register();
+        await dispatch();
+
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+
+        await service.ackDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+        });
+
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        // Nothing owed, nothing held.
+        await expect(keysOf(row.subId)).resolves.toEqual([]);
+    });
+
+    it('takes a second ack for the same delivery as nothing to do', async () => {
+        const row = await register();
+        await dispatch();
+        const ack = { subId: row.subId, id: sent[0].ackId };
+
+        await service.ackDelivery(actorFor(), ack);
+        await expect(
+            service.ackDelivery(actorFor(), ack),
+        ).resolves.toBeUndefined();
+    });
+
+    it('refuses to settle a delivery for a subscription someone else holds', async () => {
+        const row = await register();
+        await dispatch();
+        const ack = { subId: row.subId, id: sent[0].ackId };
+
+        await expect(
+            service.ackDelivery(actorFor(userId + 1), ack),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subscription_does_not_exist',
+        });
+
+        // Untouched: the real holder can still take it.
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+        await service.ackDelivery(actorFor(), ack);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('hands the next one over as soon as the last is settled', async () => {
+        const row = await register();
+        await dispatch(entry({ uid: `file-a-${seq}` }));
+        await dispatch(entry({ uid: `file-b-${seq}` }));
+
+        // One at a time: the second waits on the first being taken.
+        expect(sent).toHaveLength(1);
+
+        await service.ackDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+        });
+
+        expect(sent).toHaveLength(2);
+        expect(sent[1].event.id).not.toBe(sent[0].event.id);
+    });
+
+    it('tries the socket twice, then hands it to the handler', async () => {
+        const row = await register();
+        await dispatch();
+        expect(sent).toHaveLength(1);
+
+        // First lease lapses with no ack: a second socket attempt, which is
+        // what a reconnected client is worth.
+        jump(31_000);
+        await service.sweepPending();
+        expect(sent).toHaveLength(2);
+        expect(invoked).toEqual([]);
+
+        // Second lapses too. Sockets are spent, so the handler takes it.
+        jump(31_000);
+        await service.sweepPending();
+        expect(sent).toHaveLength(2);
+        expect(invoked).toHaveLength(1);
+        expect(invoked[0]).toMatchObject({
+            subId: row.subId,
+            handlerName: 'onWrite',
+            holderUserId: userId,
+        });
+    });
+
+    it('goes straight to the handler when nothing is connected', async () => {
+        socketConnected = false;
+        const row = await register();
+
+        await dispatch();
+
+        expect(sent).toEqual([]);
+        expect(invoked).toHaveLength(1);
+        // Not taken yet, so still owed.
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+    });
+
+    it('settles the delivery once the handler reports it took it', async () => {
+        socketConnected = false;
+        workerOutcome = 'settled';
+        const row = await register();
+
+        await dispatch();
+
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        await expect(keysOf(row.subId)).resolves.toEqual([]);
+    });
+
+    it('is never delivered as a broadcast copy as well', async () => {
+        await register();
+
+        await dispatch();
+        await new Promise((resolve) =>
+            setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3),
+        );
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].ackRequired).toBe(true);
+    });
+});
+
+describe('a delivery everyone connected gets', () => {
+    it('runs the handler once, alongside the socket copy', async () => {
+        const row = await register({ delivery: 'broadcast' });
+
+        await dispatch();
+        await flushed();
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0]).toMatchObject({ subId: row.subId });
+        expect(sent[0].ackRequired).toBeUndefined();
+        expect(invoked).toHaveLength(1);
+        expect(invoked[0]).toMatchObject({ subId: row.subId });
+        // One delivery is one line, however many transports carried it.
+        expect(delivered).toHaveLength(1);
+    });
+
+    it('runs the handler once per delivery, not once per transport', async () => {
+        await register({ delivery: 'broadcast', targets: ['worker'] });
+
+        await dispatch();
+        await vi.waitFor(() => expect(invoked.length).toBe(1), {
+            timeout: EVENTS_COALESCE_WINDOW_MS * 12,
+            interval: 25,
+        });
+
+        expect(sent).toEqual([]);
+        expect(delivered).toHaveLength(1);
+    });
+
+    it('delivers and meters nothing when nothing can carry it', async () => {
+        await register({ delivery: 'broadcast', targets: ['push'] });
+
+        await dispatch();
+        await new Promise((resolve) =>
+            setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3),
+        );
+
+        expect(sent).toEqual([]);
+        expect(invoked).toEqual([]);
+        expect(delivered).toEqual([]);
+    });
+});
+
+/** No alarm text may name the storage this runs on — see AGENTS.md. */
+const noInfraWording = (): RegExp =>
+    /^(?!.*\b(redis|elasticache|dynamo|dynamodb|aws|memcached)\b).*$/is;
+
+describe('when a delivery cannot be held', () => {
+    it('does not fail the write, and does not let the loss pass quietly', async () => {
+        await register();
+        vi.spyOn(pending, 'enqueue').mockRejectedValue(
+            new Error('the cache is unreachable'),
+        );
+
+        await expect(dispatch()).resolves.toBeUndefined();
+
+        expect(sent).toEqual([]);
+        expect(alarms).toHaveBeenCalledWith(
+            'events_pending_enqueue_failed',
+            expect.stringMatching(noInfraWording()),
+            expect.objectContaining({ subId: expect.any(String) }),
+            'warning',
+            { dedup: true },
+        );
+    });
+
+    it('sheds the oldest and alarms when the region is holding too much', async () => {
+        const row = await register();
+        await redis.incrby('ev:qc', EVENTS_REGION_PENDING_CEILING);
+
+        await dispatch();
+
+        expect(alarms).toHaveBeenCalledWith(
+            'events_pending_ceiling',
+            expect.stringMatching(noInfraWording()),
+            expect.objectContaining({ subId: row.subId }),
+            'warning',
+            { dedup: true },
+        );
+        // What it shed, it was told about: the marker took the delivery's place.
+        expect(sent).toHaveLength(1);
+        expect(sent[0].event).toMatchObject({
+            op: 'gap',
+            reason: 'backlog_overflow',
+        });
+    });
+});
+
+describe('giving up a subscription', () => {
+    it('drops what it was owed, and corrects the region counter', async () => {
+        socketConnected = false;
+        const row = await register();
+        await dispatch();
+        await expect(pending.regionDepth()).resolves.toBe(1);
+
+        await service.unsubscribeDurable(actorFor(), { subId: row.subId });
+
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        await expect(pending.regionDepth()).resolves.toBe(0);
+        await expect(keysOf(row.subId)).resolves.toEqual([]);
+    });
+});
+
+describe('keeping the region counter honest', () => {
+    it('self-heals a drifted counter on the periodic sweep', async () => {
+        socketConnected = false;
+        await register();
+        await dispatch();
+        // Drift: as if a settle's decrement had been lost somewhere else.
+        await redis.incrby('ev:qc', 41);
+        await expect(pending.regionDepth()).resolves.toBe(42);
+
+        await service.sweepPending();
+
+        await expect(pending.regionDepth()).resolves.toBe(1);
+    });
+});

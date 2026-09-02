@@ -35,6 +35,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import {
     EventsService,
+    EVENTS_ACK_VERB,
     EVENTS_DELIVERY_CHANNEL,
     EVENTS_SUBSCRIBE_VERB,
     EVENTS_UNSUBSCRIBE_VERB,
@@ -183,6 +184,7 @@ const appStore = {
  */
 const durableSubscriptionStore = {
     warmRegion: async () => false,
+    getBySubId: async () => null,
 };
 
 /**
@@ -383,7 +385,25 @@ describe('subscribing', () => {
             anchor: { uid: documents.uid, path: documents.path },
             match: null,
             op: null,
+            // The connection is the only thing a session row can be delivered
+            // to, so it is the only transport it can ask for.
+            targets: ['socket'],
         });
+    });
+
+    it('refuses a session subscription a connection could not carry', async () => {
+        seedTree();
+
+        for (const targets of [['worker'], ['socket', 'push']])
+            await expect(
+                service.subscribe(actorFor(), socketId, {
+                    subject: `fs:/u${userId}/Documents`,
+                    targets,
+                }),
+            ).rejects.toSatisfy(
+                (err: unknown) =>
+                    isHttpError(err) && err.legacyCode === 'invalid_targets',
+            );
     });
 
     it('rejects a subject that resolves to nothing', async () => {
@@ -1152,6 +1172,26 @@ describe('the socket surface', () => {
         await vi.waitFor(() => expect(ack).toHaveBeenCalled());
 
         expect(ack.mock.calls[0][0]).toEqual({ ok: true });
+    });
+
+    it('answers an ack for a subscription the caller does not hold', async () => {
+        const socket = fakeSocket();
+        service.attachSocket(socket, actorFor());
+
+        const ack = vi.fn();
+        socket.fire(
+            EVENTS_ACK_VERB,
+            { subId: 'app#someone-elses', id: '1-0' },
+            ack,
+        );
+        await vi.waitFor(() => expect(ack).toHaveBeenCalled());
+
+        expect(ack.mock.calls[0][0]).toEqual({
+            ok: false,
+            error: expect.objectContaining({
+                code: 'subscription_does_not_exist',
+            }),
+        });
     });
 
     it('addresses deliveries at the socket that asked for them', async () => {
