@@ -27,7 +27,11 @@ describe('team endpoints over HTTP', () => {
     let env: PuterTestEnv;
 
     beforeAll(async () => {
-        env = await setupPuterTestEnv({ teams_enabled: true } as IConfig);
+        // The cap has its own suite; these tests need many teams.
+        env = await setupPuterTestEnv({
+            teams_enabled: true,
+            max_teams_per_user: 100,
+        } as IConfig);
     }, 120_000);
 
     afterAll(async () => {

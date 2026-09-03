@@ -60,6 +60,16 @@ export const generateTemporaryPassword = (length = 16): string => {
 /** Why an account was disabled. Free text in `0063`; this is the team one. */
 export const DISABLED_BY_TEAM = 'disabled_by_team';
 
+/**
+ * Cap-lock bounds. The lock is held for a count plus an insert -- single-digit
+ * milliseconds -- so 200ms of waiting is already far past the contended case,
+ * and past it the request proceeds unserialized rather than holding a
+ * connection or refusing.
+ */
+const CAP_LOCK_ATTEMPTS = 8;
+const CAP_LOCK_RETRY_MS = 25;
+const CAP_LOCK_TTL_SECONDS = 10;
+
 export class TeamService extends PuterService {
     // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
 
@@ -163,6 +173,20 @@ export class TeamService extends PuterService {
 
     // -- Team lifecycle ------------------------------------------
 
+    // -- Caps ---- bounds, not billing; the charge is out of repo ---------
+
+    /** Live teams one user may own. */
+    #workspaceCap(): number {
+        const n = Number(this.config.max_teams_per_user);
+        return Number.isFinite(n) && n > 0 ? n : 1;
+    }
+
+    /** Seats one team may provision. Adjustable without a code change. */
+    #seatCap(): number {
+        const n = Number(this.config.max_seats_per_team);
+        return Number.isFinite(n) && n > 0 ? n : 50;
+    }
+
     /** A rejected handle is 400, a taken one 409, never an unhandled 500. */
     async assertHandleUsable(handle: string): Promise<void> {
         const rejection = checkHandle(handle);
@@ -199,6 +223,50 @@ export class TeamService extends PuterService {
         }
     }
 
+    /** Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`. */
+    async #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
+        const key = `team:cap:${suffix}`;
+        const token = `${process.pid}:${Date.now()}:${Math.random()}`;
+        let held = false;
+
+        try {
+            for (let attempt = 0; attempt < CAP_LOCK_ATTEMPTS; attempt++) {
+                const claimed = await this.clients.redis.set(
+                    key,
+                    token,
+                    'EX',
+                    CAP_LOCK_TTL_SECONDS,
+                    'NX',
+                );
+                if (claimed === 'OK') {
+                    held = true;
+                    break;
+                }
+                await new Promise((resolve) =>
+                    setTimeout(resolve, CAP_LOCK_RETRY_MS),
+                );
+            }
+            // Waiting out the budget is not a refusal: the cap is a bound, and
+            // a spurious 409 on a lone create is worse than a rare overshoot.
+            if (!held) return run();
+        } catch {
+            // Redis unreachable — same reasoning, proceed unserialized.
+            return run();
+        }
+
+        try {
+            return await run();
+        } finally {
+            try {
+                // Only clear our own claim — a lapsed TTL may have reassigned it.
+                const current = await this.clients.redis.get(key);
+                if (current === token) await this.clients.redis.del(key);
+            } catch {
+                /* the TTL clears it */
+            }
+        }
+    }
+
     /** Renames or re-handles a team, refusing an unusable handle. */
     async updateTeam(
         teamUid: string,
@@ -224,6 +292,28 @@ export class TeamService extends PuterService {
         ownerUserId: number,
         input: { name: string; handle?: string | null },
     ): Promise<TeamRow> {
+        return this.#withCapLock(`owner:${ownerUserId}`, () =>
+            this.#createTeamLocked(ownerUserId, input),
+        );
+    }
+
+    async #createTeamLocked(
+        ownerUserId: number,
+        input: { name: string; handle?: string | null },
+    ): Promise<TeamRow> {
+        // First: a capped user should hear that, not that the name was taken.
+        const cap = this.#workspaceCap();
+        if ((await this.stores.team.countOwned(ownerUserId)) >= cap) {
+            throw new HttpError(
+                409,
+                `You may own ${cap} team${cap === 1 ? '' : 's'}`,
+                {
+                    legacyCode: 'team_limit_reached',
+                    fields: { limit: cap },
+                },
+            );
+        }
+
         const handle = input.handle ?? null;
         if (handle !== null) await this.assertHandleUsable(handle);
 
@@ -427,7 +517,30 @@ export class TeamService extends PuterService {
         username: string;
         temporaryPassword: string;
     }> {
+        return this.#withCapLock(`team:${teamUid}`, () =>
+            this.#provisionAccountLocked(teamUid, actorUserId, input),
+        );
+    }
+
+    async #provisionAccountLocked(
+        teamUid: string,
+        actorUserId: number,
+        input: { username: string; email: string },
+    ): Promise<{
+        userId: number;
+        username: string;
+        temporaryPassword: string;
+    }> {
         const team = await this.requireOwner(teamUid, actorUserId);
+
+        // Counted, never derived from a stored total: seats come and go.
+        const cap = this.#seatCap();
+        if ((await this.stores.team.countSeats(team.id)) >= cap) {
+            throw new HttpError(409, `This team is limited to ${cap} seats`, {
+                legacyCode: 'seat_limit_reached',
+                fields: { limit: cap },
+            });
+        }
 
         this.#assertUsableUsername(input.username);
         if (!validator.isEmail(input.email)) {
@@ -573,9 +686,13 @@ export class TeamService extends PuterService {
 
         // Already off: emitting again would open a second byte charge that
         // only one `enabled` will ever close.
-        const current = await this.stores.user.getByProperty('id', targetUserId, {
-            force: true,
-        });
+        const current = await this.stores.user.getByProperty(
+            'id',
+            targetUserId,
+            {
+                force: true,
+            },
+        );
         if (current?.suspended) return;
 
         // Recorded first: a failed append must not leave an unlogged suspension.
@@ -612,10 +729,7 @@ export class TeamService extends PuterService {
             force: true,
         });
         // Only the team's own suspension; a platform one must not lift.
-        if (
-            user?.suspended &&
-            user.suspended_reason !== DISABLED_BY_TEAM
-        ) {
+        if (user?.suspended && user.suspended_reason !== DISABLED_BY_TEAM) {
             throw new HttpError(409, 'That account was suspended by Puter', {
                 legacyCode: 'conflict',
             });
