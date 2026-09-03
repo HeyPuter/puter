@@ -21,6 +21,7 @@ import UITaskbarItem from './UITaskbarItem.js';
 import UIPopover from './UIPopover.js';
 import launch_app from '../helpers/launchApp.js';
 import UIContextMenu from './UIContextMenu.js';
+import { appIconAttrs, appIconSrc } from '../helpers/appIcon.js';
 
 async function UITaskbar (options) {
     window.global_element_id++;
@@ -139,8 +140,9 @@ async function UITaskbar (options) {
                 for ( let index = 0; index < window.launch_recent_apps_count && index < window.launch_apps.recent.length; index++ ) {
                     const app_info = window.launch_apps.recent[index];
                     apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                    apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
-                    apps_str += `<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
+                    const icon = appIconSrc(app_info);
+                    apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
+                    apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
                     apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
                     apps_str += '</div>';
                     apps_str += '</div>';
@@ -158,8 +160,9 @@ async function UITaskbar (options) {
                 for ( let index = 0; index < window.launch_apps.recommended.length; index++ ) {
                     const app_info = window.launch_apps.recommended[index];
                     apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                    apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(app_info.icon)}" data-app-title="${html_encode(app_info.title)}">`;
-                    apps_str += `<img class="start-app-icon" src="${html_encode(app_info.icon ? app_info.icon : window.icons['app.svg'])}">`;
+                    const icon = appIconSrc(app_info);
+                    apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
+                    apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
                     apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
                     apps_str += '</div>';
                     apps_str += '</div>';
@@ -266,6 +269,7 @@ async function UITaskbar (options) {
                                 // No taskbar item yet: create a new pinned one
                                 UITaskbarItem({
                                     icon: e.currentTarget.dataset.appIcon,
+                                    iconFallback: e.currentTarget.dataset.appIconFallback,
                                     app: e.currentTarget.dataset.appName,
                                     name: e.currentTarget.dataset.appTitle,
                                     keep_in_taskbar: true,
@@ -351,9 +355,11 @@ async function UITaskbar (options) {
     if ( window.user.taskbar_items && window.user.taskbar_items.length > 0 ) {
         for ( let index = 0; index < window.user.taskbar_items.length; index++ ) {
             const app_info = window.user.taskbar_items[index];
+            const icon = appIconSrc(app_info);
             // add taskbar item for each app
             UITaskbarItem({
-                icon: app_info.icon,
+                icon: icon.src,
+                iconFallback: icon.fallback,
                 app: app_info.name,
                 name: app_info.title,
                 keep_in_taskbar: true,
@@ -456,6 +462,7 @@ window.make_taskbar_sortable = function () {
 
                 let item = UITaskbarItem({
                     icon: $(ui.item).attr('data-app-icon'),
+                    iconFallback: $(ui.item).attr('data-app-icon-fallback'),
                     app: $(ui.item).attr('data-app-name'),
                     name: $(ui.item).attr('data-app-title'),
                     append_to_taskbar: false,

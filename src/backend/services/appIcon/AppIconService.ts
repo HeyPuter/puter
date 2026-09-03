@@ -19,11 +19,11 @@
 
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
+import { APP_ICON_SIZES, getAppIconsBaseUrl } from '../../util/appIcon.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types.js';
 
-const ICON_SIZES = [16, 32, 64, 128, 256, 512] as const;
 const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 const APP_ICONS_PATH_PREFIX = '/system/app_icons';
 
@@ -146,17 +146,7 @@ export class AppIconService extends PuterService {
     }
 
     #iconsBaseUrl(): string | null {
-        const cfg = this.config;
-        const host = cfg.static_hosting_domain ?? cfg.static_hosting_domain_alt;
-        if (!host) return null;
-        const protocol = cfg.protocol ?? 'https';
-        // Externally-visible port. Mirrors what PuterHomepageService et al.
-        // do — non-80/443 deployments (local dev, reverse-proxied setups on
-        // non-standard ports) would otherwise get a hostname with no port.
-        const pubPort = cfg.pub_port;
-        const portSuffix =
-            pubPort && pubPort !== 80 && pubPort !== 443 ? `:${pubPort}` : '';
-        return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}`;
+        return getAppIconsBaseUrl(this.config);
     }
 
     // -- Bootstrap ---------------------------------------------------
@@ -258,7 +248,7 @@ export class AppIconService extends PuterService {
             this.#writeIcon(ORIGINAL_ICON_FILENAME(appUid), originalPng),
         );
 
-        for (const size of ICON_SIZES) {
+        for (const size of APP_ICON_SIZES) {
             const sizedPng = await this.#sharp(inputBuffer)
                 .resize(size)
                 .png()

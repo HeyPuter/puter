@@ -33,6 +33,7 @@ describe('getTaskbarItems', () => {
             clients: server.clients,
             stores: server.stores,
             apiBaseUrl: 'https://api.puter.com',
+            config: { static_hosting_domain: 'puter.site' },
         } as unknown as Parameters<typeof getTaskbarItems>[1];
     });
 
@@ -170,6 +171,37 @@ describe('getTaskbarItems', () => {
             noIcons: true,
         });
         expect('icon' in withoutIcon[0]).toBe(false);
+    });
+
+    it('pairs the icon URL with the direct subdomain URL when one exists', async () => {
+        const owner = await makeUser([]);
+        // An http(s) icon column is what the resize pipeline leaves behind, so
+        // the sized PNG is on the subdomain.
+        const app = await makeApp(owner.id, {
+            icon: 'https://api.puter.com/app-icon/x',
+        });
+        const user = await makeUser([{ name: app.name, type: 'app' }]);
+
+        const items = await getTaskbarItems(user as never, deps, {
+            iconSize: 64,
+        });
+        expect(items[0].icon).toBe(
+            `https://api.puter.com/app-icon/${app.uid}/64`,
+        );
+        expect(items[0].iconCdnUrl).toBe(
+            `https://puter-app-icons.puter.site/${app.uid}-64.png`,
+        );
+    });
+
+    it('reports no subdomain URL for an app whose icon was never generated', async () => {
+        const owner = await makeUser([]);
+        const app = await makeApp(owner.id);
+        const user = await makeUser([{ name: app.name, type: 'app' }]);
+
+        const items = await getTaskbarItems(user as never, deps, {
+            iconSize: 64,
+        });
+        expect(items[0].iconCdnUrl).toBeNull();
     });
 
     it('falls back to the raw icon column when no API base URL is configured', async () => {
