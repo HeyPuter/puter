@@ -108,17 +108,26 @@ A `Promise` that resolves to an `HTMLVideoElement`. The element is preloaded, ha
 
 ## Errors
 
-A rejection carries the error body as the backend sent it: `{ message, code }`.
+A rejection carries the error body exactly as the backend sent it. Every error has `message` and `code`; the other fields appear when they apply.
+
+| Field | Meaning |
+| --- | --- |
+| `message` | Human-readable reason. `error` carries the same text for older clients. |
+| `code` | Stable error code; see the table below. |
+| `errorCode` | A more specific code alongside a general `code`. Today the only value is `moderation_flagged`. |
+| `provider` | Which upstream handled the request: `gemini` (Veo), `together`, `byteplus` or `openai`. Present on errors raised while a job was running. |
+| `upstreamCode` | The provider's own error code, when it gave one. |
+| `upstreamStatus` | The HTTP status the provider returned, when it rejected the request before a job started. |
 
 | Code | Meaning |
 | --- | --- |
-| `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
-| `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request` from most providers and `code: disallowed_value` from Veo. Change the prompt rather than retrying it as-is. |
-| `upstream_bad_request` | The provider rejected a parameter, for example a frame rate the model does not support. Arrives as HTTP 400; the `message` carries the provider's reason. |
-| `upstream_failed` | The provider accepted the request but generation failed on their side. Safe to retry. |
+| `upstream_timeout` | The provider did not finish the clip within the time Puter waits for it, or stopped answering. Puter waits ten minutes for Veo, Together and BytePlus models and five minutes for Sora models. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
+| `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request` from Together and BytePlus and `code: disallowed_value` from Veo. Change the prompt rather than retrying it as-is. Sora does not report refusals distinctly; they arrive as `upstream_failed`. |
+| `upstream_bad_request` | The provider rejected the request itself, for example a duration the model does not support. Arrives as HTTP 400; `message` and `upstreamCode` carry the provider's reason. |
+| `upstream_failed` | The provider accepted the request but generation failed on their side. From Veo, Together and BytePlus it arrives as HTTP 502 and is safe to retry. From Sora it arrives as HTTP 400 and may also be a content-policy refusal, so read the `message` before retrying the same prompt. |
 | `insufficient_funds` | Your balance cannot cover the estimated cost of the clip. Arrives as HTTP 402. |
 
-Other `upstream_*` codes mean the provider rejected the request or was unavailable; the `message` carries the provider's reason.
+Other `upstream_*` codes mean the provider rejected the request or was unavailable before a job started; `message` carries the provider's reason.
 
 ## Examples
 
