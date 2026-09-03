@@ -60,6 +60,9 @@ export class UserAccountService extends PuterService {
             console.warn('[cascade-delete-user] identifier lookup failed:', e);
         }
 
+        // Same reason, one table over: the membership row cascades on delete.
+        const seat = await this.services.team.captureSeatForBilling(userId);
+
         try {
             await this.services.fs.removeAllForUser(userId);
         } catch (e) {
@@ -95,6 +98,8 @@ export class UserAccountService extends PuterService {
         } catch {
             // ignore — event emission shouldn't block deletion
         }
+        // Tells prod to stop charging the owner for this seat.
+        this.services.team.emitSeatDeleted(seat);
     }
 
     /**
