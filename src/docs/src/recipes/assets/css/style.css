@@ -1,0 +1,344 @@
+/* Recipes chrome. Loaded after the docs stylesheet, which supplies the shared
+   typography and the code-block / highlight.js styling. */
+
+/* The filter toggles cards with the `hidden` attribute, and .recipe-card sets
+   `display: block` — which would otherwise win over the attribute's UA rule and
+   leave hidden cards visible. */
+[hidden] { display: none !important; }
+
+body {
+    margin: 0;
+    background: #f6f7f9;
+    color: #1b1b1f;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- Header ---------- */
+
+.recipes-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    height: 60px;
+    padding: 0 24px;
+    background: #fff;
+    border-bottom: 1px solid #e4e6ea;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.recipes-logo {
+    font-size: 17px;
+    font-weight: 600;
+    color: #1b1b1f;
+    text-decoration: none;
+    flex-shrink: 0;
+}
+
+.recipes-logo:hover { color: #1b1b1f; text-decoration: none; }
+
+.recipes-nav {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.recipes-nav a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: #55585f;
+    text-decoration: none;
+}
+
+.recipes-nav a:hover { color: #0070ff; text-decoration: none; }
+
+/* ---------- Layout ---------- */
+
+.recipes-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 40px;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+}
+
+.recipes-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 92px;
+}
+
+.recipes-main {
+    flex: 1;
+    min-width: 0;   /* lets long code blocks scroll instead of stretching the grid */
+}
+
+.recipes-main h1 {
+    margin: 0 0 10px;
+    font-size: 32px;
+    font-weight: 600;
+}
+
+.recipes-intro,
+.recipe-lede {
+    margin: 0 0 28px;
+    font-size: 16px;
+    line-height: 1.6;
+    color: #55585f;
+    max-width: 62ch;
+}
+
+/* ---------- Sidebar: search + tag filters ---------- */
+
+.recipes-search input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    font-size: 14px;
+    color: #1b1b1f;
+    background: #fff;
+    border: 1px solid #dcdfe4;
+    border-radius: 7px;
+    outline: none;
+}
+
+.recipes-search input:focus { border-color: #0070ff; }
+
+.filter-group { margin-top: 26px; }
+
+.filter-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #868a93;
+    margin-bottom: 10px;
+}
+
+.filter-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    font-size: 14px;
+    color: #33363d;
+    cursor: pointer;
+    user-select: none;
+}
+
+.filter-option:hover { color: #0070ff; }
+.filter-option input { margin: 0; cursor: pointer; accent-color: #0070ff; }
+.filter-label { flex: 1; }
+
+.filter-count {
+    font-size: 12px;
+    color: #9aa0aa;
+    font-variant-numeric: tabular-nums;
+}
+
+.clear-filters {
+    margin-top: 18px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: #55585f;
+    background: #fff;
+    border: 1px solid #dcdfe4;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.clear-filters:hover { color: #0070ff; border-color: #0070ff; }
+
+/* ---------- Index: card grid ---------- */
+
+.recipe-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 16px;
+}
+
+.recipe-card {
+    display: block;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #e4e6ea;
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.recipe-card:hover {
+    text-decoration: none;
+    color: inherit;
+    border-color: #b9d5ff;
+    box-shadow: 0 4px 14px rgba(20, 30, 60, 0.07);
+    transform: translateY(-1px);
+}
+
+.recipe-card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1b1b1f;
+    margin-bottom: 7px;
+}
+
+.recipe-card-desc {
+    font-size: 14px;
+    line-height: 1.55;
+    color: #61646c;
+    margin-bottom: 14px;
+}
+
+.recipe-empty {
+    padding: 40px 0;
+    font-size: 15px;
+    color: #868a93;
+}
+
+/* ---------- Tag chips ---------- */
+
+.recipe-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.recipe-tag {
+    display: inline-block;
+    padding: 2px 9px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #4a5563;
+    background: #eef1f5;
+    border-radius: 20px;
+    text-decoration: none;
+}
+
+a.recipe-tag:hover {
+    color: #0070ff;
+    background: #e3edff;
+    text-decoration: none;
+}
+
+/* ---------- Detail page ---------- */
+
+.recipe-list-item {
+    display: block;
+    padding: 6px 10px;
+    margin: 0 -10px;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #55585f;
+    border-radius: 6px;
+    text-decoration: none;
+}
+
+.recipe-list-item:hover { color: #0070ff; background: #edf1f6; text-decoration: none; }
+
+.recipe-list-item.active {
+    color: #0070ff;
+    font-weight: 600;
+    background: #e6efff;
+}
+
+.recipe-detail {
+    max-width: 820px;
+    padding: 36px 40px 48px;
+    background: #fff;
+    border: 1px solid #e4e6ea;
+    border-radius: 10px;
+}
+
+.recipe-detail .recipe-tags { margin-bottom: 16px; }
+
+.recipe-detail hr {
+    margin: 0 0 28px;
+    border: 0;
+    border-top: 1px solid #e9ebef;
+}
+
+.recipe-detail h2 {
+    margin: 38px 0 14px;
+    font-size: 21px;
+    font-weight: 600;
+}
+
+.recipe-detail h3 {
+    margin: 28px 0 10px;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.recipe-detail p,
+.recipe-detail li {
+    font-size: 15px;
+    line-height: 1.7;
+    color: #33363d;
+}
+
+.recipe-detail ul { padding-left: 22px; }
+.recipe-detail li { margin-bottom: 7px; }
+
+.recipe-detail :not(pre) > code {
+    padding: 2px 5px;
+    font-size: 13px;
+    background: #f2f4f7;
+    border-radius: 4px;
+}
+
+.recipe-detail .code-wrapper { margin: 18px 0; }
+
+/* The anchor links the docs' heading renderer emits; the docs sheet styles them
+   only under .docs-content, so they need positioning here. */
+.recipe-detail .anchored-heading { position: relative; }
+
+.recipe-detail .anchor::before {
+    content: '#';
+    position: absolute;
+    left: -20px;
+    color: #c3c7cf;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.recipe-detail .anchored-heading:hover .anchor::before { opacity: 1; }
+
+.recipes-back {
+    display: inline-block;
+    margin-top: 36px;
+    font-size: 14px;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 900px) {
+    .recipes-layout {
+        flex-direction: column;
+        gap: 24px;
+        padding: 24px 16px 60px;
+    }
+
+    .recipes-sidebar {
+        width: 100%;
+        position: static;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        margin-top: 16px;
+    }
+
+    .filter-title { width: 100%; margin-bottom: 4px; }
+
+    .recipe-detail { padding: 24px 20px 36px; }
+}
