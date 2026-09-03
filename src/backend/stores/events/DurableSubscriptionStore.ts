@@ -682,24 +682,11 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
-     * Active rows across every holder, one keyset page at a time. The daily
-     * standing charge is the only pass that has to see all of them rather than
-     * one account's, and it walks the primary key so a long scan never holds a
-     * position anything else waits on.
+     * Rows suspended for one reason across every holder, one keyset page at a
+     * time. The credit sweep is the one pass that has to see all of them rather
+     * than one account's, and it walks the primary key so a long scan never
+     * holds a position anything else waits on.
      */
-    async listActivePage(
-        afterId: number,
-        batchSize: number,
-    ): Promise<DurablePage> {
-        return this.#page(
-            ['`suspended_at` IS NULL', this.#unexpiredClause()],
-            [nowSeconds()],
-            afterId,
-            batchSize,
-        );
-    }
-
-    /** The same scan over rows suspended for one reason. */
     async listSuspendedPage(
         reason: SuspendedReason,
         afterId: number,

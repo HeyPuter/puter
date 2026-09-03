@@ -76,7 +76,6 @@ import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
 import type { PageResult } from '../../util/pagination.js';
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
-import { METRICS_PREFIX } from '../metering/consts.js';
 import { assertActorHasCredits } from '../metering/enforcement.js';
 import {
     appSocketRoom,
@@ -147,7 +146,7 @@ import {
     type ParsedSubject,
     type SubjectOp,
 } from './subjects.js';
-import { backlogPolicyFor, isMetered, isResumable } from './suspension.js';
+import { backlogPolicyFor, isResumable } from './suspension.js';
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
@@ -467,9 +466,9 @@ const DELIVERY_TOKEN_TTL = '5m';
 const METER_ACTOR_TTL_MS = 60_000;
 const METER_ACTOR_LIMIT = 5_000;
 
-/** Rows one pass of the standing charge takes, and passes one sweep takes. */
-const SUBSCRIPTION_METER_BATCH = 500;
-const SUBSCRIPTION_METER_MAX_BATCHES = 200;
+/** Rows one page of the credit sweep takes, and pages one sweep takes. */
+const NO_CREDIT_SWEEP_BATCH = 500;
+const NO_CREDIT_SWEEP_MAX_BATCHES = 200;
 
 /**
  * How often suspensions waiting on a restored balance are re-checked. Well
@@ -509,9 +508,9 @@ const handlerRequired = (): HttpError =>
 
 /**
  * A temporary account gets session subscriptions and nothing else. A durable
- * row outlives the account itself, carries a standing daily charge, and is
- * revoked from a settings surface a temporary account never reaches — so this
- * is refused outright rather than sold as a quota of zero.
+ * row outlives the account itself and is revoked from a settings surface a
+ * temporary account never reaches — so this is refused outright rather than
+ * sold as a quota of zero.
  */
 const durableNeedsAccount = (): HttpError =>
     new HttpError(
@@ -906,10 +905,9 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * What one delivery and one standing subscription cost, in the shape the
-     * driver surfaces report theirs. Nothing consumes this at runtime — the
-     * rates are published on the rate-limits page, which is where a developer
-     * actually reads them.
+     * What one delivery costs, in the shape the driver surfaces report theirs.
+     * Nothing consumes this at runtime — the rates are published on the
+     * rate-limits page, which is where a developer actually reads them.
      */
     getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(EVENTS_COSTS).map(
@@ -1526,46 +1524,6 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * The standing charge on durable subscriptions: one line per active row per
-     * day. A row that is suspended is not delivering, so it is not billed for
-     * standing there — and the charge is what makes an abandoned subscription
-     * self-limiting rather than free forever.
-     *
-     * One pass writes many lines for the same holder, so they are buffered and
-     * settle as one write per account.
-     */
-    async meterSubscriptions(): Promise<number> {
-        if (!this.enabled) return 0;
-        const metering = this.services.metering;
-        if (!metering) return 0;
-
-        let metered = 0;
-        let after = 0;
-        for (let pass = 0; pass < SUBSCRIPTION_METER_MAX_BATCHES; pass++) {
-            const page = await this.stores.durableSubscription.listActivePage(
-                after,
-                SUBSCRIPTION_METER_BATCH,
-            );
-            for (const row of page.rows) {
-                if (!isMetered(row)) continue;
-                const actor = await this.#meterActor(meterFor(row));
-                if (!actor) continue;
-                metering.bufferIncrementUsages(actor, [
-                    {
-                        usageType: 'events:subscription',
-                        usageAmount: 1,
-                        costOverride: EVENTS_COSTS['events:subscription'],
-                    },
-                ]);
-                metered++;
-            }
-            if (page.nextId === null) break;
-            after = page.nextId;
-        }
-        return metered;
-    }
-
-    /**
      * Put back subscriptions a restored balance releases. Lazy on purpose: a
      * top-up is not something this service hears about, and coupling delivery
      * to the payment path would make one more thing that has to be told. The
@@ -1576,12 +1534,12 @@ export class EventsService extends PuterService {
 
         let resumed = 0;
         let after = 0;
-        for (let pass = 0; pass < SUBSCRIPTION_METER_MAX_BATCHES; pass++) {
+        for (let pass = 0; pass < NO_CREDIT_SWEEP_MAX_BATCHES; pass++) {
             const page =
                 await this.stores.durableSubscription.listSuspendedPage(
                     'no_credit',
                     after,
-                    SUBSCRIPTION_METER_BATCH,
+                    NO_CREDIT_SWEEP_BATCH,
                 );
             const holders = new Set(page.rows.map((row) => row.holderUserId));
             for (const holderUserId of holders) {
@@ -1607,41 +1565,6 @@ export class EventsService extends PuterService {
             after = page.nextId;
         }
         return resumed;
-    }
-
-    /**
-     * Take the day's claim on the standing charge and, if this call won it, run
-     * it. Every node in every region runs the daily sweep and the charge is not
-     * idempotent, so this is what makes exactly one of them apply it — the
-     * sweep's entry point, and what a test drives directly rather than waiting
-     * on the timer.
-     */
-    async meterSubscriptionsForToday(): Promise<number> {
-        if (!(await this.#claimDailyMetering())) return 0;
-        return this.meterSubscriptions();
-    }
-
-    /**
-     * Take the day's claim on the standing charge. The key names no region: it
-     * is one counter every deployment everywhere increments, the same
-     * global-claim idiom the recurring monthly charges take, so a node in one
-     * region and a node in another are racing for the same value rather than
-     * each keeping their own. An unclaimed day is skipped rather than retried:
-     * charging nothing beats charging every node's worth.
-     */
-    async #claimDailyMetering(): Promise<boolean> {
-        const day = new Date().toISOString().slice(0, 10);
-        try {
-            const { res } = await this.stores.kv.incr({
-                key: `${METRICS_PREFIX}:events:subscriptions:${day}`,
-                pathAndAmountMap: { claim: 1 },
-                expireAt: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
-            });
-            return Number((res as { claim?: unknown })?.claim ?? 0) === 1;
-        } catch (err) {
-            console.warn('[events] daily metering claim failed', err);
-            return false;
-        }
     }
 
     async #sweepInBatches(
@@ -3559,10 +3482,6 @@ export class EventsService extends PuterService {
         const run = () => {
             void this.sweepExpired()
                 .then(() => this.sweepSuspended())
-                // The standing charge rides the same pass, after the reaping,
-                // so a row that has just expired is not billed for the day it
-                // stopped existing.
-                .then(() => this.meterSubscriptionsForToday())
                 .catch((err) => {
                     console.warn('[events] expiry sweep failed', err);
                 });

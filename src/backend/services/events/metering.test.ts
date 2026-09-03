@@ -18,8 +18,8 @@
  */
 
 /**
- * What a subscription costs while it just sits there, what a plan lets an
- * account hold, and how a suspension for an empty balance is lifted.
+ * What a plan lets an account hold, and how a suspension for an empty balance
+ * is lifted.
  *
  * Delivery metering is held against the delivery paths themselves; this is the
  * half that happens on a timer rather than on an event.
@@ -56,8 +56,6 @@ let resumed: string[];
 let plan: string;
 /** Accounts that still have budget, by user id. */
 let solvent: Set<number>;
-/** What the daily-claim key has been incremented to, as a real counter would. */
-let kvClaims: Map<string, number>;
 
 const anchorUid = (): string => `docs-${seq}`;
 const anchorPath = (): string => `/u${userId}/Documents`;
@@ -119,10 +117,6 @@ beforeEach(() => {
     resumed = [];
     plan = 'paid_plan';
     solvent = new Set([userId]);
-    kvClaims = new Map();
-
-    const active = (): DurableSubscription[] =>
-        rows.filter((row) => row.suspendedAt === null);
 
     service = new EventsService(
         { events: { enabled: true } } as IConfig,
@@ -146,10 +140,6 @@ beforeEach(() => {
                         bump: { userId: input.ownerUserId, generation: 1 },
                     };
                 },
-                listActivePage: async (afterId: number) =>
-                    afterId === 0
-                        ? { rows: active(), nextId: null }
-                        : { rows: [], nextId: null },
                 listSuspendedPage: async (reason: string, afterId: number) =>
                     afterId === 0
                         ? {
@@ -180,13 +170,6 @@ beforeEach(() => {
             pendingDelivery: {
                 releaseHold: async () => undefined,
                 claim: async () => null,
-            },
-            kv: {
-                incr: async ({ key }: { key: string }) => {
-                    const claim = (kvClaims.get(key) ?? 0) + 1;
-                    kvClaims.set(key, claim);
-                    return { res: { claim } };
-                },
             },
             fsEntry: {
                 getEntryByUuid: async (uid: string) =>
@@ -233,76 +216,6 @@ beforeEach(() => {
             },
         } as never,
     );
-});
-
-describe('the standing charge on a durable subscription', () => {
-    it('bills one line a day for each row still in service', async () => {
-        rows.push(durableRow(), durableRow());
-
-        await expect(service.meterSubscriptions()).resolves.toBe(2);
-        expect(metered).toEqual([
-            {
-                userUuid: `user-${userId}`,
-                usageType: 'events:subscription',
-                usageAmount: 1,
-                costOverride: EVENTS_COSTS['events:subscription'],
-            },
-            {
-                userUuid: `user-${userId}`,
-                usageType: 'events:subscription',
-                usageAmount: 1,
-                costOverride: EVENTS_COSTS['events:subscription'],
-            },
-        ]);
-    });
-
-    it('skips a suspended row, which is not delivering to be billed for', async () => {
-        rows.push(
-            durableRow(),
-            durableRow({
-                suspendedAt: Math.floor(Date.now() / 1000),
-                suspendedReason: 'no_credit',
-            }),
-        );
-
-        await expect(service.meterSubscriptions()).resolves.toBe(1);
-        expect(metered).toHaveLength(1);
-    });
-
-    it('charges nothing where there is no metering to charge through', async () => {
-        rows.push(durableRow());
-        const unmetered = new EventsService(
-            { events: { enabled: true } } as IConfig,
-            { event: { on: vi.fn(), emit: vi.fn() } } as never,
-            {} as never,
-            {} as never,
-        );
-
-        await expect(unmetered.meterSubscriptions()).resolves.toBe(0);
-    });
-});
-
-describe('the day the standing charge is claimed for', () => {
-    it('lets one caller in and turns every other one away', async () => {
-        rows.push(durableRow());
-
-        await expect(service.meterSubscriptionsForToday()).resolves.toBe(1);
-        // A second sweep the same day — another node, or this one running
-        // again before the date rolls over — finds the claim already spent.
-        await expect(service.meterSubscriptionsForToday()).resolves.toBe(0);
-        expect(metered).toHaveLength(1);
-    });
-
-    it('does not touch the standing charge when another node already claimed it', async () => {
-        rows.push(durableRow());
-        // Simulate a node in another region having taken today's claim first:
-        // the same global key, already at 1 before this call ever reads it.
-        const today = new Date().toISOString().slice(0, 10);
-        kvClaims.set(`metering:events:subscriptions:${today}`, 1);
-
-        await expect(service.meterSubscriptionsForToday()).resolves.toBe(0);
-        expect(metered).toEqual([]);
-    });
 });
 
 describe('a suspension waiting on a balance', () => {

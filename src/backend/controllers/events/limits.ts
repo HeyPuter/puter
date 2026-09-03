@@ -92,10 +92,9 @@ export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
  * Durable subscriptions one account may hold, across every app.
  *
  * These are table rows that keep costing after the client that made them is
- * gone — a delivery each time their anchor changes, a cache entry in every
- * region that sees a write, and a standing daily charge. Counted over the
- * holder index. A temporary account holds none: it has no way to pay for the
- * standing charge and nothing that outlives its connection to deliver to.
+ * gone — a delivery each time their anchor changes, and a cache entry in every
+ * region that sees a write. Counted over the holder index. A temporary account
+ * holds none: nothing outlives its connection to deliver to.
  */
 export const EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER = tiered(500, 100, 0);
 

@@ -19,19 +19,15 @@
 
 import type { DeliveryClass } from './registry.js';
 
-// Microcents per delivered event, and per durable subscription per day. Cost is
-// `EVENTS_COSTS[usageType] * units`.
+// Microcents per delivered event. Cost is `EVENTS_COSTS[usageType] * units`.
 //
-// Rated per delivery class rather than blended: a socket copy and a handler run
-// are two orders of magnitude apart, and one rate for both makes the cheap case
-// subsidise the expensive one. The daily line prices what a standing row costs
-// while it is doing nothing — an index entry, a cache entry in every region
-// that sees a write, and a filter evaluation on every event under its anchor —
-// which is what makes an abandoned subscription self-limiting.
+// Rated per delivery class rather than blended: a `single` is leased, acked and
+// queued where a broadcast copy is a socket write. The handler run itself is
+// the worker's to meter, and a subscription that sits idle costs nothing —
+// quotas, not a standing charge, bound how many an account may hold.
 export const EVENTS_COSTS = {
     'events:delivery:broadcast': 10,
-    'events:delivery:single': 150,
-    'events:subscription': 250,
+    'events:delivery:single': 100,
 } as const;
 
 export type EventsUsageType = keyof typeof EVENTS_COSTS;
@@ -45,5 +41,4 @@ export const DELIVERY_USAGE_TYPES: Record<DeliveryClass, EventsUsageType> = {
 export const EVENTS_COST_UNITS: Record<EventsUsageType, string> = {
     'events:delivery:broadcast': 'delivery',
     'events:delivery:single': 'delivery',
-    'events:subscription': 'subscription-day',
 };
