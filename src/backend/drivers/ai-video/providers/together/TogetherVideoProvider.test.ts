@@ -40,10 +40,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { TogetherVideoProvider } from './TogetherVideoProvider.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -118,7 +120,10 @@ describe('TogetherVideoProvider construction', () => {
     it('constructs the Together SDK with the configured api key', () => {
         makeProvider();
         expect(togetherCtor).toHaveBeenCalledTimes(1);
-        expect(togetherCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(togetherCtor).toHaveBeenCalledWith({
+            apiKey: 'test-key',
+            timeout: 60_000,
+        });
     });
 
     it('throws when no apiKey is supplied', () => {
@@ -409,7 +414,96 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('surfaces failed jobs as HttpError 400 upstream_failed (not 500) so they do not page', async () => {
+    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            videosCreateMock.mockResolvedValueOnce({ id: 'job-slow' });
+            videosRetrieveMock.mockResolvedValue({
+                id: 'job-slow',
+                status: 'in_progress',
+            });
+
+            const rejection = withTestActor(() =>
+                provider.generate({ prompt: 'hi' }),
+            ).catch((e: unknown) => e);
+
+            // Ten-minute wait window, polled every 5s.
+            await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 504,
+                legacyCode: 'upstream_timeout',
+                message:
+                    'Timed out waiting for Together AI video generation to complete',
+                fields: { provider: 'together' },
+            });
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('treats a failed poll as a missed poll rather than a failed job', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            videosCreateMock.mockResolvedValueOnce({ id: 'job-flaky' });
+            videosRetrieveMock
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('bad gateway'), { status: 502 }),
+                )
+                .mockResolvedValueOnce({
+                    id: 'job-flaky',
+                    status: 'completed',
+                    outputs: { video_url: 'https://together/flaky.mp4' },
+                });
+
+            const promise = withTestActor(() =>
+                provider.generate({ prompt: 'hi' }),
+            );
+            await vi.advanceTimersByTimeAsync(5_000);
+
+            expect(await promise).toBe('https://together/flaky.mp4');
+            expect(videosRetrieveMock).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('stops polling and skips metering when the client disconnects', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            videosCreateMock.mockResolvedValueOnce({ id: 'job-gone' });
+            videosRetrieveMock.mockResolvedValue({
+                id: 'job-gone',
+                status: 'in_progress',
+            });
+            const abort = new AbortController();
+
+            const rejection = withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return provider.generate({ prompt: 'hi' });
+            }).catch((e: unknown) => e);
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            abort.abort();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 400,
+                legacyCode: 'client_aborted',
+                fields: { provider: 'together' },
+            });
+            expect(videosRetrieveMock).toHaveBeenCalledTimes(2);
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('surfaces a content-policy refusal as 400 moderation_flagged', async () => {
         const provider = makeProvider();
         videosCreateMock.mockResolvedValueOnce({ id: 'job-3' });
         videosRetrieveMock.mockResolvedValueOnce({
@@ -422,9 +516,54 @@ describe('TogetherVideoProvider.generate polling', () => {
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({
             statusCode: 400,
-            legacyCode: 'upstream_failed',
+            legacyCode: 'bad_request',
+            code: 'moderation_flagged',
             message: 'content policy violation',
+            fields: { provider: 'together' },
         });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a rejected parameter as 400 upstream_bad_request', async () => {
+        const provider = makeProvider();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-4' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-4',
+            status: 'failed',
+            error: {
+                code: 'unsupportedParameter',
+                message: 'fps is not supported by this model',
+            },
+        });
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            message: 'fps is not supported by this model',
+            fields: { provider: 'together', upstreamCode: 'unsupportedParameter' },
+        });
+    });
+
+    it('surfaces any other failed job as 502 upstream_failed, without metering', async () => {
+        const provider = makeProvider();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-5' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-5',
+            status: 'failed',
+            error: { message: 'worker crashed' },
+        });
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            message: 'worker crashed',
+            fields: { provider: 'together' },
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
     it('throws when a finished job has no video_url', async () => {

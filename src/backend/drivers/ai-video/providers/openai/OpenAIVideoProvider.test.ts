@@ -448,6 +448,42 @@ describe('OpenAIVideoProvider.generate polling', () => {
         }
     });
 
+    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            videosCreateMock.mockResolvedValueOnce({
+                id: 'job-slow',
+                status: 'queued',
+                size: '720x1280',
+                seconds: '4',
+            });
+            videosRetrieveMock.mockResolvedValue({
+                id: 'job-slow',
+                status: 'in_progress',
+            });
+
+            const rejection = withTestActor(() =>
+                provider.generate({ prompt: 'hi', model: 'sora-2' }),
+            ).catch((e: unknown) => e);
+
+            // Five-minute wait window, polled every 5s.
+            await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 5_000);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 504,
+                legacyCode: 'upstream_timeout',
+                message:
+                    'Timed out waiting for Sora video generation to complete',
+                fields: { provider: 'openai' },
+            });
+            expect(videosDownloadContentMock).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('surfaces failed jobs as HttpError 400 upstream_failed (not a 500 page)', async () => {
         const provider = makeProvider();
         videosCreateMock.mockResolvedValueOnce({

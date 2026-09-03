@@ -31,6 +31,7 @@ import {
 } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { DriverMeta } from '../../drivers/meta.js';
+import { isUpstreamTimeoutError } from '../../drivers/util/upstreamErrors.js';
 import {
     isDriverStreamResult,
     resolveCallableMethods,
@@ -116,9 +117,20 @@ const translateProviderError = (err: unknown): unknown => {
         message?: string;
         error?: { code?: string; type?: string; message?: string };
         code?: string;
+        cause?: unknown;
     };
     const status = extractUpstreamStatus(e);
-    if (typeof status !== 'number') return err;
+    if (typeof status !== 'number') {
+        if (isUpstreamTimeoutError(e)) {
+            const cause = e.cause as { code?: string } | undefined;
+            return new HttpError(504, 'AI provider timed out', {
+                legacyCode: 'upstream_timeout',
+                fields: { upstreamCode: e.code ?? cause?.code },
+                cause: err,
+            });
+        }
+        return err;
+    }
 
     const msg = e.error?.message ?? e.message ?? 'Upstream provider error';
     const upstreamCode = e.error?.code ?? e.code;
@@ -301,8 +313,7 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                | PermissionService
-                | undefined;
+                PermissionService | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -433,6 +444,15 @@ export class DriverController extends PuterController {
         // alias was requested, so the driver sees `undefined` rather than
         // a stale value from a prior call.
         Context.set('driverName', requestedDriver);
+
+        // A caller that hangs up mid-call gets nothing back, so long-running
+        // drivers watch this to stop working (and metering) as soon as it does.
+        // `close` after `finish` is the normal end of a response, not an abort.
+        const abort = new AbortController();
+        res.once('close', () => {
+            if (!res.writableFinished) abort.abort();
+        });
+        Context.set('abortSignal', abort.signal);
 
         // Per-method lifecycle events, scoped to `driver.<iface>.<method>`.
         // Subscribers can listen on `driver.*`, `driver.<iface>.*`, or the

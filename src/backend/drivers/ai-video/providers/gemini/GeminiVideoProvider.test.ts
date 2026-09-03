@@ -45,6 +45,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { GeminiVideoProvider } from './GeminiVideoProvider.js';
 import { GEMINI_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -422,11 +423,72 @@ describe('GeminiVideoProvider.generate polling', () => {
         }
     });
 
-    it('throws when the operation finishes with an error', async () => {
+    it('treats a failed poll as a missed poll rather than a failed job', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            generateVideosMock.mockResolvedValueOnce({ done: false });
+            getVideosOperationMock
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('unavailable'), { status: 503 }),
+                )
+                .mockResolvedValueOnce(completedOperation());
+
+            const promise = withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'veo-3.1-generate-preview',
+                }),
+            );
+            await vi.advanceTimersByTimeAsync(10_000);
+            await vi.advanceTimersByTimeAsync(10_000);
+
+            expect(await promise).toBe('https://gemini/out.mp4');
+            expect(getVideosOperationMock).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            generateVideosMock.mockResolvedValueOnce({ done: false });
+            getVideosOperationMock.mockResolvedValue({ done: false });
+
+            const rejection = withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'veo-3.1-generate-preview',
+                }),
+            ).catch((e: unknown) => e);
+
+            // Ten-minute wait window, polled every 10s.
+            await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 10_000);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 504,
+                legacyCode: 'upstream_timeout',
+                message:
+                    'Timed out waiting for Gemini video generation to complete',
+                fields: { provider: 'gemini' },
+            });
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('surfaces an operation that finishes with an error as HttpError 502 upstream_failed', async () => {
         const provider = makeProvider();
         generateVideosMock.mockResolvedValueOnce({
             done: true,
-            error: { message: 'rate limit' },
+            error: {
+                code: 13,
+                message: 'internal server issue',
+                status: 'INTERNAL',
+            },
             response: {},
         });
 
@@ -437,7 +499,12 @@ describe('GeminiVideoProvider.generate polling', () => {
                     model: 'veo-3.1-generate-preview',
                 }),
             ),
-        ).rejects.toThrow(/rate limit/);
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            message: 'internal server issue',
+            fields: { provider: 'gemini', upstreamCode: 'INTERNAL' },
+        });
     });
 
     it('throws 400 with the filter reason when raiMediaFilteredCount > 0', async () => {
@@ -460,7 +527,10 @@ describe('GeminiVideoProvider.generate polling', () => {
             ),
         ).rejects.toMatchObject({
             statusCode: 400,
+            legacyCode: 'disallowed_value',
+            code: 'moderation_flagged',
             message: expect.stringContaining('unsafe content'),
+            fields: { provider: 'gemini' },
         });
     });
 

@@ -23,11 +23,12 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { VideoProvider } from '../VideoProvider.js';
+import { pollUntilSettled, videoJobFailure } from '../polling.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const POLL_INTERVAL_MS = 5_000;
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_MODEL = 'minimax/video-01-director';
 const DEFAULT_DURATION_SECONDS = 6;
 
@@ -40,7 +41,12 @@ export class TogetherVideoProvider extends VideoProvider {
         if (!config.apiKey) {
             throw new Error('Together AI video generation requires an API key');
         }
-        this.#client = new Together({ apiKey: config.apiKey });
+        // Bounds each create/retrieve call; a slow poll is retried by the
+        // loop rather than failing the job.
+        this.#client = new Together({
+            apiKey: config.apiKey,
+            timeout: REQUEST_TIMEOUT_MS,
+        });
         this.#meteringService = meteringService;
     }
 
@@ -190,24 +196,22 @@ export class TogetherVideoProvider extends VideoProvider {
 
         if (finalJob.status === 'failed') {
             const errorMessage =
-                finalJob?.error.message ??
+                finalJob?.error?.message ??
                 finalJob?.info?.errors?.[0]?.message ??
                 finalJob?.info?.errors?.message ??
                 finalJob?.info?.errors ??
                 'Video generation failed';
-            // Together returns `failed` for both user-input issues
-            // (content policy / unsupported params) and their own
-            // outages — we can't reliably tell from the payload, so
-            // expose as 4xx with `upstream_failed`. The alarm gate
-            // skips `upstream_*` legacy codes so this no longer pages.
-            throw new HttpError(400, errorMessage, {
-                legacyCode: 'upstream_failed',
-                fields: { provider: 'together' },
-            });
+            throw videoJobFailure(
+                'together',
+                typeof errorMessage === 'string'
+                    ? errorMessage
+                    : JSON.stringify(errorMessage),
+                finalJob?.error?.code,
+            );
         }
 
         if (finalJob.status === 'cancelled') {
-            throw new Error('Video generation was cancelled');
+            throw videoJobFailure('together', 'Video generation was cancelled');
         }
 
         const usageKey = `together-video:${model}`;
@@ -228,25 +232,14 @@ export class TogetherVideoProvider extends VideoProvider {
 
     async #pollUntilComplete(jobId: string): Promise<any> {
         // any here because sdk types are wrong https://docs.together.ai/docs/videos-overview -> "Job Status Reference"
-        let job = await (this.#client as any).videos.retrieve(jobId);
-        const start = Date.now();
-
-        while (job.status === 'queued' || job.status === 'in_progress') {
-            if (Date.now() - start > DEFAULT_TIMEOUT_MS) {
-                throw new Error(
-                    'Timed out waiting for Together AI video generation to complete',
-                );
-            }
-
-            await this.#delay(POLL_INTERVAL_MS);
-            job = await (this.#client as any).videos.retrieve(jobId);
-        }
-
-        return job;
-    }
-
-    async #delay(ms: number): Promise<void> {
-        return await new Promise((resolve) => setTimeout(resolve, ms));
+        return await pollUntilSettled<any>({
+            provider: 'together',
+            providerLabel: 'Together AI',
+            intervalMs: POLL_INTERVAL_MS,
+            fetch: () => (this.#client as any).videos.retrieve(jobId),
+            isPending: (job) =>
+                job.status === 'queued' || job.status === 'in_progress',
+        });
     }
 
     async #getModel(requestedModel?: string): Promise<IVideoModel | undefined> {

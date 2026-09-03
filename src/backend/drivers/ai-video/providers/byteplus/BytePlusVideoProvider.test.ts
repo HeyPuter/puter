@@ -44,6 +44,7 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { BYTEPLUS_VIDEO_GENERATION_MODELS } from './models.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { BytePlusVideoProvider } from './BytePlusVideoProvider.js';
 
 // -- Test harness ----------------------------------------------------
@@ -378,6 +379,42 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(4); // 1 create + 3 polls
     });
 
+    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+        vi.useFakeTimers();
+        try {
+            fetchSpy
+                .mockResolvedValueOnce(
+                    jsonResponse({ id: 'cgt-slow', status: 'queued' }),
+                )
+                .mockImplementation(async () =>
+                    jsonResponse({ id: 'cgt-slow', status: 'running' }),
+                );
+            // The default poll interval keeps the window to ~60 polls.
+            const provider = new BytePlusVideoProvider(
+                { apiKey: 'test-key' },
+                server.services.metering,
+            );
+
+            const rejection = withTestActor(() =>
+                provider.generate({ prompt: 'hi' }),
+            ).catch((e: unknown) => e);
+
+            // Ten-minute wait window, polled every 5s.
+            await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 504,
+                legacyCode: 'upstream_timeout',
+                message:
+                    'Timed out waiting for BytePlus video generation to complete',
+                fields: { provider: 'byteplus' },
+            });
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('throws 400 upstream_failed when the task fails, without metering', async () => {
         mockTaskFlow({
             id: 'cgt-test-1',
@@ -386,7 +423,28 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
         });
         await expect(
             withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 400, message: 'blocked' });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_flagged',
+            message: 'blocked',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('throws 502 upstream_failed when the task fails on the provider side', async () => {
+        mockTaskFlow({
+            id: 'cgt-test-1',
+            status: 'failed',
+            error: { code: 'InternalServiceError', message: 'worker crashed' },
+        });
+        await expect(
+            withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            message: 'worker crashed',
+            fields: { provider: 'byteplus', upstreamCode: 'InternalServiceError' },
+        });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 

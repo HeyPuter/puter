@@ -61,6 +61,12 @@ export interface KnownContextFields {
      * `/drivers/call` dispatch); drivers read it to pick a provider.
      */
     driverName: string;
+    /**
+     * Aborts when the client disconnects before the response has finished (set
+     * by DriverController). Long-running drivers poll it so work nobody will
+     * receive stops early and is never metered.
+     */
+    abortSignal: AbortSignal;
 }
 
 // -- Context store ---------------------------------------------------

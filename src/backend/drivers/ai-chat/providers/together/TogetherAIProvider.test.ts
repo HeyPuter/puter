@@ -176,7 +176,10 @@ describe('TogetherAIProvider construction', () => {
     it('constructs the Together SDK with the configured API key', () => {
         makeProvider();
         expect(togetherCtor).toHaveBeenCalledTimes(1);
-        expect(togetherCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(togetherCtor).toHaveBeenCalledWith({
+            apiKey: 'test-key',
+            timeout: 600_000,
+        });
     });
 });
 

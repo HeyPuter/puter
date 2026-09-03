@@ -106,6 +106,20 @@ A `Promise` that resolves to an `HTMLVideoElement`. The element is preloaded, ha
 
 > **Note:** Video generation can take several minutes to complete. The returned promise resolves only when the video is ready, so keep your UI responsive (for example, by showing a spinner) while you wait. Each successful generation consumes the user’s AI credits in accordance with the model, duration, and resolution you request.
 
+## Errors
+
+A rejection carries the error body as the backend sent it: `{ message, code }`.
+
+| Code | Meaning |
+| --- | --- |
+| `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
+| `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request` from most providers and `code: disallowed_value` from Veo. Change the prompt rather than retrying it as-is. |
+| `upstream_bad_request` | The provider rejected a parameter, for example a frame rate the model does not support. Arrives as HTTP 400; the `message` carries the provider's reason. |
+| `upstream_failed` | The provider accepted the request but generation failed on their side. Safe to retry. |
+| `insufficient_funds` | Your balance cannot cover the estimated cost of the clip. Arrives as HTTP 402. |
+
+Other `upstream_*` codes mean the provider rejected the request or was unavailable; the `message` carries the provider's reason.
+
 ## Examples
 
 <strong class="example-title">Generate a sample clip (test mode)</strong>
