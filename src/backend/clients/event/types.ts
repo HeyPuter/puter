@@ -474,22 +474,27 @@ export type EventMap = {
      *
      * The dispatch hot path never reads the counter — it is the broadcast that
      * invalidates, which is what keeps an unsubscribed write at zero Redis
-     * commands.
+     * commands. Hence `outer.pubsub.*`: the cache is a per-process map, the
+     * webhook reaches one node per peer region, and only the Redis fan reaches
+     * that node's siblings — a node the bump never reached has nothing that
+     * expires.
      */
-    'outer.events.generationBumped': {
+    'outer.pubsub.events.generationBumped': {
         userId: number;
         generation: number;
         /** Whether the table changed; only then does a peer need to re-read it. */
         durable: boolean;
     };
     /**
-     * A user's sockets moved between regions, so every region must drop what it
+     * A user's sockets moved between regions, so every node must drop what it
      * cached about where they are. Bumped on a first connect, a last
      * disconnect, and every repair — never on a timer, which is what keeps
-     * presence reads proportional to session churn rather than to event
-     * volume.
+     * presence reads proportional to session churn rather than to event volume.
+     * `outer.pubsub.*` for the same reason as the generation bump: a
+     * per-process cache that only the Redis fan reaches on a region's other
+     * nodes.
      */
-    'outer.events.presenceBumped': {
+    'outer.pubsub.events.presenceBumped': {
         userId: number;
         generation: number;
     };

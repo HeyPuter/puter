@@ -101,8 +101,15 @@ export interface ForwardQueueOptions {
     maxQueued?: number;
     /** Ships one batch. Rejection is a lost batch, not a retry. */
     send: (peerId: string, items: ForwardItem[]) => Promise<void>;
-    /** Items the queue could not hold. Never silent. */
-    onOverflow: (peerId: string, dropped: ForwardItem[]) => void;
+    /**
+     * Items the queue could not hold. Never silent. Whatever it returns is
+     * queued in their place — the markers that say something was lost — and is
+     * not itself held to the bound, so a shed cannot cascade.
+     */
+    onOverflow: (
+        peerId: string,
+        dropped: ForwardItem[],
+    ) => ForwardItem[] | void;
 }
 
 interface PeerQueue {
@@ -140,15 +147,16 @@ export class PeerForwardQueue {
 
         const { maxQueued, maxItems, maxBytes, flushMs } = this.#options;
         if (queue.items.length > maxQueued) {
-            const dropped = queue.items.splice(
-                0,
-                queue.items.length - maxQueued,
-            );
-            queue.bytes = queue.items.reduce(
-                (total, held) => total + sizeOf(held),
-                0,
-            );
-            this.#options.onOverflow(peerId, dropped);
+            const dropped = shed(queue, queue.items.length - maxQueued);
+            // Appended here, past the bound check: a replacement sent back
+            // through `push` would trip the bound it just made room under and
+            // shed the next item, and so on down the whole queue.
+            const replacements = this.#options.onOverflow(peerId, dropped);
+            if (Array.isArray(replacements))
+                for (const item of replacements) {
+                    queue.items.push(item);
+                    queue.bytes += sizeOf(item);
+                }
         }
 
         if (
@@ -231,4 +239,31 @@ const sizeOf = (item: ForwardItem): number => {
     } catch {
         return 0;
     }
+};
+
+const isGapMarker = (item: ForwardItem): boolean =>
+    item.kind === 'delivery' && item.event.op === 'gap';
+
+/**
+ * Take `count` items off the old end, deliveries before markers: a marker is
+ * the one thing saying events were lost, so it is the last thing to go. Bytes
+ * come off per dropped item rather than being re-summed over the queue, which
+ * at the bound would walk every held item for every drop.
+ */
+const shed = (queue: PeerQueue, count: number): ForwardItem[] => {
+    const dropped: ForwardItem[] = [];
+    for (let i = 0; i < queue.items.length && dropped.length < count; ) {
+        if (isGapMarker(queue.items[i])) {
+            i++;
+            continue;
+        }
+        dropped.push(queue.items[i]);
+        queue.items.splice(i, 1);
+    }
+    // Nothing but markers left to give: the oldest of those go too.
+    while (dropped.length < count && queue.items.length > 0)
+        dropped.push(queue.items.shift() as ForwardItem);
+    for (const item of dropped) queue.bytes -= sizeOf(item);
+    if (queue.bytes < 0) queue.bytes = 0;
+    return dropped;
 };

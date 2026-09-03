@@ -18,10 +18,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-    PeerForwardQueue,
-    type ForwardItem,
-} from './forwardQueue.js';
+import { PeerForwardQueue, type ForwardItem } from './forwardQueue.js';
 
 /**
  * One request per window per peer, never one per event, and nothing lost
@@ -187,8 +184,12 @@ describe('the addressed peer queue', () => {
         release!();
 
         await settled(sent, 2);
-        expect(sent[0].items.map((item) => (item as { subId: string }).subId)).toEqual(['a']);
-        expect(sent[1].items.map((item) => (item as { subId: string }).subId)).toEqual(['b']);
+        expect(
+            sent[0].items.map((item) => (item as { subId: string }).subId),
+        ).toEqual(['a']);
+        expect(
+            sent[1].items.map((item) => (item as { subId: string }).subId),
+        ).toEqual(['b']);
     });
 
     it('sends nothing more once it is stopped', async () => {
@@ -199,5 +200,76 @@ describe('the addressed peer queue', () => {
         await new Promise((resolve) => setTimeout(resolve, 40));
 
         expect(sent).toHaveLength(0);
+    });
+    it('queues what the overflow handler returns without shedding again', async () => {
+        let overflows = 0;
+        const { queue, sent } = makeQueue({
+            maxQueued: 2,
+            onOverflow: (_peerId, dropped) => {
+                overflows++;
+                return dropped.map((item) => ({
+                    ...(item as Extract<ForwardItem, { kind: 'delivery' }>),
+                    event: {
+                        ...(item as Extract<ForwardItem, { kind: 'delivery' }>)
+                            .event,
+                        op: 'gap',
+                    },
+                })) as ForwardItem[];
+            },
+        });
+
+        queue.push('east', delivery('a'));
+        queue.push('east', delivery('b'));
+        queue.push('east', delivery('c'));
+        await settled(sent);
+
+        // One shed, one marker for it — not a marker per item down the queue.
+        expect(overflows).toBe(1);
+        expect(
+            sent[0].items.map((item) =>
+                item.kind === 'delivery'
+                    ? `${item.subId}:${item.event.op}`
+                    : item.kind,
+            ),
+        ).toEqual(['b:write', 'c:write', 'a:gap']);
+    });
+
+    it('sheds deliveries before the markers that report them', async () => {
+        const { queue, sent, overflowed } = makeQueue({
+            maxQueued: 2,
+            onOverflow: (_peerId, dropped) => {
+                overflowed.push({ peerId: 'east', dropped });
+                return dropped.map((item) => ({
+                    ...(item as Extract<ForwardItem, { kind: 'delivery' }>),
+                    event: {
+                        ...(item as Extract<ForwardItem, { kind: 'delivery' }>)
+                            .event,
+                        op: 'gap',
+                    },
+                })) as ForwardItem[];
+            },
+        });
+
+        queue.push('east', delivery('a'));
+        queue.push('east', delivery('b'));
+        queue.push('east', delivery('c')); // sheds a, queues a:gap
+        queue.push('east', delivery('d')); // sheds b and c, never the marker
+        await settled(sent);
+
+        expect(
+            overflowed.flatMap((call) =>
+                call.dropped.map((item) =>
+                    item.kind === 'delivery' ? item.subId : item.kind,
+                ),
+            ),
+        ).toEqual(['a', 'b', 'c']);
+        expect(
+            sent[0].items.some(
+                (item) =>
+                    item.kind === 'delivery' &&
+                    item.event.op === 'gap' &&
+                    item.subId === 'a',
+            ),
+        ).toBe(true);
     });
 });

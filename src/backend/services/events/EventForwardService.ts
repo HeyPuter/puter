@@ -103,6 +103,8 @@ export class EventForwardService extends PuterService {
     /** UserId → uuid, which is what the presence row is keyed by. */
     readonly #uuids = new Map<number, string>();
     readonly #leaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Peer → subscriptions with a gap marker still queued for it. */
+    readonly #pendingMarkers = new Map<string, Set<string>>();
     #queue: PeerForwardQueue | null = null;
     #draining = false;
 
@@ -120,7 +122,7 @@ export class EventForwardService extends PuterService {
 
     override onServerStart(): void {
         this.clients.event.on(
-            'outer.events.presenceBumped',
+            'outer.pubsub.events.presenceBumped',
             (_key, data, meta) => {
                 // Our own emit reaches local listeners too, and that half has
                 // already been applied.
@@ -421,6 +423,9 @@ export class EventForwardService extends PuterService {
     }
 
     async #ship(peerId: string, items: ForwardItem[]): Promise<void> {
+        // Shipped or lost, these are out of the queue either way, so the next
+        // shed for their subscriptions may queue a marker again.
+        this.#forgetMarkers(peerId, items);
         const batch: ForwardBatch = { from: this.region, items };
         const reply = (await this.services.broadcast.postToPeer(
             peerId,
@@ -468,23 +473,29 @@ export class EventForwardService extends PuterService {
 
     /**
      * Deliveries the queue could not hold. Never a log line on its own: each
-     * subscription that lost events is sent a marker in their place — over the
-     * same queue, which the shed just made room in — and the region being this
-     * far behind is worth someone's attention.
+     * subscription that lost events gets a marker in their place — handed back
+     * to the queue, which puts it where the shed just made room — and the
+     * region being this far behind is worth someone's attention.
+     *
+     * One marker per (peer, subscription) at a time. A subscription still
+     * losing events while its marker waits has already been told, and a second
+     * marker would take a slot from a delivery; a marker that is itself shed
+     * frees the slot for the next one.
      */
-    #overflowed(peerId: string, dropped: ForwardItem[]): void {
-        const marked = new Set<string>();
+    #overflowed(peerId: string, dropped: ForwardItem[]): ForwardItem[] {
+        const pending = this.#pendingMarkersFor(peerId);
+        const markers: ForwardItem[] = [];
         for (const item of dropped) {
+            if (item.kind !== 'delivery') continue;
+            if (item.event.op === 'gap') {
+                pending.delete(item.subId);
+                continue;
+            }
             // A `single` loses nothing here: its lease is still running, and
-            // the next attempt is what the expiry is for. A marker that is
-            // itself shed is not replaced by another one.
-            if (item.kind !== 'delivery' || item.ackRequired) continue;
-            if (item.event.op === 'gap' || marked.has(item.subId)) continue;
-            marked.add(item.subId);
-            this.#queueFor().push(peerId, {
-                ...item,
-                event: overflowGap(item.event),
-            });
+            // the next attempt is what the expiry is for.
+            if (item.ackRequired || pending.has(item.subId)) continue;
+            pending.add(item.subId);
+            markers.push({ ...item, event: overflowGap(item.event) });
         }
 
         this.clients.alarm.create(
@@ -494,6 +505,24 @@ export class EventForwardService extends PuterService {
             'warning',
             { dedup: true },
         );
+        return markers;
+    }
+
+    #pendingMarkersFor(peerId: string): Set<string> {
+        let pending = this.#pendingMarkers.get(peerId);
+        if (!pending) {
+            pending = new Set();
+            this.#pendingMarkers.set(peerId, pending);
+        }
+        return pending;
+    }
+
+    #forgetMarkers(peerId: string, items: ForwardItem[]): void {
+        const pending = this.#pendingMarkers.get(peerId);
+        if (!pending) return;
+        for (const item of items)
+            if (item.kind === 'delivery' && item.event.op === 'gap')
+                pending.delete(item.subId);
     }
 
     // -- Generation --------------------------------------------------
@@ -509,7 +538,7 @@ export class EventForwardService extends PuterService {
                 await this.stores.presence.bumpGeneration(userId);
             this.#cache.bump(userId, generation);
             this.clients.event.emit(
-                'outer.events.presenceBumped',
+                'outer.pubsub.events.presenceBumped',
                 { userId, generation },
                 {},
             );

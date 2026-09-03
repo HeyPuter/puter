@@ -74,7 +74,9 @@ const kvStub = () => ({
     getReservedItem: async (key: string) => {
         tableReads++;
         const row = table.get(key);
-        return row ? { regions: { ...row.regions }, version: row.version } : null;
+        return row
+            ? { regions: { ...row.regions }, version: row.version }
+            : null;
     },
     setReservedEntry: async (
         key: string,
@@ -237,11 +239,9 @@ const makeRegion = (
         },
     } as never;
 
-    const presence = new PresenceStore(
-        fullConfig,
-        clients,
-        { kv: kvStub() } as never,
-    );
+    const presence = new PresenceStore(fullConfig, clients, {
+        kv: kvStub(),
+    } as never);
     const pending = new PendingDeliveryStore(fullConfig, clients, {} as never);
     const subscriptions = new EventSubscriptionStore(
         fullConfig,
@@ -373,10 +373,13 @@ const dispatch = (region: Region, node = entry()): Promise<void> =>
     });
 
 const posted = (region: Region, count = 1): Promise<void> =>
-    vi.waitFor(() => expect(region.posts.length).toBeGreaterThanOrEqual(count), {
-        timeout: 3_000,
-        interval: 10,
-    });
+    vi.waitFor(
+        () => expect(region.posts.length).toBeGreaterThanOrEqual(count),
+        {
+            timeout: 3_000,
+            interval: 10,
+        },
+    );
 
 const arrived = (region: Region, count = 1): Promise<void> =>
     vi.waitFor(() => expect(region.sent.length).toBeGreaterThanOrEqual(count), {
@@ -426,8 +429,7 @@ describe('what a connection writes', () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
 
-        for (let i = 0; i < 5; i++)
-            await west.forward.noteConnect(actorFor());
+        for (let i = 0; i < 5; i++) await west.forward.noteConnect(actorFor());
 
         expect(tableWrites).toBe(1);
         expect(rowFor()?.regions).toEqual({ west: expect.any(Number) });
@@ -872,8 +874,7 @@ describe('a delivery owed to exactly one consumer', () => {
         });
         // The relay rides the same addressed channel the delivery did.
         await vi.waitFor(
-            async () =>
-                expect(await west.pending.depth(row.subId)).toBe(0),
+            async () => expect(await west.pending.depth(row.subId)).toBe(0),
             { timeout: 3_000, interval: 20 },
         );
         expect(east.posts.at(-1)?.batch.items[0]).toMatchObject({
@@ -955,7 +956,7 @@ describe('a forward queue that cannot keep up', () => {
                 });
 
             await posted(west);
-            await arrived(east);
+            await arrived(east, 2);
 
             expect(west.alarms).toHaveBeenCalledWith(
                 'events_forward_overflow',
@@ -964,8 +965,13 @@ describe('a forward queue that cannot keep up', () => {
                 'warning',
                 expect.anything(),
             );
+            // One marker for the one subscription that lost events, with the
+            // newest delivery still behind it: a shed never eats the queue.
             expect(
-                east.sent.some((envelope) => envelope.event.op === 'gap'),
+                east.sent.filter((envelope) => envelope.event.op === 'gap'),
+            ).toHaveLength(1);
+            expect(
+                east.sent.some((envelope) => envelope.event.id === 'ev-5'),
             ).toBe(true);
         } finally {
             EventForwardService.MAX_QUEUED = 5_000;

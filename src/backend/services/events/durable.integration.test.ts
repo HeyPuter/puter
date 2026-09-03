@@ -529,7 +529,7 @@ describe('what a write costs once a durable row exists', () => {
         const after = `${anchor}/post-peer-${uuidv4().slice(0, 8)}.txt`;
         const reads = await countTableReads(async () => {
             await env.server.clients.event.emitAndWait(
-                'outer.events.generationBumped',
+                'outer.pubsub.events.generationBumped',
                 { userId, generation: generation + 1, durable: true },
                 { from_outside: true },
             );
@@ -553,7 +553,7 @@ describe('what a write costs once a durable row exists', () => {
         const path = `${anchor}/peer-session-${uuidv4().slice(0, 8)}.txt`;
         const reads = await countTableReads(async () => {
             await env.server.clients.event.emitAndWait(
-                'outer.events.generationBumped',
+                'outer.pubsub.events.generationBumped',
                 { userId, generation: generation + 1, durable: false },
                 { from_outside: true },
             );

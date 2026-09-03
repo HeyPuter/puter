@@ -871,7 +871,7 @@ export class EventsService extends PuterService {
             );
 
         this.clients.event.on(
-            'outer.events.generationBumped',
+            'outer.pubsub.events.generationBumped',
             (_key, data, meta) => {
                 // Our own emit reaches local listeners too, and that half has
                 // already been applied.
@@ -3532,7 +3532,7 @@ export class EventsService extends PuterService {
         this.#cache.bump(userId, generation);
         try {
             this.clients.event.emit(
-                'outer.events.generationBumped',
+                'outer.pubsub.events.generationBumped',
                 { userId, generation, durable },
                 {},
             );
