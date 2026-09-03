@@ -24,6 +24,7 @@ import { pFetch } from './modules/networking/requests.js';
 import { OS } from './modules/os/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
+import { Teams } from './modules/teams/index.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
@@ -177,6 +178,8 @@ export class Puter {
     events;
     /** @type {InstanceType<typeof Perms>} */
     perms;
+    /** @type {InstanceType<typeof Teams>} */
+    teams;
     /** @type {InstanceType<typeof Drivers>} */
     drivers;
     /** @type {InstanceType<typeof Debug>} */
@@ -303,6 +306,7 @@ export class Puter {
         this.email = this.registerModule('email', Email);
         this.events = this.registerModule('events', Events);
         this.perms = this.registerModule('perms', Perms);
+        this.teams = this.registerModule('teams', Teams);
         this.drivers = this.registerModule('drivers', Drivers);
         this.debug = this.registerModule('debug', Debug);
         this.peer = this.registerModule('peer', Peer);

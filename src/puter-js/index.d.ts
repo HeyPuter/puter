@@ -209,6 +209,17 @@ export type {
     PermsResource,
 } from './types/modules/perms/types.js';
 
+// -- puter.teams --
+export type {
+    CreateMemberOptions,
+    CreateTeamOptions,
+    Team,
+    TeamAuditEntry,
+    TeamMember,
+    TemporaryCredential,
+    UpdateTeamAttributes,
+} from './types/modules/teams/types.js';
+
 // -- puter.ui --
 export type { AppConnection } from './types/modules/UI.js';
 export type {
@@ -262,5 +273,6 @@ export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructo
 export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
 export type Peer = InstanceType<import('./types/modules/Peer.js').PeerConstructor>;
 export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
+export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsConstructor>;
 export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;
 export type WorkersHandler = InstanceType<import('./types/modules/Workers.js').WorkersConstructor>;

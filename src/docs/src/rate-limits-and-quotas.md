@@ -180,6 +180,10 @@ Lowering the seat limit never disables anyone. A team already above a reduced li
 
 Both limits are per deployment (`max_teams_per_user`, `max_seats_per_team`) rather than per team, so raising them moves every team at once.
 
+A team's whole configuration is its name, its handle, and whether its directory is open to apps. In particular there is **no sharing policy**: a team cannot restrict who its members share with, by domain or otherwise, and there is no control over public links. Members share exactly as any other Puter account does.
+
+Both buckets are per account, not per team, so administering several teams spends one budget, and the read limit is one bucket shared by every listing call. Where a deployment has teams off, `puter.teams` rejects with `not_found` rather than `too_many_requests`.
+
 ### Events
 
 One write can reach many subscriptions, so events are bounded on both halves: how much you may register, and how much any one event may turn into.
