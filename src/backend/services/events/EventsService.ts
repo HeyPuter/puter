@@ -83,7 +83,11 @@ import {
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
 import { assertActorHasCredits } from '../metering/enforcement.js';
-import { canViewNotification } from '../notification/notificationAudience.js';
+import {
+    canViewNotification,
+    notificationRowScope,
+    ownedAppUids,
+} from '../notification/notificationAudience.js';
 import { notificationsFoldInEnabled } from '../notification/notificationSocket.js';
 import {
     appSocketRoom,
@@ -1426,14 +1430,9 @@ export class EventsService extends PuterService {
                 : false;
 
         return rows.filter((row) =>
-            canViewNotification(
-                {
-                    audience: String(row.audience ?? 'account'),
-                    appUid: (row.app_uid as string | null) ?? null,
-                },
-                actor,
-                { recipientOwnsApp: ownsApp },
-            ),
+            canViewNotification(notificationRowScope(row), actor, {
+                recipientOwnsApp: ownsApp,
+            }),
         );
     }
 
@@ -2488,15 +2487,8 @@ export class EventsService extends PuterService {
 
     /** Whether the mailbox's owner is the owner of the app a row names. */
     async #recipientOwnsApp(userId: number, appUid: string): Promise<boolean> {
-        try {
-            const app = await this.stores.app.getByUid(appUid);
-            return (
-                Number((app as { owner_user_id?: unknown })?.owner_user_id) ===
-                Number(userId)
-            );
-        } catch {
-            return false;
-        }
+        const owned = await ownedAppUids(this.stores.app, userId, [appUid]);
+        return owned.has(appUid);
     }
 
     async #route<C extends EventContextBase, P extends ProjectedEvent>(

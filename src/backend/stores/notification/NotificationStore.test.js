@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -208,6 +208,64 @@ describe('NotificationStore', () => {
         ).toEqual([acked.uid]);
     });
 
+    it('narrows a listing to one audience/app slice', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const account = await store.create({ userId: u.id, value: {} });
+        const mine = await store.create({
+            userId: u.id,
+            value: {},
+            audience: 'app-user',
+            appUid,
+        });
+        const unattributed = await store.create({
+            userId: u.id,
+            value: {},
+            audience: 'app-user',
+        });
+
+        const uids = (rows) => rows.map((r) => r.uid).sort();
+
+        expect(
+            uids(
+                await store.listByUserId(u.id, {
+                    scope: { audiences: ['app-user'], appUid },
+                }),
+            ),
+        ).toEqual([mine.uid]);
+        // `null` asks for the rows naming no app, not for any app.
+        expect(
+            uids(
+                await store.listByUserId(u.id, {
+                    scope: { audiences: ['app-user'], appUid: null },
+                }),
+            ),
+        ).toEqual([unattributed.uid]);
+        expect(
+            uids(
+                await store.listByUserId(u.id, {
+                    scope: {
+                        audiences: ['app-user', 'developer'],
+                        appUid: null,
+                    },
+                    filter: 'unseen',
+                }),
+            ),
+        ).toEqual([unattributed.uid]);
+        expect(
+            uids(
+                await store.listByUserId(u.id, {
+                    scope: { audiences: ['account'], appUid: null },
+                }),
+            ),
+        ).toEqual([account.uid]);
+        expect(
+            await store.listByUserId(u.id, {
+                scope: { audiences: [], appUid: null },
+            }),
+        ).toEqual([]);
+    });
+
     it('ignores an unrecognised filter and returns everything', async () => {
         const u = await makeUser();
         await store.create({ userId: u.id, value: {} });
@@ -287,7 +345,10 @@ describe('NotificationStore', () => {
         const u = await makeUser();
         const old = await store.create({ userId: u.id, value: { n: 'old' } });
         const alsoOld = await store.create({ userId: u.id, value: { n: '2' } });
-        const recent = await store.create({ userId: u.id, value: { n: 'new' } });
+        const recent = await store.create({
+            userId: u.id,
+            value: { n: 'new' },
+        });
         await backdate(old.uid, 20);
         await backdate(alsoOld.uid, 15);
         await backdate(recent.uid, 13);
