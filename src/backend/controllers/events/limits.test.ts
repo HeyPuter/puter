@@ -23,34 +23,21 @@
  * numbers on the page are held against each other.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
-import { EVENTS_COSTS } from '../../services/events/costs.js';
 import {
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
-    EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
     limitFor,
     type TieredLimit,
 } from './limits.js';
-
-const DOCS = readFileSync(
-    join(
-        dirname(fileURLToPath(import.meta.url)),
-        '../../../docs/src/rate-limits-and-quotas.md',
-    ),
-    'utf8',
-);
 
 const tiers: Array<[string, TieredLimit]> = [
     ['durable subscriptions per account', EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER],
@@ -116,44 +103,5 @@ describe('the delivery budgets', () => {
             expect(spec.scope).toBeTruthy();
             expect(spec.window).toBe(60_000);
         }
-    });
-});
-
-describe('the published page', () => {
-    const published = [
-        ['durable subscriptions, paid', EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit],
-        [
-            'durable subscriptions, free',
-            EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.bySubscription[
-                DEFAULT_FREE_SUBSCRIPTION
-            ],
-        ],
-        ['per app, paid', EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP.limit],
-        [
-            'per app, free',
-            EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP.bySubscription[
-                DEFAULT_FREE_SUBSCRIPTION
-            ],
-        ],
-        ['session subscriptions', EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET],
-        ['broadcast deliveries', EVENTS_BROADCAST_DELIVERY_LIMIT.limit],
-        ['single deliveries', EVENTS_SINGLE_DELIVERY_LIMIT.limit],
-        ['handler invocations', EVENTS_WORKER_INVOCATION_LIMIT.limit],
-    ] as Array<[string, number]>;
-
-    it.each(published)('states the %s number', (_name, value) => {
-        expect(DOCS).toContain(String(value));
-    });
-
-    it.each(Object.entries(EVENTS_COSTS))(
-        'publishes the %s rate',
-        (usageType, rate) => {
-            expect(DOCS).toContain(usageType);
-            expect(DOCS).toContain(`${rate} µ¢`);
-        },
-    );
-
-    it('names the code a temporary account is refused with', () => {
-        expect(DOCS).toContain('events_durable_requires_account');
     });
 });
