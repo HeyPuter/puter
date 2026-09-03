@@ -217,6 +217,69 @@ describe('team billing events', () => {
         expect(await server.stores.team.getOrgSeat(seat.userId)).toBeNull();
     });
 
+    // -- the authorization cache ------------------------------------------
+    // `isMember` and `getByUid` gate every team route, so a stale entry is
+    // access, not a stray notification. Each bust gets its own case.
+
+    it('stops answering member once the account is removed', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        expect(await server.stores.team.isMember(team.uid, seat.userId)).toBe(true);
+
+        await server.stores.team.removeMember(team.uid, seat.userId);
+
+        expect(await server.stores.team.isMember(team.uid, seat.userId)).toBe(false);
+    });
+
+    it('stops answering member once the account is deleted out from under it', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        expect(await server.stores.team.isMember(team.uid, seat.userId)).toBe(true);
+
+        // Cascades the membership row without passing through TeamStore.
+        await server.services.userAccount.cascadeDelete(seat.userId);
+
+        expect(await server.stores.team.isMember(team.uid, seat.userId)).toBe(false);
+    });
+
+    it('stops resolving the team, and its memberships, once it is deleted', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        expect(await server.stores.team.getByUid(team.uid)).toBeTruthy();
+        expect(await server.stores.team.isMember(team.uid, seat.userId)).toBe(true);
+
+        await server.stores.team.softDelete(team.uid);
+
+        expect(await server.stores.team.getByUid(team.uid)).toBeNull();
+        expect(await server.stores.team.isMember(team.uid, seat.userId)).toBe(false);
+    });
+
+    it('serves the renamed team, not the name it was read at', async () => {
+        const team = await makeTeam();
+        expect((await server.stores.team.getByUid(team.uid))?.name).toBe('Billing Co');
+
+        await server.stores.team.update(team.uid, { name: 'Renamed Co' });
+
+        expect((await server.stores.team.getByUid(team.uid))?.name).toBe('Renamed Co');
+    });
+
+    it('does not serve a stale member list after the roster changes', async () => {
+        const team = await makeTeam();
+        const before = await server.stores.team.listMemberIdsByGroupId(team.id);
+
+        const seat = await provision(team);
+        const after = await server.stores.team.listMemberIdsByGroupId(team.id);
+        expect(after).toContain(seat.userId);
+        expect(after.length).toBe(before.length + 1);
+
+        // The membership row cascades away with the account, never through
+        // TeamStore -- the case a TTL alone would get wrong.
+        await server.services.userAccount.cascadeDelete(seat.userId);
+        expect(
+            await server.stores.team.listMemberIdsByGroupId(team.id),
+        ).not.toContain(seat.userId);
+    });
+
     it('says nothing about an account no team pays for', async () => {
         const outsider = await makeUser();
         seen.length = 0;

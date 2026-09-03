@@ -113,6 +113,13 @@ export class TeamService extends PuterService {
         }
     }
 
+    /** The membership cascaded away, so the cached reads over it must go too. */
+    async forgetSeat(seat: TeamBillingEvent): Promise<void> {
+        const team = await this.stores.team.getByUid(seat.team_uid);
+        await this.stores.team.bustMembership(team?.id ?? -1, seat.user_id);
+        await this.stores.team.bustMember(seat.team_uid, seat.user_id);
+    }
+
     /** Paired with `captureSeatForBilling`, once the account is really gone. */
     emitSeatDeleted(seat: TeamBillingEvent | null): void {
         if (seat) this.#emitBilling('team.account.deleted', seat);
