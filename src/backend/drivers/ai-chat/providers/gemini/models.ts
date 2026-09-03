@@ -144,6 +144,34 @@ export const GEMINI_MODELS: IChatModel[] = [
         },
     },
     {
+        puterId: 'google:google/gemini-3.8-flash',
+        id: 'gemini-3.8-flash',
+        modalities: {
+            input: ['text', 'image', 'audio', 'video', 'pdf'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-09-02',
+        name: 'Gemini 3.8 Flash',
+        aliases: ['google/gemini-3.8-flash'],
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        // Launch pricing, listed as holding through 2026-12-31 and doubling
+        // on 2027-01-01.
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 75,
+            completion_tokens: 375,
+            thinking_tokens: 375,
+            cached_tokens: 7.5,
+            grounding_requests: 1_400_000,
+        },
+    },
+    {
         puterId: 'google:google/gemini-2.5-flash',
         id: 'gemini-2.5-flash',
         modalities: {
