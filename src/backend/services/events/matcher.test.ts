@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -69,6 +70,11 @@ const CASES: Array<{ pattern: string; matches: string[]; misses: string[] }> = [
         matches: ['a+b(c).txt'],
         misses: ['axbxcx.txt'],
     },
+    {
+        pattern: 'in*/**/out*.log',
+        matches: ['inbox/out.log', 'in/a/b/out-1.log'],
+        misses: ['inbox/out.txt', 'box/out.log'],
+    },
 ];
 
 describe('compileMatch', () => {
@@ -108,6 +114,9 @@ describe('compileMatch', () => {
                 .fill('a')
                 .join('/'),
         },
+        { name: 'with two stars in one segment', pattern: '*report*.pdf' },
+        { name: 'with a doubled star inside a segment', pattern: 'a**b' },
+        { name: 'with two globstars', pattern: '**/build/**' },
     ];
 
     it.each(rejections)('rejects a pattern $name', ({ pattern }) => {
@@ -118,7 +127,9 @@ describe('compileMatch', () => {
             thrown = err;
         }
         expect(thrown).toBeInstanceOf(HttpError);
-        expect((thrown as HttpError).legacyCode).toBe('invalid_subject_pattern');
+        expect((thrown as HttpError).legacyCode).toBe(
+            'invalid_subject_pattern',
+        );
     });
 
     it('accepts a pattern exactly on the bounds', () => {
@@ -128,6 +139,31 @@ describe('compileMatch', () => {
         expect(() =>
             compileMatch(Array(MATCH_PATTERN_MAX_SEGMENTS).fill('a').join('/')),
         ).not.toThrow();
+        expect(() =>
+            compileMatch('?'.repeat(MATCH_PATTERN_MAX_LENGTH)),
+        ).not.toThrow();
+    });
+
+    it('treats a doubled star with no delimiter as two stars', () => {
+        expect(() => compileMatch('**', { separator: null })).toThrow(
+            HttpError,
+        );
+        expect(() => compileMatch('a**', { separator: null })).toThrow(
+            HttpError,
+        );
+    });
+
+    it('stays cheap on the worst shape the bounds allow', () => {
+        // One globstar, then a star in every remaining segment, against a
+        // deep path of long segments that misses only at the very end.
+        const pattern = `**/${Array(MATCH_PATTERN_MAX_SEGMENTS - 2)
+            .fill('*a')
+            .join('/')}/z`;
+        const path = Array(60).fill('a'.repeat(200)).join('/');
+        const compiled = compileMatch(pattern);
+        const started = performance.now();
+        expect(compiled.test(path)).toBe(false);
+        expect(performance.now() - started).toBeLessThan(50);
     });
 });
 

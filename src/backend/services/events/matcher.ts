@@ -22,8 +22,10 @@ import { HttpError } from '../../core/http/HttpError.js';
 /**
  * Match filters are globs compiled once at subscribe time and evaluated
  * in-process against a value the event already carries — never a store scan.
- * `**` crosses delimiters and is not bounded; the only bounds are compile
- * cost.
+ * `**` crosses delimiters and is not bounded. A pattern gets one `**` and one
+ * `*` per segment: every further unbounded wildcard multiplies the ways the
+ * engine can split a non-matching path among them, and the subscriber names the
+ * files a filter is tested against.
  */
 
 // -- Limits -----------------------------------------------------------
@@ -104,6 +106,17 @@ export function compileMatch(
     const segments = raw.filter(
         (segment, i) => segment !== '**' || raw[i - 1] !== '**',
     );
+
+    // A lone `*` is pinned by the delimiters either side of it, so a wrong
+    // split dies in one step; the one `**` is the only choice point left.
+    // Ten stars in one segment is a second of CPU per event.
+    const isGlobstar = (segment: string): boolean =>
+        separator !== null && segment === '**';
+    if (segments.filter(isGlobstar).length > 1)
+        throw invalidPattern('may use `**` only once', pattern);
+    for (const segment of segments)
+        if (!isGlobstar(segment) && segment.split('*').length > 2)
+            throw invalidPattern('may use `*` only once per segment', pattern);
 
     const escapedSeparator = separator ? escapeRegExp(separator) : '';
     let source = '^';
