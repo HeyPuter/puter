@@ -51,6 +51,16 @@ export interface TeamMemberRow {
     created_at: string;
 }
 
+/** A seat, joined to the workspace that pays for it. */
+export interface OrgSeatRow {
+    id: number;
+    user_id: number;
+    uuid: string;
+    username: string;
+    team_uid: string;
+    owner_user_id: number;
+}
+
 /** One entry in the insert-only record of what a workspace did to an account. */
 export interface TeamAuditRow {
     id: number;
@@ -67,7 +77,7 @@ export const MEMBER_PAGE_CAP = 200;
 export const AUDIT_PAGE_SIZE = 50;
 export const AUDIT_PAGE_CAP = 200;
 
-/** Longest handle mysql can store — `varchar(64)` in mysql_mig_26. */
+/** Longest handle mysql can store — `varchar(64)` in mysql_mig_28. */
 export const HANDLE_MAX_LENGTH = 64;
 export const HANDLE_MIN_LENGTH = 3;
 
@@ -369,6 +379,26 @@ export class TeamStore extends PuterStore {
         return result.anyRowsAffected;
     }
 
+    /** Seats the workspace has provisioned. The owner is not one of them. */
+    async countSeats(teamId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `jct_user_group` ' +
+                'WHERE `group_id` = ? AND `org_owned` = 1',
+            [teamId],
+        )) as { n: number }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
+    /** Live workspaces this user owns. Soft-deleted ones do not count. */
+    async countOwned(ownerUserId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `group` ' +
+                `WHERE \`owner_user_id\` = ? AND ${this.#live()}`,
+            [ownerUserId, TEAM_KIND],
+        )) as { n: number }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
     /** How many members pay for themselves; the owner should be the only one. */
     async countPayers(teamId: number): Promise<number> {
         const rows = (await this.clients.db.read(
@@ -379,6 +409,35 @@ export class TeamStore extends PuterStore {
         return Number(rows[0]?.n ?? 0);
     }
 
+    // -- Billing ---- reads for the payment integration's events --------
+
+    /** Null on sqlite, which has no such column; mysql and postgres do. */
+    async getStripeCustomerId(userId: number): Promise<string | null> {
+        try {
+            const rows = (await this.clients.db.read(
+                'SELECT `stripe_customer_id` FROM `user` WHERE `id` = ? LIMIT 1',
+                [userId],
+            )) as { stripe_customer_id?: string | null }[];
+            return rows[0]?.stripe_customer_id ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Soft-deleted workspaces count: their seats still hold billable bytes. */
+    async getOrgSeat(userId: number): Promise<OrgSeatRow | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`id`, ug.`user_id`, u.`uuid`, u.`username`, ' +
+                'g.`uid` AS `team_uid`, g.`owner_user_id` ' +
+                'FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                'WHERE ug.`user_id` = ? AND ug.`org_owned` = 1 ' +
+                'AND g.`kind` = ? ORDER BY g.`id` LIMIT 1',
+            [userId, TEAM_KIND],
+        )) as unknown as OrgSeatRow[];
+        return rows[0] ?? null;
+    }
     // -- Audit ---- insert-only; no update or delete path exists --------
 
     /** Records something the workspace did to an account. */

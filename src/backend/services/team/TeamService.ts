@@ -26,6 +26,11 @@ import {
     USERNAME_MAX_LENGTH,
     USERNAME_REGEX,
 } from '../../controllers/auth/AuthController.js';
+import type {
+    EventMap,
+    TeamBillingContext,
+    TeamBillingEvent,
+} from '../../clients/event/types';
 import { HttpError } from '../../core/http/HttpError.js';
 import { checkHandle } from '../../stores/team/TeamStore.js';
 import type {
@@ -56,6 +61,67 @@ export const generateTemporaryPassword = (length = 16): string => {
 export const DISABLED_BY_WORKSPACE = 'disabled_by_workspace';
 
 export class TeamService extends PuterService {
+    // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
+
+    /** The workspace owner pays, so the charge is keyed to its customer id. */
+    async #billingContext(team: TeamRow): Promise<TeamBillingContext> {
+        return {
+            team_uid: team.uid,
+            owner_user_id: team.owner_user_id,
+            stripe_customer_id: await this.stores.team.getStripeCustomerId(
+                team.owner_user_id,
+            ),
+        };
+    }
+
+    /** Bytes the account holds right now, for prod to price if it wants to. */
+    async #heldBytes(userId: number): Promise<number> {
+        try {
+            return await this.stores.fsEntry.getHeldBytes(userId);
+        } catch (e) {
+            // A missing figure must not fail the operation that reported it.
+            console.warn('[team-billing] held-bytes read failed:', e);
+            return 0;
+        }
+    }
+
+    /** Captured pre-delete: the membership row cascades away with the user. */
+    async captureSeatForBilling(
+        userId: number,
+    ): Promise<TeamBillingEvent | null> {
+        if (this.config.teams_enabled !== true) return null;
+        try {
+            const seat = await this.stores.team.getOrgSeat(userId);
+            if (!seat) return null;
+            return {
+                team_uid: seat.team_uid,
+                owner_user_id: seat.owner_user_id,
+                stripe_customer_id: await this.stores.team.getStripeCustomerId(
+                    seat.owner_user_id,
+                ),
+                user_id: seat.user_id,
+                user_uuid: seat.uuid,
+                username: seat.username,
+            };
+        } catch (e) {
+            console.warn('[team-billing] seat capture failed:', e);
+            return null;
+        }
+    }
+
+    /** Paired with `captureSeatForBilling`, once the account is really gone. */
+    emitSeatDeleted(seat: TeamBillingEvent | null): void {
+        if (seat) this.#emitBilling('team.account.deleted', seat);
+    }
+
+    /** Fire-and-forget, as `user.delete` is: the charge is not our business. */
+    #emitBilling<K extends keyof EventMap>(name: K, payload: EventMap[K]) {
+        try {
+            this.clients.event?.emit(name, payload, {});
+        } catch (e) {
+            console.warn('[team-billing] emit failed:', name, e);
+        }
+    }
     // -- Authority ---- the whole authorization model ------------------
 
     /** 404 to a non-member so the endpoint is not an existence oracle. */
@@ -203,30 +269,38 @@ export class TeamService extends PuterService {
         );
         if (!owner || Number(owner.org_owned) !== 0) return false;
 
-        const rows = (await this.clients.db.read(
-            'SELECT COUNT(*) AS n FROM `jct_user_group` ' +
-                'WHERE `group_id` = ? AND `org_owned` = 0',
-            [team.id],
-        )) as { n: number }[];
-        return Number(rows[0]?.n) === 1;
+        return (await this.stores.team.countPayers(team.id)) === 1;
     }
 
     /** Soft delete disables the accounts it created; recovery is via support. */
     async deleteWorkspace(teamUid: string, actorUserId: number): Promise<void> {
         const team = await this.requireOwner(teamUid, actorUserId);
+        const billing = await this.#billingContext(team);
+        let disabled = 0;
 
         // Otherwise they keep working, unreachable through a deleted workspace.
         let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
         for (;;) {
             for (const member of page.items) {
                 if (Number(member.org_owned) !== 1) continue;
-                await this.#suspend(member.user_id);
                 await this.stores.team.appendAudit({
                     teamId: team.id,
                     userId: member.user_id,
                     actorUserId,
                     action: 'disable',
                     reason: 'workspace_deleted',
+                });
+                const held = await this.#heldBytes(member.user_id);
+                await this.#suspend(member.user_id);
+                disabled++;
+
+                // Per seat, not one bulk event: the byte charge is per account.
+                this.#emitBilling('team.account.disabled', {
+                    ...billing,
+                    user_id: member.user_id,
+                    user_uuid: member.uuid,
+                    username: member.username,
+                    held_bytes: held,
                 });
             }
             if (!page.cursor) break;
@@ -243,6 +317,11 @@ export class TeamService extends PuterService {
             action: 'delete_team',
         });
         await this.stores.team.softDelete(teamUid);
+
+        this.#emitBilling('team.deleted', {
+            ...billing,
+            account_count: disabled,
+        });
     }
 
     /** Workspace owner only. Readable after deletion -- that is the point of it. */
@@ -355,6 +434,7 @@ export class TeamService extends PuterService {
         temporaryPassword: string;
     }> {
         const team = await this.requireOwner(teamUid, actorUserId);
+
         this.#assertUsableUsername(input.username);
         if (!validator.isEmail(input.email)) {
             throw new HttpError(400, 'Invalid email', {
@@ -416,6 +496,14 @@ export class TeamService extends PuterService {
             requires_password_change: 1,
         });
         await this.#notifyAccountCreated(user, team);
+
+        // Last: the seat is only chargeable once it exists and can be used.
+        this.#emitBilling('team.account.created', {
+            ...(await this.#billingContext(team)),
+            user_id: user.id,
+            user_uuid: user.uuid,
+            username: user.username,
+        });
 
         return {
             userId: user.id,
@@ -487,7 +575,7 @@ export class TeamService extends PuterService {
         targetUserId: number,
     ): Promise<void> {
         const team = await this.requireOwner(teamUid, actorUserId);
-        await this.requireOrgAccount(teamUid, targetUserId);
+        const membership = await this.requireOrgAccount(teamUid, targetUserId);
 
         // Recorded first: a failed append must not leave an unlogged suspension.
         await this.stores.team.appendAudit({
@@ -496,7 +584,17 @@ export class TeamService extends PuterService {
             actorUserId,
             action: 'disable',
         });
+        // Read before suspending, though a disabled account cannot change it.
+        const held = await this.#heldBytes(targetUserId);
         await this.#suspend(targetUserId);
+
+        this.#emitBilling('team.account.disabled', {
+            ...(await this.#billingContext(team)),
+            user_id: targetUserId,
+            user_uuid: membership.uuid,
+            username: membership.username,
+            held_bytes: held,
+        });
     }
 
     /** Nothing was destroyed, so the account returns as it was. */
@@ -534,6 +632,15 @@ export class TeamService extends PuterService {
             suspended_reason: null,
         });
         await this.stores.user.invalidateById(targetUserId);
+
+        // Closes the byte charge the disable opened, at the same figure.
+        this.#emitBilling('team.account.enabled', {
+            ...(await this.#billingContext(team)),
+            user_id: targetUserId,
+            user_uuid: user.uuid,
+            username: user.username,
+            held_bytes: await this.#heldBytes(targetUserId),
+        });
     }
 
     /** The three columns together; `suspended` is the one that gates requests. */
