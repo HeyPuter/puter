@@ -51,6 +51,53 @@
  */
 
 /**
+ * One notification, as the events layer projects it. The same object whether it
+ * arrived live or came back from `fetch()`, and `id` is the notification's own
+ * uid on both — which is what lets a client that reconnects mid-catch-up drop
+ * the copy it already has.
+ *
+ * @typedef {Object} PuterNotifEvent
+ * @property {string} id The notification's uid, and the dedup key.
+ * @property {string} subject `notif:<appId|userId>:<audience>`, naming the
+ *   slice of the mailbox it belongs to.
+ * @property {'post'} op Always `'post'` — the mailbox verbs (marking one read
+ *   or dismissed) are their own surface, not events.
+ * @property {string} uid The notification's uid, as the mailbox names it.
+ * @property {string} type What kind of notification it is, from the published
+ *   catalog — `share.received`, `app.worker.deployed`, and so on.
+ * @property {'account' | 'developer' | 'app-user'} audience Who the recipient
+ *   is in relation to it: their account, an app they own, or an app they use.
+ * @property {string | null} appUid The app it is about, or `null` for one from
+ *   the platform itself.
+ * @property {Record<string, unknown>} notification The payload — `title`,
+ *   `text`, `icon`, `fields` — exactly as the desktop receives it.
+ * @property {boolean} self Always `true`: a mailbox is your own.
+ * @property {number} ts When it was created, in milliseconds since the epoch.
+ * @property {number} seq Position within one dispatch.
+ */
+
+/**
+ * Options for {@link import('./fetch.js').fetch}.
+ *
+ * @typedef {Object} EventFetchOptions
+ * @property {string} subject What to read. Only `notif:` subjects have a store
+ *   behind them — `notif:account` for your account's notifications,
+ *   `notif:app-user` for an app's own, or `notif:<appId>:<audience>` in full.
+ * @property {string} [after] The `cursor` from the previous page. Absent starts
+ *   from the oldest notification still kept.
+ * @property {number} [limit] Events per page. Capped at 200; defaults to 50.
+ */
+
+/**
+ * One page of missed events.
+ *
+ * @typedef {Object} EventFetchPage
+ * @property {PuterNotifEvent[]} items The events, oldest first.
+ * @property {string} [cursor] Pass as `after` to read the next page. Absent
+ *   means there is nothing after this page — for now.
+ */
+
+/**
  * Stands in for events that happened and were not delivered — a per-event
  * ceiling was hit, or deliveries were coming faster than the subscription's
  * allowance. It carries no `uid` or `path`, because what was dropped is

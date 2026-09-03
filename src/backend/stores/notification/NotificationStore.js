@@ -64,6 +64,51 @@ export class NotificationStore extends PuterStore {
         return rows.map((r) => this.#normalizeRow(r));
     }
 
+    /**
+     * One page of a mailbox slice, oldest first, for a client catching up on
+     * what it missed. Keyset on `id`: `after` is the last id of the previous
+     * page, so a page cannot repeat or skip a row the way an offset can when
+     * rows arrive between requests.
+     *
+     * `appUid` is matched, not filtered afterwards — `null` means the rows
+     * about no app, which is not the same question as "any app".
+     *
+     * @param {number} userId
+     * @param {{
+     *     audience: string;
+     *     appUid: string | null;
+     *     after?: number | null;
+     *     limit?: number;
+     * }} opts
+     */
+    async listScoped(userId, { audience, appUid, after = null, limit = 50 }) {
+        const n = Number(limit);
+        const safeLimit = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 50;
+        if (safeLimit === 0) return [];
+
+        const where = ['`user_id` = ?', '`audience` = ?'];
+        const params = [userId, audience];
+        if (appUid === null) {
+            where.push('`app_uid` IS NULL');
+        } else {
+            where.push('`app_uid` = ?');
+            params.push(appUid);
+        }
+        if (after !== null && Number.isFinite(Number(after))) {
+            where.push('`id` > ?');
+            params.push(Math.floor(Number(after)));
+        }
+
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`id\` ASC
+             LIMIT ?`,
+            [...params, safeLimit],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
     // -- Writes -------------------------------------------------------
 
     /**
@@ -138,6 +183,26 @@ export class NotificationStore extends PuterStore {
             [now, uid, userId],
         );
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+    }
+
+    /**
+     * Mark a batch shown in one statement. The reconnect replay hands over
+     * everything a client missed at once, and a round trip per row turns one
+     * connect into up to two hundred of them.
+     *
+     * @param {string[]} uids @param {number} userId
+     */
+    async markShownByUids(uids, userId) {
+        const unique = [...new Set(uids.filter((uid) => !!uid))];
+        if (unique.length === 0) return 0;
+        const now = Math.floor(Date.now() / 1000);
+        const placeholders = unique.map(() => '?').join(', ');
+        const result = await this.clients.db.write(
+            'UPDATE `notification` SET `shown` = ? ' +
+                `WHERE \`user_id\` = ? AND \`shown\` IS NULL AND \`uid\` IN (${placeholders})`,
+            [now, userId, ...unique],
+        );
+        return result?.affectedRows ?? result?.changes ?? 0;
     }
 
     async deleteByUid(uid, userId) {

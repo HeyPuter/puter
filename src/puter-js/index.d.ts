@@ -96,6 +96,8 @@ export type {
 export type {
     EventAnchor,
     EventDelivery,
+    EventFetchOptions,
+    EventFetchPage,
     EventGapMarker,
     EventHandler,
     HandlerOptions,
@@ -107,6 +109,7 @@ export type {
     PublishedHandler,
     PuterEvent,
     PuterKvEvent,
+    PuterNotifEvent,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
 export type { EventHandlers } from './types/modules/events/lib/handlers.js';

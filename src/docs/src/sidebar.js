@@ -447,6 +447,14 @@ let sidebar = [
                 path: '/Events/unsubscribe',
             },
             {
+                title: '<code>fetch()</code>',
+                page_title: '<code>puter.events.fetch()</code>',
+                title_tag: 'puter.events.fetch()',
+                icon: '/assets/img/function.svg',
+                source: '/Events/fetch.md',
+                path: '/Events/fetch',
+            },
+            {
                 title: '<code>handlers</code>',
                 page_title: '<code>puter.events.handlers</code>',
                 title_tag: 'puter.events.handlers',

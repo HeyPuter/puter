@@ -18,7 +18,12 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import type { NotifEventContext } from '../events/registry.js';
 import { PuterService } from '../types.js';
+import {
+    NotificationSocketAdapter,
+    notificationsFoldInEnabled,
+} from './notificationSocket.js';
 import {
     findNotificationType,
     resolveNotificationWrite,
@@ -42,24 +47,27 @@ const RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const RETENTION_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
 const RETENTION_MAX_BATCHES = 50;
+/** Unread notifications one reconnect replays. */
+const UNREAD_REPLAY_LIMIT = 200;
 
 /**
- * Notification orchestration — glues the NotificationStore (DB) to the event
- * bus (socket push) and handles lifecycle events (user connects → send unreads,
- * notification shown/acked → socket event).
+ * Notification orchestration — glues the NotificationStore (DB) to the socket
+ * adapter that carries the desktop's wire, and handles lifecycle events (user
+ * connects → send unreads, notification acked → socket event).
  *
  * Other services push notifications via `notify(userIds, notification)`. The
  * driver (`puter-notifications`) handles read/select/mark for API consumers;
  * this service handles the write-and-push side.
  */
 export class NotificationService extends PuterService {
-    #pendingWrites = new Map<string, Promise<unknown>>();
     /** User.id → debounce timeout */
     #connectTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
     #retentionSweep: ReturnType<typeof setInterval> | null = null;
+    #adapter: NotificationSocketAdapter | null = null;
 
     override onServerStart(): void {
         this.#armRetentionSweep();
+        this.#socket().attach();
 
         // When a user opens the GUI, send their pending unreads.
         this.clients.event.on(
@@ -86,21 +94,6 @@ export class NotificationService extends PuterService {
                 );
             },
         );
-
-        // Track when a notification is actually delivered to a socket so
-        // we can mark it as shown.
-        this.clients.event.on(
-            'sent-to-user.notif.message',
-            (_key: string, data: unknown) => {
-                const d = data as
-                    | { user_id?: number; response?: { uid?: string } }
-                    | undefined;
-                const uid = d?.response?.uid;
-                const userId = d?.user_id;
-                if (!uid || !userId) return;
-                void this.#markShownAfterWrite(uid, userId);
-            },
-        );
     }
 
     override onServerPrepareShutdown(): void {
@@ -111,15 +104,14 @@ export class NotificationService extends PuterService {
     // -- Public API --------------------------------------------------
 
     /**
-     * Push a notification to one or more users. The notification is emitted to
-     * the socket bus immediately (real-time), then persisted to the DB
-     * asynchronously.
+     * Push a notification to one or more users. The row is written first and
+     * pushed second: a uid a client is holding always names a row, so its
+     * dismiss (`/notif/mark-ack`) has something to match and a failed insert
+     * reaches nobody.
      *
      * Each recipient gets their own row, and `notification.uid` is unique
      * table-wide, so the uid is minted per recipient and each push carries the
-     * uid naming _that_ recipient's row. The client echoes it back on dismiss
-     * (`/notif/mark-ack`), and the delivery receipt below marks it shown —
-     * neither can find a row otherwise.
+     * uid naming _that_ recipient's row.
      *
      * `silent` persists without pushing: the recipient finds it when they next
      * look, but nothing interrupts them now. For callers that budget how often
@@ -134,7 +126,8 @@ export class NotificationService extends PuterService {
      * @param notification Payload — { title, text?, icon?, fields? }
      * @param opts `{ type }` from the registry, `{ appUid }` for a row about an
      *   app, `{ silent }` to skip the socket push.
-     * @returns The uid of the first recipient's notification.
+     * @returns The uid of the first recipient's row, or `null` when nothing was
+     *   written — there is no uid to hand back that would name anything.
      */
     async notify(
         userIds: number[],
@@ -144,33 +137,15 @@ export class NotificationService extends PuterService {
             appUid?: string | null;
             silent?: boolean;
         },
-    ): Promise<string> {
+    ): Promise<string | null> {
         const appUid = opts.appUid ?? null;
         const registered = resolveNotificationWrite(opts.type, appUid);
         const payload = { ...notification, type: registered.type };
-        const uidByIndex = userIds.map(() => uuidv4());
 
-        // Immediate socket push (before DB write completes)
-        if (!opts.silent) {
-            userIds.forEach((userId, i) => {
-                this.clients.event.emit(
-                    'outer.gui.notif.message',
-                    {
-                        user_id_list: [userId],
-                        response: {
-                            uid: uidByIndex[i],
-                            notification: payload,
-                        },
-                    },
-                    {},
-                );
-            });
-        }
-
-        // Async DB inserts — one row per user.
-        userIds.forEach((userId, i) => {
-            const uid = uidByIndex[i];
-            const writePromise = (async () => {
+        // Recipients in parallel, each one persist-then-push in order.
+        const written = await Promise.all(
+            userIds.map(async (userId) => {
+                const uid = uuidv4();
                 try {
                     await this.stores.notification.create({
                         userId,
@@ -181,31 +156,26 @@ export class NotificationService extends PuterService {
                         appUid,
                     });
                 } catch (err) {
+                    // One recipient's row failing is not the others' problem,
+                    // and nothing was pushed to this one — no uid is loose.
                     console.warn(
                         `[notification] persist failed for user ${userId}`,
                         err,
                     );
+                    return null;
                 }
-            })();
-            this.#pendingWrites.set(uid, writePromise);
-            writePromise.finally(() => this.#pendingWrites.delete(uid));
 
-            // Nothing was pushed when silent, so there is no delivery to
-            // confirm.
-            if (opts.silent) return;
-            writePromise.then(() => {
-                this.clients.event.emit(
-                    'outer.gui.notif.persisted',
-                    {
-                        user_id_list: [userId],
-                        response: { uid },
-                    },
-                    {},
-                );
-            });
-        });
+                if (!opts.silent)
+                    await this.#push(userId, uid, payload, {
+                        type: registered.type,
+                        audience: registered.audience,
+                        appUid,
+                    });
+                return uid;
+            }),
+        );
 
-        return uidByIndex[0] ?? uuidv4();
+        return written.find((uid) => uid !== null) ?? null;
     }
 
     /**
@@ -237,15 +207,12 @@ export class NotificationService extends PuterService {
 
         if (!opts.silent) {
             // Same uid as the original: the client replaces what it is already
-            // showing rather than stacking another copy.
-            this.clients.event.emit(
-                'outer.gui.notif.message',
-                {
-                    user_id_list: [userId],
-                    response: { uid, notification: payload },
-                },
-                {},
-            );
+            // showing rather than stacking another copy. It goes straight to
+            // the wire rather than through dispatch — the row was already
+            // published, and republishing it under its own id is a duplicate
+            // to anything deduplicating on `event.id`.
+            this.#socket().message(userId, uid, payload);
+            this.#markDelivered(uid, userId);
         }
         return true;
     }
@@ -256,13 +223,19 @@ export class NotificationService extends PuterService {
      */
     async markAcknowledged(uid: string, userId: number): Promise<void> {
         await this.stores.notification.markAcknowledged(uid, userId);
-        this.clients.event.emit(
-            'outer.gui.notif.ack',
-            {
-                user_id_list: [userId],
-                response: { uid },
-            },
-            {},
+        this.#socket().ack(userId, uid);
+    }
+
+    /**
+     * Deliver one dispatched notification over the desktop's wire. The events
+     * layer decides who is owed a delivery; this turns that decision into the
+     * message the GUI has always listened for.
+     */
+    deliverOverSocket(context: NotifEventContext): void {
+        this.#socket().message(
+            context.userId,
+            context.uid,
+            context.notification,
         );
     }
 
@@ -293,20 +266,70 @@ export class NotificationService extends PuterService {
         return removed;
     }
 
-    /** Mark a notification as shown (user saw it) and push the ack event. */
-    async markShown(uid: string, userId: number): Promise<void> {
-        await this.stores.notification.markShown(uid, userId);
+    // -- Internals ---------------------------------------------------
+
+    #socket(): NotificationSocketAdapter {
+        this.#adapter ??= new NotificationSocketAdapter({
+            event: this.clients.event,
+            socket: this.services.socket,
+            foldIn: () => notificationsFoldInEnabled(this.config),
+        });
+        return this.#adapter;
+    }
+
+    /**
+     * Publish one persisted notification. With the fold-in on, the events layer
+     * owns the delivery and feeds the socket adapter; without it, the adapter
+     * pushes straight to the wire.
+     */
+    async #push(
+        userId: number,
+        uid: string,
+        payload: Record<string, unknown>,
+        scope: { type: string; audience: string; appUid: string | null },
+    ): Promise<void> {
+        if (!notificationsFoldInEnabled(this.config)) {
+            this.#socket().message(userId, uid, payload);
+            this.#markDelivered(uid, userId);
+            return;
+        }
+
+        // The token is the recipient's mailbox, so dispatch needs their uuid —
+        // looked up only on this path, and user rows are cached.
+        const user = await this.stores.user.getById(userId);
+        if (!user?.uuid) {
+            this.#socket().message(userId, uid, payload);
+            this.#markDelivered(uid, userId);
+            return;
+        }
+
         this.clients.event.emit(
-            'outer.gui.notif.ack',
+            'notif.created',
             {
-                user_id_list: [userId],
-                response: { uid },
+                userId,
+                userUuid: user.uuid,
+                uid,
+                type: scope.type,
+                audience: scope.audience,
+                appUid: scope.appUid,
+                value: payload,
+                createdAt: Date.now(),
             },
             {},
         );
+        this.#markDelivered(uid, userId);
     }
 
-    // -- Internals ---------------------------------------------------
+    /**
+     * A notification pushed to a connected recipient counts as shown, so the
+     * reconnect replay carries what they actually missed. Only this region's
+     * own sockets are visible, so the answer errs towards replaying a
+     * notification twice rather than dropping it.
+     */
+    #markDelivered(uid: string, userId: number): void {
+        if (!this.#socket().hasSocket(userId)) return;
+        void this.stores.notification.markShown(uid, userId).catch(() => {});
+    }
 
     #retentionDays(): number {
         const configured = Number(this.config.notificationRetentionDays ?? 0);
@@ -324,45 +347,34 @@ export class NotificationService extends PuterService {
         this.#retentionSweep = sweep;
     }
 
+    /**
+     * What a reconnecting client missed. One statement marks the batch shown —
+     * a per-row update is a round trip per notification on a path that runs
+     * every time anyone opens the desktop — and no ack goes out for any of it:
+     * an ack means "stop showing this", which is the opposite of a replay.
+     */
     async #sendUnreads(userId: number): Promise<void> {
-        // Fetch all unseen + unacknowledged notifications
         const rows = await this.stores.notification.listByUserId(userId, {
             filter: 'unseen',
-            limit: 200,
+            limit: UNREAD_REPLAY_LIMIT,
         });
         if (rows.length === 0) return;
 
-        // Mark them shown now that we're delivering them
-        for (const row of rows) {
-            if (row.uid) {
-                await this.stores.notification
-                    .markShown(row.uid, userId)
-                    .catch(() => {});
-            }
-        }
+        const uids = rows
+            .map((r: Record<string, unknown>) => r.uid)
+            .filter((uid: unknown): uid is string => typeof uid === 'string');
+        await this.stores.notification
+            .markShownByUids(uids, userId)
+            .catch(() => {});
 
         // `created_at` rides along so a client listing these can date them;
         // without it everything delivered on connect would read as "now".
         const unreads = rows.map((r: Record<string, unknown>) => ({
-            uid: r.uid,
+            uid: r.uid as string,
             notification: r.value,
             created_at: r.created_at ?? null,
         }));
 
-        this.clients.event.emit(
-            'outer.gui.notif.unreads',
-            {
-                user_id_list: [userId],
-                response: { unreads },
-            },
-            {},
-        );
-    }
-
-    async #markShownAfterWrite(uid: string, userId: number): Promise<void> {
-        // Wait for the pending write to finish before trying to mark shown
-        const pending = this.#pendingWrites.get(uid);
-        if (pending) await pending.catch(() => {});
-        await this.stores.notification.markShown(uid, userId).catch(() => {});
+        this.#socket().unreads(userId, unreads);
     }
 }

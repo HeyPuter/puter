@@ -26,6 +26,8 @@ import {
     EVENTS_CONSECUTIVE_FAILURES,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
+    EVENTS_FETCH_LIMIT_CAP,
+    EVENTS_FETCH_LIMIT_DEFAULT,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
@@ -73,10 +75,16 @@ import {
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
-import type { PageResult } from '../../util/pagination.js';
+import {
+    decodeCursor,
+    encodeCursor,
+    type PageResult,
+} from '../../util/pagination.js';
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
 import { assertActorHasCredits } from '../metering/enforcement.js';
+import { canViewNotification } from '../notification/notificationAudience.js';
+import { notificationsFoldInEnabled } from '../notification/notificationSocket.js';
 import {
     appSocketRoom,
     type SocketSpecifier,
@@ -85,6 +93,7 @@ import { PuterService } from '../types.js';
 import {
     resolveFsAnchor,
     resolveKvAnchor,
+    resolveNotifAnchor,
     type FsAnchorDeps,
 } from './anchors.js';
 import {
@@ -124,8 +133,14 @@ import {
     type CompiledMatch,
 } from './matcher.js';
 import {
+    projectNotifRow,
+    resolveNotifFetch,
+    type NotifFetchScope,
+} from './notifFetch.js';
+import {
     lookupFsSubject,
     lookupKvSubject,
+    lookupNotifSubject,
     type DeliverableEvent,
     type DeliveryClass,
     type DeliveryFields,
@@ -135,12 +150,15 @@ import {
     type GapReason,
     type KvEventContext,
     type MatchSpec,
+    type NotifEventContext,
     type ProjectedEvent,
+    type ProjectedNotifEvent,
     type SubjectSpec,
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
     KV_MATCH_SEPARATOR,
+    NOTIF_MATCH_SEPARATOR,
     fsAnchorToken,
     isKvToken,
     parseSubject,
@@ -264,6 +282,17 @@ export interface DurableListRequest {
     limit?: number;
     cursor?: string;
     includeTotal?: boolean;
+}
+
+/**
+ * One page of catch-up. `after` is where the client got to — the cursor from
+ * its last page — rather than a stored position, because nothing about a fetch
+ * is registered anywhere.
+ */
+export interface FetchRequest {
+    subject?: string;
+    after?: string;
+    limit?: number;
 }
 
 /** What a client gets back for a subscription it just made. */
@@ -409,6 +438,20 @@ export interface FsDispatchOptions {
     ancestors?: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
     /** Who performed the write, for the `self` flag. */
     actingUserId?: number;
+}
+
+/** One persisted notification, as the bus reports it. */
+export interface NotifDispatchInput {
+    /** The recipient, whose mailbox is the anchor. */
+    userId: number;
+    userUuid: string;
+    uid: string;
+    type: string;
+    audience: string;
+    /** App the notification is about, or `null` for a platform one. */
+    appUid: string | null;
+    value: Record<string, unknown>;
+    createdAt: number;
 }
 
 /** One committed KV mutation, as the bus reports it. */
@@ -903,6 +946,14 @@ export class EventsService extends PuterService {
             });
         });
 
+        // Emitted once the row is written, so a delivery never names a
+        // notification the mailbox does not have.
+        this.clients.event.on('notif.created', (_key, data) => {
+            void this.dispatchNotif(data as NotifDispatchInput).catch((err) => {
+                console.warn('[events] notification dispatch failed', err);
+            });
+        });
+
         this.#armExpirySweep();
         this.#armPendingSweep();
         this.#armCreditSweep();
@@ -952,6 +1003,14 @@ export class EventsService extends PuterService {
      */
     get crossAppKvEnabled(): boolean {
         return this.config.events?.crossAppKv === true;
+    }
+
+    /**
+     * Whether notification delivery runs through dispatch. Off, notifications
+     * take the path they always have and nothing here sees them.
+     */
+    get notificationsFoldIn(): boolean {
+        return notificationsFoldInEnabled(this.config);
     }
 
     // -- Socket surface ----------------------------------------------
@@ -1289,6 +1348,93 @@ export class EventsService extends PuterService {
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(page.total !== undefined ? { total: page.total } : {}),
         };
+    }
+
+    /**
+     * What a client missed while it was away. A plain authorized query against
+     * the subject's own store: nothing is registered, no cursor is kept here,
+     * and a second fetch from anywhere returns the same answer — the client
+     * holds the position.
+     *
+     * Only `notif:` has a store to read; `fs:` and `kv:` say so rather than
+     * returning an empty page, which a client would read as "nothing
+     * happened".
+     */
+    async fetchMissed(
+        actor: Actor,
+        request: FetchRequest,
+    ): Promise<PageResult<ProjectedNotifEvent>> {
+        if (!this.enabled) throw disabled();
+        const user = actor.user;
+        if (!user?.id || !user.uuid) throw disabled();
+        // Unresolved is not "no app": reading it that way would hand an app
+        // rows only the account may see.
+        if (actor.effectiveApp === undefined) return { items: [] };
+
+        const scope = resolveNotifFetch(String(request.subject ?? ''), {
+            userUuid: user.uuid,
+            appUid: actor.effectiveApp?.uid ?? null,
+        });
+
+        const asked = Math.floor(Number(request.limit));
+        const limit = Math.min(
+            Number.isFinite(asked) && asked > 0
+                ? asked
+                : EVENTS_FETCH_LIMIT_DEFAULT,
+            EVENTS_FETCH_LIMIT_CAP,
+        );
+        const cursored = Number(decodeCursor(request.after, 'after')?.id);
+
+        // One extra row answers "is there another page" without a count.
+        const rows = await this.stores.notification.listScoped(user.id, {
+            audience: scope.audience,
+            appUid: scope.appUid,
+            after: Number.isFinite(cursored) ? cursored : null,
+            limit: limit + 1,
+        });
+
+        const page = rows.slice(0, limit);
+        const visible = await this.#visibleNotifications(actor, page, scope);
+        const last = page[page.length - 1];
+
+        return {
+            items: visible.map((row, i) => projectNotifRow(row, user.uuid, i)),
+            ...(rows.length > limit && last
+                ? { cursor: encodeCursor({ id: Number(last.id) }) }
+                : {}),
+        };
+    }
+
+    /**
+     * The audience predicate, applied to rows the query already scoped to the
+     * caller's own mailbox. A row the actor may not see is dropped rather than
+     * refused: which notifications exist is not something an app token gets to
+     * probe for.
+     */
+    async #visibleNotifications(
+        actor: Actor,
+        rows: Array<Record<string, unknown>>,
+        scope: NotifFetchScope,
+    ): Promise<Array<Record<string, unknown>>> {
+        if (rows.length === 0) return rows;
+        const ownsApp =
+            scope.audience === 'developer' && scope.appUid
+                ? await this.#recipientOwnsApp(
+                      Number(actor.user?.id),
+                      scope.appUid,
+                  )
+                : false;
+
+        return rows.filter((row) =>
+            canViewNotification(
+                {
+                    audience: String(row.audience ?? 'account'),
+                    appUid: (row.app_uid as string | null) ?? null,
+                },
+                actor,
+                { recipientOwnsApp: ownsApp },
+            ),
+        );
     }
 
     async unsubscribeDurable(
@@ -1955,6 +2101,8 @@ export class EventsService extends PuterService {
         const parsed = parseSubject(rawSubject);
         if (parsed.family === 'kv')
             return this.#resolveKvSubscribe(actor, parsed);
+        if (parsed.family === 'notif')
+            return this.#resolveNotifSubscribe(actor, parsed);
         if (parsed.family !== 'fs')
             throw new HttpError(
                 400,
@@ -2039,6 +2187,67 @@ export class EventsService extends PuterService {
             ownerUserId: user.id,
             // The column wants a mode; a KV row's re-check is the cross-app
             // gate rather than an ACL reading, so nothing reads this back.
+            permission: SUBSCRIBE_MODE,
+            subject: anchor.subject,
+        };
+    }
+
+    /**
+     * Resolve and authorize a `notif:` subject.
+     *
+     * You only ever subscribe to your own mailbox, so the anchor is fixed and
+     * the check is the audience predicate: a slice the actor could never be
+     * shown reads as absent rather than refused, the same answer subscribing to
+     * a node you cannot see gives.
+     */
+    async #resolveNotifSubscribe(
+        actor: Actor,
+        parsed: ParsedSubject,
+    ): Promise<ResolvedAnchor> {
+        const user = actor.user;
+        if (!user?.uuid || user.id === undefined) throw disabled();
+        // Nothing dispatches notifications while the fold-in is off, so a
+        // subscription would be a row that never delivers.
+        if (!this.notificationsFoldIn)
+            throw new HttpError(
+                400,
+                'Subject family not subscribable yet: notif',
+                { legacyCode: 'invalid_subject' },
+            );
+
+        const anchor = resolveNotifAnchor(parsed, {
+            userUuid: user.uuid,
+            appUid: actor.effectiveApp?.uid ?? null,
+        });
+
+        const ownsApp =
+            anchor.appScoped && anchor.audience === 'developer'
+                ? await this.#recipientOwnsApp(user.id, anchor.ref)
+                : false;
+        const visible = canViewNotification(
+            {
+                audience: anchor.audience,
+                appUid: anchor.appScoped ? anchor.ref : null,
+            },
+            actor,
+            { recipientOwnsApp: ownsApp },
+        );
+        if (!visible)
+            throw new HttpError(404, `No such subject: ${anchor.subject}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+
+        compileMatch(anchor.match, { separator: NOTIF_MATCH_SEPARATOR });
+
+        return {
+            token: anchor.token,
+            uid: anchor.ref,
+            path: '',
+            match: anchor.match,
+            op: null,
+            ownerUserId: user.id,
+            // The column wants a mode; a notification row's re-check is the
+            // audience predicate, so nothing reads this back.
             permission: SUBSCRIBE_MODE,
             subject: anchor.subject,
         };
@@ -2193,6 +2402,100 @@ export class EventsService extends PuterService {
                 ownerUserId,
                 (matched) => this.#kvStillAuthorized(matched, namespace.appUid),
             );
+        }
+    }
+
+    /**
+     * Publish one persisted notification: the desktop's wire first, because
+     * that is what a person is waiting on, then whatever subscriptions asked
+     * for this slice of the mailbox.
+     *
+     * The fan-out is one token — a notification is addressed to a person — so
+     * there is no tree to walk and nothing to coalesce against.
+     */
+    async dispatchNotif(input: NotifDispatchInput): Promise<void> {
+        if (!this.notificationsFoldIn) return;
+
+        const subject = lookupNotifSubject('notif.created');
+        if (!subject) return;
+        const userId = input?.userId;
+        if (typeof userId !== 'number' || !input.userUuid || !input.uid) return;
+
+        const context: NotifEventContext = {
+            key: 'notif.created',
+            userId,
+            userUuid: input.userUuid,
+            uid: input.uid,
+            type: input.type ?? '',
+            audience: (input.audience ??
+                'account') as NotifEventContext['audience'],
+            appUid: input.appUid ?? null,
+            notification: input.value ?? {},
+            id: input.uid,
+            ts: input.createdAt || Date.now(),
+        };
+
+        // The adapter is not a subscription: the desktop is delivered to
+        // whether or not anything subscribed, which is what keeps the wire
+        // contract identical with the fold-in on.
+        this.services.notification.deliverOverSocket(context);
+
+        if (!(await this.#userHasAny(userId))) return;
+
+        const watched = await this.stores.eventSubscription.watchedTokens(
+            userId,
+            subject.tokens(context),
+        );
+        if (watched.length === 0) return;
+
+        const rows = await this.stores.eventSubscription.getForTokens(
+            userId,
+            watched,
+        );
+        if (rows.length === 0) return;
+
+        await this.#route(subject, context, rows, userId, (matched) =>
+            this.#notifStillAuthorized(matched, context),
+        );
+    }
+
+    /**
+     * Which rows may be told about this notification. The audience predicate is
+     * the whole check — an `account` row never reaches an actor holding an app,
+     * and a `developer` row only reaches one whose holder owns the app it
+     * names.
+     */
+    async #notifStillAuthorized(
+        rows: DispatchSubscription[],
+        context: NotifEventContext,
+    ): Promise<DispatchSubscription[]> {
+        if (rows.length === 0) return rows;
+
+        const scope = { audience: context.audience, appUid: context.appUid };
+        const ownsApp =
+            context.audience === 'developer' && context.appUid
+                ? await this.#recipientOwnsApp(context.userId, context.appUid)
+                : false;
+
+        return rows.filter((row) =>
+            canViewNotification(
+                scope,
+                { effectiveApp: row.appUid ? { uid: row.appUid } : null },
+                { recipientOwnsApp: ownsApp },
+            ),
+        );
+    }
+
+    /** Whether the mailbox's owner is the owner of the app a row names. */
+    async #recipientOwnsApp(userId: number, appUid: string): Promise<boolean> {
+        try {
+            const app = await this.stores.app.getByUid(appUid);
+            return (
+                Number((app as { owner_user_id?: unknown })?.owner_user_id) ===
+                Number(userId)
+            );
+        } catch {
+            return false;
         }
     }
 

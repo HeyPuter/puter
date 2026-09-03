@@ -1,6 +1,7 @@
 import { PuterModule } from '../../lib/PuterModule.js';
 import { EventChannel } from './lib/channel.js';
 import { EventHandlers } from './lib/handlers.js';
+import { fetch } from './fetch.js';
 import { list } from './list.js';
 import { onLocal } from './onLocal.js';
 import { onPersistent } from './onPersistent.js';
@@ -18,6 +19,9 @@ import { unsubscribe } from './unsubscribe.js';
  * and keeps matching with nothing open. A persistent subscription runs a
  * handler the app published through `puter.events.handlers`.
  *
+ * `fetch()` is the other half: what happened while nothing was listening, read
+ * from the subject's own store a page at a time.
+ *
  * Method implementations live in the sibling files as `this`-context functions
  * whose JSDoc is the source of truth for the public signatures — `types/` is
  * generated from it, never edited by hand.
@@ -30,6 +34,7 @@ export class EventsModule extends PuterModule {
     onPersistent = onPersistent;
     unsubscribe = unsubscribe;
     list = list;
+    fetch = fetch;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -47,7 +52,13 @@ export class EventsModule extends PuterModule {
         const methods = /** @type {Record<string, (...args: unknown[]) => unknown>} */ (
             /** @type {unknown} */ (this)
         );
-        for ( const name of ['onLocal', 'onPersistent', 'unsubscribe', 'list'] ) {
+        for ( const name of [
+            'onLocal',
+            'onPersistent',
+            'unsubscribe',
+            'list',
+            'fetch',
+        ] ) {
             methods[name] = methods[name].bind(this);
         }
 

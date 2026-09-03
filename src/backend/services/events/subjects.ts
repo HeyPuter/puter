@@ -20,6 +20,7 @@
 import type { KvOp } from '../../clients/event/types.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isTildePath } from '../fs/resolveNode.js';
+import type { NotificationAudience } from '../notification/notificationTypes.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 
 /**
@@ -30,7 +31,8 @@ import { PermissionUtil } from '../permission/permissionUtil.js';
  *     kv:<appUid>:<key>            exact key
  *     kv:<appUid>:<prefix>*        trailing `*` only
  *     kv:<key>                     sugar for the caller's own app namespace
- *     notif:<channel>
+ *     notif:<appUid>:<audience>    a mailbox slice
+ *     notif:<audience>             sugar for the caller's own app, or account
  *
  * Parsing is pure syntax. It yields the anchor a subscription keys on plus the
  * glob the anchor's members are filtered by; turning that anchor into a node
@@ -43,7 +45,10 @@ export type SubjectFamily = 'fs' | 'kv' | 'notif';
 
 export type FsOp = 'add' | 'write' | 'move' | 'remove' | 'meta';
 
-export type SubjectOp = FsOp | KvOp;
+/** A notification is only ever posted; the mailbox verbs are their own surface. */
+export type NotifOp = 'post';
+
+export type SubjectOp = FsOp | KvOp | NotifOp;
 
 export type AnchorRef =
     | { kind: 'fsUid'; uid: string }
@@ -59,7 +64,15 @@ export type AnchorRef =
           /** The key pattern as written, which the canonical subject reuses. */
           key: string;
       }
-    | { kind: 'notifChannel'; channel: string };
+    | {
+          kind: 'notifScope';
+          /**
+           * App the rows are about, or the recipient when they name no app.
+           * `null` for the two-segment form, filled in server-side.
+           */
+          ref: string | null;
+          audience: NotificationAudience;
+      };
 
 export interface ParsedSubject {
     family: SubjectFamily;
@@ -109,6 +122,21 @@ export const KV_MATCH_SEPARATOR: string | null = null;
 
 const FS_TOKEN_PREFIX = 'f#';
 const KV_TOKEN_PREFIX = 'k#';
+const NOTIF_TOKEN_PREFIX = 'n#';
+
+/** Audiences a `notif:` subject may name, in wire form. */
+export const NOTIF_AUDIENCES: readonly NotificationAudience[] = Object.freeze([
+    'account',
+    'developer',
+    'app-user',
+]);
+
+/**
+ * What separates the two halves of a notif filter. A subject names a slice of
+ * one mailbox, and the anchor is the mailbox — so the slice is what the filter
+ * carries.
+ */
+export const NOTIF_MATCH_SEPARATOR = ':';
 
 // -- Anchor tokens ----------------------------------------------------
 
@@ -126,6 +154,23 @@ export const kvAnchorToken = (
     appUid: string,
     prefix: string,
 ): string => `${KV_TOKEN_PREFIX}${userUuid}#${appUid}#${prefix}`;
+
+/**
+ * Stored anchor token for a mailbox. One per recipient: a notification is
+ * addressed to a person, and which slice of their mailbox a subscription wants
+ * is a filter over that.
+ */
+export const notifAnchorToken = (userUuid: string): string =>
+    `${NOTIF_TOKEN_PREFIX}${userUuid}`;
+
+/**
+ * What a notif filter is tested against: the row's app (or recipient) and
+ * audience.
+ */
+export const notifMatchOn = (
+    ref: string,
+    audience: NotificationAudience | string,
+): string => `${ref}${NOTIF_MATCH_SEPARATOR}${audience}`;
 
 /** Which family a stored row belongs to, without re-parsing its subject. */
 export const isKvToken = (token: string): boolean =>
@@ -292,12 +337,31 @@ const parseKvSubject = (subject: string, parts: string[]): ParsedSubject => {
     };
 };
 
+/**
+ * `notif:<ref>:<audience>`, where `ref` is the app the rows are about. The
+ * two-segment form leaves it to the server, which fills in the caller's own app
+ * — an app never names an app uid — or the caller themselves when they act as
+ * the account.
+ */
 const parseNotifSubject = (subject: string, parts: string[]): ParsedSubject => {
-    const channel = parts.slice(1).join(':');
-    if (!channel) throw invalidSubject(subject);
+    if (parts.length < 2 || parts.length > 3) throw invalidSubject(subject);
+
+    const relative = parts.length === 2;
+    const ref = relative ? null : parts[1];
+    const audience = relative ? parts[1] : parts[2];
+    if (!audience || (!relative && !ref)) throw invalidSubject(subject);
+    if (!NOTIF_AUDIENCES.includes(audience as NotificationAudience))
+        throw new HttpError(400, `Unknown audience: ${audience}`, {
+            legacyCode: 'invalid_subject_audience',
+        });
+
     return {
         family: 'notif',
-        anchorRef: { kind: 'notifChannel', channel },
+        anchorRef: {
+            kind: 'notifScope',
+            ref,
+            audience: audience as NotificationAudience,
+        },
         op: null,
         rawMatch: null,
     };

@@ -26,9 +26,12 @@ import { relativeTo } from './matcher.js';
 import {
     fsAnchorToken,
     kvAnchorToken,
+    notifAnchorToken,
+    notifMatchOn,
     type FsOp,
     type ParsedSubject,
 } from './subjects.js';
+import type { NotificationAudience } from '../notification/notificationTypes.js';
 
 /**
  * Turn a subject into the pair a subscription stores: the anchor it keys on,
@@ -182,5 +185,57 @@ export function resolveKvAnchor(
         // their own has never been gated — the same branch a cross-app KV read
         // takes before it reaches a permission lookup.
         crossApp: actor.appUid !== null && appUid !== actor.appUid,
+    };
+}
+
+/** Who a `notif:` subject is resolved on behalf of. */
+export interface NotifAnchorActor {
+    /** The recipient — you only ever read your own mailbox. */
+    userUuid: string;
+    /** The actor's `effectiveApp`, or `null` when it acts as the user. */
+    appUid: string | null;
+}
+
+export interface ResolvedNotifAnchor {
+    token: string;
+    /** App the rows are about, or the recipient when they name none. */
+    ref: string;
+    audience: NotificationAudience;
+    /** The slice of the mailbox, as the filter tests it. */
+    match: string;
+    /** Fully-qualified wire form, after any app-relative expansion. */
+    subject: string;
+    /** True when the ref names an app rather than the recipient. */
+    appScoped: boolean;
+}
+
+/**
+ * Resolve a `notif:` subject. The anchor is the recipient's mailbox and the
+ * slice is the filter, so nothing is looked up: which rows the actor may
+ * actually see is the audience predicate's answer, not the anchor's.
+ *
+ * The two-segment form expands from the actor the same way a `kv:` one does —
+ * an app names its own rows by not naming an app at all.
+ */
+export function resolveNotifAnchor(
+    parsed: ParsedSubject,
+    actor: NotifAnchorActor,
+): ResolvedNotifAnchor {
+    const { anchorRef } = parsed;
+    if (anchorRef.kind !== 'notifScope')
+        throw new HttpError(400, 'Not a notification subject', {
+            legacyCode: 'invalid_subject',
+        });
+
+    const ref = anchorRef.ref ?? actor.appUid ?? actor.userUuid;
+    const appScoped = ref !== actor.userUuid;
+
+    return {
+        token: notifAnchorToken(actor.userUuid),
+        ref,
+        audience: anchorRef.audience,
+        match: notifMatchOn(ref, anchorRef.audience),
+        subject: `notif:${ref}:${anchorRef.audience}`,
+        appScoped,
     };
 }

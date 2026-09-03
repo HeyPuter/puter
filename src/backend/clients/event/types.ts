@@ -402,6 +402,34 @@ export type EventMap = {
      */
     'kv.flushed': { namespace: string; userId: number };
 
+    // ---- Notifications ----
+    /**
+     * A notification row exists. Emitted after the insert commits — nothing
+     * pushes a uid before there is a row to name — and carries the scope tuple
+     * so a listener never has to read the row back.
+     */
+    'notif.created': {
+        userId: number;
+        userUuid: string;
+        uid: string;
+        type: string;
+        audience: string;
+        appUid: string | null;
+        value: Record<string, unknown>;
+        createdAt: number;
+    };
+    /**
+     * One notification, addressed at whatever sockets each region holds for the
+     * recipient. `outer.*` reaches peer regions and never sibling nodes, so
+     * every region applies it exactly once — which is what keeps a socket from
+     * receiving the same notification twice.
+     */
+    'outer.notif.delivery': {
+        userId: number;
+        wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
+        response: unknown;
+    };
+
     // ---- Metering ----
     // Recurring charges are pure mechanism here: the metering service knows
     // when to ask (once per user per month, the first time that month's usage
@@ -515,7 +543,6 @@ export type EventMap = {
     'outer.gui.item.removed': GuiEvent;
     'outer.gui.item.renamed': GuiEvent;
     'outer.gui.notif.ack': GuiEvent<{ uid: string }>;
-    'outer.gui.notif.persisted': GuiEvent<{ uid: string }>;
     'outer.gui.notif.message': GuiEvent<{ uid: string; notification: unknown }>;
     'outer.gui.notif.unreads': GuiEvent<{
         unreads: { uid: string; notification: unknown }[];

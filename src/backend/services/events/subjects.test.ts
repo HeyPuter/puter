@@ -134,8 +134,14 @@ const ACCEPTED: SubjectRow[] = [
         rawMatch: null,
     },
     {
-        subject: 'notif:share.received',
-        anchorRef: { kind: 'notifChannel', channel: 'share.received' },
+        subject: 'notif:account',
+        anchorRef: { kind: 'notifScope', ref: null, audience: 'account' },
+        op: null,
+        rawMatch: null,
+    },
+    {
+        subject: `notif:${APP}:app-user`,
+        anchorRef: { kind: 'notifScope', ref: APP, audience: 'app-user' },
         op: null,
         rawMatch: null,
     },
@@ -159,6 +165,10 @@ const REJECTED: Array<{ subject: string; code: string }> = [
     { subject: `kv:${APP}:cart:*:items`, code: 'invalid_kv_pattern' },
     { subject: `kv:${APP}:car?`, code: 'invalid_kv_pattern' },
     { subject: 'notif:', code: 'invalid_subject' },
+    { subject: `notif:${APP}:`, code: 'invalid_subject' },
+    { subject: 'notif:everyone', code: 'invalid_subject_audience' },
+    { subject: `notif:${APP}:owner`, code: 'invalid_subject_audience' },
+    { subject: `notif:${APP}:app-user:extra`, code: 'invalid_subject' },
 ];
 
 describe('parseSubject', () => {
