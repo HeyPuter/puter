@@ -183,6 +183,41 @@ export const EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION = 10_000;
  */
 export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
 
+// -- Handler retries -------------------------------------------------
+//
+// A handler that answers "not now" — a 5xx, a timeout, a 429 — is retried, and
+// a handler that answers "no" is not. Retrying on a fixed cadence turns one
+// broken deploy into a permanent load on whatever is failing, so the wait
+// doubles per attempt up to a ceiling, and a run of failures stops the
+// subscription rather than retrying it forever.
+
+/** Wait before the first retry of a delivery a handler could not take. */
+export const EVENTS_RETRY_BASE_MS = 2_000;
+
+/** Longest wait between retries, however many have failed. */
+export const EVENTS_RETRY_MAX_MS = 5 * 60 * 1000;
+
+/**
+ * Failures in a row before a subscription is suspended. Counted per
+ * subscription and reset by the first delivery a handler takes, so an
+ * occasional failure never accumulates into one.
+ */
+export const EVENTS_CONSECUTIVE_FAILURES = 5;
+
+/**
+ * How long a run of failures is remembered. Five failures at the capped wait
+ * span well under this, so a counter nothing has touched for an hour describes
+ * a run that ended.
+ */
+export const EVENTS_FAILURE_COUNTER_TTL_MS = 60 * 60 * 1000;
+
+/** How long to hold a delivery whose handler has failed `attempts` times. */
+export const deliveryBackoffMs = (attempts: number): number =>
+    Math.min(
+        EVENTS_RETRY_MAX_MS,
+        EVENTS_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1),
+    );
+
 // -- Suspended backlog -----------------------------------------------
 //
 // A suspended subscription stops metering but keeps what it is owed, and that

@@ -33,6 +33,7 @@ import { makeActor } from '../../core/actor.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { appSocketRoom } from '../socket/SocketService.js';
+import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -92,8 +93,13 @@ const unsubscribe = (token: string, subId: string): Promise<ApiResponse> =>
 const subIdsOf = (response: ApiResponse): string[] =>
     (response.body.items as Array<{ subId: string }>).map((row) => row.subId);
 
-/** An app the user has granted `list` on the shared anchor. */
-const makeApp = async (): Promise<{ uid: string; token: string }> => {
+/**
+ * An app the user has granted `list` on the shared anchor, and consent to run
+ * its handler in the background — which durable rows target by default.
+ */
+const makeApp = async (
+    options: { background?: boolean } = {},
+): Promise<{ uid: string; token: string }> => {
     const uid = `app-${uuidv4()}`;
     await env.server.clients.db.write(
         'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
@@ -108,6 +114,12 @@ const makeApp = async (): Promise<{ uid: string; token: string }> => {
         uid,
         `fs:${entry!.uid}:list`,
     );
+    if (options.background !== false)
+        await env.server.services.permission.grantUserAppPermission(
+            actor.actor!,
+            uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
     return {
         uid,
         token: await env.server.services.auth.getUserAppToken(actor.actor!, uid),
@@ -272,6 +284,50 @@ describe('creating a durable subscription over HTTP', () => {
         expect(refused.body.code).toBe('invalid_targets');
     });
 
+    it('refuses background delivery an app has no consent for', async () => {
+        // An app of its own, so nothing it holds includes the consent.
+        const { token } = await makeApp({ background: false });
+
+        const refused = await call('POST', '/events/subscribe', token, {
+            subject: `fs:${anchor}`,
+            delivery: 'single',
+            handlerName: 'onWrite',
+            targets: ['worker'],
+        });
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_background_consent_required');
+        // Refused before the handler is even looked up: consent comes first.
+        expect(refused.body.message).toContain('events:background');
+    });
+
+    it('requires consent for the default targets an app row gets, even with none named', async () => {
+        // An app of its own, so nothing it holds includes the consent.
+        const { token } = await makeApp({ background: false });
+
+        // No `targets` at all: an app row defaults to `['socket', 'worker']`,
+        // and that default still needs the consent — the gate runs on the
+        // resolved targets, not only on an explicit ask for `worker`.
+        const refused = await call('POST', '/events/subscribe', token, {
+            subject: `fs:${anchor}`,
+        });
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_background_consent_required');
+    });
+
+    it('needs no consent for a subscription only a connection hears', async () => {
+        const { token } = await makeApp({ background: false });
+
+        const created = await call('POST', '/events/subscribe', token, {
+            subject: `fs:${anchor}`,
+            targets: ['socket'],
+        });
+
+        expect(created.status).toBe(200);
+        expect(created.body.targets).toEqual(['socket']);
+    });
+
     it('refuses a target outside the known set', async () => {
         const refused = await subscribe(env.users.user.token, {
             targets: ['socket', 'carrier-pigeon'],
@@ -281,8 +337,8 @@ describe('creating a durable subscription over HTTP', () => {
         expect(refused.body.code).toBe('invalid_targets');
     });
 
-    it('refuses a `single` subscription with no handler to fall back to', async () => {
-        const refused = await subscribe(env.users.user.token, {
+    it('refuses an app`s `single` subscription with no worker to fall back to', async () => {
+        const refused = await subscribe(appOneToken, {
             delivery: 'single',
             handlerName: 'onWrite',
             targets: ['socket'],

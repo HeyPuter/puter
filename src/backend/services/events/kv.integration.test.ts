@@ -33,6 +33,7 @@ import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { appDataPermission } from '../permission/appDataScopes.js';
+import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -135,6 +136,13 @@ beforeAll(async () => {
     ownAppToken = await env.server.services.auth.getUserAppToken(
         userActor,
         ownAppUid,
+    );
+    // Durable rows target the app's worker by default, which takes its own
+    // consent.
+    await env.server.services.permission.grantUserAppPermission(
+        userActor,
+        ownAppUid,
+        EVENTS_BACKGROUND_PERMISSION,
     );
 
     delivered = [];

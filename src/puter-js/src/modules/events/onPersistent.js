@@ -9,10 +9,14 @@ import { assertSubject } from './lib/validate.js';
 /**
  * Subscribes to a subject with a subscription that outlives this connection.
  *
- * Unlike `onLocal()`, nothing about this lives in the page: the subscription is
- * stored against the account, keeps matching while the app is closed, and is
- * ended by `puter.events.unsubscribe()` rather than by navigating away. What
- * runs is the app's published handler, named by `handlerName`.
+ * Unlike `onLocal()`, the subscription is stored against the account, keeps
+ * matching while the app is closed, and is ended by
+ * `puter.events.unsubscribe()` rather than by navigating away. What runs it
+ * while nothing is open is the app's published handler, named by `handlerName`.
+ *
+ * While this client *is* open it runs the handler itself, if one was passed as
+ * a function: the same body, the same `{ event, ctx }`, plus `user`, `fetch`
+ * and — for a subscription owed to one consumer — `ack`.
  *
  * `context` is evaluated **here, now** — serialized once and delivered to every
  * invocation as a frozen `ctx`. It never re-evaluates, so a value read from the
@@ -56,7 +60,20 @@ export async function onPersistent (options = {}) {
     if ( serializeContext(options.context) !== undefined )
         body.context = options.context;
 
-    return /** @type {PersistentSubscription} */ (
+    const sub = /** @type {PersistentSubscription} */ (
         await request(puter, '/events/subscribe', body)
     );
+
+    // Durable ids are the server's and survive every reconnect, so routing is
+    // registered once and never re-subscribed.
+    if ( typeof handler === 'function' && typeof sub?.subId === 'string' ) {
+        this.channel.registerDurable(sub.subId, handler, options.context);
+    }
+
+    const { channel } = this;
+    sub.off = async () => {
+        if ( typeof sub.subId === 'string' ) channel.deregisterDurable(sub.subId);
+        await this.unsubscribe(sub.subId);
+    };
+    return sub;
 }

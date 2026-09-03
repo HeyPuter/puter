@@ -23,6 +23,7 @@ import {
     EVENTS_ACK_LIMIT,
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_CONSECUTIVE_FAILURES,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
@@ -82,13 +83,17 @@ import {
 import {
     assertCrossAppKvAuthorized,
     assertSubscribeAuthorized,
+    backgroundConsentRequired,
     checkDeliveryAuthorized,
     crossAppKvDenial,
     crossAppKvPermissions,
     deliveryGenerationTag,
+    EVENTS_BACKGROUND_PERMISSION,
+    needsBackgroundConsent,
     nodeDescriptor,
     resolveGrantActor,
     rowInActorScope,
+    subscriptionTokenPermissions,
     SUBSCRIBE_MODE,
     type CrossAppKvDeps,
     type EventAclDeps,
@@ -130,8 +135,10 @@ import {
 } from './subjects.js';
 import { backlogPolicyFor, isResumable } from './suspension.js';
 import {
+    EventsWorkerInvoker,
     RecordingWorkerInvoker,
     type WorkerInvocation,
+    type WorkerInvocationOutcome,
     type WorkerInvokerSeam,
 } from './workerSeam.js';
 
@@ -404,6 +411,13 @@ const PENDING_SWEEP_SUBSCRIPTIONS = 100;
  */
 const PENDING_DRAIN_BATCH = 25;
 
+/**
+ * How long the token an invocation carries is good for. Long enough for a
+ * handler doing real work with the account's own data, short enough that a copy
+ * of it is worth nothing by the time anyone finds it.
+ */
+const DELIVERY_TOKEN_TTL = '5m';
+
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
     id: string;
@@ -624,9 +638,9 @@ const parseTargets = (
         throw badRequest('Unknown delivery target', 'invalid_targets');
 
     const targets = [...new Set(value)];
-    if (!targetsAllowedForDelivery(delivery, targets))
+    if (!targetsAllowedForDelivery(delivery, targets, appUid))
         throw badRequest(
-            'A `single` subscription needs a `worker` target and may not target `push`',
+            'A `single` subscription may not target `push`, and an app`s needs a `worker` target',
             'invalid_targets',
         );
     if (appUid === null && targets.includes('worker'))
@@ -725,15 +739,22 @@ export class EventsService extends PuterService {
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
 
     /**
-     * What runs an app's handler. The default records the intent and settles
-     * nothing, so a delivery handed to it stays owed until there is a real
-     * invoker to take it.
+     * What runs an app's handler. Replaced at start-up by the invoker that
+     * calls the app's events worker; the recorder stands in until then and
+     * settles nothing, so a delivery handed to it stays owed.
      */
     worker: WorkerInvokerSeam = new RecordingWorkerInvoker();
 
     // -- Lifecycle ---------------------------------------------------
 
     override onServerStart(): void {
+        // Left alone when something has already put its own invoker here.
+        if (this.worker instanceof RecordingWorkerInvoker)
+            this.worker = new EventsWorkerInvoker(
+                this.clients.eventsWorkerInvoker,
+                (invocation) => this.#mintSubscriberToken(invocation),
+            );
+
         this.clients.event.on(
             'outer.events.generationBumped',
             (_key, data, meta) => {
@@ -974,6 +995,14 @@ export class EventsService extends PuterService {
         // only one that is always there to take it.
         if (delivery === 'single' && !handlerName) throw handlerRequired();
 
+        // Consent first: a row that would run the app's code with nobody
+        // present is refused before anything about it is resolved or stored.
+        if (
+            needsBackgroundConsent(targets) &&
+            !(await this.#hasBackgroundConsent(actor))
+        )
+            throw backgroundConsentRequired();
+
         if (handlerName)
             await this.#assertHandlerBinding(appUid, handlerName, handlerHash);
 
@@ -1099,7 +1128,9 @@ export class EventsService extends PuterService {
             throw unknownSubscription();
 
         await this.stores.pendingDelivery.settle(subId, entryId);
-        await this.#drain(row);
+        // A suspended row is not delivered to: settling what it already handed
+        // out must not be the trigger that hands out the next one.
+        if (row.suspendedAt === null) await this.#drain(row);
     }
 
     // -- Handlers ----------------------------------------------------
@@ -1511,21 +1542,28 @@ export class EventsService extends PuterService {
         return suspended;
     }
 
-    /** Bring back what was waiting on this name. The other half of a removal. */
+    /**
+     * Bring back what was waiting on this name. The other half of a removal —
+     * and of a handler that kept failing, since new source under the name is
+     * the fix for one that could not take its deliveries.
+     */
     async #resumeHandlerDependents(
         appUid: string,
         name: string,
     ): Promise<number> {
         let resumed = 0;
-        for (;;) {
-            const batch = await this.stores.durableSubscription.listByHandler(
-                appUid,
-                name,
-                { suspendedReason: 'handler_not_found' },
-            );
-            if (batch.length === 0) break;
-            resumed += await this.resumeSubscriptions(batch);
-            if (batch.length < HANDLER_SETTLE_BATCH) break;
+        for (const reason of ['handler_not_found', 'failures'] as const) {
+            for (;;) {
+                const batch =
+                    await this.stores.durableSubscription.listByHandler(
+                        appUid,
+                        name,
+                        { suspendedReason: reason },
+                    );
+                if (batch.length === 0) break;
+                resumed += await this.resumeSubscriptions(batch);
+                if (batch.length < HANDLER_SETTLE_BATCH) break;
+            }
         }
         return resumed;
     }
@@ -1578,6 +1616,25 @@ export class EventsService extends PuterService {
                 handlerName,
                 err,
             );
+        }
+    }
+
+    /**
+     * Whether this actor may have its handler run in the background.
+     *
+     * Asked of the actor rather than of the app, so an access token an app
+     * issued has to carry the consent itself — a delivery that runs code with
+     * nobody present is not something a narrower credential inherits.
+     */
+    async #hasBackgroundConsent(actor: Actor): Promise<boolean> {
+        try {
+            return await this.services.permission.check(
+                actor,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+        } catch (err) {
+            console.warn('[events] background consent check failed', err);
+            return false;
         }
     }
 
@@ -2180,14 +2237,7 @@ export class EventsService extends PuterService {
             revocation.holderUserId,
             revocation.appUid,
         );
-        // Withdrawing an app's access wholesale is the user saying the app is
-        // done, so it takes everything the app holds — no per-row question,
-        // and none of the standing exemptions an app enjoys over its own data
-        // keep a background subscription alive past the consent that made it.
-        const settling =
-            revocation.permission === null
-                ? held
-                : await this.#leftUnauthorized(held, revocation.permission);
+        const settling = await this.#leftSettling(held, revocation.permission);
         if (settling.length === 0) return 0;
 
         // The `permission_revoked` arm of the shared policy purges the backlog
@@ -2197,6 +2247,52 @@ export class EventsService extends PuterService {
         const suspended = await this.#suspend(settling, 'permission_revoked');
         await this.#notifyEnded(suspended, 'permission_revoked');
         return suspended.length;
+    }
+
+    /**
+     * Which of a holder's rows one withdrawn grant actually stops.
+     *
+     * Withdrawing an app's access wholesale is the user saying the app is done,
+     * so it takes everything the app holds — no per-row question, and none of
+     * the standing exemptions an app enjoys over its own data keep a
+     * subscription alive past the consent that made it.
+     */
+    async #leftSettling(
+        held: readonly DurableSubscription[],
+        permission: string | null,
+    ): Promise<DurableSubscription[]> {
+        if (permission === null) return [...held];
+        if (permission === EVENTS_BACKGROUND_PERMISSION)
+            return this.#leftWithoutConsent(held);
+        return this.#leftUnauthorized(held, permission);
+    }
+
+    /**
+     * Of a holder's rows, the ones that were running the app's code in the
+     * background on a consent that has just been withdrawn. Rows delivered only
+     * to a connection are untouched: what was withdrawn is the right to run
+     * with nobody there, not the app itself.
+     *
+     * The consent is asked for again rather than assumed gone — a mode change
+     * is recorded as a revoke followed by a grant, and settling on the revoke
+     * alone would end subscriptions whose consent still stands.
+     */
+    async #leftWithoutConsent(
+        rows: readonly DurableSubscription[],
+    ): Promise<DurableSubscription[]> {
+        const background = rows.filter((row) =>
+            needsBackgroundConsent(targetsOf(row)),
+        );
+        if (background.length === 0) return [];
+
+        const deps = this.#aclDeps();
+        const settling: DurableSubscription[] = [];
+        for (const row of background) {
+            const actor = await resolveGrantActor(row, deps);
+            if (actor && (await this.#hasBackgroundConsent(actor))) continue;
+            settling.push(row);
+        }
+        return settling;
     }
 
     /**
@@ -2562,10 +2658,59 @@ export class EventsService extends PuterService {
 
         const outcome = await this.worker.invoke(invocation);
         this.onDelivered({ subId: row.subId, event: claimed.event });
-        if (outcome !== 'settled') return false;
+        if (outcome === 'settled') {
+            await this.stores.pendingDelivery.clearFailures(row.subId);
+            await this.stores.pendingDelivery.settle(
+                row.subId,
+                claimed.entryId,
+            );
+            return true;
+        }
+        // Nothing was attempted, so nothing failed: the lease paces the retry.
+        if (outcome === 'deferred') return false;
 
-        await this.stores.pendingDelivery.settle(row.subId, claimed.entryId);
-        return true;
+        await this.#handlerFailed(row, claimed, outcome);
+        return false;
+    }
+
+    /**
+     * What a handler that would not take a delivery costs it, and what a run of
+     * them costs the subscription.
+     *
+     * A refusal is the handler's answer, so the delivery is dropped with a gap
+     * marker rather than sent again to the same answer; anything else is "not
+     * now", and the delivery waits longer each time. Both count: five failures
+     * in a row is a handler that is not working, whichever way it is failing,
+     * and retrying it forever is how one bad deploy becomes a standing load on
+     * whatever it is calling.
+     */
+    async #handlerFailed(
+        row: DispatchSubscription,
+        claimed: ClaimedDelivery,
+        outcome: Exclude<WorkerInvocationOutcome, 'settled' | 'deferred'>,
+    ): Promise<void> {
+        const pending = this.stores.pendingDelivery;
+        try {
+            if (outcome === 'terminal')
+                await pending.discard(
+                    row.subId,
+                    claimed.entryId,
+                    'handler_rejected',
+                );
+            else await pending.deferAfterFailure(row.subId, claimed.entryId);
+
+            const failures = await pending.recordFailure(row.subId);
+            if (failures < EVENTS_CONSECUTIVE_FAILURES) return;
+
+            await pending.clearFailures(row.subId);
+            await this.suspendForFailures(row.subId);
+        } catch (err) {
+            console.warn(
+                '[events] could not record a failed handler attempt',
+                row.subId,
+                err,
+            );
+        }
     }
 
     /** What the handler seam is handed, or null for a row that wants none. */
@@ -2582,7 +2727,49 @@ export class EventsService extends PuterService {
             handlerName: row.handlerName ?? null,
             event,
             context: row.context ?? null,
+            permissions: subscriptionTokenPermissions(row),
         };
+    }
+
+    /**
+     * The token one invocation carries: the subscriber's own identity, the app
+     * whose handler runs, and exactly the grant the subscription was made
+     * under. Short-lived, because it leaves the platform — a handler that needs
+     * longer than the delivery it was given is asking for standing access the
+     * subscription never granted.
+     *
+     * Null when the identity cannot be rebuilt (the holder or the app is gone),
+     * which is not a handler failure: there is nothing to invoke.
+     */
+    async #mintSubscriberToken(
+        invocation: WorkerInvocation,
+    ): Promise<string | null> {
+        const actor = await resolveGrantActor(
+            {
+                holderUserId: invocation.holderUserId,
+                appUid: invocation.appUid,
+                permission: SUBSCRIBE_MODE,
+            },
+            this.#aclDeps(),
+        );
+        if (!actor) return null;
+
+        try {
+            return await this.services.auth.createAccessToken(
+                actor,
+                invocation.permissions.map(
+                    (permission) => [permission] as [string],
+                ),
+                { expiresIn: DELIVERY_TOKEN_TTL },
+            );
+        } catch (err) {
+            console.warn(
+                '[events] could not mint a delivery token',
+                invocation.subId,
+                err,
+            );
+            return null;
+        }
     }
 
     /**
@@ -2702,7 +2889,9 @@ export class EventsService extends PuterService {
             const invocation = delivery.worker;
             // At-most-once by construction: a `broadcast` invocation is never
             // retried, which is why the docs ask handlers to be idempotent
-            // rather than promising them each event exactly once.
+            // rather than promising them each event exactly once. It counts
+            // toward nothing either — a row whose socket copies are arriving
+            // must not be stopped by a handler nobody is waiting on.
             try {
                 void this.worker.invoke(invocation).catch((err: unknown) => {
                     console.warn('[events] handler invocation failed', err);

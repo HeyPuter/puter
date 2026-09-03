@@ -51,17 +51,21 @@ export const DEFAULT_DURABLE_TARGETS: SubscriptionTarget[] = [
 /**
  * Whether a delivery class may carry these transports. `single` and `push` are
  * incompatible by construction — a lease can only be settled by a consumer that
- * reports back, and a device notification never does — and `single` needs a
- * `worker` to fall back to once the connected clients have had their turns, or
- * an unacknowledged delivery sits at the head of its queue for good. Both are
- * invariants every writer is held to, not defaults.
+ * reports back, and a device notification never does. An app's `single` row
+ * also needs a `worker` to fall back to once the connected clients have had
+ * their turns, or an unacknowledged delivery sits at the head of its queue for
+ * good. An account's own row has no app to run a worker for, so it is held on
+ * the socket alone and the pending hold is its backstop. Both are invariants
+ * every writer is held to, not defaults.
  */
 export const targetsAllowedForDelivery = (
     delivery: DeliveryClass,
     targets: readonly SubscriptionTarget[],
+    appUid: string | null,
 ): boolean =>
     delivery !== 'single' ||
-    (!targets.includes('push') && targets.includes('worker'));
+    (!targets.includes('push') &&
+        (appUid === null || targets.includes('worker')));
 
 /** What dispatch needs from a subscription, whichever store it came from. */
 export interface DispatchSubscription {

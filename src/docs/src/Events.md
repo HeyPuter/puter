@@ -166,7 +166,13 @@ Values reach a handler through **`context`**, which is evaluated **once, at subs
 
 See [`puter.events.handlers`](/Events/handlers/) for the deploy side — publishing, replacing, and what removing a name does to the subscriptions bound to it.
 
-A persistent subscription can also stop without you unsubscribing: its handler was removed, its holder ran out of credit, or the share it was made under was withdrawn. It is then *suspended* rather than deleted, and [`list()`](/Events/list/) reports `suspendedAt` and `suspendedReason`. Everything but a withdrawn grant can resume.
+### Running when nobody is there takes consent
+
+A persistent subscription delivers to a connected client when there is one and runs the app's handler in the background when there is not. The background half is a separate thing to agree to — your code running on the user's account with nobody watching — so it takes the per-app permission **`events:background`**, requested with [`puter.perms.request()`](/Perms/request/) and revocable wherever the user manages the app's access. Without it, subscribing with `worker` among its `targets` (the default for an app) fails with `events_background_consent_required`; taking it back suspends every worker-target subscription that app holds for that user. A subscription that only wants deliveries while your app is open asks for `targets: ['socket']` and needs no consent.
+
+Pass `handler` as a **function** and it runs here too, whenever this client is the one the delivery goes to — the same body that runs in the worker, with the same `{ event, ctx, user, fetch, ack }`. See [`onPersistent()`](/Events/onPersistent/) for the acknowledgement rules; the short version is that a `single` delivery is settled by returning from the handler, and a handler that throws sees the event again.
+
+A persistent subscription can also stop without you unsubscribing: its handler was removed, its holder ran out of credit, the handler kept failing, or the share it was made under was withdrawn. It is then *suspended* rather than deleted, and [`list()`](/Events/list/) reports `suspendedAt` and `suspendedReason`. Everything but a withdrawn grant can resume.
 
 ## Limits
 

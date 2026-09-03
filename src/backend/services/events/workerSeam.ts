@@ -17,16 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { EventsWorkerInvokerClient } from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { DeliverableEvent } from './registry.js';
 
 /**
  * Where a delivery leaves the event system for the app's own code.
  *
- * The invoker itself — minting the subscriber-scoped token, the call, its
- * retries — is not built yet, and delivery semantics must not wait for it: what
- * runs a handler is one decision, and how many times a `single` may be handed
- * out is another. So the seam is the boundary, and the default records the
- * intent without acting on it.
+ * The seam is the boundary between "this delivery is owed to a handler" and
+ * "something ran it": what runs a handler is one decision, and how many times a
+ * `single` may be handed out is another.
  *
  * An invocation is not an ack. A `single` delivery stays leased until the
  * invoker reports the handler took it, which is what keeps a handler that never
@@ -44,18 +43,91 @@ export interface WorkerInvocation {
     event: DeliverableEvent;
     /** The subscription's stored context, delivered to the handler as `ctx`. */
     context: string | null;
+    /**
+     * The grant the subscription was made under, and the whole of what its
+     * token may carry. Resolved with the row so the invoker needs no lookup of
+     * its own.
+     */
+    permissions: string[];
 }
 
 /**
- * What the invoker did with it. `settled` means the handler took the delivery
- * and its lease may be released; `deferred` means it has not, and the delivery
- * stays owed.
+ * What the invoker did with it.
+ *
+ * - `settled` — the handler took the delivery and its lease may be released.
+ * - `terminal` — the handler refused it. Nothing is gained by sending it again.
+ * - `retriable` — nobody could answer; the delivery is owed and comes back.
+ * - `deferred` — nothing was attempted, so nothing failed either.
+ *
+ * `terminal` and `retriable` are both failures and both count toward the run
+ * that suspends a subscription; they differ only in whether the delivery itself
+ * gets another turn.
  */
-export type WorkerInvocationOutcome = 'settled' | 'deferred';
+export type WorkerInvocationOutcome =
+    | 'settled'
+    | 'terminal'
+    | 'retriable'
+    | 'deferred';
 
 export interface WorkerInvokerSeam {
     invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;
 }
+
+/** Mints the token one invocation carries, scoped to the subscriber. */
+export type SubscriberTokenMinter = (
+    invocation: WorkerInvocation,
+) => Promise<string | null>;
+
+/**
+ * The invoker that actually calls an app's events worker: mint the
+ * subscriber-scoped token, hand the call to the protocol client, and report
+ * what the handler said.
+ *
+ * A row with no app, no handler name, or no token that can be minted for it has
+ * nothing to invoke, and says so rather than reporting a failure — there is no
+ * handler to blame for a row that never named one.
+ */
+export class EventsWorkerInvoker implements WorkerInvokerSeam {
+    readonly #client: Pick<EventsWorkerInvokerClient, 'invoke'>;
+    readonly #mintToken: SubscriberTokenMinter;
+
+    constructor(
+        client: Pick<EventsWorkerInvokerClient, 'invoke'>,
+        mintToken: SubscriberTokenMinter,
+    ) {
+        this.#client = client;
+        this.#mintToken = mintToken;
+    }
+
+    async invoke(
+        invocation: WorkerInvocation,
+    ): Promise<WorkerInvocationOutcome> {
+        const { appUid, handlerName } = invocation;
+        if (!appUid || !handlerName) return 'deferred';
+
+        const token = await this.#mintToken(invocation);
+        if (token === null) return 'deferred';
+
+        const result = await this.#client.invoke({
+            appUid,
+            handler: handlerName,
+            token,
+            event: invocation.event,
+            ctx: parseContext(invocation.context),
+        });
+        return result.outcome;
+    }
+}
+
+/** Context is stored as JSON text and delivered as the object it was. */
+const parseContext = (context: string | null): unknown => {
+    if (context === null) return undefined;
+    try {
+        return JSON.parse(context) as unknown;
+    } catch {
+        return undefined;
+    }
+};
 
 /** Invocations one recorder holds, so it cannot grow with event volume. */
 const RECORDED_INVOCATIONS = 100;

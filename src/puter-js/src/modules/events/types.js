@@ -64,8 +64,9 @@
  * @property {string} reason Why the delivery was dropped —
  *   `matched_subscription_limit`, `filter_evaluation_limit`,
  *   `delivery_rate_limit`, `backlog_overflow` when undelivered events were
- *   shed to stay inside a backlog cap, or `suspended_backlog_expired` when a
- *   suspended subscription held them past its deadline.
+ *   shed to stay inside a backlog cap, `suspended_backlog_expired` when a
+ *   suspended subscription held them past its deadline, or `handler_rejected`
+ *   when the subscription's handler refused the delivery outright.
  * @property {number} ts Milliseconds since the epoch.
  */
 
@@ -73,12 +74,23 @@
  * What a handler is called with. An object rather than the event itself, so
  * more can be added to the call without breaking existing handlers.
  *
+ * The last three arrive only on a persistent subscription, and are what let one
+ * handler body run unchanged here and in the app's events worker.
+ *
  * @typedef {Object} EventDelivery
  * @property {PuterEvent | PuterKvEvent | EventGapMarker} event The delivered
  *   event, or a gap marker in place of events that were dropped.
  * @property {Readonly<Record<string, unknown>>} [ctx] The `context` the
  *   subscription was created with, frozen. Present only for a persistent
  *   subscription; a session subscription carries none.
+ * @property {unknown} [user] A `puter` bound to the account holding the
+ *   subscription — the ambient one when the handler runs in a client.
+ * @property {(input: unknown, init?: unknown) => Promise<unknown>} [fetch]
+ *   `puter.net.fetch` where it exists, the environment's `fetch` otherwise.
+ * @property {() => Promise<void>} [ack] Settles the delivery. Present only on a
+ *   `single` subscription: calling it hands the delivery back as taken,
+ *   returning without calling it does the same, and throwing does neither — the
+ *   delivery is offered again when its lease lapses.
  */
 
 /**
@@ -161,6 +173,9 @@
  *   being removed, or `null` while it is live.
  * @property {string | null} suspendedReason Why it stopped —
  *   `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
+ * @property {() => Promise<void>} [off] Ends the subscription: stops running
+ *   its handler here and unsubscribes it. Present on the subscription
+ *   `onPersistent()` returns, not on one a listing reports.
  */
 
 /**

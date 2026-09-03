@@ -646,6 +646,10 @@ async function get_permission_description (permission, options = {}) {
         return await get_app_data_description(parts, options);
     }
 
+    if ( parts[0] === 'events' && parts[1] === 'background' ) {
+        return { html: i18n('perm_events_background'), icon: 'zap' };
+    }
+
     if ( parts[0] === 'app-root-dir' ) {
         // Format: app-root-dir:<app_uid>:<read|write>
         if ( parts[2] === 'read' ) {

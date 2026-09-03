@@ -23,6 +23,16 @@ const makeModule = (fsRead) => {
             APIOrigin: 'https://api.test',
             fs: { read: fsRead ?? vi.fn() },
         },
+        channel: {
+            registered: [],
+            deregistered: [],
+            registerDurable (subId, handler, ctx) {
+                this.registered.push({ subId, handler, ctx });
+            },
+            deregisterDurable (subId) {
+                this.deregistered.push(subId);
+            },
+        },
         onPersistent,
         unsubscribe,
         list,
@@ -186,6 +196,53 @@ describe('onPersistent', () => {
                 makeModule().onPersistent({ subject: SUBJECT, context: cyclic }),
             );
             expect(error.code).toBe('events_context_invalid');
+        });
+    });
+
+    describe('running the handler here as well', () => {
+        it('routes the subscription`s deliveries to the function it was given', async () => {
+            mockRequest.mockResolvedValue({ subId: 'app-1#a', subject: SUBJECT });
+            const module = makeModule();
+
+            await module.onPersistent({
+                subject: SUBJECT,
+                handlerName: 'ingestUpload',
+                handler: HANDLER,
+                context: { url: 'https://ingest.example' },
+            });
+
+            expect(module.channel.registered).toMatchObject([
+                { subId: 'app-1#a', handler: HANDLER, ctx: { url: 'https://ingest.example' } },
+            ]);
+        });
+
+        it('routes nothing when the handler is source this client cannot run', async () => {
+            mockRequest.mockResolvedValue({ subId: 'app-1#a', subject: SUBJECT });
+            const module = makeModule();
+
+            await module.onPersistent({
+                subject: SUBJECT,
+                handlerName: 'ingestUpload',
+                handler: '({ event }) => console.log(event.path)',
+            });
+
+            expect(module.channel.registered).toEqual([]);
+        });
+
+        it('off() stops routing and ends the subscription', async () => {
+            mockRequest.mockResolvedValue({ subId: 'app-1#a', subject: SUBJECT });
+            const module = makeModule();
+            const sub = await module.onPersistent({
+                subject: SUBJECT,
+                handlerName: 'ingestUpload',
+                handler: HANDLER,
+            });
+
+            await sub.off();
+
+            expect(module.channel.deregistered).toEqual(['app-1#a']);
+            expect(routeOf(1)).toBe('/events/unsubscribe');
+            expect(bodyOf(1)).toEqual({ subId: 'app-1#a' });
         });
     });
 });

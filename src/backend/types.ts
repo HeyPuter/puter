@@ -1139,6 +1139,8 @@ interface IConfigOptional {
     events?: {
         enabled?: boolean;
         crossAppKv?: boolean;
+        /** How long a handler has to answer an invocation. Default 30 s. */
+        invokeTimeoutMs?: number;
     };
 
     /**

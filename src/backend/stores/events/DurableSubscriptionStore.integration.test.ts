@@ -195,16 +195,28 @@ describe('validation at the row write', () => {
         await expect(durable().countForHolder(userId)).resolves.toBe(0);
     });
 
-    it('refuses a `single` row with no handler to fall back to', async () => {
+    it('refuses an app`s `single` row with no worker to fall back to', async () => {
         await expect(
             durable().create(
                 input({
+                    appUid: 'app-single-rule',
                     delivery: 'single',
                     handlerName: 'onWrite',
                     targets: ['socket'],
                 }),
             ),
         ).rejects.toSatisfy(codeOf('invalid_targets'));
+    });
+
+    it('lets an account`s own `single` row stand on the socket alone', async () => {
+        const { row } = await durable().create(
+            input({
+                delivery: 'single',
+                handlerName: 'onWrite',
+                targets: ['socket'],
+            }),
+        );
+        expect(row.targets).toEqual(['socket']);
     });
 
     it('keeps the same targets on a `broadcast` row, where push is fine', async () => {

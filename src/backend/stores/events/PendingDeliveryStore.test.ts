@@ -22,6 +22,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION,
     EVENTS_REGION_PENDING_CEILING,
+    EVENTS_RETRY_BASE_MS,
+    EVENTS_RETRY_MAX_MS,
+    deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
 import type { ProjectedEvent } from '../../services/events/registry.js';
 import type { IConfig } from '../../types.js';
@@ -202,6 +205,72 @@ describe('handing a delivery out', () => {
 
         await expect(store.settle(subId, entryId)).resolves.toBe(true);
         await expect(store.settle(subId, entryId)).resolves.toBe(false);
+    });
+});
+
+describe('when a handler could not take it', () => {
+    it('holds the delivery longer after each failed attempt', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId);
+
+        await expect(store.deferAfterFailure(subId, entryId)).resolves.toEqual({
+            attempts: 1,
+            retryInMs: EVENTS_RETRY_BASE_MS,
+        });
+        // Held: nothing may take it while the wait stands.
+        await expect(store.claim(subId)).resolves.toBeNull();
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + EVENTS_RETRY_BASE_MS + 1);
+        await expect(store.claim(subId)).resolves.toMatchObject({ entryId });
+
+        await expect(store.deferAfterFailure(subId, entryId)).resolves.toEqual({
+            attempts: 2,
+            retryInMs: EVENTS_RETRY_BASE_MS * 2,
+        });
+    });
+
+    it('never waits longer than the cap, however many have failed', async () => {
+        expect(deliveryBackoffMs(1)).toBe(EVENTS_RETRY_BASE_MS);
+        expect(deliveryBackoffMs(50)).toBe(EVENTS_RETRY_MAX_MS);
+    });
+
+    it('drops a refused delivery and leaves a marker naming why', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+
+        await expect(
+            store.discard(subId, entryId, 'handler_rejected'),
+        ).resolves.toBe(true);
+
+        const held = await pendingEvents();
+        expect(held).toHaveLength(1);
+        expect(held[0]).toMatchObject({
+            op: 'gap',
+            reason: 'handler_rejected',
+            subject: 'fs:/u/Documents',
+        });
+        // A delivery that is already gone is not dropped twice.
+        await expect(
+            store.discard(subId, entryId, 'handler_rejected'),
+        ).resolves.toBe(false);
+    });
+
+    it('counts failures in a row, and forgets them when one lands', async () => {
+        await expect(store.recordFailure(subId)).resolves.toBe(1);
+        await expect(store.recordFailure(subId)).resolves.toBe(2);
+
+        await store.clearFailures(subId);
+
+        await expect(store.recordFailure(subId)).resolves.toBe(1);
+    });
+
+    it('takes the failure count with the subscription it belongs to', async () => {
+        await store.enqueue(subId, event('a'));
+        await store.recordFailure(subId);
+
+        await store.purge(subId);
+
+        await expect(keysOf()).resolves.toEqual([]);
     });
 });
 
