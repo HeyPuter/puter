@@ -35,16 +35,20 @@ import { PuterStore } from '../types';
 export class GroupStore extends PuterStore {
     /**
      * Adds users (by username) to the group identified by `uid`. No-op if
-     * `usernames` is empty.
+     * `usernames` is empty, and for a user who is already a member.
      */
     async addUsers(uid: string, usernames: string[]): Promise<void> {
         if (usernames.length === 0) return;
         const placeholders = `(${usernames.map(() => '?').join(', ')})`;
+        // Ignore conflicts on the unique pair index from 0072; re-adding a member
+        // was a duplicate row before it, and would raise without this.
         await this.clients.db.write(
-            'INSERT INTO `jct_user_group` (`user_id`, `group_id`) ' +
+            `${this.clients.db.insertIgnoreInto('jct_user_group')} ` +
+                '(`user_id`, `group_id`) ' +
                 'SELECT u.id, g.id FROM `user` u ' +
                 'JOIN (SELECT id FROM `group` WHERE uid = ?) g ON 1 = 1 ' +
-                `WHERE u.username IN ${placeholders}`,
+                `WHERE u.username IN ${placeholders}` +
+                this.clients.db.insertIgnoreSuffix(),
             [uid, ...usernames],
         );
     }
