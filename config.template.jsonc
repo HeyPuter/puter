@@ -280,6 +280,17 @@
     // existing and refusing. It is also the backout: turning it off removes
     // the feature without touching data.
     "teams_enabled": false,
+    //
+    // Live teams one user may own. Soft-deleted ones do not count, so
+    // deleting yours frees the slot. Default 1.
+    "max_teams_per_user": 1,
+    //
+    // Seats one team may provision. Each seat is a real Puter account
+    // taking a name from the global username pool, so this is what bounds a
+    // team's blast radius until per-seat billing lands. Lowering it below
+    // a team's current seat count blocks new provisioning and disables
+    // nobody. Default 50.
+    "max_seats_per_team": 50,
 
     // ── Notifications ───────────────────────────────────────────────────
     // How long a notification is kept, in days from creation. Acknowledged or

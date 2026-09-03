@@ -155,6 +155,26 @@ Recipients are emailed by default and opt out with the unsubscribe link the mail
 
 Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
+### Teams and teams
+
+Available only where a deployment has turned teams on. Every team route is bounded on calls, and the team itself is bounded on how much it can create.
+
+| Limit                                    | All accounts |
+| ---------------------------------------- | ------------ |
+| Team mutations per minute           | 60           |
+| Team mutations per day              | 500          |
+| Team reads per minute               | 600          |
+| Teams one account may own           | 1            |
+| Seats one team may provision        | 50           |
+
+A seat is a real Puter account on the ordinary tier, created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
+
+Deleting a team frees the owner's slot, but it does **not** free the seats: the accounts it created still exist, still hold their files, and keep their usernames. They are disabled, not removed — deleting a team is not a way to stop paying for the accounts in it.
+
+Lowering the seat limit never disables anyone. A team already above a reduced limit keeps every account it has and is simply refused new ones until it is back under.
+
+Both limits are per deployment (`max_teams_per_user`, `max_seats_per_team`) rather than per team, so raising them moves every team at once.
+
 ### Events
 
 One write can reach many subscriptions, so events are bounded on both halves: how much you may register, and how much any one event may turn into.
