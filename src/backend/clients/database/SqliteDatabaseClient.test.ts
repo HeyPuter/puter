@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 72;
+const CURRENT_SCHEMA_VERSION = 73;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -79,6 +79,82 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
 
     it('migrates a fresh database all the way to the current version', async () => {
         expect(await userVersionOf(client)).toBe(CURRENT_SCHEMA_VERSION);
+    });
+
+    it('applies the team columns and indexes from 0077', async () => {
+        const columnsOf = async (table: string) =>
+            (
+                (await client.read(
+                    `SELECT name FROM pragma_table_info('${table}')`,
+                )) as { name: string }[]
+            ).map((r) => r.name);
+
+        expect(await columnsOf('group')).toEqual(
+            expect.arrayContaining([
+                'kind',
+                'name',
+                'handle',
+                'deleted_at',
+            ]),
+        );
+        expect(await columnsOf('jct_user_group')).toContain('org_owned');
+        expect(await columnsOf('user')).toContain('requires_password_change');
+
+        const indexes = (await client.read(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?)",
+            ['idx_group_handle', 'idx_group_owner', 'idx_jct_user_group_group'],
+        )) as { name: string }[];
+        expect(indexes.map((r) => r.name).sort()).toEqual([
+            'idx_group_handle',
+            'idx_group_owner',
+            'idx_jct_user_group_group',
+        ]);
+    });
+
+    it('keeps `handle` unique but lets the seeded groups share a NULL one', async () => {
+        const seeded = (await client.read(
+            'SELECT COUNT(*) AS n FROM `group` WHERE `handle` IS NULL',
+        )) as { n: number }[];
+        expect(seeded[0].n).toBeGreaterThan(1);
+
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['taken'],
+        );
+        await expect(
+            client.write(
+                'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MAX(`id`) FROM `group`)',
+                ['taken'],
+            ),
+        ).rejects.toThrow(/UNIQUE/iu);
+    });
+
+    it('treats `handle` case-insensitively, as usernames are treated', async () => {
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['design-team'],
+        );
+        // Without NOCASE this differs per engine: mysql rejects, the others accept.
+        await expect(
+            client.write(
+                'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MAX(`id`) FROM `group`)',
+                ['Design-Team'],
+            ),
+        ).rejects.toThrow(/UNIQUE/iu);
+    });
+
+    it('matches a handle case-insensitively on lookup, not just on insert', async () => {
+        // Index-only NOCASE would leave `WHERE handle = ?` case-sensitive here while
+        // mysql's utf8mb4_unicode_ci column matched -- one query, two behaviours.
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['design-team'],
+        );
+        await expect(
+            client.read('SELECT `handle` FROM `group` WHERE `handle` = ?', [
+                'Design-Team',
+            ]),
+        ).resolves.toEqual([{ handle: 'design-team' }]);
     });
 
     it('runs the javascript migrations, not just the .sql ones', async () => {
