@@ -36,6 +36,7 @@ import {
 } from '../../services/metering/consts.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
     decodeCursor,
@@ -405,13 +406,25 @@ export class WorkerDriver extends PuterDriver {
                 throw new HttpError(400, `Invalid file recieved!`, {
                     legacyCode: 'bad_request',
                 });
-            await this.stores.subdomain.create({
-                userId: actor.user.id!,
-                subdomain: subdomainName,
-                rootDirId: loaded.fsEntry?.sqlId,
-                appOwner: appOwnerId,
-                preambleVersion,
-            });
+            // The name check above is a check-then-insert, and its read can
+            // come from cache or a replica, so a name claimed in between only
+            // gets caught by the unique index. Same conflict as the check
+            // answers, learned a moment later - report it the same way rather
+            // than letting the driver error escape as a 500.
+            try {
+                await this.stores.subdomain.create({
+                    userId: actor.user.id!,
+                    subdomain: subdomainName,
+                    rootDirId: loaded.fsEntry?.sqlId,
+                    appOwner: appOwnerId,
+                    preambleVersion,
+                });
+            } catch (err) {
+                if (!isUniqueViolation(err)) throw err;
+                throw new HttpError(409, 'Worker name is already in use', {
+                    legacyCode: 'conflict',
+                });
+            }
             // Announced against the row rather than the deploy: the row is
             // what makes the worker ours to keep, and it outlives a failed
             // deploy. Awaited so a listener has settled before the caller is

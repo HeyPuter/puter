@@ -29,6 +29,7 @@ import {
     normalizeRawBase64ImageString,
     validateIconDataUrl,
 } from '../../util/appIcon.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import {
     buildHostedBackingDenial,
     extractPuterHostedSubdomain,
@@ -257,10 +258,21 @@ export class AppDriver extends PuterDriver {
         // in READ_ONLY_COLUMNS), so the only way to stamp ownership is
         // through this explicit contract. Keeps any future caller that
         // forwards raw input into `create` from spoofing the owner.
-        const app = await this.appStore.create(fields, {
-            ownerUserId: actor.user.id,
-            appOwner: actor.app?.id ?? null,
-        });
+        // The name check above is a check-then-insert, so a name claimed in
+        // between only gets caught by the unique index. Report it the way the
+        // check reports it instead of letting the driver error escape as a 500.
+        let app;
+        try {
+            app = await this.appStore.create(fields, {
+                ownerUserId: actor.user.id,
+                appOwner: actor.app?.id ?? null,
+            });
+        } catch (err) {
+            if (!isUniqueViolation(err)) throw err;
+            throw new HttpError(400, 'An app with this name already exists', {
+                legacyCode: 'app_name_already_in_use',
+            });
+        }
         if (filetypes)
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
 
@@ -483,7 +495,15 @@ export class AppDriver extends PuterDriver {
         const filetypes = fields.filetype_associations;
         delete fields.filetype_associations;
 
-        const updated = await this.appStore.update(app.id, fields);
+        let updated;
+        try {
+            updated = await this.appStore.update(app.id, fields);
+        } catch (err) {
+            if (!isUniqueViolation(err)) throw err;
+            throw new HttpError(409, 'An app with this name already exists', {
+                legacyCode: 'conflict',
+            });
+        }
         if (filetypes !== undefined) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
         }
