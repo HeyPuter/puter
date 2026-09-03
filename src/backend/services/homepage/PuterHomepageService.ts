@@ -22,6 +22,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Request, Response } from 'express';
 import { PuterService } from '../types.js';
+import { notificationsFoldInEnabled } from '../notification/notificationSocket.js';
 import type { Actor } from '../../core/actor';
 
 interface Manifest {
@@ -242,6 +243,10 @@ export class PuterHomepageService extends PuterService {
                 this.config.gui_puterjs_bundle ?? 'https://js.puter.com/v2/',
             asset_dir: assetDir,
             captchaRequired,
+            // Whether notifications are dispatched through the events layer,
+            // and so whether the GUI may take them from `puter.events`
+            // instead of the socket wire.
+            eventsNotifications: notificationsFoldInEnabled(this.config),
             ...meta,
             launch_options: launchOptions,
         };

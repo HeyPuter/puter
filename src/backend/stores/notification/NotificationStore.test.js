@@ -264,6 +264,15 @@ describe('NotificationStore', () => {
                 scope: { audiences: [], appUid: null },
             }),
         ).toEqual([]);
+        // `undefined` is "any app" — a session's own generic slice, which
+        // spans both the named app and the unattributed row.
+        expect(
+            uids(
+                await store.listByUserId(u.id, {
+                    scope: { audiences: ['app-user'], appUid: undefined },
+                }),
+            ),
+        ).toEqual([mine.uid, unattributed.uid].sort());
     });
 
     it('ignores an unrecognised filter and returns everything', async () => {
@@ -287,6 +296,48 @@ describe('NotificationStore', () => {
         expect(await store.listByUserId(u.id, { limit: 'lots' })).toHaveLength(
             3,
         );
+    });
+
+    // -- scoped replay pages --------------------------------------------
+
+    it('scopes a replay page to one app, to no app, or to any app', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const mine = await store.create({
+            userId: u.id,
+            value: {},
+            audience: 'developer',
+            appUid,
+        });
+        const unattributed = await store.create({
+            userId: u.id,
+            value: {},
+            audience: 'developer',
+        });
+
+        const uids = (rows) => rows.map((r) => r.uid).sort();
+
+        expect(
+            uids(await store.listScoped(u.id, { audience: 'developer', appUid })),
+        ).toEqual([mine.uid]);
+        // `null` is the rows naming no app, not "any app".
+        expect(
+            uids(
+                await store.listScoped(u.id, {
+                    audience: 'developer',
+                    appUid: null,
+                }),
+            ),
+        ).toEqual([unattributed.uid]);
+        // `undefined` is a session's own generic slice: every app at once.
+        expect(
+            uids(
+                await store.listScoped(u.id, {
+                    audience: 'developer',
+                    appUid: undefined,
+                }),
+            ),
+        ).toEqual([mine.uid, unattributed.uid].sort());
     });
 
     // -- mutations -----------------------------------------------------

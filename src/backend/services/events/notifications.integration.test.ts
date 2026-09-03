@@ -393,6 +393,99 @@ describe('notifications with the fold-in on', () => {
         await state.server.services.events.reapSocket(user.id, 'socket-app');
     });
 
+    it('delivers a developer row naming an app to its owner\'s own generic subscription', async () => {
+        const user = await makeUser(state.server);
+        const appUid = await makeApp(state.server, user.id);
+        const actor = {
+            user: { id: user.id, uuid: user.uuid, username: user.username },
+            effectiveApp: null,
+        };
+
+        // The two-segment sugar form a session's own feed subscribes with —
+        // it never names the app, unlike an app subscribing to its own rows.
+        await state.server.services.events.subscribe(
+            actor as never,
+            'socket-developer-any',
+            { subject: 'notif:developer' },
+        );
+
+        await state.server.services.notification.notify(
+            [user.id],
+            { title: 'a handler was suspended' },
+            { type: 'app.events.suspended', appUid },
+        );
+        await waitFor(() => state.delivered.length > 0);
+        await settle();
+
+        expect(state.delivered).toHaveLength(1);
+        expect(state.delivered[0].event).toMatchObject({
+            audience: 'developer',
+            appUid,
+        });
+
+        await state.server.services.events.reapSocket(
+            user.id,
+            'socket-developer-any',
+        );
+    });
+
+    it('never widens a generic subscription to an app its holder no longer owns', async () => {
+        const owner = await makeUser(state.server);
+        const buyer = await makeUser(state.server);
+        const appUid = await makeApp(state.server, owner.id);
+        const actor = {
+            user: { id: owner.id, uuid: owner.uuid, username: owner.username },
+            effectiveApp: null,
+        };
+
+        await state.server.services.events.subscribe(
+            actor as never,
+            'socket-developer-transferred',
+            { subject: 'notif:developer' },
+        );
+        // Ownership moves on; the row is still addressed to the original
+        // owner; the delivery-time recheck is what has to catch this, since
+        // the match filter alone no longer pins the row to one app.
+        await state.server.clients.db.write(
+            'UPDATE `apps` SET `owner_user_id` = ? WHERE `uid` = ?',
+            [buyer.id, appUid],
+        );
+
+        await state.server.services.notification.notify(
+            [owner.id],
+            { title: 'a handler was suspended' },
+            { type: 'app.events.suspended', appUid },
+        );
+        await settle();
+        expect(state.delivered).toHaveLength(0);
+
+        await state.server.services.events.reapSocket(
+            owner.id,
+            'socket-developer-transferred',
+        );
+    });
+
+    it('replays a developer row naming an app through a generic fetch', async () => {
+        const user = await makeUser(state.server);
+        const appUid = await makeApp(state.server, user.id);
+        const actor = {
+            user: { id: user.id, uuid: user.uuid, username: user.username },
+            effectiveApp: null,
+        };
+
+        await state.server.services.notification.notify(
+            [user.id],
+            { title: 'your worker deploy failed' },
+            { type: 'app.worker.deployFailed', appUid },
+        );
+
+        const page = await state.server.services.events.fetchMissed(
+            actor as never,
+            { subject: 'notif:developer', limit: 50 },
+        );
+        expect(page.items.map((i) => i.appUid)).toContain(appUid);
+    });
+
     it('refuses a mailbox slice the actor could never be shown', async () => {
         const owner = await makeUser(state.server);
         const other = await makeUser(state.server);

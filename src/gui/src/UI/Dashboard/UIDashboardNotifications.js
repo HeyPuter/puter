@@ -20,6 +20,7 @@
 import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
 import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
+import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
 import {
     badgeLabel,
     formatAbsoluteTime,
@@ -457,7 +458,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     // A toast is the one control that reaches the user while an app window
     // covers the dashboard; what it leads to happens on the dashboard, so
     // that has to come back into view first.
-    const toast = (entry) => {
+    const toast = (entry, { replay = false } = {}) => {
         const { notification } = entry;
         UINotification({
             uid: entry.uid,
@@ -470,6 +471,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => void markRead(entry.uid),
         });
+        // Shown is not dismissed: the events path can say so, and a replay
+        // already claimed it on the way in.
+        if ( ! replay ) {
+            void applyToastMark('shown', entry.uid, { eventsPath: feed.isActive() });
+        }
     };
 
     const toastSummary = (count) => {
@@ -496,7 +502,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      * Fold arrivals in. While the panel is open they simply appear in it;
      * closed, each gets a toast — a large burst a summary instead.
      */
-    const receive = (rawItems) => {
+    const receive = (rawItems, { replay = false } = {}) => {
         const now = Date.now();
         const incoming = rawItems.map((raw) => toEntry(raw, now)).filter(Boolean);
         const result = mergeEntries(entries, incoming);
@@ -519,7 +525,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         // Open, the panel is already showing them.
         if ( isOpen ) return;
         const { shown, folded } = planBurstToasts(fresh);
-        for ( const entry of [...shown].reverse() ) toast(entry);
+        for ( const entry of [...shown].reverse() ) toast(entry, { replay });
         if ( folded > 0 ) toastSummary(folded);
     };
 
@@ -669,10 +675,31 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         }).observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
 
-    // -- Socket -------------------------------------------------------------------
+    // -- Arrivals -----------------------------------------------------------------
 
-    socket.on('notif.message', ({ uid, notification }) => receive([{ uid, notification }]));
-    socket.on('notif.unreads', ({ unreads }) => receive(Array.isArray(unreads) ? unreads : []));
+    /**
+     * Notifications over the events surface, where the server says it has
+     * them. Arrivals fold in exactly as the socket's do; the listeners below
+     * stand down only while it is up, so a lapse is a fallback rather than
+     * silence.
+     */
+    const feed = createNotificationFeed({
+        deliver: (items, { replay }) => receive(items, { replay }),
+    });
+    void feed.start();
+
+    socket.on('notif.message', ({ uid, notification }) => {
+        if ( feed.isActive() ) return;
+        receive([{ uid, notification }]);
+    });
+    socket.on('notif.unreads', ({ unreads }) => {
+        if ( feed.isActive() ) return;
+        receive(Array.isArray(unreads) ? unreads : []);
+    });
+    // Not gated: an ack marks an entry read rather than adding one, so it
+    // can't duplicate anything — and the events surface carries only
+    // postings, which leaves this the one thing that syncs a dismissal
+    // between open tabs.
     socket.on('notif.ack', ({ uid }) => {
         if ( ! uid ) return;
         $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();

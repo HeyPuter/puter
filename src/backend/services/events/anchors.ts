@@ -207,6 +207,15 @@ export interface ResolvedNotifAnchor {
     subject: string;
     /** True when the ref names an app rather than the recipient. */
     appScoped: boolean;
+    /**
+     * True for a session's own generic slice: no app named, no app context
+     * either. The audience predicate already grants every row of `audience`
+     * addressed to this recipient regardless of which app it names (a
+     * `developer` row once its owner is rechecked, an `app-user` row
+     * unconditionally), so `ref` cannot pin the filter to one app the caller
+     * never named — an `account` row never names an app, so it never widens.
+     */
+    anyApp: boolean;
 }
 
 /**
@@ -229,13 +238,15 @@ export function resolveNotifAnchor(
 
     const ref = anchorRef.ref ?? actor.appUid ?? actor.userUuid;
     const appScoped = ref !== actor.userUuid;
+    const anyApp = !appScoped && anchorRef.audience !== 'account';
 
     return {
         token: notifAnchorToken(actor.userUuid),
         ref,
         audience: anchorRef.audience,
-        match: notifMatchOn(ref, anchorRef.audience),
+        match: notifMatchOn(anyApp ? '*' : ref, anchorRef.audience),
         subject: `notif:${ref}:${anchorRef.audience}`,
         appScoped,
+        anyApp,
     };
 }

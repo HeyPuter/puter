@@ -43,7 +43,7 @@ import launch_app from '../helpers/launchApp.js';
 import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
-import { markNotificationAcknowledged } from '../helpers/notificationApi.js';
+import { applyToastMark, createNotificationFeed } from '../helpers/notificationFeed.js';
 import { notificationTarget } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import UIWindowSearch from './UIWindowSearch.js';
@@ -238,12 +238,11 @@ async function UIDesktop (options) {
     };
 
     /**
-     * This event is triggered if a user receives a notification during
-     * an active session.
+     * Raise one notification, whichever path it arrived on. `replay` names
+     * what the feed already claimed as shown while catching up, so the same
+     * row isn't marked twice.
      */
-    window.socket.on('notif.message', async ({ uid, notification }) => {
-        let icon = window.icons[notification.icon];
-
+    const show_notification = ({ uid, notification }, { replay = false } = {}) => {
         // A notification can be re-sent under its own uid when what it says has
         // grown — several people sharing with you is one notification that
         // counts them. Refresh the one on screen rather than stacking a copy.
@@ -257,14 +256,39 @@ async function UIDesktop (options) {
         UINotification({
             title: notification.title,
             text: notification.text,
-            icon: icon,
+            icon: window.icons[notification.icon],
             value: notification,
             uid,
             click: share_notification_click(notification),
-            close: () => markNotificationAcknowledged(uid).catch((err) => {
-                console.warn('Could not acknowledge notification:', err);
+            close: () => applyToastMark('dismissed', uid, {
+                eventsPath: notification_feed.isActive(),
             }),
         });
+
+        if ( ! replay ) {
+            void applyToastMark('shown', uid, { eventsPath: notification_feed.isActive() });
+        }
+    };
+
+    /**
+     * Notifications over the events surface, where the server says it has
+     * them. It renders through the same path the socket wire does, and the
+     * listeners below stand down only while it is up.
+     */
+    const notification_feed = createNotificationFeed({
+        deliver: (items, { replay }) => {
+            for ( const item of items ) show_notification(item, { replay });
+        },
+    });
+    void notification_feed.start();
+
+    /**
+     * This event is triggered if a user receives a notification during
+     * an active session.
+     */
+    window.socket.on('notif.message', async ({ uid, notification }) => {
+        if ( notification_feed.isActive() ) return;
+        show_notification({ uid, notification });
     });
 
     /**
@@ -277,27 +301,24 @@ async function UIDesktop (options) {
      */
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
+        if ( notification_feed.isActive() ) return;
         if ( window.__already_got_unreads ) return;
         window.__already_got_unreads = true;
 
         for ( const notif_info of unreads ) {
             const notification = notif_info.notification;
-            let icon = window.icons[notification.icon];
-
-            UINotification({
-                icon,
-                title: notification.title,
-                text: notification.text ?? notification.title,
+            show_notification({
                 uid: notif_info.uid,
-                value: notification,
-                click: share_notification_click(notification),
-                close: () => markNotificationAcknowledged(notif_info.uid).catch((err) => {
-                    console.warn('Could not acknowledge notification:', err);
-                }),
-            });
+                // The replay has always shown the title as the body for a
+                // notification carrying no text of its own.
+                notification: { ...notification, text: notification.text ?? notification.title },
+            }, { replay: true });
         }
     });
 
+    // Not gated: an ack takes a toast off screen rather than raising one, so
+    // it can't double-render — and the events surface carries only postings,
+    // which leaves this the one thing that still dismisses across tabs.
     window.socket.on('notif.ack', ({ uid }) => {
         $(`.notification[data-uid="${uid}"]`).remove();
         update_tab_notif_count_badge();

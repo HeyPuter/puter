@@ -136,11 +136,7 @@ import {
     relativeTo,
     type CompiledMatch,
 } from './matcher.js';
-import {
-    projectNotifRow,
-    resolveNotifFetch,
-    type NotifFetchScope,
-} from './notifFetch.js';
+import { projectNotifRow, resolveNotifFetch } from './notifFetch.js';
 import {
     lookupFsSubject,
     lookupKvSubject,
@@ -1398,7 +1394,7 @@ export class EventsService extends PuterService {
         });
 
         const page = rows.slice(0, limit);
-        const visible = await this.#visibleNotifications(actor, page, scope);
+        const visible = await this.#visibleNotifications(actor, page);
         const last = page[page.length - 1];
 
         return {
@@ -1414,24 +1410,28 @@ export class EventsService extends PuterService {
      * caller's own mailbox. A row the actor may not see is dropped rather than
      * refused: which notifications exist is not something an app token gets to
      * probe for.
+     *
+     * Ownership is a per-row fact rather than one shared answer: an unscoped
+     * page (a session's own generic fetch) can carry `developer` rows about
+     * several apps at once.
      */
     async #visibleNotifications(
         actor: Actor,
         rows: Array<Record<string, unknown>>,
-        scope: NotifFetchScope,
     ): Promise<Array<Record<string, unknown>>> {
         if (rows.length === 0) return rows;
-        const ownsApp =
-            scope.audience === 'developer' && scope.appUid
-                ? await this.#recipientOwnsApp(
-                      Number(actor.user?.id),
-                      scope.appUid,
-                  )
-                : false;
+        const scopes = rows.map(notificationRowScope);
+        const owned = await ownedAppUids(
+            this.stores.app,
+            Number(actor.user?.id),
+            scopes.flatMap((s) =>
+                s.audience === 'developer' && s.appUid ? [s.appUid] : [],
+            ),
+        );
 
-        return rows.filter((row) =>
-            canViewNotification(notificationRowScope(row), actor, {
-                recipientOwnsApp: ownsApp,
+        return rows.filter((_row, i) =>
+            canViewNotification(scopes[i], actor, {
+                recipientOwnsApp: owned.has(scopes[i].appUid ?? ''),
             }),
         );
     }

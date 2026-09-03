@@ -50,6 +50,24 @@ describe('resolveNotifFetch', () => {
         });
     });
 
+    it('spans every app for a session\'s own developer/app-user slice', () => {
+        // Neither audience falls back to the recipient the way `account`
+        // does, so pinning to `null` would ask for rows that structurally
+        // cannot exist — the fetch has to span every app instead.
+        for (const audience of ['developer', 'app-user']) {
+            expect(
+                resolveNotifFetch(`notif:${audience}`, {
+                    userUuid: USER,
+                    appUid: null,
+                }),
+            ).toEqual({
+                subject: `notif:${USER}:${audience}`,
+                audience,
+                appUid: undefined,
+            });
+        }
+    });
+
     it('reads a fully qualified subject as written', () => {
         expect(
             resolveNotifFetch(`notif:${APP}:developer`, {

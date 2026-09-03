@@ -35,8 +35,12 @@ export interface NotifFetchScope {
     /** Canonical subject, after any app-relative expansion. */
     subject: string;
     audience: NotificationAudience;
-    /** App the rows are about; `null` selects the rows naming no app. */
-    appUid: string | null;
+    /**
+     * App the rows are about; `null` selects the rows naming no app,
+     * `undefined` selects every app — a session's own generic slice, where the
+     * audience predicate is what actually narrows the page.
+     */
+    appUid: string | null | undefined;
 }
 
 export const fetchUnsupportedSubject = (family: string): HttpError =>
@@ -61,7 +65,11 @@ export const resolveNotifFetch = (
     return {
         subject: anchor.subject,
         audience: anchor.audience,
-        appUid: anchor.appScoped ? anchor.ref : null,
+        appUid: anchor.anyApp
+            ? undefined
+            : anchor.appScoped
+              ? anchor.ref
+              : null,
     };
 };
 

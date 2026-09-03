@@ -48,6 +48,36 @@ export async function markNotificationAcknowledged (uid) {
 }
 
 /**
+ * Claim a notification as shown. Distinct from dismissing it: the mailbox
+ * records that it reached someone, which is what keeps a replay from raising
+ * it in every tab. Resolves `true` only for the client that got there first,
+ * and `false` — never a rejection — when it was already shown or the call
+ * failed, since nothing about a toast is worth failing over.
+ *
+ * @param {string} uid
+ * @returns {Promise<boolean>}
+ */
+export async function markNotificationShown (uid) {
+    try {
+        const res = await fetch(`${window.api_origin}/drivers/call`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+                interface: 'puter-notifications',
+                driver: 'es:notification',
+                method: 'mark_shown',
+                args: { uid },
+            }),
+        });
+        if ( ! res.ok ) return false;
+        const body = await res.json();
+        return body?.success !== false && body?.result?.success === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * @typedef {Object} NotificationRow
  * @property {string} uid
  * @property {Object} value - The notification payload: `{ source, title, text?, icon?, template?, fields? }`
