@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -215,6 +215,66 @@ describe('AppDriver.create', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('reports a lost name-uniqueness race the way the check reports it', async () => {
+        const { actor } = await makeUser();
+
+        // The name check and the insert are two statements, so a name can be
+        // claimed in between and only the unique index catches it. The
+        // in-memory sqlite schema has no unique index on `apps`.`name` (mysql
+        // and postgres do), so the losing insert is what gets stubbed here. A
+        // raw driver error would escape as a 500 carrying the index name.
+        const dup = Object.assign(new Error('Duplicate entry'), {
+            code: 'ER_DUP_ENTRY',
+            errno: 1062,
+        });
+        const create = vi
+            .spyOn(server.stores.app, 'create')
+            .mockRejectedValueOnce(dup);
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('race'),
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'app_name_already_in_use',
+            });
+        } finally {
+            create.mockRestore();
+        }
+    });
+
+    it('lets a non-uniqueness insert failure surface as a server error', async () => {
+        const { actor } = await makeUser();
+
+        const create = vi
+            .spyOn(server.stores.app, 'create')
+            .mockRejectedValueOnce(new Error('connection lost'));
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('boom'),
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                    }),
+                ),
+            ).rejects.toThrow('connection lost');
+        } finally {
+            create.mockRestore();
+        }
     });
 
     it('dedupes a colliding name when `dedupe_name` is true', async () => {
@@ -943,6 +1003,43 @@ describe('AppDriver.update additional branches', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('reports a lost rename-uniqueness race as 409, not a 500', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('ren'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+
+        const dup = Object.assign(new Error('Duplicate entry'), {
+            code: 'ER_DUP_ENTRY',
+            errno: 1062,
+        });
+        const update = vi
+            .spyOn(server.stores.app, 'update')
+            .mockRejectedValueOnce(dup);
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: created.uid,
+                        object: { name: uniqueName('taken') },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                legacyCode: 'conflict',
+            });
+        } finally {
+            update.mockRestore();
+        }
     });
 
     it('updates metadata and filetype_associations on an owned app', async () => {

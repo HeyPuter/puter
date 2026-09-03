@@ -358,6 +358,54 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
         ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
     });
 
+    it('reports a lost uniqueness race as 409, not a 500', async () => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/worker.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+
+        // The name check and the insert are two statements, and the check may
+        // answer from cache or a replica, so a name can be claimed in between
+        // and only the unique index catches it. The in-memory sqlite schema has
+        // no unique index on `subdomain` (mysql and postgres do), so the losing
+        // insert is what gets stubbed here. A raw driver error would escape as
+        // a 500 carrying the index name and the subdomain.
+        const dup = Object.assign(new Error('Duplicate entry'), {
+            code: 'ER_DUP_ENTRY',
+            errno: 1062,
+        });
+        vi.spyOn(server.stores.subdomain, 'create').mockRejectedValueOnce(dup);
+
+        await expect(
+            inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: `race-${user.username}`,
+                    filePath: path,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
+    });
+
+    it('lets a non-uniqueness insert failure surface as a server error', async () => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/worker.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+
+        vi.spyOn(server.stores.subdomain, 'create').mockRejectedValueOnce(
+            new Error('connection lost'),
+        );
+
+        await expect(
+            inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: `boom-${user.username}`,
+                    filePath: path,
+                }),
+            ),
+        ).rejects.toThrow('connection lost');
+    });
+
     it('rejects a source that is not a real FS file with 400', async () => {
         const { user, actor } = await makeUser();
         // A data URL resolves to bytes but carries no fsentry, so there is
