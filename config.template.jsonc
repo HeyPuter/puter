@@ -273,6 +273,14 @@
     //     "emailBatchSeconds": 90
     // },
 
+    // ── Teams / workspaces ──────────────────────────────────────────────
+    // Off by default, and off is the state every existing install stays in.
+    // The tables ship either way and sit inert; this gates whether `/teams`
+    // is registered at all, so with it off the paths do not exist rather than
+    // existing and refusing. It is also the backout: turning it off removes
+    // the feature without touching data.
+    "teams_enabled": false,
+
     // ── Notifications ───────────────────────────────────────────────────
     // How long a notification is kept, in days from creation. Acknowledged or
     // not, a row past this is swept. Set 0 to keep everything forever.

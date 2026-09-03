@@ -875,6 +875,14 @@ export class PuterServer {
             );
         }
 
+        // A controller may gate its own registration behind a config flag.
+        // Skipping here means its paths 404 rather than existing and refusing.
+        const isEnabled = (controller as { isEnabled?: () => boolean })
+            .isEnabled;
+        if (typeof isEnabled === 'function' && !isEnabled.call(controller)) {
+            return;
+        }
+
         // Controllers annotated with `@Controller('/prefix')` carry the prefix
         // on their prototype; bare (imperative) controllers default to ''.
         const prefix = (controller as unknown as Record<string, unknown>)[

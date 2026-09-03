@@ -35,6 +35,7 @@ import { SessionStore } from './session/SessionStore.js';
 import { ShareStore } from './share/ShareStore.js';
 import { SubdomainStore } from './subdomain/SubdomainStore.js';
 import { SystemKVStore } from './systemKv/SystemKVStore.js';
+import { TeamStore } from './team/TeamStore.js';
 import { UserBlockStore } from './userBlock/UserBlockStore.js';
 import { UserStore } from './user/UserStore.js';
 import type { IPuterStoreRegistry } from './types.js';
@@ -60,6 +61,7 @@ declare module './types.js' {
         notification: NotificationStore;
         share: ShareStore;
         group: GroupStore;
+        team: TeamStore;
         permission: PermissionStore;
         session: SessionStore;
         oidc: OIDCStore;
@@ -93,6 +95,7 @@ export const puterStores = {
     notification: NotificationStore,
     share: ShareStore,
     group: GroupStore,
+    team: TeamStore,
     permission: PermissionStore,
     session: SessionStore,
     oidc: OIDCStore,
