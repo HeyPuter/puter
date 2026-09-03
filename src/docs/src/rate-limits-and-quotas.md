@@ -213,7 +213,7 @@ A suspended subscription stops delivering and stops being metered, so it cannot 
 
 Deleting the node a subscription is anchored on ends it too, unless the subject named a path or a pattern, in which case it follows that path up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
 
-Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**; anything larger is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
+Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**, with **one `*` per segment** and **one `**` per pattern**; anything past that is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 
 A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it.
 

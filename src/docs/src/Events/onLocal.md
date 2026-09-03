@@ -50,7 +50,7 @@ The promise rejects with `{ message, code }`:
 | `invalid_subject` | The subject is not a non-empty string, or the server could not parse it. |
 | `invalid_handler` | `handler` is not a function. |
 | `invalid_subject_op` | The `:op` suffix is not one of the five operations. |
-| `invalid_subject_pattern` | The match pattern is past the compile-cost bounds (256 characters, 16 segments). |
+| `invalid_subject_pattern` | The match pattern is past its bounds: 256 characters, 16 segments, one `*` per segment, one `**` in total. |
 | `invalid_kv_pattern` | A `kv:` subject has a `*` somewhere other than the end, or a `?`. |
 | `events_cross_app_disabled` | The subject names another app's key-value data and that is not enabled here. |
 | `forbidden` | The target app does not share its data, or this app has not been granted `app-data:<appId>:kv:read` on it. |

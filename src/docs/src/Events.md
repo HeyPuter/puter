@@ -38,6 +38,8 @@ await puter.events.onLocal('fs:~/Pictures/*.png', handler);         // one segme
 await puter.events.onLocal('fs:~/Projects/**/build.log', handler);  // across directories
 ```
 
+`*` matches within one path segment, `**` crosses directories, and `?` matches one character. A subject may use `*` once per segment and `**` once in total; anything more is rejected with `invalid_subject_pattern`.
+
 `fs:` and `kv:` subjects can be subscribed to; `notif:` is reserved and still rejected.
 
 ### Key-value subjects
