@@ -170,15 +170,34 @@ One write can reach many subscriptions, so events are bounded on both halves: ho
 | Deliveries per minute, per subscription      | 600          |
 | Acknowledgements per minute                  | 600          |
 | Undelivered deliveries per subscription      | 10,000       |
+| Undelivered deliveries per *suspended* subscription | 100   |
 | Suspended subscriptions kept for             | 30 days      |
+| Published handlers per app                   | 100          |
+| Handler source size                          | 64 KB        |
+| Handlers per `publishAll` call               | 50           |
+| Handler publish / remove calls per minute    | 60           |
+| Handler listings per minute                  | 120          |
 
 Subscriptions come in two kinds. A **session** subscription lives with the connection that made it: it is dropped when the connection closes, and a reconnecting client subscribes again. A **durable** subscription outlives every connection — it is created over the API, listed and revoked from the account, and keeps delivering until you remove it or it expires.
 
 The 51st subscription on one connection, and the 501st durable subscription on one account, both fail with `events_subscription_limit`. Over the call budget, `subscribe` and `unsubscribe` fail with `too_many_requests`. Subscribing to something you cannot read fails with `subject_does_not_exist` — the same answer as subscribing to something that is not there, so the call cannot be used to find out which.
 
-A durable subscription may carry a `context`: JSON that is stored with it and handed to its handler on every delivery, capped at **4 KB** and rejected over that with `events_context_too_large`. Listings never return it. An app sees and revokes only the subscriptions it created; a session acting for the account sees them all, including ones left behind by an app that has since been removed.
+A durable subscription may carry a `context`: JSON that is stored with it and handed to its handler on every delivery, capped at a hard **4 KB** and rejected over that with `events_context_too_large` — client-side, before the request. It is stored in plaintext and read only on the delivery path; listings return its **key names and a content hash**, never its values. For anything larger, store it in a file and put the path in `context`. An app sees and revokes only the subscriptions it created; a session acting for the account sees them all, including ones left behind by an app that has since been removed.
 
-**A subscription can end without you unsubscribing.** Access is re-checked against the stored permission on every delivery, so a share that is taken back stops delivering immediately; the subscription is then *suspended*, with `suspendedAt` and `suspendedReason: 'permission_revoked'` in `list` and a notification to whoever holds it. The same happens to every subscription an app holds for you when you withdraw that app's access. Re-granting does not bring a suspended subscription back — subscribe again, which is how consent to watch is re-established — and a suspended row is deleted **30 days** after it stops. Deleting the node a subscription is anchored on ends it too, unless the subject named a path or a pattern, in which case it follows that path up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
+A durable subscription runs a **handler** its app published by name. An app may publish **100** of them, each up to **64 KB** of source, and a name is unique inside one app. Publishing is a developer operation: the account has to own the app. Publishing the same source again is a no-op; publishing different source under a name whose current source the caller did not name as its base is refused with `events_handler_conflict`, so two racing build steps never silently pick a winner — `replace: true` is how a caller says it means to take the name. Handler source is never returned by any listing.
+
+**A subscription can end or stop without you unsubscribing.** Access is re-checked against the stored permission on every delivery, so a share that is taken back stops delivering immediately; the subscription is then *suspended*, with `suspendedAt` and `suspendedReason` in `list`. There are four reasons:
+
+| `suspendedReason` | Cause | Resumes when |
+| --- | --- | --- |
+| `handler_not_found` | The handler it is bound to was removed | The name is published again |
+| `failures` | Its handler failed or timed out repeatedly | The subscription is republished against a working handler |
+| `no_credit` | Its holder ran out of credit | The balance is restored |
+| `permission_revoked` | The grant it was made under was withdrawn | **Never** — subscribe again |
+
+A suspended subscription stops delivering and stops being metered, so it cannot go on holding a full backlog for free: what it is owed is trimmed to **100** deliveries and given a deadline — **24 hours** for `handler_not_found` and `failures`, **1 hour** for `no_credit` — after which they are dropped and one `gap` marker with `reason: 'suspended_backlog_expired'` takes their place. A subscription suspended by `permission_revoked` has its backlog **purged immediately**: it names paths its holder has just lost the right to see, and holding them for a resume that by design never comes would turn a revocation into a delayed disclosure. A suspended row itself is deleted **30 days** after it stops.
+
+Deleting the node a subscription is anchored on ends it too, unless the subject named a path or a pattern, in which case it follows that path up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**; anything larger is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 

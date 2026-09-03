@@ -93,6 +93,45 @@ export const EVENTS_LIST_LIMIT = userWindow('events:list', 120);
  */
 export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
 
+// -- Handler surface -------------------------------------------------
+
+/**
+ * Named handlers one app may have published.
+ *
+ * A handler is a row read on the delivery path, so the cap is on how many
+ * distinct pieces of code an app asks the system to keep addressable — not on
+ * how often it changes them. An app past this is describing events by name
+ * where a `match` filter belongs.
+ */
+export const EVENTS_HANDLERS_PER_APP = 100;
+
+/** Longest a serialized handler may be. */
+export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
+
+/**
+ * Handlers one `publishAll` may carry. A build step publishes its whole set in
+ * one call, and the set is capped by what an app may hold anyway.
+ */
+export const EVENTS_HANDLER_PUBLISH_BATCH = 50;
+
+/**
+ * Handler publishes and removals per minute, per user.
+ *
+ * A build step publishes its whole set in one call and a developer iterating
+ * publishes a handful; level with the subscribe budget, which is the closest
+ * analogue — a write a client makes deliberately, never in a loop.
+ */
+export const EVENTS_HANDLER_PUBLISH_LIMIT = userWindow(
+    'events:handlers:publish',
+    60,
+);
+
+/** Handler listings per minute, per user. Reads an index, so budgeted higher. */
+export const EVENTS_HANDLER_LIST_LIMIT = userWindow(
+    'events:handlers:list',
+    120,
+);
+
 // -- Dispatch fan-out ------------------------------------------------
 
 /**
@@ -143,6 +182,29 @@ export const EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION = 10_000;
  * it happened.
  */
 export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
+
+// -- Suspended backlog -----------------------------------------------
+//
+// A suspended subscription stops metering but keeps what it is owed, and that
+// pair is a free memory hold: removing one widely-subscribed handler would
+// otherwise turn every dependent into a full backlog nobody pays for. So a
+// suspension trims to a much smaller cap and stamps an expiry, and the pending
+// sweeper drops what is left over with a gap marker in its place.
+
+/** Deliveries a suspended subscription may keep, whatever the reason. */
+export const EVENTS_SUSPENDED_PENDING_CAP = 100;
+
+/**
+ * How long a backlog held for a handler that may come back is kept. A bad
+ * deploy is recoverable within a day; past that the events are stale anyway.
+ */
+export const EVENTS_SUSPENDED_BACKLOG_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long a backlog held for an account out of credit is kept. The resume
+ * condition is a top-up, which is usually minutes.
+ */
+export const EVENTS_NO_CREDIT_BACKLOG_TTL_MS = 60 * 60 * 1000;
 
 // -- Coalescing ------------------------------------------------------
 

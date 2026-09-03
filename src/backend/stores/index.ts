@@ -22,6 +22,7 @@ import { AppStore } from './app/AppStore.js';
 import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore.js';
 import { DurableSubscriptionStore } from './events/DurableSubscriptionStore.js';
+import { EventHandlerStore } from './events/EventHandlerStore.js';
 import { EventSubscriptionStore } from './events/EventSubscriptionStore.js';
 import { PendingDeliveryStore } from './events/PendingDeliveryStore.js';
 import { CreditHoldStore } from './metering/CreditHoldStore.js';
@@ -65,6 +66,7 @@ declare module './types.js' {
         userBlock: UserBlockStore;
         eventSubscription: EventSubscriptionStore;
         durableSubscription: DurableSubscriptionStore;
+        eventHandler: EventHandlerStore;
         pendingDelivery: PendingDeliveryStore;
     }
 }
@@ -100,4 +102,6 @@ export const puterStores = {
     pendingDelivery: PendingDeliveryStore,
     // Writes through the Redis keyspace above, so it comes after it.
     durableSubscription: DurableSubscriptionStore,
+    // Table only, and reads the subscription table for its dependent counts.
+    eventHandler: EventHandlerStore,
 } satisfies IPuterStoreRegistry;

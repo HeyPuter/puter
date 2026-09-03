@@ -214,7 +214,9 @@ describe('creating a durable subscription over HTTP', () => {
         expect(created.body).toMatchObject({
             subject: `fs:${anchor}`,
             delivery: 'broadcast',
-            targets: ['socket', 'worker'],
+            // No app, so no events worker to target — see the null-app
+            // suite below.
+            targets: ['socket'],
             appUid: null,
         });
         expect(created.body.context).toBeUndefined();
@@ -231,7 +233,7 @@ describe('creating a durable subscription over HTTP', () => {
         expect(created.body).toMatchObject({
             delivery: 'single',
             handlerName: 'onWrite',
-            targets: ['socket', 'worker'],
+            targets: ['socket'],
         });
     });
 
@@ -249,6 +251,21 @@ describe('creating a durable subscription over HTTP', () => {
             delivery: 'single',
             handlerName: 'onWrite',
             targets: ['push'],
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('invalid_targets');
+    });
+
+    it('refuses a `worker` target from an account session naming no app', async () => {
+        // Exactly one events worker per app: an account session has none, so
+        // asking for the worker target explicitly is refused rather than
+        // silently dropped — silently dropping it would leave the caller
+        // thinking background delivery was configured when it never could be.
+        const refused = await subscribe(env.users.user.token, {
+            delivery: 'single',
+            handlerName: 'onWrite',
+            targets: ['socket', 'worker'],
         });
 
         expect(refused.status).toBe(400);

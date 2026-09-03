@@ -24,7 +24,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
-import { EVENTS_LIST_LIMIT } from './limits.js';
+import { EVENTS_HANDLER_LIST_LIMIT, EVENTS_LIST_LIMIT } from './limits.js';
 
 /**
  * The durable half of the events surface. Session subscriptions arrive over the
@@ -97,6 +97,72 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         await this.services.events.unsubscribeDurable(actor, this.#body(req));
         res.json({});
+    }
+
+    // -- Handlers ----------------------------------------------------
+    //
+    // Deploying an app's code, so the gate is the same as the verbs above plus
+    // the ownership check the service makes: the app token's own app, or an app
+    // a user session names and that user owns.
+
+    /** POST /events/handlers/publish — create or update one named handler. */
+    @Post('/handlers/publish', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async publishHandler(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(
+            await this.services.events.publishHandler(actor, this.#body(req)),
+        );
+    }
+
+    /** POST /events/handlers/publishAll — a build step's whole set, in order. */
+    @Post('/handlers/publishAll', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async publishHandlers(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json({
+            handlers: await this.services.events.publishHandlers(
+                actor,
+                this.#body(req),
+            ),
+        });
+    }
+
+    /** GET /events/handlers/list — names and hashes, never source. */
+    @Get('/handlers/list', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_HANDLER_LIST_LIMIT,
+    })
+    async listHandlers(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+        res.json({
+            handlers: await this.services.events.listHandlers(actor, {
+                appUid:
+                    typeof query.appUid === 'string' ? query.appUid : undefined,
+            }),
+        });
+    }
+
+    /** POST /events/handlers/remove — delete, and suspend what was bound. */
+    @Post('/handlers/remove', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async removeHandler(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(
+            await this.services.events.removeHandler(actor, this.#body(req)),
+        );
     }
 
     // -- Internals ---------------------------------------------------

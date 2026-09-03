@@ -98,11 +98,18 @@ export type {
     EventDelivery,
     EventGapMarker,
     EventHandler,
+    HandlerOptions,
+    HandlerPublication,
+    HandlerSummary,
     OnLocalOptions,
+    OnPersistentOptions,
+    PersistentSubscription,
+    PublishedHandler,
     PuterEvent,
     PuterKvEvent,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
+export type { EventHandlers } from './types/modules/events/lib/handlers.js';
 
 // -- puter.fs --
 export type {

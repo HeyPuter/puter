@@ -85,11 +85,16 @@ export class EventSubscription {
     /**
      * @internal
      * @param {PuterEvent | PuterKvEvent | EventGapMarker} event
+     * @param {Record<string, unknown>} [ctx] The subscription's stored
+     *   context, which the handler must not be able to mutate: it is one
+     *   snapshot shared across every delivery.
      * @returns {void}
      */
-    deliver (event) {
+    deliver (event, ctx) {
         try {
-            const result = this.handler({ event });
+            const result = this.handler(
+                ctx === undefined ? { event } : { event, ctx: Object.freeze(ctx) },
+            );
             if ( result instanceof Promise ) {
                 result.catch(reportHandlerError);
             }

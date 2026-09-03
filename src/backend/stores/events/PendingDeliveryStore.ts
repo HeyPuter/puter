@@ -71,6 +71,7 @@ import { PuterStore } from '../types.js';
 const entriesKey = (subId: string): string => `ev:q:{${subId}}`;
 const pendingKey = (subId: string): string => `ev:qp:{${subId}}`;
 const leaseKey = (subId: string): string => `ev:ql:{${subId}}`;
+const holdKey = (subId: string): string => `ev:qt:{${subId}}`;
 
 const INDEX_KEY = 'ev:qx';
 const COUNTER_KEY = 'ev:qc';
@@ -198,11 +199,14 @@ const parseEntry = (raw: string | null): StoredEntry | null => {
     }
 };
 
-const gapMarker = (subject: string): GapMarker => ({
+const gapMarker = (
+    subject: string,
+    reason: GapMarker['reason'] = 'backlog_overflow',
+): GapMarker => ({
     id: randomUUID(),
     subject,
     op: 'gap',
-    reason: 'backlog_overflow',
+    reason,
     ts: Date.now(),
 });
 
@@ -362,10 +366,69 @@ export class PendingDeliveryStore extends PuterStore {
             entriesKey(subId),
             pendingKey(subId),
             leaseKey(subId),
+            holdKey(subId),
         );
         await this.clients.redis.zrem(INDEX_KEY, subId);
         if (held > 0) await this.clients.redis.decrby(COUNTER_KEY, held);
         return held;
+    }
+
+    /**
+     * Take a subscription's backlog down to `cap` and put a deadline on what is
+     * left. What a suspension does to what it is owed: a suspended subscription
+     * stops being metered, so holding its full backlog is an unbilled memory
+     * hold, and holding it forever is one that never comes back.
+     *
+     * The deadline is enforced by the sweeper rather than by a key TTL — the
+     * entries have to be dropped with a marker in their place, and an expiring
+     * key would take them silently.
+     */
+    async hold(
+        subId: string,
+        cap: number,
+        ttlMs: number,
+    ): Promise<PendingShed | null> {
+        await this.clients.redis.set(holdKey(subId), Date.now() + ttlMs);
+
+        const held = await this.depth(subId);
+        const over = held - Math.max(0, Math.floor(cap));
+        if (over <= 0) return null;
+        // One more than the overflow, because the marker that replaces them
+        // takes a place of its own.
+        return this.#shedOldest(subId, over + 1, 'subscription');
+    }
+
+    /**
+     * Drop a held backlog whose deadline has passed, leaving a gap marker so
+     * its subscription learns there were events rather than reading the silence
+     * as "nothing happened". Returns how many went, or 0 while the hold
+     * stands.
+     */
+    async expireHold(subId: string): Promise<number> {
+        const raw = await this.clients.redis.get(holdKey(subId));
+        if (raw === null) return 0;
+        const expiresAt = Number(raw);
+        if (!Number.isFinite(expiresAt) || expiresAt > Date.now()) return 0;
+
+        const [oldest] = await this.clients.redis.zrange(
+            pendingKey(subId),
+            0,
+            0,
+        );
+        const subject = oldest ? await this.#subjectOf(subId, oldest) : '';
+        const dropped = await this.purge(subId);
+        if (dropped === 0) return 0;
+
+        await this.#append(
+            subId,
+            gapMarker(subject, 'suspended_backlog_expired'),
+        );
+        return dropped;
+    }
+
+    /** Lift a hold, for a subscription that is back in service. */
+    async releaseHold(subId: string): Promise<void> {
+        await this.clients.redis.del(holdKey(subId));
     }
 
     // -- Reads -------------------------------------------------------

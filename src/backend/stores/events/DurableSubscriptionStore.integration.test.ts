@@ -58,7 +58,11 @@ const input = (
     match: null,
     op: null,
     delivery: 'broadcast',
-    targets: ['socket', 'worker'],
+    // Null `appUid` is the default here (a session/account row), and a
+    // worker target needs an app to run one for — see "one events worker per
+    // app" below. Tests that want an app-scoped row with a worker target
+    // override both.
+    targets: ['socket'],
     handlerName: null,
     context: null,
     permission: 'list',
@@ -103,7 +107,12 @@ describe('creating a subscription', () => {
     it('round-trips the row and names it after the app that made it', async () => {
         const appUid = `app-${uuidv4()}`;
         const { row } = await durable().create(
-            input({ appUid, handlerName: 'onWrite', match: '*.txt' }),
+            input({
+                appUid,
+                handlerName: 'onWrite',
+                match: '*.txt',
+                targets: ['socket', 'worker'],
+            }),
         );
 
         expect(row.subId.startsWith(`${appUid}#`)).toBe(true);
@@ -203,6 +212,25 @@ describe('validation at the row write', () => {
             input({ targets: ['socket', 'push'] }),
         );
         expect(row.targets).toEqual(['socket', 'push']);
+    });
+
+    it('refuses a `worker` target on a row with no app', async () => {
+        // Exactly one events worker per app: a row nobody's app made has
+        // nothing for that target to invoke.
+        await expect(
+            durable().create(input({ appUid: null, targets: ['socket', 'worker'] })),
+        ).rejects.toSatisfy(codeOf('invalid_targets'));
+        await expect(durable().countForHolder(userId)).resolves.toBe(0);
+    });
+
+    it('allows a `worker` target once the row has an app', async () => {
+        const { row } = await durable().create(
+            input({
+                appUid: `app-${uuidv4()}`,
+                targets: ['socket', 'worker'],
+            }),
+        );
+        expect(row.targets).toEqual(['socket', 'worker']);
     });
 
     it('refuses a context past the hard cap', async () => {

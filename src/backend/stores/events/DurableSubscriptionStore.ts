@@ -65,6 +65,12 @@ export const DURABLE_CONTEXT_MAX_BYTES = 4096;
 export const DURABLE_LIST_DEFAULT_LIMIT = 50;
 export const DURABLE_LIST_LIMIT_CAP = 200;
 
+/**
+ * Rows one handler-lifecycle pass takes. A removal suspends its dependents in
+ * batches so a widely-used name cannot make one call hold the whole set.
+ */
+export const HANDLER_SETTLE_BATCH = 500;
+
 const TABLE = 'event_subscriptions';
 
 // -- Wire shapes ------------------------------------------------------
@@ -96,8 +102,24 @@ export interface DurableListOptions {
     includeTotal?: boolean;
 }
 
-/** Why a row is out of service. Never auto-resumes for `permission_revoked`. */
-export type SuspendedReason = 'permission_revoked';
+/**
+ * Why a row is out of service.
+ *
+ * All four are states rather than deletions, so a bad deploy or a lapsed card
+ * is recoverable. Only `permission_revoked` is terminal: consent to watch is
+ * re-established by subscribing again, never by re-granting.
+ */
+export const SUSPENDED_REASONS = [
+    'handler_not_found',
+    'failures',
+    'no_credit',
+    'permission_revoked',
+] as const;
+
+export type SuspendedReason = (typeof SUSPENDED_REASONS)[number];
+
+export const isSuspendedReason = (value: unknown): value is SuspendedReason =>
+    SUSPENDED_REASONS.includes(value as SuspendedReason);
 
 /** Where a row is moving to when its anchor is deleted under it. */
 export interface ReanchorInput {
@@ -129,6 +151,13 @@ const pushOnSingle = (): HttpError =>
     new HttpError(
         400,
         'A `single` subscription needs a `worker` target and may not target `push`',
+        { legacyCode: 'invalid_targets' },
+    );
+
+const workerNeedsApp = (): HttpError =>
+    new HttpError(
+        400,
+        'A subscription with no app has no events worker to target',
         { legacyCode: 'invalid_targets' },
     );
 
@@ -223,7 +252,11 @@ export class DurableSubscriptionStore extends PuterStore {
     async create(
         input: DurableSubscriptionInput,
     ): Promise<{ row: DurableSubscription; bump: GenerationBump }> {
-        const targets = this.#assertTargets(input.delivery, input.targets);
+        const targets = this.#assertTargets(
+            input.delivery,
+            input.targets,
+            input.appUid,
+        );
         this.#assertContext(input.context);
 
         const held = await this.countForHolder(input.holderUserId);
@@ -331,6 +364,44 @@ export class DurableSubscriptionStore extends PuterStore {
             [...owners].map((owner) => this.#bump(owner)),
         );
         return { suspended, bumps };
+    }
+
+    /**
+     * Put suspended rows back in service: clear the state, put each back in
+     * this region's cache, and bump so every other region rebuilds. The inverse
+     * of `suspend`, and the only way back for the three reasons that resume.
+     */
+    async resume(
+        rows: readonly DurableSubscription[],
+    ): Promise<GenerationBump[]> {
+        if (rows.length === 0) return [];
+
+        await this.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`suspended_at\` = NULL, ` +
+                '`suspended_reason` = NULL WHERE `sub_id` IN ' +
+                `(${rows.map(() => '?').join(', ')})`,
+            rows.map((row) => row.subId),
+        );
+
+        // Cached per owner: the cache keys one hash per owner and takes the
+        // owner from the first row it is given.
+        const byOwner = new Map<number, DurableSubscription[]>();
+        for (const row of rows) {
+            const live: DurableSubscription = {
+                ...row,
+                suspendedAt: null,
+                suspendedReason: null,
+            };
+            const held = byOwner.get(row.ownerUserId);
+            if (held) held.push(live);
+            else byOwner.set(row.ownerUserId, [live]);
+        }
+        for (const [, owned] of byOwner)
+            await this.stores.eventSubscription.cacheDurable(owned);
+
+        return Promise.all(
+            [...byOwner.keys()].map((owner) => this.#bump(owner)),
+        );
     }
 
     /**
@@ -519,6 +590,62 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
+     * The rows bound to one of an app's handler names. What a removal has to
+     * suspend, and — asking for the suspended half — what a republish resumes.
+     *
+     * Bounded by the per-account quota times nothing: a widely-used handler can
+     * carry more rows than one read should return, so this is a page and the
+     * caller walks it until it comes back short.
+     */
+    async listByHandler(
+        appUid: string,
+        handlerName: string,
+        options: { suspendedReason?: SuspendedReason; limit?: number } = {},
+    ): Promise<DurableSubscription[]> {
+        const where = ['`app_uid` = ?', '`handler_name` = ?'];
+        const params: unknown[] = [appUid, handlerName];
+        if (options.suspendedReason === undefined) {
+            where.push('`suspended_at` IS NULL');
+        } else {
+            where.push('`suspended_at` IS NOT NULL', '`suspended_reason` = ?');
+            params.push(options.suspendedReason);
+        }
+
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                `WHERE ${where.join(' AND ')} ORDER BY \`id\` LIMIT ?`,
+            [
+                ...params,
+                Math.max(1, Math.floor(options.limit ?? HANDLER_SETTLE_BATCH)),
+            ],
+        );
+        return rows.map(toRow);
+    }
+
+    /**
+     * One holder's rows suspended for a given reason — what a resume condition
+     * that belongs to the account rather than to a handler releases.
+     */
+    async listSuspendedForHolder(
+        holderUserId: number,
+        reason: SuspendedReason,
+    ): Promise<DurableSubscription[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `holder_user_id` = ? AND `suspended_at` IS NOT NULL ' +
+                `AND \`suspended_reason\` = ? AND ${this.#unexpiredClause()} ` +
+                'ORDER BY `id` LIMIT ?',
+            [
+                holderUserId,
+                reason,
+                nowSeconds(),
+                EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
+            ],
+        );
+        return rows.map(toRow);
+    }
+
+    /**
      * Every row a region has to be able to deliver for one owner. Read from the
      * primary: this is what a cold region caches, and caching a replica's "no
      * rows yet" would silence a subscription with nothing to correct it.
@@ -597,13 +724,16 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
-     * The row cannot exist with transports its delivery class cannot use. Held
-     * here rather than only at the API, so a writer that never passes through
-     * one cannot leave an unsatisfiable row behind.
+     * The row cannot exist with transports its delivery class cannot use, or
+     * with a `worker` target and no app to run one for — "one events worker per
+     * app" means no app is no worker target, not a worker with nowhere to go.
+     * Held here rather than only at the API, so a writer that never passes
+     * through one cannot leave an unsatisfiable row behind.
      */
     #assertTargets(
         delivery: DeliveryClass,
         targets: readonly string[],
+        appUid: string | null,
     ): SubscriptionTarget[] {
         if (!Array.isArray(targets) || targets.length === 0)
             throw invalidTargets();
@@ -611,6 +741,8 @@ export class DurableSubscriptionStore extends PuterStore {
 
         const unique = [...new Set(targets as SubscriptionTarget[])];
         if (!targetsAllowedForDelivery(delivery, unique)) throw pushOnSingle();
+        if (appUid === null && unique.includes('worker'))
+            throw workerNeedsApp();
         return unique;
     }
 
