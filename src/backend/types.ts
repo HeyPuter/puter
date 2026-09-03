@@ -1130,9 +1130,15 @@ interface IConfigOptional {
      *   the dispatch hooks short-circuit on a boolean before resolving
      *   anything, and the subscribe verbs reject with `events_disabled`. An
      *   install that has never heard of events pays nothing on its write path.
+     * - `crossAppKv` — whether a subscription may name another app's KV
+     *   namespace. Absent means off, and subscribing to one rejects with
+     *   `events_cross_app_disabled`: a standing cross-app push leans entirely
+     *   on revocation settling, so it turns on only once that has run on the
+     *   simpler surface. The gate itself is enforced either way.
      */
     events?: {
         enabled?: boolean;
+        crossAppKv?: boolean;
     };
 
     /**

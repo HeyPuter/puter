@@ -1,6 +1,6 @@
 ---
 title: puter.events.onLocal()
-description: Subscribe to changes on a file or directory for as long as this client is connected.
+description: Subscribe to changes on a file, directory, or key-value key for as long as this client is connected.
 platforms: [websites, apps, nodejs, workers]
 ---
 
@@ -17,7 +17,11 @@ puter.events.onLocal(subject, handler, options)
 ## Parameters
 
 #### `subject` (String) (required)
-What to watch: `fs:<path or uid>[:<op>]`. The path may be absolute (`/alice/Documents`) or home-relative (`~/Documents`), may name something that does not exist yet, and may contain `*` (within a path segment) or `**` (across directories). The optional `op` is one of `add`, `write`, `move`, `remove`, `meta` — nothing emits `meta` yet.
+What to watch: `fs:<path or uid>[:<op>]` or `kv:<key>`.
+
+For `fs:`, the path may be absolute (`/alice/Documents`) or home-relative (`~/Documents`), may name something that does not exist yet, and may contain `*` (within a path segment) or `**` (across directories). The optional `op` is one of `add`, `write`, `move`, `remove`, `meta` — nothing emits `meta` yet.
+
+For `kv:`, the key is matched **exactly** unless you end it with `*`, which widens it to a prefix — the opposite of [`puter.kv.list()`](/KV/list/), whose pattern is always a prefix. Two segments (`kv:cart`) means the app you are running as; three or more (`kv:<appId>:<key>`) names the app explicitly and is what a key containing `:` needs.
 
 #### `handler` (Function) (required)
 Called with a single `{ event }` object per delivery. `event.op === 'gap'` means events were dropped against a limit and the details are not available — re-read what you are watching. A handler that throws is reported on the console and does not end the subscription.
@@ -33,7 +37,8 @@ A `Promise` that resolves, once the server has confirmed the subscription, to a 
 
 - `subId` (String | null): The server's id for the subscription. It changes whenever the connection is rebuilt, so don't store anything against it.
 - `subject` (String): The subject you subscribed with.
-- `anchor` (Object): `{ uid, path }` of the node the subscription is keyed to — the nearest existing ancestor when the subject named something that does not exist yet.
+- `subject` is returned fully qualified: a `kv:` subject you wrote in the two-segment form comes back as `kv:<appId>:<key>`.
+- `anchor` (Object): `{ uid, path }` of the node the subscription is keyed to — the nearest existing ancestor when the subject named something that does not exist yet. For a `kv:` subject, `uid` is the app whose store is being watched and `path` is the key prefix it is anchored at.
 - `match` (String | null): The pattern events under the anchor are matched against, if the subject had one.
 - `op` (String | null): The single operation this subscription is limited to, or `null` for all of them.
 - `off` (Function): Ends the subscription — see [`subscription.off()`](/Events/off/).
@@ -46,6 +51,9 @@ The promise rejects with `{ message, code }`:
 | `invalid_handler` | `handler` is not a function. |
 | `invalid_subject_op` | The `:op` suffix is not one of the five operations. |
 | `invalid_subject_pattern` | The match pattern is past the compile-cost bounds (256 characters, 16 segments). |
+| `invalid_kv_pattern` | A `kv:` subject has a `*` somewhere other than the end, or a `?`. |
+| `events_cross_app_disabled` | The subject names another app's key-value data and that is not enabled here. |
+| `forbidden` | The target app does not share its data, or this app has not been granted `app-data:<appId>:kv:read` on it. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
 | `events_subscription_limit` | This connection already holds the maximum number of subscriptions. |
 | `too_many_requests` | Over the subscribe/unsubscribe call budget. |
@@ -114,6 +122,37 @@ The promise rejects with `{ message, code }`:
             });
 
             setTimeout(() => sub.off(), 2000);
+        })();
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Watch this app's key-value store</strong>
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Exactly one key, and separately every key under a prefix.
+            const one = await puter.events.onLocal('kv:cart', ({ event }) =>
+                puter.print(`${event.op}: ${event.key}<br>`));
+            const many = await puter.events.onLocal('kv:cart:*', ({ event }) =>
+                puter.print(`under cart: ${event.key}<br>`));
+
+            // (2) `cart` reaches the first, `cart:items` only the second.
+            await puter.kv.set('cart', { total: 0 });
+            await puter.kv.set('cart:items', ['apple']);
+
+            // (3) Cleanup
+            setTimeout(async () => {
+                await one.off();
+                await many.off();
+                await puter.kv.del('cart');
+                await puter.kv.del('cart:items');
+            }, 2000);
         })();
     </script>
 </body>

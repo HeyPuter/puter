@@ -18,7 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { EventKey } from '../../clients/event/types.js';
+import type { EventKey, KvOp } from '../../clients/event/types.js';
 import {
     EVENTS_ACK_LIMIT,
     EVENTS_BROADCAST_DELIVERY_LIMIT,
@@ -50,6 +50,7 @@ import {
     type SubscriptionTarget,
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
 import type { PageResult } from '../../util/pagination.js';
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
@@ -58,15 +59,25 @@ import {
     type SocketSpecifier,
 } from '../socket/SocketService.js';
 import { PuterService } from '../types.js';
-import { resolveFsAnchor, type FsAnchorDeps } from './anchors.js';
 import {
+    resolveFsAnchor,
+    resolveKvAnchor,
+    type FsAnchorDeps,
+} from './anchors.js';
+import {
+    assertCrossAppKvAuthorized,
     assertSubscribeAuthorized,
     checkDeliveryAuthorized,
+    crossAppKvDenial,
+    crossAppKvPermissions,
     deliveryGenerationTag,
     nodeDescriptor,
     resolveGrantActor,
     rowInActorScope,
+    SUBSCRIBE_MODE,
+    type CrossAppKvDeps,
     type EventAclDeps,
+    type SubscriptionGrant,
 } from './authorization.js';
 import { DeliveryCoalescer } from './coalescer.js';
 import { DeliveryAuthCache } from './deliveryAuthCache.js';
@@ -78,17 +89,30 @@ import {
     type CompiledMatch,
 } from './matcher.js';
 import {
-    lookupPublicSubject,
+    lookupFsSubject,
+    lookupKvSubject,
     type DeliverableEvent,
     type DeliveryClass,
-    type EventContext,
+    type DeliveryFields,
+    type EventContextBase,
+    type FsEventContext,
     type GapMarker,
     type GapReason,
+    type KvEventContext,
+    type MatchSpec,
     type ProjectedEvent,
-    type PublicSubject,
+    type SubjectSpec,
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
-import { fsAnchorToken, parseSubject, type FsOp } from './subjects.js';
+import {
+    KV_MATCH_SEPARATOR,
+    fsAnchorToken,
+    isKvToken,
+    parseSubject,
+    type FsOp,
+    type ParsedSubject,
+    type SubjectOp,
+} from './subjects.js';
 import {
     RecordingWorkerInvoker,
     type WorkerInvocation,
@@ -214,6 +238,23 @@ interface GrantIdentity {
     generation: string;
 }
 
+/**
+ * One authorized subject, as a row stores it. `uid`/`path` are family-scoped:
+ * an FS row names a node and its path, a KV row names the app whose namespace
+ * it watches and the key prefix it anchors at.
+ */
+interface ResolvedAnchor {
+    token: string;
+    uid: string;
+    path: string;
+    match: string | null;
+    op: FsOp | null;
+    ownerUserId: number;
+    permission: AclMode;
+    /** Fully-qualified wire form, which is what the row records. */
+    subject: string;
+}
+
 /** A withdrawn grant, as the settle pass reads it off the bus. */
 export interface RevokedGrant {
     holderUserId: number;
@@ -234,6 +275,16 @@ export interface FsDispatchOptions {
     ancestors?: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
     /** Who performed the write, for the `self` flag. */
     actingUserId?: number;
+}
+
+/** One committed KV mutation, as the bus reports it. */
+export interface KvDispatchInput {
+    /** Owner of the namespace: the keyspace subscriptions on it are indexed in. */
+    userId: number;
+    /** `v1:<userUuid>:<appUid>`. */
+    namespace: string;
+    keys: readonly string[];
+    op: KvOp;
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -400,6 +451,18 @@ const deliverable = (row: DispatchSubscription): boolean => {
 const isSingle = (row: DispatchSubscription): boolean =>
     row.durable === true && row.delivery === 'single';
 
+/**
+ * Whether a KV row reaches past its own namespace. Read off the app the row was
+ * created by — which is the actor's `effectiveApp` at subscribe time, so an
+ * access token an app issued counts as that app rather than as no app. A row
+ * with no app is its user acting on their own data, which the KV surface has
+ * never gated.
+ */
+const isCrossAppKvRow = (
+    rowAppUid: string | null,
+    targetAppUid: string,
+): boolean => rowAppUid !== null && rowAppUid !== targetAppUid;
+
 // -- Durable request parsing ------------------------------------------
 
 /** Longest a `handlerName` may be, matching the column that holds it. */
@@ -536,6 +599,15 @@ export class EventsService extends PuterService {
             });
         });
 
+        // The KV store is a store, so the bus is the only seam it has to reach
+        // a service. Same posture as the FS hook: post-commit, and nothing here
+        // can fail the write that produced it.
+        this.clients.event.on('kv.mutated', (_key, data) => {
+            void this.dispatchKv(data as KvDispatchInput).catch((err) => {
+                console.warn('[events] kv dispatch failed', err);
+            });
+        });
+
         this.#armExpirySweep();
         this.#armPendingSweep();
     }
@@ -557,6 +629,15 @@ export class EventsService extends PuterService {
     /** The master switch. Read on every write, so it stays a field lookup. */
     get enabled(): boolean {
         return this.config.events?.enabled === true;
+    }
+
+    /**
+     * Whether a subscription may name another app's KV namespace. Off by
+     * default; the gate below runs either way, so turning it on adds no
+     * unchecked path.
+     */
+    get crossAppKvEnabled(): boolean {
+        return this.config.events?.crossAppKv === true;
     }
 
     // -- Socket surface ----------------------------------------------
@@ -643,7 +724,7 @@ export class EventsService extends PuterService {
             socketId,
             holderUserId,
             ownerUserId: anchor.ownerUserId,
-            subject: rawSubject,
+            subject: anchor.subject,
             token: anchor.token,
             anchorUid: anchor.uid,
             anchorPath: anchor.path,
@@ -740,7 +821,7 @@ export class EventsService extends PuterService {
             holderUserId,
             ownerUserId: anchor.ownerUserId,
             appUid: actor.effectiveApp?.uid ?? null,
-            subject: rawSubject,
+            subject: anchor.subject,
             token: anchor.token,
             anchorUid: anchor.uid,
             anchorPath: anchor.path,
@@ -962,16 +1043,10 @@ export class EventsService extends PuterService {
     async #resolveSubscribeAnchor(
         actor: Actor,
         rawSubject: string,
-    ): Promise<{
-        token: string;
-        uid: string;
-        path: string;
-        match: string | null;
-        op: FsOp | null;
-        ownerUserId: number;
-        permission: AclMode;
-    }> {
+    ): Promise<ResolvedAnchor> {
         const parsed = parseSubject(rawSubject);
+        if (parsed.family === 'kv')
+            return this.#resolveKvSubscribe(actor, parsed);
         if (parsed.family !== 'fs')
             throw new HttpError(
                 400,
@@ -1006,7 +1081,59 @@ export class EventsService extends PuterService {
         // event under the anchor.
         if (anchor.match) compileMatch(anchor.match);
 
-        return { ...anchor, ownerUserId: entry.userId, permission };
+        return {
+            ...anchor,
+            ownerUserId: entry.userId,
+            permission,
+            subject: rawSubject,
+        };
+    }
+
+    /**
+     * Resolve and authorize a `kv:` subject.
+     *
+     * Nothing is looked up: the namespace comes from the actor, so a key that
+     * does not exist yet is an ordinary subscription rather than a missing
+     * anchor. The keyspace is the namespace's user — which is the subscriber,
+     * because a KV namespace is one user's data for one app, cross-app
+     * included.
+     */
+    async #resolveKvSubscribe(
+        actor: Actor,
+        parsed: ParsedSubject,
+    ): Promise<ResolvedAnchor> {
+        const user = actor.user;
+        if (!user) throw disabled();
+
+        const anchor = resolveKvAnchor(parsed, {
+            userUuid: user.uuid,
+            appUid: actor.effectiveApp?.uid ?? null,
+        });
+
+        // Own namespace never reaches a permission lookup — the same
+        // self-access shortcut a cross-app KV read takes.
+        if (anchor.crossApp)
+            await assertCrossAppKvAuthorized(
+                actor,
+                anchor.appUid,
+                this.#kvDeps(),
+            );
+
+        if (anchor.match)
+            compileMatch(anchor.match, { separator: KV_MATCH_SEPARATOR });
+
+        return {
+            token: anchor.token,
+            uid: anchor.appUid,
+            path: anchor.prefix,
+            match: anchor.match,
+            op: null,
+            ownerUserId: user.id,
+            // The column wants a mode; a KV row's re-check is the cross-app
+            // gate rather than an ACL reading, so nothing reads this back.
+            permission: SUBSCRIBE_MODE,
+            subject: anchor.subject,
+        };
     }
 
     /** Disconnect handler; also covers a socket the server dropped. */
@@ -1046,7 +1173,7 @@ export class EventsService extends PuterService {
     ): Promise<void> {
         if (!this.enabled) return;
 
-        const subject = lookupPublicSubject(key);
+        const subject = lookupFsSubject(key);
         if (!subject) return;
 
         const ownerUserId = entry?.userId;
@@ -1055,7 +1182,7 @@ export class EventsService extends PuterService {
         if (!(await this.#userHasAny(ownerUserId))) return;
 
         const ancestors = options.ancestors ? await options.ancestors() : [];
-        const context: EventContext = {
+        const context: FsEventContext = {
             key,
             entry,
             ancestors,
@@ -1075,7 +1202,13 @@ export class EventsService extends PuterService {
         );
         if (rows.length === 0) return;
 
-        await this.#route(subject, context, rows, options.actingUserId);
+        await this.#route(
+            subject,
+            context,
+            rows,
+            options.actingUserId,
+            (matched) => this.#stillAuthorized(matched, context),
+        );
 
         // Only a removal can invalidate an anchor, so nothing else pays for
         // this — and this pass is already holding the rows that key on the uid
@@ -1084,29 +1217,107 @@ export class EventsService extends PuterService {
             await this.#settleDeletedAnchor(context, rows);
     }
 
-    async #route(
-        subject: PublicSubject,
-        context: EventContext,
+    /**
+     * Publish one committed key-value change. Same three gates as an FS write,
+     * keyed on the same thing: the owner of the namespace, which for KV is the
+     * user whose data it is — cross-app subscriptions included, because an app
+     * reaching another app's namespace still reaches it under its own user.
+     *
+     * A batch is one bus event over many keys, so the watched-set check is one
+     * command for the whole batch rather than one per key.
+     */
+    async dispatchKv(input: KvDispatchInput): Promise<void> {
+        if (!this.enabled) return;
+
+        const subject = lookupKvSubject('kv.mutated');
+        if (!subject) return;
+
+        const ownerUserId = input?.userId;
+        if (typeof ownerUserId !== 'number') return;
+        if (!input.keys?.length) return;
+
+        if (!(await this.#userHasAny(ownerUserId))) return;
+
+        const namespace = parseKvNamespace(input.namespace);
+        if (!namespace) return;
+
+        const ts = Date.now();
+        const contexts: KvEventContext[] = input.keys.map((kvKey) => ({
+            key: 'kv.mutated',
+            userUuid: namespace.userUuid,
+            appUid: namespace.appUid,
+            kvKey,
+            op: input.op,
+            id: randomUUID(),
+            ts,
+        }));
+
+        const tokensPerKey = contexts.map((context) => subject.tokens(context));
+        const watched = new Set(
+            await this.stores.eventSubscription.watchedTokens(ownerUserId, [
+                ...new Set(tokensPerKey.flat()),
+            ]),
+        );
+        if (watched.size === 0) return;
+
+        const rows = await this.stores.eventSubscription.getForTokens(
+            ownerUserId,
+            [...watched],
+        );
+        if (rows.length === 0) return;
+
+        // Indexed once: a row holds one token, so a key's candidates are the
+        // rows under the tokens it enumerated.
+        const byToken = new Map<string, DispatchSubscription[]>();
+        for (const row of rows)
+            byToken.set(row.token, [...(byToken.get(row.token) ?? []), row]);
+
+        for (const [i, context] of contexts.entries()) {
+            const forKey = tokensPerKey[i].flatMap(
+                (token) => byToken.get(token) ?? [],
+            );
+            if (forKey.length === 0) continue;
+
+            await this.#route(
+                subject,
+                context,
+                forKey,
+                ownerUserId,
+                (matched) => this.#kvStillAuthorized(matched, namespace.appUid),
+            );
+        }
+    }
+
+    async #route<C extends EventContextBase, P extends ProjectedEvent>(
+        subject: SubjectSpec<C, P>,
+        context: C,
         candidates: DispatchSubscription[],
         actingUserId: number | undefined,
+        authorize: (
+            rows: DispatchSubscription[],
+        ) => Promise<DispatchSubscription[]>,
     ): Promise<void> {
         const rows = candidates.filter(deliverable);
         if (rows.length === 0) return;
 
         // One throwaway projection reads the op off the registry entry rather
         // than re-deriving it from the subject string.
-        const { op } = subject.project({ ...context, self: false, seq: 0 });
+        const delivery: C & DeliveryFields = {
+            ...context,
+            self: false,
+            seq: 0,
+        };
+        const { op } = subject.project(delivery);
         const matchOn = subject.matchOn(context);
 
         const evaluated = evaluateWithCap(
             rows,
-            (row) => this.#passes(row, op, matchOn),
+            (row) => this.#passes(row, subject, op, matchOn),
             FILTER_EVALUATIONS_PER_EVENT,
         );
 
-        const matched = await this.#stillAuthorized(
+        const matched = await authorize(
             evaluated.matched.slice(0, EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT),
-            context,
         );
 
         let seq = 0;
@@ -1158,13 +1369,18 @@ export class EventsService extends PuterService {
     }
 
     /** Op filter first — a comparison, where the glob is not. */
-    #passes(row: DispatchSubscription, op: FsOp, matchOn: string): boolean {
+    #passes(
+        row: DispatchSubscription,
+        subject: MatchSpec,
+        op: SubjectOp,
+        matchOn: string,
+    ): boolean {
         if (row.op !== null && row.op !== op) return false;
         if (!row.match) return true;
 
-        const relative = relativeTo(row.anchorPath, matchOn);
-        if (relative === null) return false;
-        return this.#matcherFor(row).test(relative);
+        const scoped = subject.matchScope(row.anchorPath, matchOn);
+        if (scoped === null) return false;
+        return this.#matcherFor(row, subject.matchSeparator).test(scoped);
     }
 
     /**
@@ -1183,7 +1399,7 @@ export class EventsService extends PuterService {
      */
     async #stillAuthorized(
         rows: DispatchSubscription[],
-        context: EventContext,
+        context: FsEventContext,
     ): Promise<DispatchSubscription[]> {
         if (rows.length === 0) return rows;
 
@@ -1246,6 +1462,61 @@ export class EventsService extends PuterService {
         return allowed;
     }
 
+    /**
+     * The KV counterpart of the FS re-check. Own-namespace rows — which is
+     * every row until cross-app is turned on — are decided by a string
+     * comparison and cost nothing; only a row watching another app's namespace
+     * asks anything, and rows sharing an identity and a target share the
+     * answer.
+     *
+     * Deliberately not held in the cross-event cache: that cache keys on the
+     * permission generation, and an app switching its data sharing off does not
+     * move it. Asking each time is what makes that flip stop deliveries at
+     * once.
+     */
+    async #kvStillAuthorized(
+        rows: DispatchSubscription[],
+        targetAppUid: string,
+    ): Promise<DispatchSubscription[]> {
+        if (rows.length === 0) return rows;
+
+        const decisions = new Map<string, Promise<boolean>>();
+        const allowed = await Promise.all(
+            rows.map((row) => {
+                if (!isCrossAppKvRow(row.appUid, targetAppUid))
+                    return Promise.resolve(true);
+                const key = `${row.holderUserId}|${row.appUid ?? ''}`;
+                let decision = decisions.get(key);
+                if (!decision) {
+                    decision = this.#kvGrantHolds(row, targetAppUid);
+                    decisions.set(key, decision);
+                }
+                return decision;
+            }),
+        );
+        return rows.filter((_row, i) => allowed[i]);
+    }
+
+    /** Whether one row's holder may still be told about `targetAppUid`'s data. */
+    async #kvGrantHolds(
+        row: SubscriptionGrant,
+        targetAppUid: string,
+    ): Promise<boolean> {
+        try {
+            const actor = await resolveGrantActor(row, this.#aclDeps());
+            if (!actor) return false;
+            return (
+                (await crossAppKvDenial(
+                    actor,
+                    targetAppUid,
+                    this.#kvDeps(),
+                )) === null
+            );
+        } catch {
+            return false;
+        }
+    }
+
     /** Who a row acts as, and the counter its answers are keyed by. */
     async #grantIdentity(
         row: DispatchSubscription,
@@ -1264,25 +1535,28 @@ export class EventsService extends PuterService {
     }
 
     /** The event's node as ACL wants it, reusing the walk dispatch already did. */
-    #eventDescriptor(context: EventContext): ResourceDescriptor {
+    #eventDescriptor(context: FsEventContext): ResourceDescriptor {
         return nodeDescriptor(
             { uid: context.entry.uid, path: context.entry.path },
             { getAncestorChain: async () => context.ancestors },
         );
     }
 
-    #matcherFor(row: DispatchSubscription): CompiledMatch {
+    #matcherFor(
+        row: DispatchSubscription,
+        separator: string | null,
+    ): CompiledMatch {
         const cached = this.#compiled.get(row.subId);
         if (cached && cached.pattern === row.match) return cached;
-        const compiled = compileMatch(row.match as string);
+        const compiled = compileMatch(row.match as string, { separator });
         this.#compiled.set(row.subId, compiled);
         return compiled;
     }
 
     #gap(
         rows: DispatchSubscription[],
-        subject: PublicSubject,
-        context: EventContext,
+        subject: { subject: string },
+        context: EventContextBase,
         reason: GapReason,
     ): void {
         for (const row of rows) {
@@ -1390,9 +1664,11 @@ export class EventsService extends PuterService {
     ): Promise<DurableSubscription[]> {
         const settling: DurableSubscription[] = [];
         for (const row of rows) {
-            const covered = this.services.acl
-                .permissionsFor(row.anchorUid, row.permission)
-                .includes(permission);
+            const covered = isKvToken(row.token)
+                ? crossAppKvPermissions(row.anchorUid).includes(permission)
+                : this.services.acl
+                      .permissionsFor(row.anchorUid, row.permission)
+                      .includes(permission);
             if (covered && !(await this.#anchorStillReachable(row)))
                 settling.push(row);
         }
@@ -1400,7 +1676,11 @@ export class EventsService extends PuterService {
     }
 
     /** Whether a row's holder can still reach its anchor, asked fresh. */
-    #anchorStillReachable(row: DurableSubscription): Promise<boolean> {
+    async #anchorStillReachable(row: DurableSubscription): Promise<boolean> {
+        if (isKvToken(row.token)) {
+            if (!isCrossAppKvRow(row.appUid, row.anchorUid)) return true;
+            return this.#kvGrantHolds(row, row.anchorUid);
+        }
         return this.#reachable(row, row);
     }
 
@@ -1469,7 +1749,7 @@ export class EventsService extends PuterService {
      * coming back, so it ends.
      */
     async #settleDeletedAnchor(
-        context: EventContext,
+        context: FsEventContext,
         candidates: readonly DispatchSubscription[],
     ): Promise<void> {
         const onAnchor = candidates.filter(
@@ -1994,6 +2274,15 @@ export class EventsService extends PuterService {
         return {
             resolveNode: (ref) => resolveNode(this.stores.fsEntry, ref),
             getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+        };
+    }
+
+    #kvDeps(): CrossAppKvDeps {
+        return {
+            enabled: this.crossAppKvEnabled,
+            getApp: (uid) => this.stores.app.getByUid(uid),
+            checkPermission: (actor, permission) =>
+                this.services.permission.check(actor, permission),
         };
     }
 

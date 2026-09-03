@@ -7,6 +7,7 @@ import { EventSubscription } from './subscription.js';
 /** @typedef {import('../types.js').EventHandler} EventHandler */
 /** @typedef {import('../types.js').OnLocalOptions} OnLocalOptions */
 /** @typedef {import('../types.js').PuterEvent} PuterEvent */
+/** @typedef {import('../types.js').PuterKvEvent} PuterKvEvent */
 
 /**
  * What the server says a subscription is, in its `subscribe` ack.
@@ -327,7 +328,7 @@ export class EventChannel {
         // An event for something this client has already unsubscribed from:
         // in flight when `off()` was called, and no longer anybody's.
         if ( ! sub || ! envelope.event ) return;
-        sub.deliver(/** @type {PuterEvent | EventGapMarker} */ (envelope.event));
+        sub.deliver(/** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event));
     }
 
     /**

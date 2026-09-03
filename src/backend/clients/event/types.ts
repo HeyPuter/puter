@@ -53,6 +53,15 @@ type FsCreateEvent = { node: FSEntry; entry: FSEntry; uid: string };
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IExtensionEventMap {}
 
+/**
+ * What a KV mutation did to a key. `expire` is a lifetime change rather than a
+ * value change, which is why it is not folded into `set`.
+ */
+export type KvOp = 'set' | 'del' | 'expire';
+
+/** A flush empties a whole namespace, so it is never reported per key. */
+export type KvMutation = KvOp | 'flush';
+
 export type EventMap = {
     // ---- Server lifecycle ----
     serverStart: Record<string, never>;
@@ -369,6 +378,29 @@ export type EventMap = {
         };
     };
     'storage.quota.bonus': { userId: number; extra: number };
+
+    // ---- Key-value ----
+    /**
+     * Keys of one namespace that changed together, announced after the write
+     * commits. `namespace` is `v1:<userUuid>:<appUid>` and `userId` is the same
+     * user by its row id — the only part a listener cannot derive from the
+     * namespace, and the one dispatch keys on.
+     *
+     * Distinct from `outer.kv.cacheInvalidated`, which carries encoded cache
+     * keys and is suppressed entirely when the read cache is off.
+     */
+    'kv.mutated': {
+        namespace: string;
+        userId: number;
+        keys: string[];
+        op: KvOp;
+    };
+    /**
+     * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
+     * key enumeration is truncated for a large namespace, so the keys it saw
+     * are not the keys it removed.
+     */
+    'kv.flushed': { namespace: string; userId: number };
 
     // ---- Metering ----
     // Recurring charges are pure mechanism here: the metering service knows

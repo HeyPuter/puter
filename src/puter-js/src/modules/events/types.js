@@ -1,19 +1,20 @@
 // Shapes shared across the `puter.events` surface. JSDoc-only; no runtime exports.
 
 /**
- * The node a subscription is keyed to. For a subject naming something that
- * does not exist yet, this is the nearest existing ancestor and the rest of
- * the subject became `match`.
+ * What a subscription is keyed to. For an `fs:` subject naming something that
+ * does not exist yet, this is the nearest existing ancestor and the rest of the
+ * subject became `match`. For a `kv:` subject there is no node: `uid` is the app
+ * whose store is watched and `path` is the key prefix it anchors at.
  *
  * @typedef {Object} EventAnchor
- * @property {string} uid The anchor node's uid.
- * @property {string} path The anchor node's absolute path.
+ * @property {string} uid The anchor node's uid, or the watched app's id.
+ * @property {string} path The anchor node's absolute path, or the key prefix.
  */
 
 /**
- * One change, as the server projects it. Nothing internal is included: a
- * subscriber gets the node, when it happened, and whether it was their own
- * doing.
+ * One filesystem change, as the server projects it. Nothing internal is
+ * included: a subscriber gets the node, when it happened, and whether it was
+ * their own doing.
  *
  * @typedef {Object} PuterEvent
  * @property {string} id Unique id for this event. Stable across the
@@ -26,6 +27,24 @@
  * @property {string} path The path of the node the event is about.
  * @property {boolean} self `true` when the change was made by the account
  *   holding the subscription — the flag to check to ignore your own writes.
+ * @property {number} ts Milliseconds since the epoch.
+ * @property {number} seq Position within one dispatch, for events that fan out
+ *   to several subscriptions at once.
+ */
+
+/**
+ * One key-value change. It carries `key` where a filesystem event carries `uid`
+ * and `path` — a KV change happens to a key in a store, and there is no node to
+ * name — and never the new value, so a delivery cannot become a read.
+ *
+ * @typedef {Object} PuterKvEvent
+ * @property {string} id Unique id for this event.
+ * @property {string} subject `kv:<appId>:<key>`, naming the key that changed.
+ * @property {'set' | 'del' | 'expire'} op `set` for a write, `del` for a
+ *   removal, `expire` when only the key's lifetime changed.
+ * @property {string} key The key the event is about.
+ * @property {boolean} self `true` when the change was made by the account
+ *   holding the subscription.
  * @property {number} ts Milliseconds since the epoch.
  * @property {number} seq Position within one dispatch, for events that fan out
  *   to several subscriptions at once.
@@ -54,8 +73,8 @@
  * more can be added to the call without breaking existing handlers.
  *
  * @typedef {Object} EventDelivery
- * @property {PuterEvent | EventGapMarker} event The delivered event, or a gap
- *   marker in place of events that were dropped.
+ * @property {PuterEvent | PuterKvEvent | EventGapMarker} event The delivered
+ *   event, or a gap marker in place of events that were dropped.
  */
 
 /**

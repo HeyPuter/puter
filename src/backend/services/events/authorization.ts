@@ -25,6 +25,10 @@ import type {
     AclMode,
     ResourceDescriptor,
 } from '../acl/ACLService.js';
+import {
+    appDataPermission,
+    appDataSharingAllowed,
+} from '../permission/appDataScopes.js';
 
 /**
  * Who may subscribe to an anchor, who may still be delivered from it, and which
@@ -196,6 +200,86 @@ export const checkDeliveryAuthorized = async (
     } catch {
         return false;
     }
+};
+
+// -- Cross-app KV ------------------------------------------------------
+
+/**
+ * Watching another app's KV namespace is the cross-app KV read, and takes the
+ * same three answers: the app is there, it has not opted out of sharing, and
+ * the caller holds a read grant on it. Checked at subscribe and again at every
+ * delivery — a standing push outlives the moment consent was given, which a
+ * one-shot read does not.
+ *
+ * `read` rather than the op that produced the event: a subscriber is told what
+ * changed, never allowed to change it.
+ */
+export const CROSS_APP_KV_CLASS = 'read';
+
+export interface CrossAppKvDeps {
+    /** Whether cross-app KV subjects are available on this install at all. */
+    enabled: boolean;
+    getApp: (uid: string) => Promise<{ metadata?: unknown } | null>;
+    checkPermission: (actor: Actor, permission: string) => Promise<boolean>;
+}
+
+export type CrossAppKvDenial =
+    | 'disabled'
+    | 'unknown_app'
+    | 'sharing_off'
+    | 'not_granted';
+
+/** Why this actor may not watch `targetAppUid`, or `null` when it may. */
+export const crossAppKvDenial = async (
+    actor: Actor,
+    targetAppUid: string,
+    deps: CrossAppKvDeps,
+): Promise<CrossAppKvDenial | null> => {
+    if (!deps.enabled) return 'disabled';
+
+    const target = await deps.getApp(targetAppUid);
+    if (!target) return 'unknown_app';
+    if (!appDataSharingAllowed(target)) return 'sharing_off';
+
+    const granted = await deps.checkPermission(
+        actor,
+        appDataPermission(targetAppUid, 'kv', CROSS_APP_KV_CLASS),
+    );
+    return granted ? null : 'not_granted';
+};
+
+/** The grants that, withdrawn, put a cross-app KV subscription in question. */
+export const crossAppKvPermissions = (targetAppUid: string): string[] => [
+    appDataPermission(targetAppUid),
+    appDataPermission(targetAppUid, 'kv'),
+    appDataPermission(targetAppUid, 'kv', CROSS_APP_KV_CLASS),
+];
+
+/** Subscribe-time form. Codes match the ones a cross-app KV read answers with. */
+export const assertCrossAppKvAuthorized = async (
+    actor: Actor,
+    targetAppUid: string,
+    deps: CrossAppKvDeps,
+): Promise<void> => {
+    const denial = await crossAppKvDenial(actor, targetAppUid, deps);
+    if (denial === null) return;
+    if (denial === 'disabled')
+        throw new HttpError(
+            403,
+            'kv: subscribing to another app’s data is not available',
+            { legacyCode: 'events_cross_app_disabled' },
+        );
+    if (denial === 'unknown_app')
+        throw new HttpError(404, `entity_not_found: app:${targetAppUid}`, {
+            legacyCode: 'subject_does_not_exist',
+        });
+    if (denial === 'sharing_off')
+        throw new HttpError(
+            403,
+            'kv: this app does not share its data with other apps',
+            { legacyCode: 'forbidden' },
+        );
+    throw new HttpError(403, 'Permission denied', { legacyCode: 'forbidden' });
 };
 
 /**

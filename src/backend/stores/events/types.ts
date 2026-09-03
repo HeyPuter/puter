@@ -74,10 +74,19 @@ export interface DispatchSubscription {
     subject: string;
     /** Anchor token the row is indexed under. */
     token: string;
+    /**
+     * What the row is anchored on, in its family's terms: an FS row names the
+     * node's uid and path, a KV row names the app whose namespace it watches
+     * and the key prefix its token stops at.
+     */
     anchorUid: string;
     anchorPath: string;
-    /** Glob relative to the anchor, or `null` for a node-form subscription. */
+    /**
+     * Glob the anchor's members are filtered by, or `null` when the anchor is
+     * exact. Relative to the anchor for FS; the whole key for KV.
+     */
     match: string | null;
+    /** FS rows only: KV subjects carry no operation filter. */
     op: FsOp | null;
     /** The app that created the row, and the scope of the three verbs. */
     appUid: string | null;

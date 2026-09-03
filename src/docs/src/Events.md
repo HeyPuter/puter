@@ -1,12 +1,12 @@
 ---
 title: Events
-description: Watch a user's files and react to changes as they happen.
+description: Watch a user's files and key-value data, and react to changes as they happen.
 platforms: [websites, apps, nodejs, workers]
 ---
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-The Events API tells your app when something changes. Subscribe to a *subject* — a file, a directory, a path that does not exist yet — and a handler runs every time something under it is created, written, moved, or removed.
+The Events API tells your app when something changes. Subscribe to a *subject* — a file, a directory, a path that does not exist yet, a key-value key — and a handler runs every time it changes.
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', ({ event }) => {
@@ -23,6 +23,8 @@ A subject names what you are watching, and optionally the one operation you care
 
 ```
 fs:<path or uid>[:<op>]
+kv:<key>
+kv:<appId>:<key>
 ```
 
 - **Path** — absolute (`/alice/Documents`) or home-relative (`~/Documents`). Subscribing to a directory covers everything under it, at any depth.
@@ -36,7 +38,36 @@ await puter.events.onLocal('fs:~/Pictures/*.png', handler);         // one segme
 await puter.events.onLocal('fs:~/Projects/**/build.log', handler);  // across directories
 ```
 
-Only `fs:` subjects can be subscribed to today.
+`fs:` and `kv:` subjects can be subscribed to; `notif:` is reserved and still rejected.
+
+### Key-value subjects
+
+A `kv:` subject watches your app's key-value store. Write it with just the key and it is read against the app you are running as:
+
+```js
+await puter.events.onLocal('kv:cart', ({ event }) => refresh(event.key));   // exactly the key `cart`
+await puter.events.onLocal('kv:cart*', handler);                            // every key starting with `cart`
+```
+
+> **Exact by default; add `*` to widen.** `kv:cart` matches the key `cart` and nothing else, while `kv:cart*` matches every key starting with `cart`. This is the opposite of [`puter.kv.list()`](/KV/list/), whose `pattern` is always a prefix match with or without the `*` — a subscription has to be able to tell one key from a whole subtree, and a list does not.
+
+Only a trailing `*` is allowed. A `*` in the middle, or a `?`, is rejected with `invalid_kv_pattern`, because the server has to be able to work out an event's subjects from the key alone.
+
+A key that contains `:` needs the fully qualified three-part form, since the second segment is always read as an app id:
+
+```js
+await puter.events.onLocal('kv:orders:pending', handler);   // app `orders`, key `pending`
+```
+
+Get your own app's id from `puter.appID` and build the subject from it when your keys are namespaced:
+
+```js
+await puter.events.onLocal(`kv:${puter.appID}:orders:pending`, handler);
+```
+
+The `subject` and `anchor` on the subscription you get back are always fully qualified, whichever form you subscribed with.
+
+Watching **another app's** key-value data takes the same consent as reading it: that app must not have opted out of data sharing, and the user must have granted your app `app-data:<appId>:kv:read`. It is checked when you subscribe and again on every delivery, so deliveries stop the moment either goes away. Where the feature is not enabled, a cross-app subject is refused with `events_cross_app_disabled`.
 
 ### Watching something that does not exist yet
 
@@ -57,7 +88,7 @@ Subscribing takes the same access as reading. A subject you cannot read — and 
 
 ## The event
 
-The handler is called with `{ event }`:
+The handler is called with `{ event }`. A filesystem change carries:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -70,7 +101,21 @@ The handler is called with `{ event }`:
 | `ts` | Number | When it happened, in milliseconds since the epoch. |
 | `seq` | Number | Position within one dispatch, for changes that fan out to several subscriptions. |
 
-Nothing else is included — in particular there is no field naming *who* made the change, because on a shared folder that would tell every subscriber who else is in there.
+A key-value change carries `key` where a filesystem change carries `uid` and `path` — there is no node to name — and a different set of ops:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | String | Unique id for the event. |
+| `subject` | String | `kv:<appId>:<key>`, naming the key that changed. |
+| `op` | String | `set` for a write, `del` for a removal, `expire` when only the key's lifetime changed. |
+| `key` | String | The key that changed. |
+| `self` | Boolean | As above. |
+| `ts` | Number | As above. |
+| `seq` | Number | As above. |
+
+Nothing else is included — in particular there is no field naming *who* made the change, because on a shared folder that would tell every subscriber who else is in there, and no field carrying the new **value**, so a subscription never becomes a way to read data the delivery check has not just re-authorized.
+
+Emptying a whole store with [`puter.kv.flush()`](/KV/flush/) delivers nothing: no subject names "everything in this namespace went", and the keys a flush can enumerate are not reliably the keys it removed.
 
 ### Gaps
 

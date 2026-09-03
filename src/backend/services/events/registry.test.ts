@@ -25,9 +25,13 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import {
     PUBLIC_SUBJECTS,
     UNPUBLISHED_INTERNAL_EVENTS,
+    lookupFsSubject,
+    lookupKvSubject,
     lookupPublicSubject,
     pushProjection,
-    type DeliveryContext,
+    type FsDeliveryContext,
+    type FsPublicSubject,
+    type KvDeliveryContext,
     type PublicSubject,
 } from './registry.js';
 
@@ -41,6 +45,9 @@ const PROJECTED_KEYS = [
     'ts',
     'uid',
 ];
+
+/** A KV event names a key where an FS event names a node. */
+const PROJECTED_KV_KEYS = ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts'];
 
 const entry = {
     id: 42,
@@ -77,7 +84,7 @@ const entry = {
     suggestedApps: [],
 } satisfies FSEntry;
 
-const delivery: DeliveryContext = {
+const delivery: FsDeliveryContext = {
     key: 'fs.write.file',
     entry,
     ancestors: [
@@ -108,6 +115,23 @@ const busKeysNeedingADecision = (): string[] => {
     return [...keys].map((match) => match[1]);
 };
 
+const kvDelivery: KvDeliveryContext = {
+    key: 'kv.mutated',
+    userUuid: 'user-uuid',
+    appUid: 'app-1234',
+    kvKey: 'cart:items',
+    op: 'set',
+    id: 'ev-2',
+    ts: 1_700_000_002,
+    self: true,
+    seq: 0,
+};
+
+const fsSubjects = (): FsPublicSubject[] =>
+    PUBLIC_SUBJECTS.filter(
+        (subject): subject is FsPublicSubject => subject.family === 'fs',
+    );
+
 describe('PUBLIC_SUBJECTS', () => {
     it('maps each internal key to exactly one subject', () => {
         const keys = PUBLIC_SUBJECTS.flatMap((subject) => subject.internal);
@@ -115,7 +139,7 @@ describe('PUBLIC_SUBJECTS', () => {
     });
 
     it('projects only the published shape', () => {
-        const subject = lookupPublicSubject('fs.write.file');
+        const subject = lookupFsSubject('fs.write.file');
         const projected = subject!.project(delivery);
         expect(Object.keys(projected).sort()).toEqual(PROJECTED_KEYS);
         expect(projected).toMatchObject({
@@ -131,7 +155,7 @@ describe('PUBLIC_SUBJECTS', () => {
     });
 
     it('leaks no entry internals into the projection', () => {
-        for (const subject of PUBLIC_SUBJECTS) {
+        for (const subject of fsSubjects()) {
             const projected = subject.project(delivery) as Record<
                 string,
                 unknown
@@ -143,7 +167,7 @@ describe('PUBLIC_SUBJECTS', () => {
     });
 
     it('anchors an event on its node and every ancestor', () => {
-        const subject = lookupPublicSubject('fs.create.file');
+        const subject = lookupFsSubject('fs.create.file');
         expect(subject!.tokens(delivery)).toEqual([
             'f#uid-node',
             'f#uid-parent',
@@ -155,11 +179,11 @@ describe('PUBLIC_SUBJECTS', () => {
     });
 
     it('requires list to subscribe — see alone is not enough', () => {
-        for (const subject of PUBLIC_SUBJECTS) expect(subject.mode).toBe('list');
+        for (const subject of fsSubjects()) expect(subject.mode).toBe('list');
     });
 
     it('produces no push payload while notify is null', () => {
-        for (const subject of PUBLIC_SUBJECTS) {
+        for (const subject of fsSubjects()) {
             expect(subject.notify).toBeNull();
             expect(
                 pushProjection(subject, subject.project(delivery)),
@@ -173,6 +197,60 @@ describe('PUBLIC_SUBJECTS', () => {
     });
 });
 
+describe('the kv subject', () => {
+    const subject = () => lookupKvSubject('kv.mutated')!;
+
+    it('projects a key where an fs event projects a node', () => {
+        const projected = subject().project(kvDelivery);
+
+        expect(Object.keys(projected).sort()).toEqual(PROJECTED_KV_KEYS);
+        expect(projected).toEqual({
+            id: 'ev-2',
+            subject: 'kv:app-1234:cart:items',
+            op: 'set',
+            key: 'cart:items',
+            self: true,
+            ts: 1_700_000_002,
+            seq: 0,
+        });
+    });
+
+    it('names the namespace app, never the namespace itself', () => {
+        const projected = subject().project(kvDelivery) as Record<
+            string,
+            unknown
+        >;
+        for (const leak of ['namespace', 'userUuid', 'uid', 'path'])
+            expect(projected[leak]).toBeUndefined();
+    });
+
+    it('carries the op the mutation reported', () => {
+        for (const op of ['set', 'del', 'expire'] as const)
+            expect(subject().project({ ...kvDelivery, op }).op).toBe(op);
+    });
+
+    it('anchors on the exact key and on its prefixes', () => {
+        expect(subject().tokens(kvDelivery)).toEqual([
+            'k#user-uuid#app-1234#cart:items',
+            'k#user-uuid#app-1234#',
+            'k#user-uuid#app-1234#cart:',
+        ]);
+        expect(subject().matchOn(kvDelivery)).toBe('cart:items');
+    });
+
+    it('globs over the whole key, with no delimiter to stop a `*`', () => {
+        expect(subject().matchSeparator).toBeNull();
+        expect(subject().matchScope('cart:', 'cart:items:1')).toBe(
+            'cart:items:1',
+        );
+    });
+
+    it('is not pushable and broadcasts by default', () => {
+        expect(subject().notify).toBeNull();
+        expect(subject().defaultDelivery).toBe('broadcast');
+    });
+});
+
 describe('lookupPublicSubject', () => {
     it('resolves a registered key', () => {
         expect(lookupPublicSubject('fs.move.node')?.subject).toBe('fs:*:move');
@@ -183,10 +261,17 @@ describe('lookupPublicSubject', () => {
         const unregistered: EventKey[] = [
             'fs.copy.node',
             'fs.storage.upload-progress',
+            'kv.flushed',
             'user.email-changed',
         ];
         for (const key of unregistered)
             expect(lookupPublicSubject(key)).toBeUndefined();
+    });
+
+    it('keeps the families apart', () => {
+        expect(lookupKvSubject('fs.write.file')).toBeUndefined();
+        expect(lookupFsSubject('kv.mutated')).toBeUndefined();
+        expect(lookupKvSubject('kv.mutated')?.subject).toBe('kv:*');
     });
 });
 

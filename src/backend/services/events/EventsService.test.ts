@@ -145,6 +145,14 @@ const actorFor = (id = userId): Actor =>
         effectiveApp: null,
     }) as unknown as Actor;
 
+/** The same account, acting as an app — what a `puter.js` call inside one is. */
+const appActorFor = (appUid: string, id = userId): Actor =>
+    ({
+        user: { id, uuid: `user-${id}`, username: `u${id}` },
+        app: { uid: appUid, id: 1 },
+        effectiveApp: { uid: appUid, id: 1 },
+    }) as unknown as Actor;
+
 /**
  * Paths the ACL says no to, and how loudly. The real check is exercised against
  * real grants in the integration suite; here access is data, so a test can say
@@ -173,9 +181,24 @@ const userStore = {
     }),
 };
 
+/** Apps the cross-app gate can be asked about, and what they share. */
+let apps: Map<string, { uid: string; id: number; metadata?: unknown } | null>;
+
 const appStore = {
-    getByUid: async (uid: string) => ({ uid, id: 1 }),
+    getByUid: async (uid: string) =>
+        apps.has(uid) ? apps.get(uid) : { uid, id: 1, metadata: null },
 };
+
+/** Cross-app grants the holder has, as permission strings. */
+let grants: Set<string>;
+let permissionChecks: string[];
+
+const permissionService = () => ({
+    check: async (_actor: Actor, permission: string) => {
+        permissionChecks.push(permission);
+        return grants.has(permission);
+    },
+});
 
 /**
  * The counter delivery decisions are cached under. Held here so a test can move
@@ -242,6 +265,7 @@ const buildService = (
                 ),
             },
             acl: aclService(),
+            permission: permissionService(),
         } as never,
     );
     built.onDelivered = (envelope) => counted.push(envelope);
@@ -327,6 +351,26 @@ const dispatch = async (node: FSEntry, key = 'fs.write.file' as const) =>
         ancestors: async () => ancestorChain(node.path),
     });
 
+/** Dispatch as the KV store's bus announcement does. */
+const dispatchKv = async (
+    keys: string[],
+    options: { appUid?: string; op?: 'set' | 'del' | 'expire' } = {},
+    on: EventsService = service,
+) =>
+    on.dispatchKv({
+        userId,
+        namespace: `v1:user-${userId}:${options.appUid ?? OWN_APP}`,
+        keys,
+        op: options.op ?? 'set',
+    });
+
+/** The app the KV tests act as, so "own namespace" has something to be. */
+const OWN_APP = 'app-own';
+const OTHER_APP = 'app-other';
+
+const subscribeKv = async (subject: string, actor = appActorFor(OWN_APP)) =>
+    (await service.subscribe(actor, socketId, { subject })).sub;
+
 beforeEach(() => {
     seq++;
     userId = 1000 + seq;
@@ -334,6 +378,9 @@ beforeEach(() => {
     commands = [];
     entries = new Map();
     denied = new Map();
+    apps = new Map();
+    grants = new Set();
+    permissionChecks = [];
     permissionGeneration = 1;
     redis = countingRedis(new MockRedis.Cluster(['redis://localhost:7001']));
     store = new EventSubscriptionStore(
@@ -1334,4 +1381,375 @@ it('sends only the projected shape, never an internal row', async () => {
 
 it('names the delivery channel the clients listen on', () => {
     expect(EVENTS_DELIVERY_CHANNEL).toBe('events.delivery');
+});
+
+// -- KV subjects -----------------------------------------------------
+
+describe('resolving a kv subject', () => {
+    it('anchors an exact key on the key itself, with no filter', async () => {
+        const sub = await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        expect(sub).toMatchObject({
+            subject: `kv:${OWN_APP}:cart`,
+            anchor: { uid: OWN_APP, path: 'cart' },
+            match: null,
+            op: null,
+        });
+    });
+
+    it('anchors a widened key on the prefix the `*` landed on', async () => {
+        const sub = await subscribeKv(`kv:${OWN_APP}:cart:*`);
+
+        expect(sub.anchor).toEqual({ uid: OWN_APP, path: 'cart:' });
+        expect(sub.match).toBeNull();
+    });
+
+    it('backs the anchor off to a delimiter and files the rest as a filter', async () => {
+        const sub = await subscribeKv(`kv:${OWN_APP}:user:12*`);
+
+        expect(sub.anchor).toEqual({ uid: OWN_APP, path: 'user:' });
+        expect(sub.match).toBe('user:12*');
+    });
+
+    it('expands a two-segment subject against the acting app', async () => {
+        const sub = await subscribeKv('kv:cart');
+
+        expect(sub.subject).toBe(`kv:${OWN_APP}:cart`);
+        expect(sub.anchor.uid).toBe(OWN_APP);
+    });
+
+    it('reads a third segment as the key, not as sugar', async () => {
+        // `kv:orders:pending` names app `orders`, which is what makes the wire
+        // form unambiguous — and why a key with a `:` in it is written out.
+        const sub = await subscribeKv('kv:orders:pending', actorFor());
+
+        expect(sub.subject).toBe('kv:orders:pending');
+        expect(sub.anchor).toEqual({ uid: 'orders', path: 'pending' });
+    });
+
+    it('expands against the global namespace when there is no app', async () => {
+        const sub = await subscribeKv('kv:cart', actorFor());
+
+        expect(sub.subject).toBe('kv:os-global:cart');
+        expect(sub.anchor.uid).toBe('os-global');
+    });
+
+    it('refuses a pattern the grammar cannot enumerate from a key', async () => {
+        for (const subject of [
+            `kv:${OWN_APP}:ca*rt`,
+            `kv:${OWN_APP}:cart?`,
+        ])
+            await expect(subscribeKv(subject)).rejects.toSatisfy(
+                (err: unknown) =>
+                    isHttpError(err) && err.legacyCode === 'invalid_kv_pattern',
+            );
+    });
+
+    it('keys two users of one app under different tokens, and delivers to only one', async () => {
+        vi.useFakeTimers();
+        const mine = await subscribeKv(`kv:${OWN_APP}:cart`);
+        const otherId = userId + 500;
+        const theirs = (
+            await service.subscribe(
+                appActorFor(OWN_APP, otherId),
+                `socket-${otherId}`,
+                { subject: `kv:${OWN_APP}:cart` },
+            )
+        ).sub;
+
+        expect(mine.subId).not.toBe(theirs.subId);
+        await expect(
+            store.watchedTokens(userId, [`k#user-${otherId}#${OWN_APP}#cart`]),
+        ).resolves.toEqual([]);
+
+        // Same app, same key, two different users: each write reaches only
+        // the subscriber whose own namespace it landed in.
+        await dispatchKv(['cart']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(sent.map((one) => one.envelope.subId)).toEqual([mine.subId]);
+
+        sent.length = 0;
+        await service.dispatchKv({
+            userId: otherId,
+            namespace: `v1:user-${otherId}:${OWN_APP}`,
+            keys: ['cart'],
+            op: 'set',
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(sent.map((one) => one.envelope.subId)).toEqual([theirs.subId]);
+    });
+});
+
+describe('delivering a kv change', () => {
+    it('delivers an exact key and nothing under it', async () => {
+        vi.useFakeTimers();
+        const sub = await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart']);
+        await dispatchKv(['cart:items']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.subId).toBe(sub.subId);
+        expect(sent[0].envelope.event).toMatchObject({
+            subject: `kv:${OWN_APP}:cart`,
+            op: 'set',
+            key: 'cart',
+        });
+    });
+
+    it('delivers everything under a widened prefix, at any depth', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:cart:*`);
+
+        await dispatchKv(['cart:items', 'cart:a:b:c', 'basket:x']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(
+            sent.map((one) => (one.envelope.event as { key: string }).key),
+        ).toEqual(['cart:items', 'cart:a:b:c']);
+    });
+
+    it('applies a trailing-star filter with no delimiter to stop it', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:user:12*`);
+
+        await dispatchKv(['user:12', 'user:1234', 'user:12:deep', 'user:99']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(
+            sent.map((one) => (one.envelope.event as { key: string }).key),
+        ).toEqual(['user:12', 'user:1234', 'user:12:deep']);
+    });
+
+    it('reaches a subscription past the segment cap through its filter', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:a:b:c:d:e:f:g`);
+
+        await dispatchKv(['a:b:c:d:e:f:g', 'a:b:c:d:e:f:h']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.event).toMatchObject({ key: 'a:b:c:d:e:f:g' });
+    });
+
+    it('carries the op the mutation reported', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], { op: 'del' });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent[0].envelope.event).toMatchObject({ op: 'del' });
+    });
+
+    it('leaves another app`s namespace alone', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], { appUid: OTHER_APP });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
+
+    it('sends only the projected shape', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(Object.keys(sent[0].envelope.event).sort()).toEqual([
+            'id',
+            'key',
+            'op',
+            'self',
+            'seq',
+            'subject',
+            'ts',
+        ]);
+    });
+});
+
+describe('what a kv dispatch costs', () => {
+    it('spends no redis command for a user with nothing subscribed', async () => {
+        await dispatchKv(['cart']);
+        commands = [];
+
+        for (let i = 0; i < 5; i++) await dispatchKv(['cart']);
+
+        expect(commands).toEqual([]);
+    });
+
+    it('spends nothing at all when the switch is off', async () => {
+        const { service: off } = buildService({
+            events: { enabled: false },
+        } as IConfig);
+
+        await dispatchKv(['cart'], {}, off);
+
+        expect(commands).toEqual([]);
+    });
+
+    it('spends one command, and no store read, on an unwatched key', async () => {
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+        await dispatchKv(['elsewhere']);
+        commands = [];
+
+        await dispatchKv(['elsewhere']);
+
+        expect(commands).toEqual(['smismember']);
+        expect(sent).toEqual([]);
+    });
+
+    it('asks about a whole batch of keys in one membership test', async () => {
+        await subscribeKv(`kv:${OWN_APP}:cart:*`);
+        const keys = Array.from({ length: 20 }, (_, i) => `cart:${i}`);
+        await dispatchKv(keys);
+        commands = [];
+
+        await dispatchKv(keys);
+
+        expect(commands).toEqual(['smismember', 'pipeline']);
+    });
+});
+
+describe('the cross-app kv gate', () => {
+    const grantRead = (app: string) =>
+        grants.add(`app-data:${app}:kv:read`);
+
+    const crossAppService = () =>
+        buildService({
+            events: { enabled: true, crossAppKv: true },
+        } as IConfig);
+
+    it('is off unless the config turns it on', () => {
+        expect(service.crossAppKvEnabled).toBe(false);
+        expect(crossAppService().service.crossAppKvEnabled).toBe(true);
+    });
+
+    it('refuses a cross-app subject with a stable code while off', async () => {
+        await expect(subscribeKv(`kv:${OTHER_APP}:cart`)).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.legacyCode === 'events_cross_app_disabled',
+        );
+    });
+
+    it('asks nothing at all for the app`s own namespace', async () => {
+        ({ service, sent, delivered } = {
+            ...crossAppService(),
+            delivered: [],
+        } as never);
+        vi.useFakeTimers();
+
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+        await dispatchKv(['cart']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(permissionChecks).toEqual([]);
+    });
+
+    it('asks nothing for a user acting on their own data', async () => {
+        ({ service, sent } = crossAppService());
+        vi.useFakeTimers();
+
+        await subscribeKv(`kv:${OTHER_APP}:cart`, actorFor());
+        await dispatchKv(['cart'], { appUid: OTHER_APP });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(permissionChecks).toEqual([]);
+    });
+
+    it('delivers to an app the user granted', async () => {
+        ({ service, sent } = crossAppService());
+        grantRead(OTHER_APP);
+        vi.useFakeTimers();
+
+        await subscribeKv(`kv:${OTHER_APP}:cart`);
+        await dispatchKv(['cart'], { appUid: OTHER_APP });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(permissionChecks).toContain(`app-data:${OTHER_APP}:kv:read`);
+    });
+
+    it('refuses an app the user never granted', async () => {
+        ({ service } = crossAppService());
+
+        await expect(subscribeKv(`kv:${OTHER_APP}:cart`)).rejects.toSatisfy(
+            (err: unknown) => isHttpError(err) && err.legacyCode === 'forbidden',
+        );
+    });
+
+    it('answers an app that is not there as absent', async () => {
+        ({ service } = crossAppService());
+        grantRead('app-gone');
+        apps.set('app-gone', null);
+
+        await expect(subscribeKv('kv:app-gone:cart')).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.legacyCode === 'subject_does_not_exist',
+        );
+    });
+
+    it('refuses an app that opted out of sharing', async () => {
+        ({ service } = crossAppService());
+        grantRead(OTHER_APP);
+        apps.set(OTHER_APP, {
+            uid: OTHER_APP,
+            id: 1,
+            metadata: { share_app_data: false },
+        });
+
+        await expect(subscribeKv(`kv:${OTHER_APP}:cart`)).rejects.toSatisfy(
+            (err: unknown) => isHttpError(err) && err.legacyCode === 'forbidden',
+        );
+    });
+
+    it('shares an app with no metadata at all — sharing is opt-out', async () => {
+        ({ service } = crossAppService());
+        grantRead(OTHER_APP);
+        apps.set(OTHER_APP, { uid: OTHER_APP, id: 1 });
+
+        await expect(
+            subscribeKv(`kv:${OTHER_APP}:cart`),
+        ).resolves.toMatchObject({ anchor: { uid: OTHER_APP } });
+    });
+
+    it('stops delivering the moment the grant goes', async () => {
+        ({ service, sent } = crossAppService());
+        grantRead(OTHER_APP);
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OTHER_APP}:cart`);
+
+        grants.clear();
+        await dispatchKv(['cart'], { appUid: OTHER_APP });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
+
+    it('stops delivering the moment the target stops sharing', async () => {
+        ({ service, sent } = crossAppService());
+        grantRead(OTHER_APP);
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OTHER_APP}:cart`);
+
+        // Nothing bumps the permission generation here, which is why the KV
+        // re-check does not lean on the cross-event cache.
+        apps.set(OTHER_APP, {
+            uid: OTHER_APP,
+            id: 1,
+            metadata: { share_app_data: false },
+        });
+        await dispatchKv(['cart'], { appUid: OTHER_APP });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
 });
