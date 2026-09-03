@@ -76,15 +76,6 @@ export const backlogPolicyFor = (reason: SuspendedReason): BacklogPolicy =>
 export const isResumable = (reason: SuspendedReason): boolean =>
     BACKLOG_POLICY[reason].resumable;
 
-/**
- * Whether a subscription accrues metering lines. The seam the metering work
- * reads: a suspended subscription is not delivering, so it is not billed for
- * standing there.
- */
-export const isMetered = (
-    row: Pick<DurableSubscription, 'suspendedAt'>,
-): boolean => row.suspendedAt === null;
-
 /** Whether a suspended row is in the state a given resume would lift. */
 export const suspendedFor = (
     row: Pick<DurableSubscription, 'suspendedAt' | 'suspendedReason'>,

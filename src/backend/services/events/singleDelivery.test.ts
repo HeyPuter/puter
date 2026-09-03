@@ -22,6 +22,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_REGION_PENDING_CEILING,
+    EVENTS_SINGLE_DELIVERY_LIMIT,
+    EVENTS_WORKER_INVOCATION_LIMIT,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
@@ -33,6 +35,8 @@ import type {
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
+import type { UsageInput } from '../metering/types.js';
+import { EVENTS_COSTS } from './costs.js';
 import { EventsService, type DeliveryEnvelope } from './EventsService.js';
 import { fsAnchorToken } from './subjects.js';
 import type {
@@ -62,6 +66,19 @@ let invoked: WorkerInvocation[];
 let rows: Map<string, DurableSubscription>;
 let entries: Map<string, FSEntry>;
 let alarms: ReturnType<typeof vi.fn>;
+let notified: ReturnType<typeof vi.fn>;
+let metered: MeteredLine[];
+/** Whether the holder being delivered to still has budget. */
+let hasCredits: boolean;
+
+/** One buffered usage line, with the identity it was written as. */
+interface MeteredLine {
+    userUuid: string | undefined;
+    appUid: string | null;
+    usageType: string;
+    usageAmount: number;
+    costOverride?: number;
+}
 
 /** Whether this region holds a connection for the row being delivered to. */
 let socketConnected = true;
@@ -164,6 +181,9 @@ beforeEach(async () => {
     rows = new Map();
     entries = new Map();
     alarms = vi.fn();
+    notified = vi.fn();
+    metered = [];
+    hasCredits = true;
 
     redis = new MockRedis.Cluster(['redis://localhost:7001']);
     await redis.del('ev:qx', 'ev:qc');
@@ -198,6 +218,22 @@ beforeEach(async () => {
                     rows.delete(row.subId);
                     return { userId: row.holderUserId, generation: 1 };
                 },
+                suspend: async (
+                    suspending: readonly DurableSubscription[],
+                    reason: string,
+                ) => {
+                    const suspended: DurableSubscription[] = [];
+                    for (const row of suspending) {
+                        const next = {
+                            ...row,
+                            suspendedAt: Math.floor(Date.now() / 1000),
+                            suspendedReason: reason,
+                        };
+                        rows.set(row.subId, next);
+                        suspended.push(next);
+                    }
+                    return { suspended, bumps: [{ userId, generation: 1 }] };
+                },
             },
             fsEntry: {
                 getEntryByUuid: async (uid: string) =>
@@ -226,6 +262,18 @@ beforeEach(async () => {
                     message: 'Subject does not exist',
                     fields: { code: 'subject_does_not_exist' },
                 }),
+            },
+            notification: { notify: notified },
+            metering: {
+                bufferIncrementUsages: (actor: Actor, usages: UsageInput[]) => {
+                    for (const usage of usages)
+                        metered.push({
+                            userUuid: actor.user?.uuid,
+                            appUid: actor.app?.uid ?? null,
+                            ...usage,
+                        });
+                },
+                hasAnyUsageCached: async () => hasCredits,
             },
         } as never,
     );
@@ -343,6 +391,36 @@ describe('a delivery owed to exactly one consumer', () => {
             handlerName: 'onWrite',
             holderUserId: userId,
         });
+        // Three attempts at the one event it was never acked for — not three
+        // bills. A retry after a lease expiry is not a new delivery.
+        expect(metered).toHaveLength(1);
+    });
+
+    it('bills a retried delivery once, however many attempts an outage costs', async () => {
+        socketConnected = false;
+        const row = await register({ targets: ['worker'] });
+        await dispatch();
+
+        expect(invoked).toHaveLength(1);
+        expect(metered).toHaveLength(1);
+
+        // The handler keeps failing to settle it: every retry is the same
+        // owed event, so none of these further attempts bills again.
+        for (let i = 0; i < 4; i++) {
+            jump(31_000);
+            await service.sweepPending();
+        }
+        expect(invoked).toHaveLength(5);
+        expect(metered).toHaveLength(1);
+
+        // It finally lands. Still one bill for the one event delivered.
+        workerOutcome = 'settled';
+        jump(31_000);
+        await service.sweepPending();
+
+        expect(invoked).toHaveLength(6);
+        expect(metered).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
     });
 
     it('goes straight to the handler when nothing is connected', async () => {
@@ -550,5 +628,102 @@ describe('keeping the region counter honest', () => {
         await service.sweepPending();
 
         await expect(pending.regionDepth()).resolves.toBe(1);
+    });
+});
+
+describe('what a delivery costs its holder', () => {
+    it('bills a `single` at its own rate, to the account whose row it is', async () => {
+        const appUid = `app-${seq}`;
+        await register({ appUid });
+
+        await dispatch();
+
+        expect(delivered).toHaveLength(1);
+        expect(metered).toEqual([
+            {
+                userUuid: `user-${userId}`,
+                appUid,
+                usageType: 'events:delivery:single',
+                usageAmount: 1,
+                costOverride: EVENTS_COSTS['events:delivery:single'],
+            },
+        ]);
+    });
+
+    it('bills a handler run once, and only when one actually ran', async () => {
+        socketConnected = false;
+        await register();
+
+        await dispatch();
+
+        expect(invoked).toHaveLength(1);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('stops handing out, suspends and tells the holder when the balance is gone', async () => {
+        const row = await register();
+        hasCredits = false;
+
+        await dispatch();
+
+        expect(sent).toEqual([]);
+        expect(invoked).toEqual([]);
+        expect(metered).toEqual([]);
+        expect(rows.get(row.subId)).toMatchObject({
+            suspendedReason: 'no_credit',
+        });
+        expect(notified).toHaveBeenCalledWith(
+            [userId],
+            expect.objectContaining({ reason: 'no_credit' }),
+            expect.objectContaining({ type: 'app.events.ended' }),
+        );
+        // The event itself is held rather than dropped: the suspension's own
+        // window is what decides how long it survives.
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+    });
+});
+
+describe('the budgets a `single` is delivered under', () => {
+    it('stands a gap marker in for an event past the per-minute budget', async () => {
+        const row = await register({ targets: ['socket'] });
+
+        // One consumer holds one lease at a time, so this is the client loop:
+        // take the delivery, ack it, and let the next one out.
+        for (let i = 0; i <= EVENTS_SINGLE_DELIVERY_LIMIT.limit; i++) {
+            await dispatch(entry({ uid: `file-${seq}-${i}` }));
+            const last = sent[sent.length - 1];
+            if (last?.ackId)
+                await service.ackDelivery(actorFor(), {
+                    subId: row.subId,
+                    id: last.ackId,
+                });
+        }
+
+        const ops = sent.map((envelope) => envelope.event.op);
+        expect(ops.filter((op) => op !== 'gap')).toHaveLength(
+            EVENTS_SINGLE_DELIVERY_LIMIT.limit,
+        );
+        expect(sent[sent.length - 1].event).toMatchObject({
+            op: 'gap',
+            reason: 'delivery_rate_limit',
+        });
+        // A marker is not a delivery, so the last one is not billed.
+        expect(metered).toHaveLength(EVENTS_SINGLE_DELIVERY_LIMIT.limit);
+    });
+
+    it('holds a delivery whose app has spent its invocations, without failing it', async () => {
+        socketConnected = false;
+        workerOutcome = 'settled';
+        const appUid = `app-${seq}`;
+        const row = await register({ appUid, targets: ['worker'] });
+
+        for (let i = 0; i <= EVENTS_WORKER_INVOCATION_LIMIT.limit; i++)
+            await dispatch(entry({ uid: `file-${seq}-${i}` }));
+
+        expect(invoked).toHaveLength(EVENTS_WORKER_INVOCATION_LIMIT.limit);
+        // Nothing ran for the last one, so nothing was delivered or billed —
+        // and it is still owed rather than failed.
+        expect(metered).toHaveLength(EVENTS_WORKER_INVOCATION_LIMIT.limit);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
     });
 });

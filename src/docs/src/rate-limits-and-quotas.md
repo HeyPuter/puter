@@ -159,15 +159,25 @@ Over these, **the share still succeeds** — only the announcement is dropped. T
 
 One write can reach many subscriptions, so events are bounded on both halves: how much you may register, and how much any one event may turn into.
 
+Durable subscriptions are the ones that outlive a connection, so they are the half that varies by plan:
+
+| Limit                                     | Paid | Free | Anonymous |
+| ----------------------------------------- | ---- | ---- | --------- |
+| Durable subscriptions per account         | 500  | 100  | —         |
+| Durable subscriptions per app, per account | 100  | 25   | —         |
+
+A temporary (anonymous) account cannot create durable subscriptions at all — `subscribe` fails with `events_durable_requires_account`, and session subscriptions, which live and die with the connection, are the surface it has. Past either cap the call fails with `events_subscription_limit`; unsubscribing frees a slot immediately.
+
 | Limit                                        | All accounts |
 | -------------------------------------------- | ------------ |
 | Subscriptions per connection                 | 50           |
-| Durable subscriptions per account            | 500          |
 | `subscribe` / `unsubscribe` calls per minute | 60           |
 | Subscription listings per minute             | 120          |
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
-| Deliveries per minute, per subscription      | 600          |
+| Broadcast deliveries per minute, per subscription | 600     |
+| `single` deliveries per minute, per subscription | 120      |
+| Handler invocations per minute, per app      | 60           |
 | Acknowledgements per minute                  | 600          |
 | Undelivered deliveries per subscription      | 10,000       |
 | Undelivered deliveries per *suspended* subscription | 100   |
@@ -184,7 +194,7 @@ One write can reach many subscriptions, so events are bounded on both halves: ho
 
 Subscriptions come in two kinds. A **session** subscription lives with the connection that made it: it is dropped when the connection closes, and a reconnecting client subscribes again. A **durable** subscription outlives every connection — it is created over the API, listed and revoked from the account, and keeps delivering until you remove it or it expires.
 
-The 51st subscription on one connection, and the 501st durable subscription on one account, both fail with `events_subscription_limit`. Over the call budget, `subscribe` and `unsubscribe` fail with `too_many_requests`. Subscribing to something you cannot read fails with `subject_does_not_exist` — the same answer as subscribing to something that is not there, so the call cannot be used to find out which.
+The 51st subscription on one connection, and the durable subscription past your plan's cap, both fail with `events_subscription_limit`. Over the call budget, `subscribe` and `unsubscribe` fail with `too_many_requests`. Subscribing to something you cannot read fails with `subject_does_not_exist` — the same answer as subscribing to something that is not there, so the call cannot be used to find out which.
 
 A durable subscription may carry a `context`: JSON that is stored with it and handed to its handler on every delivery, capped at a hard **4 KB** and rejected over that with `events_context_too_large` — client-side, before the request. It is stored in plaintext and read only on the delivery path; listings return its **key names and a content hash**, never its values. For anything larger, store it in a file and put the path in `context`. An app sees and revokes only the subscriptions it created; a session acting for the account sees them all, including ones left behind by an app that has since been removed.
 
@@ -214,6 +224,23 @@ The three per-event ceilings do not fail your call — they truncate the deliver
 A **background delivery** — one that runs your app's handler with nobody there — takes the user's consent, the per-app permission `events:background`, and a subscription targeting `worker` without it is refused with `events_background_consent_required`. A handler has **30 seconds** to answer each invocation. Answering `2xx` takes the delivery; `4xx` refuses it, and it is dropped with a `gap` marker carrying `reason: 'handler_rejected'` rather than sent again to the same answer; `5xx`, `429` and a timeout are all "not now", and the delivery is held **2 seconds** before the next attempt, doubling each time up to **5 minutes**. **Five failures in a row** — refusals included — suspend the subscription with `failures`, hold what it is owed under the suspended-backlog rules above, and notify the app's developer. Until an events worker is deployed for an app there is nothing to invoke, so a worker-target subscription self-limits along exactly this path.
 
 A `single` subscription is delivered to exactly one consumer, which has **30 seconds** to acknowledge each delivery before it is offered again — twice to a connected client, then to the subscription's handler. Until it is acknowledged it is held for you, so a consumer that is away is a backlog that grows: **10,000** undelivered deliveries per subscription, after which the oldest are dropped and one `gap` marker with `reason: 'backlog_overflow'` takes their place. Each region also holds at most **1,000,000** undelivered deliveries across every subscription it serves, and sheds the oldest first — with the same marker — before it reaches that. A redelivery after a missed acknowledgement is normal and expected: deliveries are at-least-once, `event.id` is stable across them, and a handler that runs twice on the same id should do nothing the second time.
+
+Both per-minute delivery budgets are spent per subscription and answered with a `gap` marker carrying `reason: 'delivery_rate_limit'` rather than an error. The handler budget is different: a delivery that arrives when its app has spent the minute's invocations is **not** failed and does not count as a handler failure — it stays owed and goes out on a later attempt.
+
+#### What events cost
+
+Deliveries are metered to the **subscription's holder** — your data, your subscriptions, your bill. A subscription that sits idle costs nothing; the plan quotas above are what bound how many you can hold.
+
+| Line                        | Rate           | Counted per                     |
+| --------------------------- | -------------- | ------------------------------- |
+| `events:delivery:broadcast` | 10 µ¢          | delivered event                 |
+| `events:delivery:single`    | 100 µ¢         | delivered event                 |
+
+A `single` costs more because it is leased and acknowledged; a broadcast copy is a socket write. Handler runs bill separately through the usual worker path.
+
+Only deliveries that actually happen are billed. An event a filter excluded, several writes the 250 ms window collapsed into one, a delivery a permission re-check stopped, and every `gap` marker are all free — a marker says something was lost, and charging for the loss would be charging you twice. Session subscriptions are billed at the broadcast rate like any other.
+
+Deliveries stop when the holder's balance runs out: the subscription is suspended with `suspendedReason: 'no_credit'`, the holder is notified, and nothing further is metered against it. What it was owed is held for **1 hour**. Restoring the balance resumes it — checked periodically rather than the instant a payment lands, so allow a few minutes after topping up.
 
 ### Peer connections
 

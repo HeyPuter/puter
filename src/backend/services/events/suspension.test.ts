@@ -26,7 +26,6 @@ import {
 import { SUSPENDED_REASONS } from '../../stores/events/DurableSubscriptionStore.js';
 import {
     backlogPolicyFor,
-    isMetered,
     isResumable,
     suspendedFor,
 } from './suspension.js';
@@ -78,11 +77,6 @@ describe('what a suspension state answers', () => {
         expect(isResumable('failures')).toBe(true);
         expect(isResumable('no_credit')).toBe(true);
         expect(isResumable('permission_revoked')).toBe(false);
-    });
-
-    it('stops metering while a row is out of service', () => {
-        expect(isMetered({ suspendedAt: null })).toBe(true);
-        expect(isMetered({ suspendedAt: 1_700_000_000 })).toBe(false);
     });
 
     it('matches a row against the reason a resume would lift', () => {

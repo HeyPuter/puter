@@ -28,7 +28,12 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import {
+    EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
+    EVENTS_SUBSCRIBE_LIMIT,
+} from '../../controllers/events/limits.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import { makeActor } from '../../core/actor.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -178,7 +183,13 @@ const quiet = () =>
     );
 
 beforeAll(async () => {
-    env = await setupPuterTestEnv({ events: { enabled: true } } as IConfig);
+    env = await setupPuterTestEnv({
+        events: { enabled: true },
+        // Seeded accounts carry no email, which the plan machinery reads as a
+        // temporary account — and a temporary account holds no durable rows.
+        // Plans are not what these cases are about.
+        unlimitedMetering: true,
+    } as IConfig);
     username = env.users.user.username;
     const user = await env.server.stores.user.getByUsername(username);
     userId = user!.id;
@@ -742,5 +753,133 @@ describe('with events switched off', () => {
             expect(response.status).toBe(503);
             expect(response.body.code).toBe('events_disabled');
         }
+    });
+});
+
+/**
+ * The tiering the rest of this file opts out of. Seeded accounts carry no
+ * email, which is exactly what the plan machinery reads as a temporary
+ * account — so this block boots with plans left on and gives the account an
+ * email when it wants to be a registered one.
+ */
+describe('what a plan lets an account hold', () => {
+    let tiered: PuterTestEnv;
+    let tieredUserId: number;
+    let tieredAnchor: string;
+    let tieredApp: { uid: string; token: string };
+
+    const tieredCall = async (
+        path: string,
+        token: string,
+        body: object,
+    ): Promise<ApiResponse> => {
+        const response = await fetch(new URL(path, tiered.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+        });
+        return {
+            status: response.status,
+            body: (await response.json()) as Record<string, unknown>,
+        };
+    };
+
+    const subscribeTiered = (token: string) =>
+        tieredCall('/events/subscribe', token, { subject: `fs:${tieredAnchor}` });
+
+    /**
+     * Move the account between the plans the caps are written against: an
+     * address on file is what tells them apart.
+     */
+    const setEmail = async (email: string | null) => {
+        await tiered.server.stores.user.update(tieredUserId, { email });
+        const user = await tiered.server.stores.user.getById(tieredUserId);
+        tiered.server.services.metering.invalidateActorSubscription(user!.uuid);
+    };
+
+    beforeAll(async () => {
+        tiered = await setupPuterTestEnv({
+            events: { enabled: true },
+        } as IConfig);
+        const user = await tiered.server.stores.user.getByUsername(
+            tiered.users.user.username,
+        );
+        tieredUserId = user!.id;
+
+        tieredAnchor = `/${tiered.users.user.username}/tiered`;
+        await tiered.server.services.fs.mkdir(tieredUserId, {
+            path: tieredAnchor,
+            createMissingParents: true,
+        });
+
+        const uid = `app-${uuidv4()}`;
+        await tiered.server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+            [uid, uid, uid, `https://${uid}.example/`, tieredUserId],
+        );
+        const entry =
+            await tiered.server.stores.fsEntry.getEntryByPath(tieredAnchor);
+        const actor = await tiered.server.services.auth.authenticate(
+            tiered.users.user.token,
+        );
+        await tiered.server.services.permission.grantUserAppPermission(
+            actor.actor!,
+            uid,
+            `fs:${entry!.uid}:list`,
+        );
+        // A durable app row targets the worker by default, so the caps are only
+        // reachable once the background consent behind that target is given.
+        await tiered.server.services.permission.grantUserAppPermission(
+            actor.actor!,
+            uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+        tieredApp = {
+            uid,
+            token: await tiered.server.services.auth.getUserAppToken(
+                actor.actor!,
+                uid,
+            ),
+        };
+    }, BOOT_TIMEOUT_MS);
+
+    afterAll(async () => {
+        await tiered?.shutdown();
+    });
+
+    it('refuses a temporary account outright — it has session subscriptions', async () => {
+        await setEmail(null);
+
+        const refused = await subscribeTiered(tiered.users.user.token);
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_durable_requires_account');
+    });
+
+    it('holds a free account to the free per-app cap', async () => {
+        await setEmail(`${tiered.users.user.username}@example.invalid`);
+        const cap =
+            EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP.bySubscription[
+                DEFAULT_FREE_SUBSCRIPTION
+            ];
+
+        // Both servers in this file share the process-wide Redis mock, so this
+        // user id's call budget already carries the other server's subscribes.
+        await tiered.server.clients.redis.del(
+            `rate:${EVENTS_SUBSCRIBE_LIMIT.scope}:${tieredUserId}`,
+        );
+        for (let i = 0; i < cap; i++)
+            expect((await subscribeTiered(tieredApp.token)).status).toBe(200);
+
+        const refused = await subscribeTiered(tieredApp.token);
+        expect(refused.status).toBe(429);
+        expect(refused.body.code).toBe('events_subscription_limit');
+
+        // The account itself is nowhere near its own cap, so its own session
+        // may still subscribe.
+        expect((await subscribeTiered(tiered.users.user.token)).status).toBe(200);
     });
 });

@@ -24,14 +24,20 @@ import {
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_CONSECUTIVE_FAILURES,
+    EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
+    EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+    EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
+    EVENTS_WORKER_INVOCATION_LIMIT,
+    limitFor,
     SUSPENDED_ROW_TTL_DAYS,
+    type SubscriptionQuota,
 } from '../../controllers/events/limits.js';
-import type { Actor } from '../../core/actor.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import { makeActor, type Actor } from '../../core/actor.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type {
     ReanchorInput,
@@ -70,6 +76,7 @@ import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
 import type { PageResult } from '../../util/pagination.js';
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
+import { assertActorHasCredits } from '../metering/enforcement.js';
 import {
     appSocketRoom,
     type SocketSpecifier,
@@ -100,6 +107,12 @@ import {
     type SubscriptionGrant,
 } from './authorization.js';
 import { DeliveryCoalescer } from './coalescer.js';
+import {
+    DELIVERY_USAGE_TYPES,
+    EVENTS_COSTS,
+    EVENTS_COST_UNITS,
+    type EventsUsageType,
+} from './costs.js';
 import { DeliveryAuthCache } from './deliveryAuthCache.js';
 import {
     FILTER_EVALUATIONS_PER_EVENT,
@@ -303,6 +316,28 @@ interface AddressedDelivery {
     /** False for a row that asked for its handler and no socket copy. */
     socket: boolean;
     worker?: WorkerInvocation;
+    meter: DeliveryMeter;
+    /**
+     * Whether this specific call is the one that charges for the event. Always
+     * true for `broadcast` (one send, no retries); a `single` retry after a
+     * lease expiry carries `false` — the same event was already charged for on
+     * whichever attempt reached here first.
+     */
+    bill: boolean;
+}
+
+/**
+ * Who a delivery is billed to, and at which class's rate. Carried with the
+ * delivery rather than looked up when it lands: by then the row that answers
+ * both may already have been suspended or removed.
+ */
+interface DeliveryMeter {
+    holderUserId: number;
+    /** The app whose subscription this is, so usage is attributable to it. */
+    appUid: string | null;
+    deliveryClass: DeliveryClass;
+    /** Only a durable row has a state to suspend when the balance runs out. */
+    durable: boolean;
 }
 
 /**
@@ -418,6 +453,30 @@ const PENDING_DRAIN_BATCH = 25;
  */
 const DELIVERY_TOKEN_TTL = '5m';
 
+// -- Metering ---------------------------------------------------------
+
+/**
+ * How long a holder's metering identity is reused, and how many are held.
+ *
+ * Deliveries for one holder arrive in bursts, and the identity behind them —
+ * their user row, and the app the subscription belongs to — does not move
+ * between them. Without this, every delivered event pays a user lookup to
+ * record a line worth a fraction of a microcent.
+ */
+const METER_ACTOR_TTL_MS = 60_000;
+const METER_ACTOR_LIMIT = 5_000;
+
+/** Rows one page of the credit sweep takes, and pages one sweep takes. */
+const NO_CREDIT_SWEEP_BATCH = 500;
+const NO_CREDIT_SWEEP_MAX_BATCHES = 200;
+
+/**
+ * How often suspensions waiting on a restored balance are re-checked. Well
+ * inside the hour a `no_credit` backlog is held for, so a top-up gets the
+ * subscription back before what it was owed expires.
+ */
+const NO_CREDIT_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
     id: string;
@@ -446,6 +505,19 @@ const handlerRequired = (): HttpError =>
     new HttpError(400, 'A `single` subscription needs a handlerName', {
         legacyCode: 'events_handler_required',
     });
+
+/**
+ * A temporary account gets session subscriptions and nothing else. A durable
+ * row outlives the account itself and is revoked from a settings surface a
+ * temporary account never reaches — so this is refused outright rather than
+ * sold as a quota of zero.
+ */
+const durableNeedsAccount = (): HttpError =>
+    new HttpError(
+        403,
+        'A temporary account may only subscribe for the life of its connection',
+        { legacyCode: 'events_durable_requires_account' },
+    );
 
 const handlerNotFound = (name: string): HttpError =>
     new HttpError(404, `No handler named \`${name}\` is published`, {
@@ -594,6 +666,23 @@ const deliverable = (row: DispatchSubscription): boolean => {
 const isSingle = (row: DispatchSubscription): boolean =>
     row.durable === true && row.delivery === 'single';
 
+/** Who one row's deliveries are billed to, and at which rate. */
+const meterFor = (row: DispatchSubscription): DeliveryMeter => ({
+    holderUserId: row.holderUserId,
+    appUid: row.appUid,
+    deliveryClass: isSingle(row) ? 'single' : 'broadcast',
+    durable: row.durable === true,
+});
+
+/** The marker that stands in for an event a delivery budget refused. */
+const rateLimitGap = (event: DeliverableEvent): GapMarker => ({
+    id: event.id,
+    subject: event.subject,
+    op: 'gap',
+    reason: 'delivery_rate_limit',
+    ts: event.ts,
+});
+
 /**
  * Whether a KV row reaches past its own namespace. Read off the app the row was
  * created by — which is the actor's `effectiveApp` at subscribe time, so an
@@ -733,10 +822,16 @@ export class EventsService extends PuterService {
     readonly #compiled = new Map<string, CompiledMatch>();
     readonly #lookups = new Map<string, Promise<boolean>>();
     readonly #refreshTimers = new Map<string, ReturnType<typeof setInterval>>();
+    /** Holder identities the metering lines are written as. */
+    readonly #meterActors = new Map<
+        string,
+        { actor: Actor; expiresAt: number }
+    >();
     #coalescer: DeliveryCoalescer<AddressedDelivery> | null = null;
     #expirySweep: ReturnType<typeof setInterval> | null = null;
     #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
+    #creditSweep: ReturnType<typeof setInterval> | null = null;
 
     /**
      * What runs an app's handler. Replaced at start-up by the invoker that
@@ -790,6 +885,7 @@ export class EventsService extends PuterService {
 
         this.#armExpirySweep();
         this.#armPendingSweep();
+        this.#armCreditSweep();
     }
 
     override onServerPrepareShutdown(): void {
@@ -799,11 +895,29 @@ export class EventsService extends PuterService {
         this.#expirySweep = null;
         if (this.#pendingSweep) clearInterval(this.#pendingSweep);
         this.#pendingSweep = null;
+        if (this.#creditSweep) clearInterval(this.#creditSweep);
+        this.#creditSweep = null;
     }
 
     override onServerShutdown(): void {
         for (const timer of this.#refreshTimers.values()) clearInterval(timer);
         this.#refreshTimers.clear();
+    }
+
+    /**
+     * What one delivery costs, in the shape the driver surfaces report theirs.
+     * Nothing consumes this at runtime — the rates are published on the
+     * rate-limits page, which is where a developer actually reads them.
+     */
+    getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(EVENTS_COSTS).map(
+            ([usageType, ucentsPerUnit]) => ({
+                usageType,
+                ucentsPerUnit,
+                unit: EVENTS_COST_UNITS[usageType as EventsUsageType],
+                source: 'service:events',
+            }),
+        );
     }
 
     /** The master switch. Read on every write, so it stays a field lookup. */
@@ -985,6 +1099,7 @@ export class EventsService extends PuterService {
 
         const delivery = parseDelivery(request?.delivery);
         const appUid = actor.effectiveApp?.uid ?? null;
+        const limits = await this.#subscriptionQuota(actor);
         const targets = parseTargets(request?.targets, delivery, appUid);
         const handlerName = parseHandlerName(request?.handlerName);
         const handlerHash = parseHandlerHash(request?.handlerHash);
@@ -1025,10 +1140,44 @@ export class EventsService extends PuterService {
             context,
             permission: anchor.permission,
             expiresAt,
+            limits,
         });
         this.#publishGeneration(bump, true);
 
         return { sub: toDurableView(row) };
+    }
+
+    /**
+     * How many durable rows this caller's plan allows, in total and for the app
+     * they are acting as. The store enforces them against one count, so the
+     * plan is read here and the counting stays where the index is.
+     *
+     * A deployment with no metering has no plans to read, and is held to the
+     * paid caps.
+     */
+    async #subscriptionQuota(actor: Actor): Promise<SubscriptionQuota> {
+        const plan = await this.#planId(actor);
+        if (
+            plan !== null &&
+            limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, plan) === 0
+        )
+            throw durableNeedsAccount();
+        return {
+            perUser: limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, plan),
+            perApp: limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP, plan),
+        };
+    }
+
+    /** The plan this actor is on, or `null` where there are no plans. */
+    async #planId(actor: Actor): Promise<string | null> {
+        const metering = this.services.metering;
+        if (!metering) return null;
+        try {
+            return (await metering.getActorSubscription(actor)).id;
+        } catch (err) {
+            console.warn('[events] could not resolve a plan', err);
+            return null;
+        }
     }
 
     /**
@@ -1372,6 +1521,50 @@ export class EventsService extends PuterService {
         return this.#sweepInBatches((batchSize) =>
             this.stores.durableSubscription.sweepSuspended(cutoff, batchSize),
         );
+    }
+
+    /**
+     * Put back subscriptions a restored balance releases. Lazy on purpose: a
+     * top-up is not something this service hears about, and coupling delivery
+     * to the payment path would make one more thing that has to be told. The
+     * cost of the delay is bounded by how long a `no_credit` backlog is held.
+     */
+    async sweepNoCredit(): Promise<number> {
+        if (!this.enabled || !this.services.metering) return 0;
+
+        let resumed = 0;
+        let after = 0;
+        for (let pass = 0; pass < NO_CREDIT_SWEEP_MAX_BATCHES; pass++) {
+            const page =
+                await this.stores.durableSubscription.listSuspendedPage(
+                    'no_credit',
+                    after,
+                    NO_CREDIT_SWEEP_BATCH,
+                );
+            const holders = new Set(page.rows.map((row) => row.holderUserId));
+            for (const holderUserId of holders) {
+                const actor = await this.#meterActor({
+                    holderUserId,
+                    appUid: null,
+                    deliveryClass: 'broadcast',
+                    durable: true,
+                });
+                if (!actor) continue;
+                try {
+                    await assertActorHasCredits(
+                        this.services.metering,
+                        actor,
+                        this.config,
+                    );
+                } catch {
+                    continue;
+                }
+                resumed += await this.resumeForCredit(holderUserId);
+            }
+            if (page.nextId === null) break;
+            after = page.nextId;
+        }
+        return resumed;
     }
 
     async #sweepInBatches(
@@ -1963,7 +2156,7 @@ export class EventsService extends PuterService {
             // coalesced or broadcast — collapsing two of them would drop one
             // the subscription was promised.
             if (isSingle(row)) {
-                await this.#owe(row, event);
+                await this.#oweSingle(row, event);
                 continue;
             }
 
@@ -1973,6 +2166,9 @@ export class EventsService extends PuterService {
                 envelope: { subId: row.subId, event },
                 socket: targets.includes('socket'),
                 worker: this.#workerInvocation(row, event),
+                meter: meterFor(row),
+                // `broadcast` is one send per delivery — no retry to dedup.
+                bill: true,
             });
         }
 
@@ -2198,7 +2394,9 @@ export class EventsService extends PuterService {
             };
             // A marker is a delivery, so it takes the same route its
             // subscription's events would: queued for a `single`, sent for the
-            // rest.
+            // rest. It is never rate limited and never metered — it exists to
+            // say something was lost, and charging for that would bill the
+            // holder for the loss.
             if (isSingle(row)) {
                 void this.#owe(row, marker);
                 continue;
@@ -2206,10 +2404,14 @@ export class EventsService extends PuterService {
             // A marker rides the socket; a row with none has nowhere to hear
             // it, and sending nothing must not count as a delivery.
             if (!targetsOf(row).includes('socket')) continue;
-            this.#send({
+            void this.#send({
                 target: deliveryTarget(row),
                 socket: true,
                 envelope: { subId: row.subId, event: marker },
+                meter: meterFor(row),
+                // A gap marker is never billed regardless — `#delivered`'s own
+                // op check is the real guard — but it never earns the claim.
+                bill: false,
             });
         }
     }
@@ -2572,6 +2774,24 @@ export class EventsService extends PuterService {
     // -- Owed deliveries ---------------------------------------------
 
     /**
+     * One `single` event, or the marker that says its subscription is being
+     * delivered faster than the class allows. Spent before the queue: a budget
+     * checked at hand-out time would let a backlog build that nothing can ever
+     * work through.
+     */
+    async #oweSingle(
+        row: DispatchSubscription,
+        event: DeliverableEvent,
+    ): Promise<void> {
+        const allowed = await checkRateLimit(
+            `${EVENTS_SINGLE_DELIVERY_LIMIT.scope}:${row.subId}`,
+            EVENTS_SINGLE_DELIVERY_LIMIT.limit,
+            EVENTS_SINGLE_DELIVERY_LIMIT.window,
+        );
+        await this.#owe(row, allowed ? event : rateLimitGap(event));
+    }
+
+    /**
      * Queue a `single` and try to hand it straight over. The queue comes first:
      * an attempt that fails after it is recorded is a retry, where one that
      * fails before it is a lost event.
@@ -2622,6 +2842,11 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         claimed: ClaimedDelivery,
     ): Promise<boolean> {
+        const meter = meterFor(row);
+        // Held, not dropped: a delivery its holder cannot pay for waits out the
+        // suspension's window and goes out if the balance comes back.
+        if (!(await this.#chargeable(meter, row.subId))) return false;
+
         const targets = targetsOf(row);
         const target = deliveryTarget(row);
 
@@ -2637,7 +2862,7 @@ export class EventsService extends PuterService {
                 row.subId,
                 claimed.entryId,
             );
-            this.#send({
+            await this.#send({
                 target,
                 socket: true,
                 envelope: {
@@ -2646,6 +2871,8 @@ export class EventsService extends PuterService {
                     ackRequired: true,
                     ackId: claimed.entryId,
                 },
+                meter,
+                bill: await this.#firstAttempt(row.subId, claimed),
             });
             return false;
         }
@@ -2656,8 +2883,17 @@ export class EventsService extends PuterService {
         const invocation = this.#workerInvocation(row, claimed.event);
         if (!invocation) return false;
 
-        const outcome = await this.worker.invoke(invocation);
-        this.onDelivered({ subId: row.subId, event: claimed.event });
+        // Over the invocation budget nothing ran, so nothing was delivered and
+        // the lease is the backoff — and the budget refusal itself must not
+        // spend the one bill this entry gets, nor count against the handler.
+        const outcome = await this.#invokeHandler(invocation);
+        if (outcome === null) return false;
+
+        this.#delivered(
+            { subId: row.subId, event: claimed.event },
+            meter,
+            await this.#firstAttempt(row.subId, claimed),
+        );
         if (outcome === 'settled') {
             await this.stores.pendingDelivery.clearFailures(row.subId);
             await this.stores.pendingDelivery.settle(
@@ -2711,6 +2947,22 @@ export class EventsService extends PuterService {
                 err,
             );
         }
+    }
+
+    /**
+     * Whether this is the first genuine attempt at this entry — across however
+     * many times it is claimed, retried and handed to a different transport. A
+     * `single` retries the same entry after a lease expiry, and that is one
+     * owed event, not a new one each time: only the attempt that gets here
+     * first is billed. A gap marker is never billed at all, so it never spends
+     * the claim either.
+     */
+    async #firstAttempt(
+        subId: string,
+        claimed: ClaimedDelivery,
+    ): Promise<boolean> {
+        if (claimed.event.op === 'gap') return false;
+        return this.stores.pendingDelivery.markBilled(subId, claimed.entryId);
     }
 
     /** What the handler seam is handed, or null for a row that wants none. */
@@ -2833,29 +3085,35 @@ export class EventsService extends PuterService {
 
     async #flush(delivery: AddressedDelivery): Promise<void> {
         try {
+            if (
+                !(await this.#chargeable(
+                    delivery.meter,
+                    delivery.envelope.subId,
+                ))
+            )
+                return;
+
             const allowed = await checkRateLimit(
                 `${EVENTS_BROADCAST_DELIVERY_LIMIT.scope}:${delivery.envelope.subId}`,
                 EVENTS_BROADCAST_DELIVERY_LIMIT.limit,
                 EVENTS_BROADCAST_DELIVERY_LIMIT.window,
             );
             if (allowed) {
-                this.#send(delivery);
+                await this.#send(delivery);
                 return;
             }
-            const event = delivery.envelope.event as ProjectedEvent;
-            this.#send({
+            // The marker goes to the socket only: running the handler on a
+            // notice that its event was dropped is the invocation the budget
+            // was refusing.
+            await this.#send({
                 target: delivery.target,
                 socket: delivery.socket,
+                meter: delivery.meter,
                 envelope: {
                     subId: delivery.envelope.subId,
-                    event: {
-                        id: event.id,
-                        subject: event.subject,
-                        op: 'gap',
-                        reason: 'delivery_rate_limit',
-                        ts: event.ts,
-                    },
+                    event: rateLimitGap(delivery.envelope.event),
                 },
+                bill: false,
             });
         } catch (err) {
             console.warn('[events] delivery failed', err);
@@ -2868,7 +3126,7 @@ export class EventsService extends PuterService {
      * the connection. A durable row may also want its handler run, which
      * happens alongside the socket copy and at most once per delivery.
      */
-    #send(delivery: AddressedDelivery): void {
+    async #send(delivery: AddressedDelivery): Promise<void> {
         if (delivery.socket) {
             try {
                 void this.services.socket
@@ -2885,33 +3143,179 @@ export class EventsService extends PuterService {
             }
         }
 
+        let invoked = false;
         if (delivery.worker) {
-            const invocation = delivery.worker;
             // At-most-once by construction: a `broadcast` invocation is never
             // retried, which is why the docs ask handlers to be idempotent
             // rather than promising them each event exactly once. It counts
             // toward nothing either — a row whose socket copies are arriving
             // must not be stopped by a handler nobody is waiting on.
             try {
-                void this.worker.invoke(invocation).catch((err: unknown) => {
-                    console.warn('[events] handler invocation failed', err);
-                });
+                invoked = (await this.#invokeHandler(delivery.worker)) !== null;
             } catch (err) {
                 console.warn('[events] handler invocation failed', err);
             }
         }
 
-        this.onDelivered(delivery.envelope);
+        // Nothing carried it, so nothing was delivered — and a delivery that
+        // did not happen is not billed.
+        if (delivery.socket || invoked)
+            this.#delivered(delivery.envelope, delivery.meter, delivery.bill);
+    }
+
+    /**
+     * One event reached a subscriber. Metering rides the same call the seam
+     * does, so a delivery cannot be reported without being charged for: nothing
+     * filtered out, coalesced away, rate limited or refused for credit gets
+     * here, and a gap marker — a notice of loss rather than a delivery — is
+     * reported without a line. `bill` is false for a `single` retry: the event
+     * it carries was already charged for on an earlier attempt.
+     */
+    #delivered(
+        envelope: DeliveryEnvelope,
+        meter: DeliveryMeter,
+        bill: boolean,
+    ): void {
+        this.onDelivered(envelope);
+        if (envelope.event.op === 'gap' || !bill) return;
+        void this.#meterDelivery(meter);
     }
 
     /**
      * Called once per event that actually reached a subscriber, gap markers
-     * included. This is the seam metering hangs off — one delivered event is
-     * one line, which is why nothing filtered out, coalesced away or rate
-     * limited can arrive here.
+     * included.
      */
     onDelivered(_envelope: DeliveryEnvelope): void {
         return;
+    }
+
+    // -- Metering ----------------------------------------------------
+
+    /**
+     * Record one delivered event against its subscription's holder. Buffered
+     * rather than written: a line is worth a fraction of a microcent and they
+     * arrive per event, so writing each one would cost more than it records.
+     */
+    async #meterDelivery(meter: DeliveryMeter): Promise<void> {
+        const metering = this.services.metering;
+        if (!metering) return;
+        try {
+            const actor = await this.#meterActor(meter);
+            if (!actor) return;
+            const usageType = DELIVERY_USAGE_TYPES[meter.deliveryClass];
+            metering.bufferIncrementUsages(actor, [
+                {
+                    usageType,
+                    usageAmount: 1,
+                    costOverride: EVENTS_COSTS[usageType],
+                },
+            ]);
+        } catch (err) {
+            console.warn('[events] could not meter a delivery', err);
+        }
+    }
+
+    /**
+     * Whether this holder's deliveries can still be charged for. Answered from
+     * the metering service's own cache, so it costs a map read per coalesced
+     * delivery rather than a lookup per event; the account that cannot pay has
+     * the subscription suspended and is told once, and comes back through the
+     * credit sweep.
+     */
+    async #chargeable(meter: DeliveryMeter, subId: string): Promise<boolean> {
+        const actor = await this.#meterActor(meter);
+        if (!actor) return true;
+
+        try {
+            await assertActorHasCredits(
+                this.services.metering,
+                actor,
+                this.config,
+            );
+            return true;
+        } catch (err) {
+            if (!isHttpError(err) || err.statusCode !== 402) {
+                // Not being able to read a balance is our problem, not a reason
+                // to stop delivering.
+                console.warn('[events] could not read a balance', err);
+                return true;
+            }
+        }
+
+        // A session row has no state to suspend and nothing that outlives the
+        // connection: it simply stops being delivered to.
+        if (meter.durable && (await this.suspendForNoCredit(subId)))
+            await this.#notifyNoCredit(meter.holderUserId, meter.appUid);
+        return false;
+    }
+
+    /** Tell a holder their subscriptions stopped, and what brings them back. */
+    async #notifyNoCredit(
+        holderUserId: number,
+        appUid: string | null,
+    ): Promise<void> {
+        try {
+            // The holder's news rather than the developer's — they are the one
+            // billed, and the one who can act on it.
+            await this.services.notification.notify(
+                [holderUserId],
+                {
+                    title: 'Event delivery stopped',
+                    reason: 'no_credit',
+                },
+                { type: 'app.events.ended', appUid },
+            );
+        } catch (err) {
+            console.warn('[events] could not report an empty balance', err);
+        }
+    }
+
+    /**
+     * Run a handler, unless this (account, app) has spent its invocations for
+     * the minute. `null` says nothing ran: a `single` stays owed and its lease
+     * paces the next attempt, and a `broadcast` copy is simply not made.
+     */
+    async #invokeHandler(
+        invocation: WorkerInvocation,
+    ): Promise<WorkerInvocationOutcome | null> {
+        const allowed = await checkRateLimit(
+            `${EVENTS_WORKER_INVOCATION_LIMIT.scope}:${invocation.holderUserId}:${invocation.appUid ?? ''}`,
+            EVENTS_WORKER_INVOCATION_LIMIT.limit,
+            EVENTS_WORKER_INVOCATION_LIMIT.window,
+        );
+        if (!allowed) return null;
+        return this.worker.invoke(invocation);
+    }
+
+    /**
+     * The identity a holder's lines are written as: their account, acting as
+     * the app whose subscription this is, so usage lands where the account can
+     * see which app produced it.
+     */
+    async #meterActor(meter: DeliveryMeter): Promise<Actor | null> {
+        const key = `${meter.holderUserId}|${meter.appUid ?? ''}`;
+        const now = Date.now();
+        const held = this.#meterActors.get(key);
+        if (held && held.expiresAt > now) return held.actor;
+
+        const user = await this.stores.user.getById(meter.holderUserId);
+        if (!user) return null;
+        const actor = makeActor({
+            user,
+            app: meter.appUid ? { uid: meter.appUid } : null,
+        });
+
+        // Insertion-ordered, so the oldest goes when a burst of one-off holders
+        // would otherwise grow this without bound.
+        if (this.#meterActors.size >= METER_ACTOR_LIMIT) {
+            const oldest = this.#meterActors.keys().next().value;
+            if (oldest !== undefined) this.#meterActors.delete(oldest);
+        }
+        this.#meterActors.set(key, {
+            actor,
+            expiresAt: now + METER_ACTOR_TTL_MS,
+        });
+        return actor;
     }
 
     // -- Hot-path cache ----------------------------------------------
@@ -3092,6 +3496,17 @@ export class EventsService extends PuterService {
         const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
         sweep.unref?.();
         this.#expirySweep = sweep;
+    }
+
+    #armCreditSweep(): void {
+        if (!this.enabled) return;
+        const sweep = setInterval(() => {
+            void this.sweepNoCredit().catch((err) => {
+                console.warn('[events] credit sweep failed', err);
+            });
+        }, NO_CREDIT_SWEEP_INTERVAL_MS);
+        sweep.unref?.();
+        this.#creditSweep = sweep;
     }
 
     #armPendingSweep(): void {

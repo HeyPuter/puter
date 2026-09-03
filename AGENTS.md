@@ -94,6 +94,7 @@ Follow the same layered structure inside an extension — unless it only needs a
 - Vitest; test files sit next to the code they test (`*.test.ts` / `*.test.js`). Run with `npm run test:backend`.
 - **Mock data, not methods.** Stub inputs (fixtures, fake rows, payloads), not the function under test or the layer beneath it — over-mocking produces tests that pass while production breaks. If you must mock, mock at a real boundary (a client/external service).
 - **Prefer the test server over mocking deps.** `setupPuterTestEnv()` in [src/backend/testUtil.ts](src/backend/testUtil.ts) boots a fully in-memory backend; hit a real database/client shape where reasonable — integration shapes catch what mocked unit tests miss.
+- **Test code, not docs.** Never write a test that reads a file under `src/docs/` and asserts on its wording or numbers. Docs are kept in step by the PR (see the limits rule above) and checked in review; a test that greps a markdown page fails on every rewording and verifies nothing about behavior.
 
 ---
 

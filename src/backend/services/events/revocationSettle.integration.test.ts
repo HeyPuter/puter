@@ -223,7 +223,13 @@ const clearRows = async () => {
 };
 
 beforeAll(async () => {
-    env = await setupPuterTestEnv({ events: { enabled: true } } as IConfig);
+    env = await setupPuterTestEnv({
+        events: { enabled: true },
+        // Seeded accounts carry no email, which the plan machinery reads as a
+        // temporary account — and a temporary account holds no durable rows.
+        // Plans are not what these cases are about.
+        unlimitedMetering: true,
+    } as IConfig);
 
     const ownerRow = await env.server.stores.user.getByUsername(
         env.users.user.username,

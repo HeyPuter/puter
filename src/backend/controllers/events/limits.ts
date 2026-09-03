@@ -18,6 +18,10 @@
  */
 
 import type { RouteRateLimit } from '../../core/http/types';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 
 // -- Shared event limits ---------------------------------------------
 //
@@ -38,6 +42,40 @@ const userWindow = (
     window = 60_000,
 ): RouteRateLimit => ({ scope, limit, window, key: 'user' });
 
+/**
+ * A cap that varies by plan, in the shape route gates already declare theirs
+ * in: the base is what a subscribed account sees, and `bySubscription` carves
+ * the free tiers out beneath it. A plan nobody enumerated falls through to the
+ * base, so a new one is generous rather than accidentally throttled.
+ */
+export interface TieredLimit {
+    limit: number;
+    bySubscription: Record<string, number>;
+}
+
+const tiered = (paid: number, free: number, temp: number): TieredLimit => ({
+    limit: paid,
+    bySubscription: {
+        [DEFAULT_FREE_SUBSCRIPTION]: free,
+        [DEFAULT_TEMP_SUBSCRIPTION]: temp,
+    },
+});
+
+/** The cap one plan sees. An unresolved plan is held to the base. */
+export const limitFor = (
+    tier: TieredLimit,
+    subscriptionId: string | null,
+): number =>
+    (subscriptionId === null
+        ? undefined
+        : tier.bySubscription[subscriptionId]) ?? tier.limit;
+
+/** The two counts a durable subscribe is held to, already resolved by plan. */
+export interface SubscriptionQuota {
+    perUser: number;
+    perApp: number;
+}
+
 // -- Subscription surface --------------------------------------------
 
 /**
@@ -55,10 +93,23 @@ export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
  *
  * These are table rows that keep costing after the client that made them is
  * gone — a delivery each time their anchor changes, and a cache entry in every
- * region that sees a write. Counted over the holder index. Per-plan tiering
- * arrives with the metering that prices them.
+ * region that sees a write. Counted over the holder index. A temporary account
+ * holds none: nothing outlives its connection to deliver to.
  */
-export const EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER = 500;
+export const EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER = tiered(500, 100, 0);
+
+/**
+ * Durable subscriptions one app may hold for one account.
+ *
+ * Below the per-account cap so that one app cannot spend an account's whole
+ * budget: the account-wide number is what the watched-token set costs, and this
+ * is what any single app may take of it.
+ */
+export const EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP = tiered(100, 25, 0);
+
+/** Most rows any account can hold, whatever its plan — a read bound, not a gate. */
+export const EVENTS_DURABLE_SUBSCRIPTIONS_MAX =
+    EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit;
 
 /**
  * How long a suspended durable subscription is kept before it is deleted.
@@ -151,6 +202,33 @@ export const EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT = 50;
 export const EVENTS_BROADCAST_DELIVERY_LIMIT = userWindow(
     'events:delivery',
     600,
+);
+
+/**
+ * `single` deliveries per minute, per subscription.
+ *
+ * A fifth of the broadcast budget: each one is leased, acknowledged and may run
+ * an app's handler, so it costs an order of magnitude more than a socket copy.
+ * Over it the event is not queued — a gap marker takes its place, so the
+ * consumer learns it fell behind instead of inheriting a backlog it can never
+ * work through.
+ */
+export const EVENTS_SINGLE_DELIVERY_LIMIT = userWindow(
+    'events:delivery:single',
+    120,
+);
+
+/**
+ * Handler invocations per minute, per (account, app).
+ *
+ * The one term of the fan-out product that costs real compute, so it is capped
+ * per app rather than per subscription — an app cannot widen it by holding more
+ * subscriptions. A delivery that arrives over the budget is not failed: it
+ * stays owed, and its lease is the backoff.
+ */
+export const EVENTS_WORKER_INVOCATION_LIMIT = userWindow(
+    'events:worker:invoke',
+    60,
 );
 
 /**

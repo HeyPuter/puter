@@ -168,6 +168,9 @@ const heldForMs = async (subId: string): Promise<number> => {
 beforeAll(async () => {
     env = await setupPuterTestEnv({
         events: { enabled: true, invokeTimeoutMs: INVOKE_TIMEOUT_MS },
+        // Seeded accounts carry no email, which the plan machinery reads as a
+        // temporary account — and a temporary account holds no durable rows.
+        unlimitedMetering: true,
     } as IConfig);
 
     const user = await env.server.stores.user.getByUsername(
