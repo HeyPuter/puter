@@ -19,18 +19,15 @@
 
 /**
  * The events worker runtime, end to end and with nothing stubbed: publishing
- * handlers deploys a real worker through the local worker backend, a write
- * under a watched folder is claimed, invoked over HTTP, executed inside the
- * worker runtime, and the answer settles (or fails) the lease.
+ * writes rows and deploys nothing, the first delivery brings the script up in
+ * the local worker backend, and the handler runs inside it with the arguments
+ * the invocation carried and no ambient token of its own.
  *
  * The observable side effect is the design's own example — the handler calls
- * `fetch(ctx.endpoint, …)` — because that is what a delivered token's
- * environment can always do. The handler also reports the token it ran as, so
- * the suite can pin, server-side, that what reached the worker is the
- * subscriber scoped to exactly the subscription's grant. (The general FS/KV
- * HTTP routes still refuse access tokens — `allowAccessToken` is per-route —
- * so in-worker `user.fs`/`user.kv` calls are a surface still to be opened,
- * not something this suite can assert yet.)
+ * `fetch(ctx.sink, …)` — because that is what a delivered token's environment
+ * can always do. The handler also reports the token it ran as and what the
+ * isolate left lying around, so the suite can pin, from inside the worker, that
+ * a handler is the subscriber and nothing more.
  */
 
 import http from 'node:http';
@@ -49,21 +46,27 @@ import {
     EVENTS_CONSECUTIVE_FAILURES,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
+import { EVENTS_INVOKE_PATH } from '../../clients/events/EventsWorkerInvokerClient.js';
+import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
-import { EVENTS_WORKER_FILE_PREFIX } from './workerSource.js';
+import { eventsInvokeKey, eventsWorkerScript } from './workerRuntime.js';
+import { handlerSetHash } from './workerSource.js';
 
 const BOOT_TIMEOUT_MS = 180_000;
 const TEST_TIMEOUT_MS = 60_000;
-/** Long enough for a cold dispatch, short enough to test the timeout path. */
-const INVOKE_TIMEOUT_MS = 3_000;
+/** Long enough for a cold deploy, short enough to test the timeout path. */
+const INVOKE_TIMEOUT_MS = 20_000;
+const INTERNAL_SECRET = 'events-internal-secret';
 
 interface SinkPost {
     kind: string;
     path?: string;
     label?: string;
     token?: string;
+    /** What the isolate exposes to handler code, reported from inside it. */
+    ambient?: Record<string, string>;
 }
 
 const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
@@ -71,10 +74,16 @@ const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-            kind: 'ingest',
+            kind: ctx.kind || 'ingest',
             path: event.path,
             label: ctx.label,
             token: user.authToken,
+            ambient: {
+                me: typeof me,
+                router: typeof router,
+                puterAuth: typeof puter_auth,
+                invokeKey: typeof events_invoke_key,
+            },
         }),
     });
     await ack();
@@ -90,8 +99,6 @@ let anchor: string;
 let anchorUid: string;
 let appUid: string;
 let appToken: string;
-let workerName: string;
-let workerUrl: string;
 let sink: http.Server;
 let sinkUrl: string;
 let sinkPosts: SinkPost[];
@@ -100,8 +107,21 @@ let workerCreates: number;
 const events = () => env.server.services.events;
 const pending = () => env.server.stores.pendingDelivery;
 const durable = () => env.server.stores.durableSubscription;
-const subdomainRow = () =>
-    env.server.stores.subdomain.getBySubdomain(`workers.puter.${workerName}`);
+const localWorkers = () => env.server.services.localworkerservice;
+
+/** The script the app's published set currently deploys as. */
+const scriptName = async (): Promise<string> =>
+    eventsWorkerScript(
+        handlerSetHash(await env.server.stores.eventHandler.setForApp(appUid)),
+    );
+
+/** Whether that script is up in the local worker backend. */
+const isResident = async (script: string): Promise<boolean> =>
+    (await localWorkers().dispatchEventsWorker(
+        new Request(`http://${script}.workers.puter.localhost/`, {
+            method: 'GET',
+        }),
+    )) !== null;
 
 const readBody = async (req: http.IncomingMessage): Promise<string> => {
     const chunks: Buffer[] = [];
@@ -144,6 +164,36 @@ const api = async (
     };
 };
 
+const publishAll = (
+    handlers: { name: string; source: string }[],
+): Promise<{ status: number; body: Record<string, unknown> }> =>
+    api('POST', '/events/handlers/publishAll', { handlers });
+
+/** What the events dispatcher calls when a script is not in its namespace. */
+const rehydrate = async (
+    body: object,
+    secret: string | null = INTERNAL_SECRET,
+): Promise<{ status: number; body: Record<string, unknown> }> => {
+    const response = await fetch(
+        new URL('/events/worker/rehydrate', env.apiOrigin),
+        {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                ...(secret === null ? {} : { 'x-puter-internal-auth': secret }),
+            },
+            body: JSON.stringify(body),
+        },
+    );
+    return {
+        status: response.status,
+        body: (await response.json().catch(() => ({}))) as Record<
+            string,
+            unknown
+        >,
+    };
+};
+
 const subscribe = async (
     handlerName: string,
     context?: object,
@@ -162,14 +212,10 @@ const subscribe = async (
 const touch = (name: string): Promise<unknown> =>
     env.server.services.fs.touch(userId, { path: `${anchor}/${name}` });
 
-const invokeDirect = (
-    body: string,
-    headers: Record<string, string> = {},
-): Promise<Response> =>
-    fetch(`${workerUrl}/__events/invoke`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...headers },
-        body,
+const delivered = (count = 1): Promise<void> =>
+    vi.waitFor(() => expect(sinkPosts.length).toBeGreaterThanOrEqual(count), {
+        timeout: 30_000,
+        interval: 50,
     });
 
 /** Move time past whatever a failed delivery is being held for. */
@@ -198,6 +244,7 @@ beforeAll(async () => {
             enabled: true,
             workerRuntime: true,
             invokeTimeoutMs: INVOKE_TIMEOUT_MS,
+            internalSecret: INTERNAL_SECRET,
         },
         workers: { localServer: true },
         unlimitedMetering: true,
@@ -237,7 +284,7 @@ beforeAll(async () => {
     sinkPosts = [];
     sinkUrl = await startSink();
 
-    // Anything pricing workers keys off this announcement; count it.
+    // Whatever prices ordinary workers keys off this announcement; count it.
     workerCreates = 0;
     env.server.clients.event.on('worker.create', () => {
         workerCreates++;
@@ -263,130 +310,76 @@ beforeEach(async () => {
     await durable().warmRegion(userId);
 });
 
-describe('publishing deploys the events worker', () => {
+describe('publishing handlers', () => {
     it(
-        'bakes the published set into one worker per app, through the normal deploy path',
-        { timeout: BOOT_TIMEOUT_MS },
+        'writes rows and deploys nothing',
+        { timeout: TEST_TIMEOUT_MS },
         async () => {
-            const response = await api('POST', '/events/handlers/publishAll', {
-                handlers: [
-                    { name: 'ingest', source: INGEST_SOURCE },
-                    { name: 'explode', source: EXPLODE_SOURCE },
-                    { name: 'sleepy', source: SLEEPY_SOURCE },
-                ],
-            });
+            const response = await publishAll([
+                { name: 'ingest', source: INGEST_SOURCE },
+                { name: 'explode', source: EXPLODE_SOURCE },
+                { name: 'sleepy', source: SLEEPY_SOURCE },
+            ]);
             expect(response.status).toBe(200);
+            // The response says what was published, and nothing about workers:
+            // a publish is a database write, on nobody's deploy path.
+            expect(Object.keys(response.body)).toEqual(['handlers']);
 
-            const worker = response.body.worker as Record<string, unknown>;
-            expect(worker.action).toBe('deployed');
-            workerName = String(worker.workerName);
-            expect(workerName).toMatch(/^evw-[a-f0-9]{40}$/);
-            workerUrl = String(worker.url);
-            expect(workerUrl).toContain(`${workerName}.workers.puter.localhost`);
-
-            // A real row in the workers registry, bound to a generated
-            // artifact in the owner's app data — the shape every worker
-            // consumer (rehydration, pricing) already reads.
-            const row = await subdomainRow();
-            expect(row).toBeTruthy();
-            expect(Number(row!.user_id)).toBe(userId);
-            const artifact = await env.server.stores.fsEntry.getEntryById(
-                Number(row!.root_dir_id),
-            );
-            expect(artifact!.path).toContain(
-                `/AppData/${appUid}/${EVENTS_WORKER_FILE_PREFIX}`,
-            );
-
-            // The pricing signal an ordinary first deploy emits — once.
-            expect(workerCreates).toBe(1);
+            const script = await scriptName();
+            expect(script).toMatch(/^evw-[a-f0-9]{32}$/);
+            expect(await isResident(script)).toBe(false);
         },
     );
 
     it(
-        'publishing the same set again deploys nothing',
+        'claims no worker of the owner`s, under any name',
         { timeout: TEST_TIMEOUT_MS },
         async () => {
-            const before = await subdomainRow();
-            const response = await api('POST', '/events/handlers/publishAll', {
-                handlers: [
-                    { name: 'ingest', source: INGEST_SOURCE },
-                    { name: 'explode', source: EXPLODE_SOURCE },
-                    { name: 'sleepy', source: SLEEPY_SOURCE },
-                ],
-            });
-
+            const script = await scriptName();
+            // No registry row: not addressable at a worker subdomain, not
+            // listable, and not deletable as though it were the owner's.
             expect(
-                (response.body.worker as Record<string, unknown>).action,
-            ).toBe('none');
-            const after = await subdomainRow();
-            expect(Number(after!.root_dir_id)).toBe(
-                Number(before!.root_dir_id),
+                await env.server.stores.subdomain.getBySubdomain(
+                    `workers.puter.${script}`,
+                ),
+            ).toBeFalsy();
+            const { actor } = await env.server.services.auth.authenticate(
+                env.users.user.token,
             );
-            expect(workerCreates).toBe(1);
-        },
-    );
-
-    it(
-        'the worker answers the invoke contract and nothing else',
-        { timeout: TEST_TIMEOUT_MS },
-        async () => {
-            // No delivery token: nothing to run the handler as.
-            const unauthenticated = await invokeDirect(
-                JSON.stringify({ handler: 'ingest' }),
-            );
-            expect(unauthenticated.status).toBe(401);
-
-            // Unknown name: terminal, the same body cannot do better.
-            const unknown = await invokeDirect(
-                JSON.stringify({ handler: 'nope' }),
-                { 'puter-auth': 'irrelevant' },
-            );
-            expect(unknown.status).toBe(404);
-
-            const garbage = await invokeDirect('not json', {
-                'puter-auth': 'irrelevant',
-            });
-            expect(garbage.status).toBe(400);
-
-            // A throw inside the real handler comes back as the retriable
-            // class, carrying the handler's own words.
-            const thrown = await invokeDirect(
-                JSON.stringify({ handler: 'explode' }),
-                { 'puter-auth': 'irrelevant' },
-            );
-            expect(thrown.status).toBe(500);
-            expect(await thrown.json()).toEqual({ error: 'boom' });
-
-            // The reserved route is the only one registered.
-            const stray = await fetch(`${workerUrl}/anything`, {
-                method: 'POST',
-            });
-            expect(stray.status).toBe(404);
+            const listed = (await runWithContext({ actor: actor! }, () =>
+                env.server.drivers.workers.getFilePaths({
+                    workerName: script,
+                }),
+            )) as unknown[];
+            expect(listed).toEqual([]);
+            // And so nothing that prices worker creations was ever told.
+            expect(workerCreates).toBe(0);
         },
     );
 });
 
 describe('single delivery through the real worker', () => {
     it(
-        'runs the handler, observes its side effect, and settles the lease',
+        'deploys on the first delivery, runs the handler, and settles the lease',
         { timeout: TEST_TIMEOUT_MS },
         async () => {
+            const script = await scriptName();
+            expect(await isResident(script)).toBe(false);
+
             const subId = await subscribe('ingest', {
                 sink: sinkUrl,
                 label: 'e2e',
             });
-
             await touch('note.txt');
+            await delivered();
 
-            await vi.waitFor(
-                () => expect(sinkPosts.length).toBeGreaterThanOrEqual(1),
-                { timeout: 20_000, interval: 50 },
-            );
             expect(sinkPosts[0]).toMatchObject({
                 kind: 'ingest',
                 path: `${anchor}/note.txt`,
                 label: 'e2e',
             });
+            // The delivery itself is what brought the script up.
+            expect(await isResident(script)).toBe(true);
 
             // 2xx settled the lease: nothing owed, nothing redelivered.
             await vi.waitFor(async () =>
@@ -404,10 +397,7 @@ describe('single delivery through the real worker', () => {
         async () => {
             await subscribe('ingest', { sink: sinkUrl, label: 'scope' });
             await touch('scoped.txt');
-            await vi.waitFor(
-                () => expect(sinkPosts.length).toBeGreaterThanOrEqual(1),
-                { timeout: 20_000, interval: 50 },
-            );
+            await delivered();
 
             // What the handler actually ran as, reported from inside the
             // worker rather than captured off a stub.
@@ -438,6 +428,27 @@ describe('single delivery through the real worker', () => {
     );
 
     it(
+        'runs it in an isolate with no token and no router of its own',
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            await subscribe('ingest', { sink: sinkUrl, label: 'ambient' });
+            await touch('ambient.txt');
+            await delivered();
+
+            // The owner's worker token, the `me` built from it, and the router
+            // that would let handler code answer anything else: none of them
+            // exist in an events worker.
+            expect(sinkPosts[0].ambient).toEqual({
+                me: 'undefined',
+                router: 'undefined',
+                puterAuth: 'undefined',
+                // Read once by the runtime and dropped before handler code ran.
+                invokeKey: 'undefined',
+            });
+        },
+    );
+
+    it(
         'a handler that throws is retried, then the subscription suspends',
         { timeout: TEST_TIMEOUT_MS },
         async () => {
@@ -454,7 +465,7 @@ describe('single delivery through the real worker', () => {
                 // claimed and still in flight.
                 await vi.waitFor(
                     async () => expect(await failuresOf(subId)).toBe(attempt),
-                    { timeout: 20_000, interval: 50 },
+                    { timeout: 30_000, interval: 50 },
                 );
                 expect(await pending().depth(subId)).toBe(1);
                 jump(deliveryBackoffMs(attempt) + 50);
@@ -466,7 +477,7 @@ describe('single delivery through the real worker', () => {
                     expect(
                         (await durable().getBySubId(subId))?.suspendedReason,
                     ).toBe('failures'),
-                { timeout: 20_000, interval: 50 },
+                { timeout: 30_000, interval: 50 },
             );
         },
     );
@@ -486,98 +497,211 @@ describe('single delivery through the real worker', () => {
             // never answers — so reaching 1 is the timeout path itself.
             await vi.waitFor(
                 async () => expect(await failuresOf(subId)).toBe(1),
-                { timeout: 30_000, interval: 100 },
+                { timeout: 40_000, interval: 100 },
             );
             expect(Date.now() - started).toBeGreaterThanOrEqual(
                 INVOKE_TIMEOUT_MS - 100,
             );
             // Still owed, and re-held for the failure backoff rather than the
-            // fresh 30-second claim lease it started under.
+            // fresh claim lease it started under.
             const held = await heldForMs(subId);
             expect(held).toBeGreaterThan(0);
-            expect(held).toBeLessThan(25_000);
             expect(await pending().depth(subId)).toBe(1);
             expect(sinkPosts).toHaveLength(0);
         },
     );
 });
 
-describe('the worker follows the handler set', () => {
+describe('what can reach a deployed events worker', () => {
     it(
-        'republishing changed source redeploys without a second creation announcement',
+        'nothing on the worker domain, and nothing without the invoke key',
         { timeout: TEST_TIMEOUT_MS },
         async () => {
-            const before = await subdomainRow();
-            const changed = INGEST_SOURCE.replace(
-                "kind: 'ingest'",
-                "kind: 'ingest-v2'",
-            );
-            const response = await api('POST', '/events/handlers/publish', {
-                name: 'ingest',
-                source: changed,
-                replace: true,
-            });
-            expect(response.status).toBe(200);
-            expect(
-                (response.body.worker as Record<string, unknown>).action,
-            ).toBe('deployed');
+            const script = await scriptName();
+            await subscribe('ingest', { sink: sinkUrl });
+            await touch('reachable.txt');
+            await delivered();
+            expect(await isResident(script)).toBe(true);
 
-            const after = await subdomainRow();
-            expect(Number(after!.root_dir_id)).not.toBe(
-                Number(before!.root_dir_id),
+            // The host an ordinary worker answers on resolves through the
+            // registry, and an events worker has no row in it.
+            const overHttp = await fetch(
+                new URL(EVENTS_INVOKE_PATH, env.apiOrigin),
+                {
+                    method: 'POST',
+                    headers: {
+                        host: `${script}.workers.puter.localhost`,
+                        'content-type': 'application/json',
+                    },
+                    body: JSON.stringify({ handler: 'ingest' }),
+                },
             );
-            // The superseded artifact is gone along with its binding.
-            expect(
-                await env.server.stores.fsEntry.getEntryById(
-                    Number(before!.root_dir_id),
-                ),
-            ).toBeFalsy();
-            // Redeploys are not new workers: no second pricing announcement.
-            expect(workerCreates).toBe(1);
+            expect(overHttp.status).toBe(404);
 
-            const subId = await subscribe('ingest', {
-                sink: sinkUrl,
-                label: 'v2',
-            });
-            await touch('after-republish.txt');
-            await vi.waitFor(
-                () => expect(sinkPosts.length).toBeGreaterThanOrEqual(1),
-                { timeout: 20_000, interval: 50 },
-            );
-            expect(sinkPosts[0].kind).toBe('ingest-v2');
-            await vi.waitFor(async () =>
-                expect(await pending().depth(subId)).toBe(0),
-            );
+            const invokeWith = async (
+                key: string,
+            ): Promise<number | undefined> =>
+                (
+                    await localWorkers().dispatchEventsWorker(
+                        new Request(
+                            `http://${script}.workers.puter.localhost${EVENTS_INVOKE_PATH}`,
+                            {
+                                method: 'POST',
+                                headers: {
+                                    'content-type': 'application/json',
+                                    'x-puter-events-key': key,
+                                },
+                                body: JSON.stringify({
+                                    handler: 'ingest',
+                                    token: 'stolen',
+                                    event: { path: 'direct' },
+                                    ctx: { sink: sinkUrl, kind: 'direct' },
+                                }),
+                            },
+                        ),
+                    )
+                )?.status;
+
+            // Reaching the isolate is not enough: without the derived key the
+            // handler does not run, and the answer stays retriable.
+            expect(await invokeWith('')).toBe(500);
+            expect(await invokeWith('k1:guessed')).toBe(500);
+            expect(sinkPosts).toHaveLength(1);
+
+            // With it, the same call runs — the key is the whole difference.
+            expect(
+                await invokeWith(eventsInvokeKey(INTERNAL_SECRET, script)),
+            ).toBe(200);
+            expect(sinkPosts).toHaveLength(2);
+            expect(sinkPosts[1].kind).toBe('direct');
+        },
+    );
+});
+
+describe('the deploy a dispatcher asks for', () => {
+    it(
+        'is refused without the internal secret',
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            // A published set nothing has delivered for yet: the script it
+            // names is not deployed anywhere.
+            expect(
+                (
+                    await api('POST', '/events/handlers/publish', {
+                        name: 'noop',
+                        source: 'async ({ ack }) => { await ack(); }',
+                    })
+                ).status,
+            ).toBe(200);
+            const script = await scriptName();
+            expect(await isResident(script)).toBe(false);
+
+            for (const secret of [null, '', 'wrong-secret'])
+                expect(
+                    (await rehydrate({ script, appUid }, secret)).status,
+                ).toBe(403);
+            expect(await isResident(script)).toBe(false);
         },
     );
 
     it(
-        'removing the last handler tears the worker down',
+        'answers only for a script the app`s handlers currently name',
         { timeout: TEST_TIMEOUT_MS },
         async () => {
-            for (const name of ['ingest', 'explode']) {
-                const removed = await api('POST', '/events/handlers/remove', {
-                    name,
-                });
-                expect(
-                    (removed.body.worker as Record<string, unknown>).action,
-                ).toBe('deployed');
-            }
+            expect(
+                (await rehydrate({ script: 'not-a-script', appUid })).status,
+            ).toBe(400);
 
-            const beforeLast = await subdomainRow();
-            const artifactId = Number(beforeLast!.root_dir_id);
-
-            const last = await api('POST', '/events/handlers/remove', {
-                name: 'sleepy',
+            // Well-formed, but not what this app's set hashes to: nothing to
+            // bring back, and no reason for the caller to retry.
+            const stale = await rehydrate({
+                script: `evw-${'0'.repeat(32)}`,
+                appUid,
             });
-            expect((last.body.worker as Record<string, unknown>).action).toBe(
-                'removed',
+            expect(stale.status).toBe(404);
+            expect(stale.body).toEqual({ deployed: false, reason: 'stale' });
+        },
+    );
+
+    it(
+        'deploys the set, and says so idempotently',
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            const script = await scriptName();
+
+            const first = await rehydrate({ script, appUid });
+            expect(first.status).toBe(200);
+            expect(first.body).toEqual({ deployed: true });
+            expect(await isResident(script)).toBe(true);
+
+            // Asked for again — every edge location that missed asks — the
+            // same set redeploys to the same script and the same key.
+            expect((await rehydrate({ script, appUid })).status).toBe(200);
+
+            await subscribe('ingest', { sink: sinkUrl, label: 'rehydrated' });
+            await touch('rehydrated.txt');
+            await delivered();
+            expect(sinkPosts[0]).toMatchObject({ label: 'rehydrated' });
+        },
+    );
+});
+
+describe('the worker follows the handler set', () => {
+    it(
+        'a changed set is a new script, and the old one is left behind',
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            const before = await scriptName();
+            expect(await isResident(before)).toBe(true);
+
+            const response = await api('POST', '/events/handlers/publish', {
+                name: 'ingest',
+                source: INGEST_SOURCE.replace(
+                    "ctx.kind || 'ingest'",
+                    "'ingest-v2'",
+                ),
+                replace: true,
+            });
+            expect(response.status).toBe(200);
+
+            const after = await scriptName();
+            expect(after).not.toBe(before);
+            expect(await isResident(after)).toBe(false);
+
+            await subscribe('ingest', { sink: sinkUrl, label: 'v2' });
+            await touch('after-republish.txt');
+            await delivered();
+
+            expect(sinkPosts[0].kind).toBe('ingest-v2');
+            expect(await isResident(after)).toBe(true);
+            // Superseded, and addressed by nothing from here on.
+            expect(await isResident(before)).toBe(true);
+        },
+    );
+
+    it(
+        'with the last handler gone there is nothing left to deploy',
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            const subId = await subscribe('ingest', { sink: sinkUrl });
+            for (const name of ['ingest', 'explode', 'sleepy', 'noop'])
+                expect(
+                    (await api('POST', '/events/handlers/remove', { name }))
+                        .status,
+                ).toBe(200);
+
+            // An empty set names no script, so nothing can be deployed for
+            // this app again until something is published.
+            expect(
+                await env.server.stores.eventHandler.setForApp(appUid),
+            ).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedReason).toBe(
+                'handler_not_found',
             );
 
-            expect(await subdomainRow()).toBeFalsy();
-            expect(
-                await env.server.stores.fsEntry.getEntryById(artifactId),
-            ).toBeFalsy();
+            await touch('orphaned.txt');
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            expect(sinkPosts).toHaveLength(0);
         },
     );
 });

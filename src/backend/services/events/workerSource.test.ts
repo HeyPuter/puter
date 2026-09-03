@@ -18,26 +18,38 @@
  */
 
 /**
- * The generated events worker, executed against a stub of the worker router.
+ * The generated events worker, executed inside the runtime it is deployed with.
  *
- * The generated source only assumes `router`, `Response` and `fetch`, all of
- * which Node provides or this file stubs — so the whole invoke protocol (the
- * ack and error convention included) is pinned here without a worker runtime.
- * What the real runtime adds on top — the `puter-auth` header becoming
- * `event.user.puter` — is the router's own behavior, exercised end to end in
- * the integration suite.
+ * The runtime file is the one production prepends — loaded here into a `vm`
+ * context with the handful of globals a worker provides (`Response`, `URL`,
+ * `fetch`, an `init_puter_portable` stub, the invoke-key binding) — so the
+ * whole invoke protocol is pinned without a worker runtime to boot.
  */
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import {
     hashContent,
     type EventHandler,
 } from '../../stores/events/EventHandlerStore.js';
+import { EVENTS_INVOKE_PATH } from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
     generateEventsWorkerSource,
     handlerSetHash,
     EVENTS_WORKER_MARKER,
 } from './workerSource.js';
+
+const RUNTIME_PATH = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../../worker/src/events-runtime.js',
+);
+const RUNTIME_SOURCE = readFileSync(RUNTIME_PATH, 'utf8');
+
+const INVOKE_KEY = 'k1:test-key';
+const INVOKE_URL = `http://evw-test.example${EVENTS_INVOKE_PATH}`;
 
 const handler = (name: string, source: string): EventHandler => ({
     appUid: 'app-x',
@@ -48,46 +60,128 @@ const handler = (name: string, source: string): EventHandler => ({
     updatedAt: 0,
 });
 
-type RouteFn = (event: unknown) => Promise<Response>;
+type FetchHandler = (request: Request) => Promise<Response>;
 
-/** Load the generated worker the way the runtime would: run it. */
-const loadWorker = (handlers: EventHandler[]) => {
+interface LoadedWorker {
+    generated: ReturnType<typeof generateEventsWorkerSource>;
+    /** The one fetch listener the runtime registers. */
+    dispatch: FetchHandler;
+    /** What the runtime built `user` from, per invocation. */
+    userTokens: string[];
+    /** Globals left behind once the runtime has initialized. */
+    sandbox: Record<string, unknown>;
+}
+
+/**
+ * Deploy a handler set the way the driver does — runtime first, generated
+ * source after — into a context that stands in for the isolate.
+ */
+const loadWorker = (
+    handlers: EventHandler[],
+    options: { invokeKey?: string } = {},
+): LoadedWorker => {
     const generated = generateEventsWorkerSource(handlers);
-    const routes = new Map<string, RouteFn>();
-    const router = {
-        post: (route: string, fn: RouteFn) => routes.set(route, fn),
+    const userTokens: string[] = [];
+    let dispatch: FetchHandler | null = null;
+
+    const sandbox: Record<string, unknown> = {
+        Response,
+        Request,
+        URL,
+        fetch: () => Promise.resolve(new Response('')),
+        console,
+        events_invoke_key: options.invokeKey ?? INVOKE_KEY,
+        puter_endpoint: 'https://api.example',
+        init_puter_portable: (token: string) => {
+            userTokens.push(token);
+            return { authToken: token };
+        },
+        self: {
+            addEventListener: (_type: string, listener: unknown) => {
+                dispatch = (request: Request) =>
+                    new Promise<Response>((resolve) => {
+                        (listener as (event: unknown) => void)({
+                            request,
+                            respondWith: resolve,
+                        });
+                    });
+            },
+        },
     };
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    new Function('router', generated.source)(router);
-    return { generated, routes };
+    sandbox.globalThis = sandbox;
+
+    const context = vm.createContext(sandbox);
+    vm.runInContext(RUNTIME_SOURCE + generated.source, context, {
+        filename: 'worker.js',
+    });
+    if (!dispatch) throw new Error('the runtime registered no fetch listener');
+    return { generated, dispatch, userTokens, sandbox };
 };
 
 interface InvokeOptions {
     body?: unknown;
     rawBody?: string;
-    user?: unknown;
-    anonymous?: boolean;
+    key?: string;
+    path?: string;
+    method?: string;
 }
 
-const invoke = async (
-    fn: RouteFn,
-    options: InvokeOptions = {},
-): Promise<Response> => {
-    const raw = options.rawBody ?? JSON.stringify(options.body ?? {});
-    const event: Record<string, unknown> = {
-        request: { json: () => Promise.resolve(JSON.parse(raw)) },
-    };
-    if (!options.anonymous)
-        event.user = { puter: options.user ?? { stub: true } };
-    return fn(event);
+const invoke = (worker: LoadedWorker, options: InvokeOptions = {}) => {
+    const method = options.method ?? 'POST';
+    return worker.dispatch(
+        new Request(
+            options.path
+                ? `http://evw-test.example${options.path}`
+                : INVOKE_URL,
+            {
+                method,
+                headers: {
+                    'content-type': 'application/json',
+                    'x-puter-events-key': options.key ?? INVOKE_KEY,
+                },
+                ...(method === 'GET' || method === 'HEAD'
+                    ? {}
+                    : {
+                          body:
+                              options.rawBody ??
+                              JSON.stringify(options.body ?? {}),
+                      }),
+            },
+        ),
+    );
 };
+
+/** The delivery shape an invocation carries, with a token to run as. */
+const delivery = (over: Record<string, unknown> = {}) => ({
+    handler: 'a',
+    token: 'delivery-token',
+    ...over,
+});
 
 const SINK = 'async ({ event, ctx, user, fetch, ack }) => { await ack(); }';
 
-describe('generateEventsWorkerSource', () => {
-    it('registers exactly the invoke route and nothing else', () => {
-        const { routes } = loadWorker([handler('a', SINK)]);
-        expect([...routes.keys()]).toEqual(['/__events/invoke']);
+describe('the generated worker inside its runtime', () => {
+    it('answers the invoke route and nothing else', async () => {
+        const worker = loadWorker([handler('a', SINK)]);
+
+        expect((await invoke(worker, { body: delivery() })).status).toBe(200);
+        expect(
+            (await invoke(worker, { path: '/anything', body: delivery() }))
+                .status,
+        ).toBe(404);
+        expect(
+            (await invoke(worker, { method: 'GET', body: delivery() })).status,
+        ).toBe(404);
+    });
+
+    it('gives handler code no token and no router of its own', () => {
+        const { sandbox } = loadWorker([handler('a', SINK)]);
+
+        // The three the ordinary runtime defines, and the token behind them.
+        for (const name of ['me', 'my', 'myself', 'router', 'puter_auth'])
+            expect(sandbox[name]).toBeUndefined();
+        // The invoke key is read once and taken out of reach of handler code.
+        expect(sandbox.events_invoke_key).toBeUndefined();
     });
 
     it('is deterministic, and its set hash ignores publish order', () => {
@@ -107,44 +201,57 @@ describe('generateEventsWorkerSource', () => {
         ).toBe(true);
     });
 
-    it('refuses a call that carries no delivery token', async () => {
-        const { routes } = loadWorker([handler('a', SINK)]);
-        const res = await invoke(routes.get('/__events/invoke')!, {
-            anonymous: true,
-            body: { handler: 'a' },
-        });
-        expect(res.status).toBe(401);
+    it('runs nothing for an invocation that cannot be the platform', async () => {
+        const worker = loadWorker([handler('a', SINK)]);
+
+        for (const key of ['', 'k1:wrong', `${INVOKE_KEY}x`]) {
+            const res = await invoke(worker, { key, body: delivery() });
+            // Retriable: a key that no longer matches is ours to fix.
+            expect(res.status).toBe(500);
+            expect(await res.json()).toEqual({
+                error: 'not an authorized invocation',
+            });
+        }
+        expect(worker.userTokens).toEqual([]);
     });
 
     it('refuses a body that is not a delivery', async () => {
-        const { routes } = loadWorker([handler('a', SINK)]);
-        const fn = routes.get('/__events/invoke')!;
-        expect((await invoke(fn, { rawBody: '"nope"' })).status).toBe(400);
-        expect((await invoke(fn, { rawBody: 'null' })).status).toBe(400);
+        const worker = loadWorker([handler('a', SINK)]);
+        expect((await invoke(worker, { rawBody: '"nope"' })).status).toBe(400);
+        expect((await invoke(worker, { rawBody: 'null' })).status).toBe(400);
+        expect((await invoke(worker, { rawBody: 'not json' })).status).toBe(
+            400,
+        );
     });
 
     it('answers 404 for a name that is not baked in', async () => {
-        const { routes } = loadWorker([handler('a', SINK)]);
-        const res = await invoke(routes.get('/__events/invoke')!, {
-            body: { handler: 'missing' },
+        const worker = loadWorker([handler('a', SINK)]);
+        const res = await invoke(worker, {
+            body: delivery({ handler: 'missing' }),
         });
         expect(res.status).toBe(404);
     });
 
-    it('runs the named handler against the adapter environment', async () => {
+    it('will not run a handler with no delivery token', async () => {
+        const worker = loadWorker([handler('a', SINK)]);
+        const res = await invoke(worker, { body: { handler: 'a' } });
+        expect(res.status).toBe(500);
+        expect(worker.userTokens).toEqual([]);
+    });
+
+    it('runs the named handler against the delivered environment', async () => {
         const seen = vi.fn();
         const source = `async ({ event, ctx, user, fetch, ack }) => {
-            user.seen(event.path, ctx, typeof fetch, typeof ack);
+            globalThis.seen(event.path, ctx, typeof fetch, typeof ack, user.authToken);
         }`;
-        const { routes } = loadWorker([handler('a', source)]);
+        const worker = loadWorker([handler('a', source)]);
+        worker.sandbox.seen = seen;
 
-        const res = await invoke(routes.get('/__events/invoke')!, {
-            body: {
-                handler: 'a',
+        const res = await invoke(worker, {
+            body: delivery({
                 event: { path: '/x/y.txt' },
                 ctx: { label: 'l' },
-            },
-            user: { seen },
+            }),
         });
 
         expect(res.status).toBe(200);
@@ -153,54 +260,56 @@ describe('generateEventsWorkerSource', () => {
             { label: 'l' },
             'function',
             'function',
+            'delivery-token',
         );
         const ctx = seen.mock.calls[0][1] as Record<string, unknown>;
         expect(Object.isFrozen(ctx)).toBe(true);
+        // `user` is built from the invocation's token, per invocation.
+        expect(worker.userTokens).toEqual(['delivery-token']);
     });
 
     it('defaults a missing context to a frozen empty bag', async () => {
         const seen = vi.fn();
-        const { routes } = loadWorker([
-            handler('a', 'async ({ ctx, user }) => { user.seen(ctx); }'),
+        const worker = loadWorker([
+            handler('a', 'async ({ ctx }) => { globalThis.seen(ctx); }'),
         ]);
-        await invoke(routes.get('/__events/invoke')!, {
-            body: { handler: 'a' },
-            user: { seen },
-        });
+        worker.sandbox.seen = seen;
+
+        await invoke(worker, { body: delivery() });
         expect(seen).toHaveBeenCalledWith({});
         expect(Object.isFrozen(seen.mock.calls[0][0])).toBe(true);
     });
 
     it('takes resolution as the ack, and a throw as retriable', async () => {
-        const { routes } = loadWorker([
+        const worker = loadWorker([
             handler('ok', 'async () => {}'),
             handler('boom', 'async () => { throw new Error("kaput"); }'),
         ]);
-        const fn = routes.get('/__events/invoke')!;
 
-        expect((await invoke(fn, { body: { handler: 'ok' } })).status).toBe(
-            200,
-        );
-        const failed = await invoke(fn, { body: { handler: 'boom' } });
+        expect(
+            (await invoke(worker, { body: delivery({ handler: 'ok' }) }))
+                .status,
+        ).toBe(200);
+        const failed = await invoke(worker, {
+            body: delivery({ handler: 'boom' }),
+        });
         expect(failed.status).toBe(500);
         expect(await failed.json()).toEqual({ error: 'kaput' });
     });
 
     it('does not unsay an ack a later throw follows', async () => {
-        const { routes } = loadWorker([
+        const worker = loadWorker([
             handler(
                 'a',
                 'async ({ ack }) => { await ack(); throw new Error("after"); }',
             ),
         ]);
-        const res = await invoke(routes.get('/__events/invoke')!, {
-            body: { handler: 'a' },
-        });
+        const res = await invoke(worker, { body: delivery() });
         expect(res.status).toBe(200);
     });
 
     it('maps a terminal-shaped failure to a refusal', async () => {
-        const { routes } = loadWorker([
+        const worker = loadWorker([
             handler(
                 'flagged',
                 `async () => {
@@ -218,29 +327,31 @@ describe('generateEventsWorkerSource', () => {
                 }`,
             ),
         ]);
-        const fn = routes.get('/__events/invoke')!;
         expect(
-            (await invoke(fn, { body: { handler: 'flagged' } })).status,
+            (await invoke(worker, { body: delivery({ handler: 'flagged' }) }))
+                .status,
         ).toBe(400);
-        expect((await invoke(fn, { body: { handler: 'coded' } })).status).toBe(
-            400,
-        );
+        expect(
+            (await invoke(worker, { body: delivery({ handler: 'coded' }) }))
+                .status,
+        ).toBe(400);
     });
 
     it('isolates a handler whose source does not parse', async () => {
-        const { generated, routes } = loadWorker([
+        const worker = loadWorker([
             handler('good', SINK),
             handler('bad', 'async ( => {'),
         ]);
-        expect(generated.broken).toEqual(['bad']);
+        expect(worker.generated.broken).toEqual(['bad']);
 
-        const fn = routes.get('/__events/invoke')!;
-        expect((await invoke(fn, { body: { handler: 'good' } })).status).toBe(
-            200,
-        );
+        expect(
+            (await invoke(worker, { body: delivery({ handler: 'good' }) }))
+                .status,
+        ).toBe(200);
         // Retriable rather than terminal: a republished fix is picked up.
-        expect((await invoke(fn, { body: { handler: 'bad' } })).status).toBe(
-            500,
-        );
+        expect(
+            (await invoke(worker, { body: delivery({ handler: 'bad' }) }))
+                .status,
+        ).toBe(500);
     });
 });

@@ -17,95 +17,41 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash } from 'node:crypto';
-import type { EventsWorkerResolver } from '../../clients/events/EventsWorkerInvokerClient.js';
-import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
-import type { IConfig } from '../../types.js';
+import { createHmac } from 'node:crypto';
 
 /**
- * How an app's events worker is addressed.
+ * How an app's events worker is named and how it recognizes the platform.
  *
- * The worker is an ordinary deployed worker: one per app, owned by the app's
- * owner, registered like any other. What makes it findable without a lookup
- * table is its name — derived from the app and its owner, so the deploy step
- * and this resolver each compute it rather than one telling the other.
- *
- * The owner's uuid is folded in so the name is not computable from the app uid
- * alone: worker names are first-come, and a name a stranger could precompute is
- * a name a stranger could squat before the owner's first publish.
+ * The script is named after the handler set it contains, so a changed set is a
+ * different script rather than an overwrite of a live one: publishing writes
+ * rows and nothing else, and whatever the rows currently hash to is what the
+ * next delivery resolves and deploys. Superseded scripts are left to the same
+ * idle eviction every hibernating worker gets.
  */
 
-export const eventsWorkerName = (
-    appUid: string,
-    ownerUserUuid: string,
-): string =>
-    'evw-' +
-    createHash('sha256')
-        .update(`${appUid}:${ownerUserUuid}`, 'utf8')
-        .digest('hex')
-        .slice(0, 40);
-
-/** The registry rows and config the resolver reads, and nothing more. */
-export interface EventsWorkerAddressingDeps {
-    config: IConfig;
-    stores: {
-        app: {
-            getByUid(
-                uid: string,
-            ): Promise<{ owner_user_id?: unknown } | null | undefined>;
-        };
-        user: {
-            getById(id: number): Promise<{ uuid: string } | null | undefined>;
-        };
-        subdomain: {
-            getBySubdomain(subdomain: string): Promise<unknown | null>;
-        };
-    };
-}
+/** Prefix every events worker script carries, for tag-free identification. */
+export const EVENTS_WORKER_PREFIX = 'evw-';
 
 /**
- * Resolves an app's events worker to its invoke URL from the workers registry.
- *
- * `null` whenever any link is missing — no app, no owner, no deployed worker —
- * which the invoker reports as retriable: the address is the platform's to
- * provide, and publish is what provides it.
+ * The script a handler set deploys as. 128 bits of the set hash: long enough
+ * that two sets never collide, short enough to leave room in a script name.
  */
-export class DeployedEventsWorkerResolver implements EventsWorkerResolver {
-    readonly #deps: EventsWorkerAddressingDeps;
+export const eventsWorkerScript = (setHash: string): string =>
+    `${EVENTS_WORKER_PREFIX}${setHash.slice(0, 32)}`;
 
-    constructor(deps: EventsWorkerAddressingDeps) {
-        this.#deps = deps;
-    }
+/** Version prefix on a derived key, so a rotation is visible in a log line. */
+export const EVENTS_INVOKE_KEY_VERSION = 'k1';
 
-    async resolveInvokeUrl(appUid: string): Promise<string | null> {
-        const { stores } = this.#deps;
-        const app = await stores.app.getByUid(appUid);
-        const ownerUserId = Number(app?.owner_user_id);
-        if (!app || !Number.isFinite(ownerUserId)) return null;
-
-        const owner = await stores.user.getById(ownerUserId);
-        if (!owner?.uuid) return null;
-
-        const name = eventsWorkerName(appUid, owner.uuid);
-        const row = await stores.subdomain.getBySubdomain(
-            `${WORKER_SUBDOMAIN_PREFIX}${name}`,
-        );
-        if (!row) return null;
-
-        return this.#urlFor(name);
-    }
-
-    /**
-     * Where a deployed worker answers. Mirrors what the deploy backends
-     * advertise: the local dispatch host when workers run locally, the public
-     * worker domain otherwise.
-     */
-    #urlFor(name: string): string {
-        const { config } = this.#deps;
-        if (config.workers?.localServer) {
-            const port = config.port ? `:${config.port}` : '';
-            return `http://${name}.workers.puter.localhost${port}`;
-        }
-        return `https://${name}.puter.work`;
-    }
-}
+/**
+ * The key an invocation carries and the script compares against its own
+ * binding. Derived from the deployment secret and the script name rather than
+ * stored, so there is no per-worker row to keep, and rotating the secret
+ * rotates every key at the next deploy.
+ *
+ * Defence in depth behind the dispatcher: reaching a script at all needs the
+ * internal secret, which no script ever sees.
+ */
+export const eventsInvokeKey = (secret: string, script: string): string =>
+    `${EVENTS_INVOKE_KEY_VERSION}:${createHmac('sha256', secret)
+        .update(`events-invoke:${script}`, 'utf8')
+        .digest('hex')}`;

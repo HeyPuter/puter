@@ -267,6 +267,27 @@ export class EventHandlerStore extends PuterStore {
     }
 
     /**
+     * Name and source hash for every handler an app has published: the identity
+     * of its set, without reading a byte of source. What a delivery resolves
+     * the app's script name from. Primary, so a delivery never addresses a set
+     * a replica has not caught up to.
+     */
+    async setForApp(
+        appUid: string,
+    ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
+        const rows = await this.clients.db.pread(
+            'SELECT `name`, `source_hash` ' +
+                `FROM \`${TABLE}\` WHERE \`app_uid\` = ? ` +
+                'ORDER BY `name` LIMIT ?',
+            [appUid, EVENTS_HANDLERS_PER_APP],
+        );
+        return rows.map((row) => ({
+            name: String(row.name),
+            sourceHash: String(row.source_hash),
+        }));
+    }
+
+    /**
      * Every handler the app has published, sources included — what the events
      * worker is generated from. Primary, for the same reason `getByName` is:
      * the bake follows the publish that triggered it.

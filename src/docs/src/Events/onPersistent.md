@@ -51,6 +51,8 @@ The handler runs **in this client while it is connected**, and in the app's even
 
 Passing `handler` as a **function** is what registers it to run here; a source string or `{ file }` is sent as a hash only, and nothing runs client-side. Either way the hash must match what is published under `handlerName`.
 
+Those five bindings are the whole environment. In the events worker there is no ambient `puter` and no identity of your own to act as — a delivery says whose it is, and `user` is it — so a handler that names `puter` or `me` is refused when you publish it rather than failing on its first delivery.
+
 ### Acknowledging a `single` delivery
 
 A `single` delivery is owed to exactly one consumer, so it stays owed until it is acknowledged:

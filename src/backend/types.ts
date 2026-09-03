@@ -1160,6 +1160,25 @@ interface IConfigOptional {
         workerRuntime?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
+        /**
+         * Dispatch namespace events workers are deployed into. Must not be the
+         * one the public worker dispatcher serves — that namespace is reachable
+         * at `<script>.puter.work`, and an events worker must not be. No
+         * default: deploys refuse rather than land somewhere public.
+         */
+        workerNamespace?: string;
+        /**
+         * Where the events dispatcher answers `POST /invoke` — its own
+         * hostname, since it carries no zone route. Unset means invocations
+         * have nowhere to go and stay retriable.
+         */
+        dispatcherUrl?: string;
+        /**
+         * Shared secret between this backend and the events dispatcher, in both
+         * directions, and the master the per-script invoke keys derive from.
+         * Rotating it rotates every key at the next deploy.
+         */
+        internalSecret?: string;
     };
 
     /**

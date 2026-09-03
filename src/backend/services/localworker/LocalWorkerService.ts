@@ -26,18 +26,25 @@ export class LocalWorkerService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
     async cfDeployLocal(
         workerName: string,
-        authorization: string,
+        authorization: string | undefined,
         code: string,
+        extraBindings: Record<string, string> = {},
     ) {
         await this.#disposeWorker(workerName);
         try {
             const mf = new Miniflare({
                 modules: false,
                 name: workerName,
+                // Binds variables/secrets to the environment. A worker
+                // deployed without a token gets no `puter_auth` at all, the
+                // same as upstream.
                 bindings: {
-                    puter_auth: authorization,
+                    ...(authorization === undefined
+                        ? {}
+                        : { puter_auth: authorization }),
+                    ...extraBindings,
                     puter_endpoint: this.config.api_base_url,
-                }, // Binds variable/secret to environment
+                },
                 script: code,
             } as WorkerOptions);
             activeWorkers.set(workerName, mf);
@@ -93,6 +100,28 @@ export class LocalWorkerService extends PuterService {
             ...(hasBody ? { duplex: 'half' } : {}),
         } as unknown as MiniflareRequestInit);
     }
+    /**
+     * Dispatch into a resident worker without the subdomain-row lookup
+     * `cfCallLocal` falls back to — `null` means "not deployed here", which is
+     * the local stand-in for a dispatch-namespace miss. For workers that have
+     * no row to be found by: events workers, which the caller redeploys and
+     * retries.
+     */
+    async dispatchEventsWorker(request: Request): Promise<Response | null> {
+        const workerName = new URL(request.url).host.split('.')[0];
+        const mf = activeWorkers.get(workerName);
+        if (!mf) return null;
+        this.#touch(workerName);
+        const hasBody = request.body != null;
+        return (await mf.dispatchFetch(request.url, {
+            method: request.method,
+            headers: [...request.headers] as [string, string][],
+            body: hasBody ? (request.body as unknown as BodyInit) : undefined,
+            // `duplex: 'half'` is required by undici when body is a stream.
+            ...(hasBody ? { duplex: 'half' } : {}),
+        } as unknown as MiniflareRequestInit)) as unknown as Response;
+    }
+
     async cfDeleteLocal(workerName: string) {
         await this.#disposeWorker(workerName);
         // Mirror the Cloudflare delete response shape — puter.js checks

@@ -42,7 +42,7 @@ const ACCEPTED = [
     ['a comment naming something undeclared', '({ event }) => { /* endpoint is gone now */ return event.uid; }'],
     ['a string naming something undeclared', '({ event }) => event.path + "endpoint"'],
     ['runtime globals', '({ event }) => { console.log(Date.now(), Math.max(1, event.seq), JSON.stringify(event), new URL("https://x.example")); }'],
-    ['the SDK global a worker runs inside', '({ user }) => user.puter.fs.read("/x").then(r => puter.print(r))'],
+    ['the delivered puter, reached through `user`', '({ user }) => user.fs.read("/x").then(r => user.print(r))'],
     ['optional chaining and computed member access', '({ event, ctx }) => event?.meta?.[ctx.key]'],
     ['a shorthand method on an object literal', '({ event }) => ({ run (x) { return x + event.seq; } })'],
     ['an async generator with a yield', 'async function* ({ ctx }) { yield ctx.first; }'],
@@ -92,6 +92,10 @@ const REJECTED = [
     // above, where `endpoint` is a label nothing needs to resolve.
     ['a closure read through object shorthand', '({ event }) => ({ endpoint, path: event.path })', 'endpoint'],
     ['typeof on an undeclared name', '({ event }) => typeof missingGlobal === "undefined" ? event.seq : 0', 'missingGlobal'],
+    // An events worker has no ambient SDK, so a handler that reaches for one
+    // has to be caught here rather than on its first delivery.
+    ['the ambient SDK a client has and a worker does not', '({ event }) => puter.print(event.path)', 'puter'],
+    ['the worker`s own identity', '({ event }) => me.puter.fs.write(event.path, "x")', 'me'],
 ];
 
 describe('handlers a scan accepts', () => {
@@ -105,6 +109,12 @@ describe('handlers a scan rejects', () => {
         const error = rejects(source);
         expect(error.code).toBe('events_handler_free_variable');
         expect(error.message).toContain(`\`${identifier}\``);
+    });
+
+    it('points an ambient-SDK reference at the binding that replaces it', () => {
+        const error = rejects('({ event }) => puter.print(event.path)');
+        expect(error.code).toBe('events_handler_free_variable');
+        expect(error.message).toContain('`user`');
     });
 
     it('names the identifier so the developer knows what to move into context', () => {

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
@@ -25,6 +26,7 @@ import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionS
 import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
+import { EVENTS_WORKER_PREFIX } from '../../services/events/workerRuntime.js';
 import {
     EVENTS_FETCH_LIMIT,
     EVENTS_FETCH_LIMIT_CAP,
@@ -33,7 +35,7 @@ import {
 } from './limits.js';
 import {
     EventsWorkerDeployer,
-    type EventsWorkerSyncView,
+    LocalEventsInvokeTransport,
 } from './workerDeploy.js';
 
 /**
@@ -50,6 +52,9 @@ import {
  * from `effectiveApp` inside the service, over the index the rows are stored
  * under.
  */
+/** What a dispatcher may ask to have deployed: an events script name. */
+const EVENTS_SCRIPT_REGEX = new RegExp(`^${EVENTS_WORKER_PREFIX}[a-f0-9]{32}$`);
+
 @Controller('/events')
 export class EventsController extends PuterController {
     /**
@@ -219,10 +224,9 @@ export class EventsController extends PuterController {
     })
     async publishHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const body = this.#body(req);
-        const view = await this.services.events.publishHandler(actor, body);
-        const worker = await this.#syncWorker(actor, body.appUid);
-        res.json(worker ? { ...view, worker } : view);
+        res.json(
+            await this.services.events.publishHandler(actor, this.#body(req)),
+        );
     }
 
     /** POST /events/handlers/publishAll — a build step's whole set, in order. */
@@ -233,14 +237,12 @@ export class EventsController extends PuterController {
     })
     async publishHandlers(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const body = this.#body(req);
-        const handlers = await this.services.events.publishHandlers(
-            actor,
-            body,
-        );
-        // One deploy for the whole set — the batch is the build step's unit.
-        const worker = await this.#syncWorker(actor, body.appUid);
-        res.json(worker ? { handlers, worker } : { handlers });
+        res.json({
+            handlers: await this.services.events.publishHandlers(
+                actor,
+                this.#body(req),
+            ),
+        });
     }
 
     /** GET /events/handlers/list — names and hashes, never source. */
@@ -269,37 +271,96 @@ export class EventsController extends PuterController {
     })
     async removeHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
+        res.json(
+            await this.services.events.removeHandler(actor, this.#body(req)),
+        );
+    }
+
+    /**
+     * POST /events/worker/rehydrate — the events dispatcher asking for a script
+     * it could not find in its namespace, which is also how a handler set is
+     * deployed the first time. Internal: the shared secret is the only gate,
+     * and there is no actor.
+     */
+    @Post('/worker/rehydrate', {
+        subdomain: 'api',
+        // The shared secret is what gates this route, so the limit is only a
+        // guessing-rate bound — hence per-IP and deliberately high. The caller
+        // fans in from every edge location behind a small set of egress
+        // addresses and asks once per missing script per isolate.
+        rateLimit: {
+            scope: 'events-worker-rehydrate',
+            limit: 6000,
+            window: 60_000,
+            key: 'ip',
+        },
+    })
+    async rehydrateWorker(req: Request, res: Response): Promise<void> {
+        this.#requireInternalAuth(req);
         const body = this.#body(req);
-        const view = await this.services.events.removeHandler(actor, body);
-        const worker = await this.#syncWorker(actor, body.appUid);
-        res.json(worker ? { ...view, worker } : view);
+        const script = String(body.script ?? '');
+        const appUid = String(body.appUid ?? '');
+        if (!EVENTS_SCRIPT_REGEX.test(script) || !appUid)
+            throw new HttpError(400, 'Missing or invalid `script`/`appUid`', {
+                legacyCode: 'bad_request',
+            });
+
+        const deployer = this.#eventsWorkerDeployer();
+        if (!deployer.enabled) {
+            res.status(404).json({ deployed: false, reason: 'disabled' });
+            return;
+        }
+
+        const outcome = await deployer.ensure(appUid, script);
+        if (outcome === 'deployed') {
+            res.json({ deployed: true });
+            return;
+        }
+        // `failed` is the only one worth another attempt: the rest say this
+        // script is not what the app's handlers currently are.
+        res.status(outcome === 'failed' ? 502 : 404).json({
+            deployed: false,
+            reason: outcome,
+        });
     }
 
     // -- Internals ---------------------------------------------------
 
+    /**
+     * Local development has no events dispatcher, so invocations are handed
+     * straight to the local worker runtime — including the deploy-on-miss the
+     * dispatcher would otherwise ask for over the rehydrate route above.
+     */
+    override onServerStart(): void {
+        const deployer = this.#eventsWorkerDeployer();
+        if (!deployer.enabled || !this.config.workers?.localServer) return;
+        this.services.events.useWorkerTransport(
+            new LocalEventsInvokeTransport(this.services, deployer),
+        );
+    }
+
     #deployer: EventsWorkerDeployer | null = null;
 
-    /**
-     * Bring the app's events worker in line with what a mutation just made
-     * true. Null with the worker runtime off, so the responses above keep their
-     * exact shape until it is enabled.
-     */
-    async #syncWorker(
-        actor: Actor,
-        requestedAppUid: unknown,
-    ): Promise<EventsWorkerSyncView | null> {
+    #eventsWorkerDeployer(): EventsWorkerDeployer {
         this.#deployer ??= new EventsWorkerDeployer({
             config: this.config,
             stores: this.stores,
             services: this.services,
             drivers: this.drivers,
         });
-        if (!this.#deployer.enabled) return null;
-        const appUid = await this.services.events.resolveHandlerApp(
-            actor,
-            requestedAppUid,
-        );
-        return this.#deployer.sync(actor, appUid);
+        return this.#deployer;
+    }
+
+    /** Constant-time, so the secret cannot be recovered a byte at a time. */
+    #requireInternalAuth(req: Request): void {
+        const expected = this.config.events?.internalSecret ?? '';
+        const offered = String(req.headers['x-puter-internal-auth'] ?? '');
+        const ok =
+            expected.length > 0 &&
+            expected.length === offered.length &&
+            timingSafeEqual(Buffer.from(expected), Buffer.from(offered));
+        if (!ok)
+            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
     }
 
     #requireActor(req: Request): Actor {

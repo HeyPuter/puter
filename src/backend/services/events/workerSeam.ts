@@ -79,9 +79,18 @@ export type SubscriberTokenMinter = (
 ) => Promise<string | null>;
 
 /**
+ * Where an app's handlers currently live: the script its published set deploys
+ * as, and the key an invocation of that script carries. Null when the app has
+ * no handlers, or the deployment has no events secret to derive a key from.
+ */
+export type EventsWorkerAddresser = (
+    appUid: string,
+) => Promise<{ script: string; key: string } | null>;
+
+/**
  * The invoker that actually calls an app's events worker: mint the
- * subscriber-scoped token, hand the call to the protocol client, and report
- * what the handler said.
+ * subscriber-scoped token, address the app's current handler set, hand the call
+ * to the protocol client, and report what the handler said.
  *
  * A row with no app, no handler name, or no token that can be minted for it has
  * nothing to invoke, and says so rather than reporting a failure — there is no
@@ -90,13 +99,16 @@ export type SubscriberTokenMinter = (
 export class EventsWorkerInvoker implements WorkerInvokerSeam {
     readonly #client: Pick<EventsWorkerInvokerClient, 'invoke'>;
     readonly #mintToken: SubscriberTokenMinter;
+    readonly #address: EventsWorkerAddresser;
 
     constructor(
         client: Pick<EventsWorkerInvokerClient, 'invoke'>,
         mintToken: SubscriberTokenMinter,
+        address: EventsWorkerAddresser,
     ) {
         this.#client = client;
         this.#mintToken = mintToken;
+        this.#address = address;
     }
 
     async invoke(
@@ -108,7 +120,15 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
         const token = await this.#mintToken(invocation);
         if (token === null) return 'deferred';
 
+        // Nowhere to send it yet. Retriable rather than terminal: the address
+        // is the platform's to provide, and the app has done nothing wrong —
+        // the consecutive-failure rule is what stops this retrying forever.
+        const address = await this.#address(appUid);
+        if (address === null) return 'retriable';
+
         const result = await this.#client.invoke({
+            script: address.script,
+            key: address.key,
             appUid,
             handler: handlerName,
             token,

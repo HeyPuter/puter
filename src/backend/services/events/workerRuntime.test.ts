@@ -18,79 +18,33 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { IConfig } from '../../types.js';
 import {
-    DeployedEventsWorkerResolver,
-    eventsWorkerName,
-    type EventsWorkerAddressingDeps,
+    EVENTS_INVOKE_KEY_VERSION,
+    eventsInvokeKey,
+    eventsWorkerScript,
 } from './workerRuntime.js';
 
-const APP = 'app-1111';
-const OWNER_UUID = 'uuid-owner';
+const SET_HASH = 'a1'.repeat(32);
+const OTHER_HASH = 'b2'.repeat(32);
 
-const deps = (over: {
-    config?: Partial<IConfig>;
-    app?: { owner_user_id: number } | null;
-    owner?: { uuid: string } | null;
-    row?: unknown;
-}): EventsWorkerAddressingDeps => ({
-    config: { extensions: [], port: 4100, ...over.config } as IConfig,
-    stores: {
-        app: {
-            getByUid: () =>
-                Promise.resolve(
-                    'app' in over ? over.app : { owner_user_id: 7 },
-                ),
-        },
-        user: {
-            getById: () =>
-                Promise.resolve(
-                    'owner' in over ? over.owner : { uuid: OWNER_UUID },
-                ),
-        },
-        subdomain: {
-            getBySubdomain: () =>
-                Promise.resolve('row' in over ? over.row : { id: 1 }),
-        },
-    },
-});
-
-describe('eventsWorkerName', () => {
-    it('is deterministic, deployable, and not derivable from the app alone', () => {
-        const name = eventsWorkerName(APP, OWNER_UUID);
-        expect(name).toBe(eventsWorkerName(APP, OWNER_UUID));
+describe('eventsWorkerScript', () => {
+    it('names the script after the handler set, within the name grammar', () => {
+        const script = eventsWorkerScript(SET_HASH);
+        expect(script).toBe(eventsWorkerScript(SET_HASH));
         // The worker-name grammar the deploy machinery enforces.
-        expect(name).toMatch(/^evw-[a-f0-9]{40}$/);
-        expect(name).not.toBe(eventsWorkerName(APP, 'uuid-other'));
-        expect(name).not.toContain(APP);
+        expect(script).toMatch(/^evw-[a-f0-9]{32}$/);
+        expect(script).not.toBe(eventsWorkerScript(OTHER_HASH));
     });
 });
 
-describe('DeployedEventsWorkerResolver', () => {
-    it('resolves a deployed worker to the public worker domain', async () => {
-        const resolver = new DeployedEventsWorkerResolver(deps({}));
-        await expect(resolver.resolveInvokeUrl(APP)).resolves.toBe(
-            `https://${eventsWorkerName(APP, OWNER_UUID)}.puter.work`,
-        );
-    });
-
-    it('resolves to the local dispatch host when workers run locally', async () => {
-        const resolver = new DeployedEventsWorkerResolver(
-            deps({ config: { workers: { localServer: true }, port: 4111 } }),
-        );
-        await expect(resolver.resolveInvokeUrl(APP)).resolves.toBe(
-            `http://${eventsWorkerName(APP, OWNER_UUID)}.workers.puter.localhost:4111`,
-        );
-    });
-
-    it('answers null for every missing link in the chain', async () => {
-        for (const broken of [
-            deps({ app: null }),
-            deps({ owner: null }),
-            deps({ row: null }),
-        ]) {
-            const resolver = new DeployedEventsWorkerResolver(broken);
-            await expect(resolver.resolveInvokeUrl(APP)).resolves.toBeNull();
-        }
+describe('eventsInvokeKey', () => {
+    it('derives per script, per secret, and carries its version', () => {
+        const key = eventsInvokeKey('secret', 'evw-a');
+        expect(key.startsWith(`${EVENTS_INVOKE_KEY_VERSION}:`)).toBe(true);
+        expect(key).toBe(eventsInvokeKey('secret', 'evw-a'));
+        expect(key).not.toBe(eventsInvokeKey('secret', 'evw-b'));
+        expect(key).not.toBe(eventsInvokeKey('rotated', 'evw-a'));
+        // Nothing of the secret survives into what a worker is handed.
+        expect(key).not.toContain('secret');
     });
 });

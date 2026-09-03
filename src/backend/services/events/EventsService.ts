@@ -198,7 +198,9 @@ import {
     type SubjectOp,
 } from './subjects.js';
 import { backlogPolicyFor, isResumable } from './suspension.js';
-import { DeployedEventsWorkerResolver } from './workerRuntime.js';
+import type { EventsInvokeTransport } from '../../clients/events/EventsWorkerInvokerClient.js';
+import { eventsInvokeKey, eventsWorkerScript } from './workerRuntime.js';
+import { handlerSetHash } from './workerSource.js';
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
@@ -1008,21 +1010,22 @@ export class EventsService extends PuterService {
     // -- Lifecycle ---------------------------------------------------
 
     override onServerStart(): void {
+        // Without it nothing can be addressed, and every background delivery
+        // fails its way to a suspension with no obvious cause.
+        if (
+            this.config.events?.workerRuntime === true &&
+            !this.config.events?.internalSecret
+        )
+            console.warn(
+                '[events] workerRuntime is on but events.internalSecret is unset — no events worker can be addressed',
+            );
+
         // Left alone when something has already put its own invoker here.
         if (this.worker instanceof RecordingWorkerInvoker)
             this.worker = new EventsWorkerInvoker(
                 this.clients.eventsWorkerInvoker,
                 (invocation) => this.#mintSubscriberToken(invocation),
-            );
-
-        // Address deployed events workers only when the runtime is on; the
-        // null resolver stays otherwise, and invocations stay retriable.
-        if (this.config.events?.workerRuntime === true)
-            this.clients.eventsWorkerInvoker.setResolver(
-                new DeployedEventsWorkerResolver({
-                    config: this.config,
-                    stores: this.stores,
-                }),
+                (appUid) => this.#addressEventsWorker(appUid),
             );
 
         this.clients.event.on(
@@ -1694,15 +1697,6 @@ export class EventsService extends PuterService {
             );
         }
         return published;
-    }
-
-    /**
-     * The app a handler call is scoped to, under the same gate the handler
-     * verbs apply. For whatever follows a successful publish or removal — the
-     * worker deploy step — so it acts on the app the mutation acted on.
-     */
-    async resolveHandlerApp(actor: Actor, requested: unknown): Promise<string> {
-        return this.#handlerApp(actor, requested);
     }
 
     /**
@@ -3967,6 +3961,37 @@ export class EventsService extends PuterService {
             );
             return null;
         }
+    }
+
+    /**
+     * Replace how invocations reach an events worker. For the layer that owns
+     * workers, which is the only one that can provide an in-process runtime;
+     * production leaves the client on its dispatcher transport.
+     */
+    useWorkerTransport(transport: EventsInvokeTransport): void {
+        this.clients.eventsWorkerInvoker.setTransport(transport);
+    }
+
+    /**
+     * Where an app's handlers currently live: the script its published set
+     * hashes to, and the key an invocation of it carries.
+     *
+     * Resolved per invocation rather than cached, from the set's names and
+     * hashes alone — a cache here would go on addressing a superseded script,
+     * which is still deployed and still running the handlers it was baked with,
+     * until the entry expired.
+     */
+    async #addressEventsWorker(
+        appUid: string,
+    ): Promise<{ script: string; key: string } | null> {
+        const secret = this.config.events?.internalSecret;
+        if (this.config.events?.workerRuntime !== true || !secret) return null;
+
+        const set = await this.stores.eventHandler.setForApp(appUid);
+        if (set.length === 0) return null;
+
+        const script = eventsWorkerScript(handlerSetHash(set));
+        return { script, key: eventsInvokeKey(secret, script) };
     }
 
     /**

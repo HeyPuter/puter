@@ -5,9 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const workerDir = path.resolve(scriptDir, '..');
-const templatePath = path.join(workerDir, 'template', 'puter-portable.template');
 const outputDir = path.join(workerDir, 'dist');
-const outputPath = path.join(outputDir, 'workerPreamble.js');
+// One preamble per worker runtime: the ordinary router one, and the events one
+// that runs published handlers and holds no token of its own.
+const runtimes = [
+    ['puter-portable.template', 'workerPreamble.js'],
+    ['puter-events.template', 'eventsWorkerPreamble.js'],
+];
 
 // Build a version stamp: puter-js version + short git SHA
 const puterJsPkg = JSON.parse(
@@ -48,5 +52,9 @@ const inlineIncludes = async (filePath) => {
 
 await mkdir(outputDir, { recursive: true });
 const versionBanner = `var __PUTER_PREAMBLE_VERSION__ = ${JSON.stringify(preambleVersion)};\n`;
-const preambleSource = await inlineIncludes(templatePath);
-await writeFile(outputPath, versionBanner + preambleSource);
+for (const [template, output] of runtimes) {
+    const preambleSource = await inlineIncludes(
+        path.join(workerDir, 'template', template),
+    );
+    await writeFile(path.join(outputDir, output), versionBanner + preambleSource);
+}
