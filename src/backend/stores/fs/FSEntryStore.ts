@@ -2489,8 +2489,7 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            | { v: unknown; id: number; s?: string; o?: string }
-            | undefined;
+            { v: unknown; id: number; s?: string; o?: string } | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2676,8 +2675,7 @@ export class FSEntryStore extends PuterStore {
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
         const payload = decodeCursor(options.cursor) as
-            | { p: string }
-            | undefined;
+            { p: string } | undefined;
         const seek = payload ? 'AND path > ?' : '';
         const params: unknown[] = payload
             ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
@@ -3044,6 +3042,15 @@ export class FSEntryStore extends PuterStore {
         const record = writeResult as Record<string, unknown>;
         const affected = Number(record.affectedRows ?? record.changes ?? 0);
         return Number.isFinite(affected) ? affected : 0;
+    }
+
+    /** Bytes held, with no allowance or quota-bonus reckoning attached. */
+    async getHeldBytes(userId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
+            [userId],
+        )) as { totalUsage: number }[];
+        return Number(rows[0]?.totalUsage ?? 0);
     }
 
     async getUserStorageAllowance(

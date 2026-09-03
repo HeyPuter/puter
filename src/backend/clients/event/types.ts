@@ -36,6 +36,24 @@ type GuiEvent<R = Record<string, unknown>> = {
 type FsCreateEvent = { node: FSEntry; entry: FSEntry; uid: string };
 
 /**
+ * Who pays, and for which team. Deliberately no payment identity: the
+ * payer's row is alive at emit time, so a consumer resolves it when it acts --
+ * a snapshot taken here would be stale, and two events racing on it would each
+ * create their own customer.
+ */
+export type TeamBillingContext = {
+    team_uid: string;
+    owner_user_id: number;
+};
+
+/** A team event about one seat. */
+export type TeamBillingEvent = TeamBillingContext & {
+    user_id: number;
+    user_uuid: string;
+    username: string;
+};
+
+/**
  * Extension-augmentable half of {@link EventMap}. Extensions that emit their own
  * events declare the payload here by declaration merging, so both the emitter
  * and every listener are typed against the same shape:
@@ -332,6 +350,23 @@ export type EventMap = {
         user_id: number;
         user_uuid?: string;
         stripe_customer_id?: string | null;
+    };
+
+    // ---- Team billing ---- the trigger, never the charge ----
+    'team.account.created': TeamBillingEvent;
+    /** `held_bytes` is what to bill storage on while the seat is off. */
+    'team.account.disabled': TeamBillingEvent & { held_bytes: number };
+    'team.account.enabled': TeamBillingEvent & { held_bytes: number };
+    /** Emitted pre-delete: the membership row cascades away with the user. */
+    'team.account.deleted': TeamBillingEvent;
+    /** Per-seat charges stop; byte charges do not, the accounts remain. */
+    'team.deleted': TeamBillingContext & { account_count: number };
+    /** A budget line was crossed. Emitted on transition only, never per request. */
+    'metering.credit-state': {
+        user_uuid: string;
+        state: 'near-limit' | 'exhausted';
+        allowance_used: number;
+        month_usage_allowance: number;
     };
 
     // ---- Filesystem ----
@@ -748,11 +783,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
