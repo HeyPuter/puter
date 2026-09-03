@@ -511,6 +511,7 @@ export class DDBClient extends PuterClient {
         expression: string,
         expressionValues?: Record<string, unknown>,
         expressionNames?: Record<string, string>,
+        options?: { condition?: string },
     ) {
         const hasValues =
             !!expressionValues && Object.keys(expressionValues).length > 0;
@@ -530,6 +531,9 @@ export class DDBClient extends PuterClient {
                             : {}),
                         ...(hasNames
                             ? { ExpressionAttributeNames: expressionNames }
+                            : {}),
+                        ...(options?.condition
+                            ? { ConditionExpression: options.condition }
                             : {}),
                         ReturnValues: 'ALL_NEW',
                         ReturnConsumedCapacity: 'TOTAL',

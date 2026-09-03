@@ -20,6 +20,7 @@
 import type { Request, Response } from 'express';
 import { Controller, Post } from '../../core/http/decorators.js';
 import type { BroadcastService } from '../../services/broadcast/BroadcastService.js';
+import type { ForwardBatch } from '../../services/events/forwardQueue.js';
 import { PuterController } from '../types.js';
 
 /**
@@ -55,18 +56,11 @@ export class BroadcastController extends PuterController {
             return;
         }
 
-        const headerOnce = (name: string): string | undefined => {
-            const value = req.headers[name];
-            if (Array.isArray(value)) return value[0];
-            return value;
-        };
-
-        const result = await broadcast.verifyAndEmit(req.rawBody, req.body, {
-            peerId: headerOnce('x-broadcast-peer-id'),
-            timestamp: headerOnce('x-broadcast-timestamp'),
-            nonce: headerOnce('x-broadcast-nonce'),
-            signature: headerOnce('x-broadcast-signature'),
-        });
+        const result = await broadcast.verifyAndEmit(
+            req.rawBody,
+            req.body,
+            broadcastHeaders(req),
+        );
 
         if (result.ok) {
             res.status(200).json({ ok: true, ...(result.info ?? {}) });
@@ -76,4 +70,57 @@ export class BroadcastController extends PuterController {
             error: { message: result.message ?? 'Bad request' },
         });
     }
+
+    /**
+     * Event deliveries one region addressed at this one, on the same signed
+     * channel as the webhook above but carrying socket traffic rather than bus
+     * events. The answer names the pairs this region holds no socket for, which
+     * is what lets the sender correct its presence row.
+     */
+    @Post('/events', { subdomain: '*' })
+    async events(req: Request, res: Response): Promise<void> {
+        const broadcast = this.services.broadcast as unknown as
+            | BroadcastService
+            | undefined;
+        if (!broadcast) {
+            res.status(503).json({
+                error: { message: 'Broadcast service not registered' },
+            });
+            return;
+        }
+
+        const verified = await broadcast.verifySignedRequest(
+            req.rawBody,
+            broadcastHeaders(req),
+        );
+        if (!verified.ok) {
+            res.status(verified.status ?? 400).json({
+                error: { message: verified.message ?? 'Bad request' },
+            });
+            return;
+        }
+        if (verified.info?.ignored) {
+            res.status(200).json({ ok: true, ...verified.info });
+            return;
+        }
+
+        const reply = await this.services.eventForward.receive(
+            (req.body ?? {}) as ForwardBatch,
+        );
+        res.status(200).json({ ok: true, ...reply });
+    }
 }
+
+const broadcastHeaders = (req: Request) => {
+    const headerOnce = (name: string): string | undefined => {
+        const value = req.headers[name];
+        if (Array.isArray(value)) return value[0];
+        return value;
+    };
+    return {
+        peerId: headerOnce('x-broadcast-peer-id'),
+        timestamp: headerOnce('x-broadcast-timestamp'),
+        nonce: headerOnce('x-broadcast-nonce'),
+        signature: headerOnce('x-broadcast-signature'),
+    };
+};

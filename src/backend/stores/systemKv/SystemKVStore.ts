@@ -138,6 +138,17 @@ export interface RecursiveRecord<T> {
 export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
+
+/** Optimistic-concurrency counter every reserved-item write moves. */
+const RESERVED_VERSION_ATTR = 'version';
+
+/**
+ * Whether a write was refused because the condition it carried no longer held.
+ * The compare-and-set answer, not a failure: the caller re-reads and decides.
+ */
+const isConditionRefused = (err: unknown): boolean =>
+    (err as { name?: string })?.name === 'ConditionalCheckFailedException';
+const RESERVED_VERSION_BUMP = '#v = if_not_exists(#v, :zero) + :one';
 const MAX_VALUE_BYTES = 399 * 1024;
 // A number anywhere inside a value is bounded too, to the IEEE-754 safe
 // integer range — past that it cannot round-trip, so it is clamped to the
@@ -788,6 +799,122 @@ export class SystemKVStore extends PuterStore {
                 });
             },
         );
+    }
+
+    // -- Reserved items -----------------------------------------------
+    //
+    // Platform bookkeeping that happens to live in this table and is not
+    // anyone's key-value data. Reserved items sit in the system namespace under
+    // their own key prefix, so the driver can never address one, and they go
+    // straight to the table: no usage is returned because nothing is billed, no
+    // read cache is consulted or invalidated, and no mutation event is emitted
+    // — a reserved item is not a change to a namespace anyone can subscribe to.
+
+    /** One reserved item, or `null`. Eventually consistent, which is enough. */
+    async getReservedItem<T extends object>(key: string): Promise<T | null> {
+        assertKey(key);
+        const response = await this.clients.dynamo.get(this.tableName, {
+            namespace: SYSTEM_NAMESPACE,
+            key,
+        });
+        return (response.Item as T | undefined) ?? null;
+    }
+
+    /**
+     * Set one entry of a reserved item's map field and advance the item's
+     * version. Unconditional and safe to race: the expression names only its
+     * own entry, so two writers adding different ones keep both. Returns the
+     * version the item now carries.
+     */
+    async setReservedEntry(
+        key: string,
+        field: string,
+        entry: string,
+        value: unknown,
+    ): Promise<number> {
+        assertKey(key);
+        assertSafeValueKeys({ [field]: { [entry]: value } });
+
+        // Two shapes because a nested path cannot be set on a map that is not
+        // there yet: the common one first, the seed only when it is missing.
+        const nested = () =>
+            this.#bumpReserved(
+                key,
+                `SET #f.#e = :value, ${RESERVED_VERSION_BUMP}`,
+                { ':value': value },
+                { '#f': field, '#e': entry },
+                'attribute_exists(#f)',
+            );
+
+        const applied = await nested();
+        if (applied !== null) return applied;
+
+        const seeded = await this.#bumpReserved(
+            key,
+            `SET #f = :seed, ${RESERVED_VERSION_BUMP}`,
+            { ':seed': { [entry]: value } },
+            { '#f': field },
+            'attribute_not_exists(#f)',
+        );
+        if (seeded !== null) return seeded;
+
+        // Another writer seeded the field between the two attempts.
+        return (await nested()) ?? 0;
+    }
+
+    /**
+     * Drop one entry of a reserved item's map field, only while the item still
+     * carries `expectedVersion`. False means it has moved on since it was read
+     * — the compare-and-set answer, not a failure.
+     */
+    async removeReservedEntry(
+        key: string,
+        field: string,
+        entry: string,
+        expectedVersion: number,
+    ): Promise<boolean> {
+        assertKey(key);
+        const applied = await this.#bumpReserved(
+            key,
+            `SET ${RESERVED_VERSION_BUMP} REMOVE #f.#e`,
+            {},
+            { '#f': field, '#e': entry },
+            '#v = :expected',
+            { ':expected': expectedVersion },
+        );
+        return applied !== null;
+    }
+
+    /**
+     * One version-advancing update of a reserved item. `null` when the
+     * condition refused it, which is an answer rather than an error.
+     */
+    async #bumpReserved(
+        key: string,
+        expression: string,
+        values: Record<string, unknown>,
+        names: Record<string, string>,
+        condition: string,
+        conditionValues: Record<string, unknown> = {},
+    ): Promise<number | null> {
+        try {
+            const response = await this.clients.dynamo.update(
+                this.tableName,
+                { namespace: SYSTEM_NAMESPACE, key },
+                expression,
+                { ...values, ...conditionValues, ':zero': 0, ':one': 1 },
+                { ...names, '#v': RESERVED_VERSION_ATTR },
+                { condition },
+            );
+            return Number(
+                (response.Attributes as Record<string, unknown> | undefined)?.[
+                    RESERVED_VERSION_ATTR
+                ] ?? 0,
+            );
+        } catch (err) {
+            if (isConditionRefused(err)) return null;
+            throw err;
+        }
     }
 
     // -- Public API ---------------------------------------------------

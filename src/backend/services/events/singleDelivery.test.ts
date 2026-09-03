@@ -248,6 +248,18 @@ beforeEach(async () => {
             permission: { getCacheGeneration: async () => 1 },
         } as never,
         {
+            eventForward: {
+                // A deployment with no peers has nowhere to forward to, which
+                // is what every test here is.
+                region: 'local',
+                isPeer: () => false,
+                noteConnect: async () => undefined,
+                noteDisconnect: async () => undefined,
+                candidateRegion: async () => null,
+                fanOut: async () => undefined,
+                handOff: () => undefined,
+                relayAck: () => undefined,
+            },
             socket: {
                 send: vi.fn(async (_spec, _key, data) => {
                     sent.push(data as DeliveryEnvelope);

@@ -77,7 +77,7 @@ type GenerationBumpHandler = (
 ) => void;
 const remoteGenerationBumpHandler = (): GenerationBumpHandler | undefined =>
     eventBus.on.mock.calls.find(
-        ([key]: [string]) => key === 'outer.events.generationBumped',
+        ([key]: [string]) => key === 'outer.pubsub.events.generationBumped',
     )?.[1] as GenerationBumpHandler | undefined;
 
 const COUNTED = new Set([
@@ -268,6 +268,18 @@ const buildService = (
             permission: permissionStore,
         } as never,
         {
+            eventForward: {
+                // A deployment with no peers has nowhere to forward to, which
+                // is what every test here is.
+                region: 'local',
+                isPeer: () => false,
+                noteConnect: async () => undefined,
+                noteDisconnect: async () => undefined,
+                candidateRegion: async () => null,
+                fanOut: async () => undefined,
+                handOff: () => undefined,
+                relayAck: () => undefined,
+            },
             socket: {
                 send: vi.fn(async (spec: { socket?: string }, _key, data) => {
                     outbox.push({
@@ -683,7 +695,7 @@ describe('cross-process invalidation', () => {
         const handler = remoteGenerationBumpHandler();
         expect(handler).toBeDefined();
         handler?.(
-            'outer.events.generationBumped',
+            'outer.pubsub.events.generationBumped',
             { userId, generation },
             { from_outside: true },
         );
@@ -702,7 +714,7 @@ describe('cross-process invalidation', () => {
         // No `from_outside`: this is what the local half of our own emit
         // looks like, and it must not force a redundant re-check.
         remoteGenerationBumpHandler()?.(
-            'outer.events.generationBumped',
+            'outer.pubsub.events.generationBumped',
             { userId, generation: 1 },
             {},
         );
@@ -716,14 +728,14 @@ describe('cross-process invalidation', () => {
         const handler = remoteGenerationBumpHandler();
 
         handler?.(
-            'outer.events.generationBumped',
+            'outer.pubsub.events.generationBumped',
             { userId, generation: 1, durable: false },
             { from_outside: true },
         );
         expect(cold).not.toHaveBeenCalled();
 
         handler?.(
-            'outer.events.generationBumped',
+            'outer.pubsub.events.generationBumped',
             { userId, generation: 2, durable: true },
             { from_outside: true },
         );
@@ -766,7 +778,7 @@ describe('cross-process invalidation', () => {
         });
 
         remoteGenerationBumpHandler()?.(
-            'outer.events.generationBumped',
+            'outer.pubsub.events.generationBumped',
             { userId, generation: 1 }, // behind this process's own recorded generation
             { from_outside: true },
         );

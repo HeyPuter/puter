@@ -28,6 +28,7 @@ import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
 import { CacheReplicationService } from './cache/CacheReplicationService';
+import { EventForwardService } from './events/EventForwardService';
 import { EventsService } from './events/EventsService';
 import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
@@ -70,6 +71,7 @@ declare module './types' {
         suggestedApps: SuggestedAppsService;
         socket: SocketService;
         events: EventsService;
+        eventForward: EventForwardService;
         notification: NotificationService;
         appFeedback: AppFeedbackService;
         broadcast: BroadcastService;
@@ -131,6 +133,9 @@ export const puterServices = {
     // AuthService.appUidFromOrigin).
     appFeedback: AppFeedbackService,
     broadcast: BroadcastService,
+    // Forwards through `broadcast` and puts deliveries down through `socket`,
+    // so it follows both; `events` reaches it at call time only.
+    eventForward: EventForwardService,
     // Independent — only needs the event client and redis.
     cacheReplication: CacheReplicationService,
     oidc: OIDCService,
