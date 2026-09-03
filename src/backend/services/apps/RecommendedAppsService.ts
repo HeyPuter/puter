@@ -18,7 +18,8 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import { getAppIconUrl } from '../../util/appIcon.js';
+import type { AppIconHostConfig } from '../../util/appIcon.js';
+import { getAppIconCdnUrl, getAppIconUrl } from '../../util/appIcon.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -62,7 +63,7 @@ export class RecommendedAppsService extends PuterService {
         const results: Array<Record<string, unknown>> = [];
         for (const name of RECOMMENDED_APP_NAMES) {
             const app = await this.stores.app.getByName(name);
-            if (app) results.push(toAppSummary(app, apiBaseUrl));
+            if (app) results.push(toAppSummary(app, apiBaseUrl, this.config));
         }
         return results;
     }
@@ -71,12 +72,15 @@ export class RecommendedAppsService extends PuterService {
 function toAppSummary(
     app: Record<string, unknown>,
     apiBaseUrl: string | undefined,
+    config: AppIconHostConfig,
 ): Record<string, unknown> {
     return {
         uuid: app.uid,
         name: app.name,
         title: app.title,
         icon: getAppIconUrl(app, { apiBaseUrl }) ?? app.icon ?? null,
+        // Direct subdomain URL for the client to try before `icon`.
+        iconCdnUrl: getAppIconCdnUrl(app, config),
         godmode: Boolean(app.godmode),
         maximize_on_start: Boolean(app.maximize_on_start),
         index_url: app.index_url,

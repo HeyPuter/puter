@@ -7,6 +7,7 @@ import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
+import { appIconAttrs } from '../../helpers/appIcon.js';
 import { is_window_on_screen, user_facing_windows } from '../../helpers/windowVisibility.js';
 import {
     APP_GROUPS_KV_KEY,
@@ -209,13 +210,13 @@ function buildTileHtml (app) {
     // installedApps reports icon: null when an app has no icon at all; its
     // iconUrl would be a wasted fetch, so use the bundled default instead.
     // Strictly null — launch-list entries carry no icon key (undefined).
-    const iconUrl = app.icon === null
-        ? window.icons['app-default.svg']
-        : (app.iconUrl || window.icons['app.svg']);
+    const iconAttrs = app.icon === null
+        ? `src="${html_encode(window.icons['app-default.svg'])}"`
+        : appIconAttrs(app, window.icons['app.svg']);
 
     let h = `<div class="myapps-tile" role="button" tabindex="-1" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
     h += '<div class="myapps-tile-icon">';
-    h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
+    h += `<img ${iconAttrs} alt="" draggable="false">`;
     // iOS-style uninstall badge; only shown while reorder mode is on (CSS).
     // tabindex=-1 keeps it out of the grid's roving-tabindex tab order.
     if ( ! APP_NAMES_NO_UNINSTALL.has((app.name || '').toLowerCase()) ) {
@@ -292,10 +293,10 @@ function buildGroupTileHtml (group, apps) {
     h += '<div class="myapps-tile-icon myapps-group-icon">';
     h += '<div class="myapps-group-icon-grid">';
     for ( const app of shown ) {
-        const iconUrl = app.icon === null
-            ? window.icons['app-default.svg']
-            : (app.iconUrl || window.icons['app.svg']);
-        h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
+        const iconAttrs = app.icon === null
+            ? `src="${html_encode(window.icons['app-default.svg'])}"`
+            : appIconAttrs(app, window.icons['app.svg']);
+        h += `<img ${iconAttrs} alt="" draggable="false">`;
     }
     h += '</div>';
     h += '</div>';
@@ -3158,6 +3159,7 @@ const TabApps = {
                     index_url: app.index_url || null,
                     external: app.external ?? false,
                     iconUrl: app.iconUrl || app.icon || null,
+                    iconCdnUrl: app.iconCdnUrl || null,
                 }));
 
             // Build seen set from launch apps
@@ -3319,6 +3321,7 @@ const TabApps = {
             index_url: info.index_url || null,
             external: false,
             iconUrl: info.icon || null,
+            iconCdnUrl: info.iconCdnUrl || null,
         };
         if ( ! this._pendingInstalls ) this._pendingInstalls = new Map();
         this._pendingInstalls.set(appName, app);

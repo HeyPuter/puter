@@ -21,6 +21,7 @@ import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
 import {
+    APP_ICON_SIZES,
     ICON_DATA_URL_MIME_ALLOWLIST,
     isTrustedIconHost,
 } from '../../util/appIcon.js';
@@ -414,8 +415,6 @@ export class AppController extends PuterController {
         //
         // ⚠ FLAG: Missing sharp-based resize pipeline; serves the original.
 
-        const ICON_SIZES = [16, 32, 64, 128, 256, 512];
-
         // Neutering headers for any response that echoes an icon byte
         // stream on the main origin. `image/svg+xml` is in our MIME
         // allow-list — it's a legitimate image format, and our own
@@ -457,7 +456,7 @@ export class AppController extends PuterController {
                 res.status(400).send('Missing app_uid');
                 return;
             }
-            if (!ICON_SIZES.includes(size)) {
+            if (!APP_ICON_SIZES.includes(size)) {
                 res.status(400).send('Invalid size');
                 return;
             }

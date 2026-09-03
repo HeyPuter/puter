@@ -1,6 +1,7 @@
 import { Context } from '@heyputer/backend/src/core';
 import { extension } from '@heyputer/backend/src/extensions';
 import { isCardFallbackEligible } from '@heyputer/backend/src/util/cardFallback.js';
+import { APP_ICON_SIZES } from '@heyputer/backend/src/util/appIcon.js';
 import { getTaskbarItems } from '@heyputer/backend/src/util/taskbarItems.js';
 import type { Request, Response } from 'express';
 import TimeAgo from 'javascript-time-ago';
@@ -114,13 +115,12 @@ export const handleWhoami = async (
     }
 
     const oidcOnly = user.password === null;
-    const ALLOWED_ICON_SIZES = new Set([16, 32, 64, 128, 256, 512]);
     const rawIconSize =
         typeof req.query?.icon_size === 'string'
             ? Number(req.query.icon_size)
             : undefined;
     const iconSize =
-        rawIconSize !== undefined && ALLOWED_ICON_SIZES.has(rawIconSize)
+        rawIconSize !== undefined && APP_ICON_SIZES.includes(rawIconSize)
             ? rawIconSize
             : undefined;
     const noIcons = !iconSize;
@@ -201,6 +201,7 @@ export const handleWhoami = async (
                       stores,
                       services,
                       apiBaseUrl: String(extension.config.api_base_url ?? ''),
+                      config: extension.config,
                   },
                   { iconSize, noIcons },
               )
@@ -291,7 +292,8 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        { offering?: Record<string, unknown> } | undefined;
+        | { offering?: Record<string, unknown> }
+        | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;

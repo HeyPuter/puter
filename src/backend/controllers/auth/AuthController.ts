@@ -4646,6 +4646,7 @@ export class AuthController extends PuterController {
                     services: this.services,
                     apiBaseUrl: (this.config as { api_base_url?: string })
                         .api_base_url,
+                    config: this.config,
                 } as never,
             );
         } catch (e) {

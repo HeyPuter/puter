@@ -54,6 +54,7 @@ import {
 import init_device_signals from './helpers/deviceSignals.js';
 import { holdsPermissions } from './helpers/holdsPermissions.js';
 import item_icon from './helpers/itemIcon.js';
+import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
@@ -1188,6 +1189,10 @@ window.initgui = async function (options) {
     // on by default (gui_params.thumbmarkEnabled = false kills it); the Prelude
     // dispatch id needs gui_params.preludeSdkKey.
     init_device_signals();
+
+    // Retry app icons that fail on the icons subdomain against the API
+    // endpoint. One listener for the whole GUI, desktop and dashboard alike.
+    installAppIconFallback();
 
     let picked_a_user_for_sdk_login = false;
 

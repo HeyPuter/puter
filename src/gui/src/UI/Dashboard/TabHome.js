@@ -20,6 +20,7 @@
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { usageBudget } from './usageBudget.js';
+import { appIconAttrs } from '../../helpers/appIcon.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
@@ -50,7 +51,7 @@ function buildRecentAppsHTML() {
 
             h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
             // Icon
-            h += `<img class="bento-recent-app-icon" src="${html_encode(app_info.icon || window.icons['app.svg'])}">`;
+            h += `<img class="bento-recent-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
             // Title
             h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
             h += '</div>';

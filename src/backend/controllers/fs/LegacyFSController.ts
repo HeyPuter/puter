@@ -41,6 +41,7 @@ import {
     NON_OWNER_SIGNATURE_TTL_SECONDS,
     verifySignature,
 } from '../../util/fileSigning.js';
+import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { maskEntryPath } from '../../services/fs/sharePathMask.js';
 import {
@@ -293,6 +294,14 @@ export class LegacyFSController extends PuterController {
                     ? await recommendedSvc.getRecommendedApps()
                     : [];
 
+                // The direct icon URL names a size; honour the one the
+                // caller asked for so the client isn't handed a 256px PNG for
+                // a 64px slot. `icon` keeps the raw column either way.
+                const requestedIconSize = Number(req.query.icon_size);
+                const iconSize = APP_ICON_SIZES.includes(requestedIconSize)
+                    ? requestedIconSize
+                    : undefined;
+
                 let recent: unknown[] = [];
                 const userId = req.actor?.user?.id;
                 if (userId) {
@@ -346,6 +355,13 @@ export class LegacyFSController extends PuterController {
                             name: app.name,
                             title: app.title,
                             icon: app.icon ?? null,
+                            // Direct subdomain URL for the client to try
+                            // before `icon`.
+                            iconCdnUrl: getAppIconCdnUrl(
+                                app,
+                                this.config,
+                                iconSize,
+                            ),
                             godmode: Boolean(app.godmode),
                             maximize_on_start: Boolean(app.maximize_on_start),
                             index_url: backingGone ? null : app.index_url,
