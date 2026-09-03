@@ -23,6 +23,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
+import { pollUntilSettled, videoJobFailure } from '../polling.js';
 import {
     BYTEPLUS_VIDEO_GENERATION_MODELS,
     BYTEPLUS_VIDEO_SPECS,
@@ -32,7 +33,6 @@ import {
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const DEFAULT_BASE_URL = 'https://ark.ap-southeast.bytepluses.com/api/v3';
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_MODEL = 'dreamina-seedance-2-0-mini-260615';
 // Seedance 2.0 multimodal reference accepts up to 9 reference images.
 const MAX_REFERENCE_IMAGES = 9;
@@ -202,14 +202,11 @@ export class BytePlusVideoProvider extends VideoProvider {
             const errorMessage =
                 finalTask.error?.message ??
                 `Video generation ${finalTask.status}`;
-            // Ark's `failed` covers both user-input issues (content
-            // moderation) and upstream outages — same ambiguity as the
-            // Together provider, so expose it the same way: a 400 with
-            // `upstream_failed` that the alarm gate skips.
-            throw new HttpError(400, errorMessage, {
-                legacyCode: 'upstream_failed',
-                fields: { provider: 'byteplus' },
-            });
+            throw videoJobFailure(
+                'byteplus',
+                errorMessage,
+                finalTask.error?.code,
+            );
         }
 
         const videoUrl = finalTask.content?.video_url;
@@ -336,22 +333,18 @@ export class BytePlusVideoProvider extends VideoProvider {
     }
 
     async #pollUntilComplete(taskId: string): Promise<ArkVideoTask> {
-        const start = Date.now();
-        for (;;) {
-            const task = (await this.#request(
-                'GET',
-                `/contents/generations/tasks/${taskId}`,
-            )) as ArkVideoTask;
-            if (task.status !== 'queued' && task.status !== 'running') {
-                return task;
-            }
-            if (Date.now() - start > DEFAULT_TIMEOUT_MS) {
-                throw new Error(
-                    'Timed out waiting for BytePlus video generation to complete',
-                );
-            }
-            await this.#delay(this.#pollIntervalMs);
-        }
+        return await pollUntilSettled<ArkVideoTask>({
+            provider: 'byteplus',
+            providerLabel: 'BytePlus',
+            intervalMs: this.#pollIntervalMs,
+            fetch: () =>
+                this.#request(
+                    'GET',
+                    `/contents/generations/tasks/${taskId}`,
+                ) as Promise<ArkVideoTask>,
+            isPending: (task) =>
+                task.status === 'queued' || task.status === 'running',
+        });
     }
 
     async #request(
@@ -382,10 +375,6 @@ export class BytePlusVideoProvider extends VideoProvider {
             });
         }
         return payload;
-    }
-
-    async #delay(ms: number): Promise<void> {
-        return await new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     #getModel(requestedModel?: string): IVideoModel {

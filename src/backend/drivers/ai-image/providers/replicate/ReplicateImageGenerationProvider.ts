@@ -29,30 +29,15 @@ import {
     REPLICATE_IMAGE_GENERATION_MODELS,
     type ReplicateImageModel,
 } from './models.js';
+import {
+    CONTENT_FILTER_PATTERN,
+    sanitizeUpstreamMessage,
+} from '../../../util/upstreamErrors.js';
 
 const DEFAULT_MODEL = 'black-forest-labs/flux-schnell';
 const DEFAULT_RATIO = { w: 1024, h: 1024 };
 
 const PREDICTION_FAILED_PREFIX = 'Prediction failed:';
-const MAX_UPSTREAM_MESSAGE_LENGTH = 300;
-// Model-side content filters, as worded in failed-prediction errors.
-const CONTENT_FILTER_PATTERN =
-    /\bnsfw\b|flagged as sensitive|sensitive content|content policy|\bE005\b/i;
-
-/**
- * Strips markup and bounds length so an upstream HTML error page never rides
- * through into a response body or an alarm signature.
- */
-const sanitizeUpstreamMessage = (raw: string): string => {
-    const text = raw
-        .replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ')
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    return text.length > MAX_UPSTREAM_MESSAGE_LENGTH
-        ? `${text.slice(0, MAX_UPSTREAM_MESSAGE_LENGTH - 3)}...`
-        : text;
-};
 
 export class ReplicateImageGenerationProvider implements IImageProvider {
     static readonly #CORE_PARAMS: readonly string[] = [

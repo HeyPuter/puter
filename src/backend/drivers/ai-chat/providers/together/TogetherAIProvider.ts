@@ -42,8 +42,11 @@ export class TogetherAIProvider implements IChatProvider {
     #kvKey = 'togetherai:models';
 
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
+        // The SDK default is one minute, which long non-streaming
+        // completions exceed; match the ten minutes the other providers get.
         this.#together = new Together({
             apiKey: config.apiKey,
+            timeout: 10 * 60 * 1000,
         });
         this.#meteringService = meteringService;
     }

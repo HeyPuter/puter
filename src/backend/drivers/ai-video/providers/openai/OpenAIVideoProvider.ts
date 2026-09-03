@@ -25,6 +25,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
+import { pollTimeoutError } from '../polling.js';
 import { OPENAI_VIDEO_MODELS, OPENAI_VIDEO_ALLOWED_SECONDS } from './models.js';
 import { Readable } from 'stream';
 
@@ -216,9 +217,7 @@ export class OpenAIVideoProvider extends VideoProvider {
 
         while (job.status === 'queued' || job.status === 'in_progress') {
             if (Date.now() - start > DEFAULT_TIMEOUT_MS) {
-                throw new Error(
-                    'Timed out waiting for Sora video generation to complete',
-                );
+                throw pollTimeoutError('openai', 'Sora');
             }
 
             await this.#delay(POLL_INTERVAL_MS);

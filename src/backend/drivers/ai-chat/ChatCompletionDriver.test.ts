@@ -1118,6 +1118,36 @@ describe('ChatCompletionDriver.complete OpenAI-shape normalization', () => {
 // ── Fallback / error envelope ───────────────────────────────────────
 
 describe('ChatCompletionDriver.complete fallback and error envelope', () => {
+    it('returns HTTP 504 upstream_timeout when the only route timed out', async () => {
+        // Shaped like the Stainless SDKs' timeout: no status, only the class.
+        class APIConnectionTimeoutError extends Error {
+            constructor() {
+                super('Request timed out.');
+            }
+        }
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockRejectedValue(
+            new APIConnectionTimeoutError(),
+        );
+
+        const caught = await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+        expect(caught).toBeInstanceOf(HttpError);
+        expect(caught).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+            message: 'AI provider timed out',
+        });
+        const attempts = (caught as unknown as { fields: { attempts: { timedOut?: boolean }[] } })
+            .fields.attempts;
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0].timedOut).toBe(true);
+    });
+
     it('returns HTTP 500 with the failure history in `fields.attempts` when all providers fail', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockRejectedValue(
             new Error('boom'),

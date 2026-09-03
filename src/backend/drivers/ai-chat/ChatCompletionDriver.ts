@@ -32,6 +32,7 @@ import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { isUpstreamTimeoutError } from '../util/upstreamErrors.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
 import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider.js';
@@ -111,6 +112,8 @@ type ProviderAttempt = {
     status?: number;
     code?: string;
     error: string;
+    /** The attempt died to a transport timeout rather than an answer. */
+    timedOut?: boolean;
 };
 
 /**
@@ -146,6 +149,7 @@ const toAttempt = (
         status,
         code: e?.error?.code ?? e?.code,
         error: message,
+        ...(isUpstreamTimeoutError(err) ? { timedOut: true } : {}),
     };
 };
 
@@ -193,6 +197,7 @@ const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
  * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
  * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
  * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
+ * - All timed out → 504 `upstream_timeout` (no page)
  * - Mixed → 400 `upstream_failed` (no page)
  */
 const classifyAttempts = (
@@ -241,10 +246,18 @@ const classifyAttempts = (
         });
     }
 
+    if (attempts.every((a) => a.timedOut)) {
+        return new HttpError(504, 'AI provider timed out', {
+            legacyCode: 'upstream_timeout',
+            fields,
+        });
+    }
+
     // Mixed failures where at least one attempt is clearly upstream
-    // (had an HTTP status from the SDK) means "AI providers couldn't
-    // satisfy the request" — expose, don't page.
+    // (had an HTTP status from the SDK, or never got one in time) means
+    // "AI providers couldn't satisfy the request" — expose, don't page.
     const isUpstreamSignal = (a: ProviderAttempt) =>
+        a.timedOut === true ||
         a.status !== undefined ||
         isRateLimit(a) ||
         isAuthFailure(a) ||

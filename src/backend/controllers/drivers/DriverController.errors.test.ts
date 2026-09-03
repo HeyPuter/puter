@@ -35,9 +35,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Readable, Writable } from 'node:stream';
 import type { Request, RequestHandler, Response } from 'express';
+import { APIConnectionTimeoutError } from 'openai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DriverMethodLifecycleEvent } from '../../clients/event/types.js';
-import { runWithContext } from '../../core/context.js';
+import { Context, runWithContext } from '../../core/context.js';
 import { configureRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { DriverController } from './DriverController.js';
 
@@ -325,6 +326,32 @@ describe('DriverController upstream error translation', () => {
         expect(err).toBe('a bare string');
     });
 
+    it('maps an SDK connection timeout, which carries no status, to a 504 upstream_timeout', async () => {
+        const raw = new APIConnectionTimeoutError();
+        const { err } = await callWith(throwing(raw));
+        expect(err).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+            message: 'AI provider timed out',
+            cause: raw,
+        });
+    });
+
+    it('maps a fetch timeout that undici wraps in a `fetch failed` TypeError to a 504 upstream_timeout', async () => {
+        const raw = new TypeError('fetch failed', {
+            cause: Object.assign(new Error('Headers Timeout Error'), {
+                name: 'HeadersTimeoutError',
+                code: 'UND_ERR_HEADERS_TIMEOUT',
+            }),
+        });
+        const { err } = await callWith(throwing(raw));
+        expect(err).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+            fields: { upstreamCode: 'UND_ERR_HEADERS_TIMEOUT' },
+        });
+    });
+
     it('passes an error with a sub-400 status through untranslated', async () => {
         const raw = { status: 302, message: 'redirected' };
         const { err } = await callWith(throwing(raw));
@@ -433,5 +460,55 @@ describe('DriverController per-method rate limiting', () => {
         // Spending your own budget is the limit working as designed, so it
         // must not raise anything — the 429 is the whole signal.
         expect(alarms).toEqual([]);
+    });
+});
+
+// -- Client disconnect --------------------------------------------------
+
+describe('DriverController client disconnect', () => {
+    it('exposes an abort signal in the request context that fires when the client leaves early', async () => {
+        let seen: AbortSignal | undefined;
+        const { handler } = build({
+            run: async () => {
+                seen = Context.get('abortSignal');
+                await new Promise((r) => setImmediate(r));
+                return { ok: true };
+            },
+        });
+        const res = new MockRes();
+        const done = runWithContext({}, () =>
+            handler(
+                makeReq({ interface: 'test-iface', method: 'run' }),
+                res as unknown as Response,
+                () => {},
+            ),
+        );
+        res.destroy();
+        await done;
+
+        expect(seen).toBeInstanceOf(AbortSignal);
+        expect(seen?.aborted).toBe(true);
+    });
+
+    it('does not abort when the response simply finished', async () => {
+        let seen: AbortSignal | undefined;
+        const { handler } = build({
+            run: () => {
+                seen = Context.get('abortSignal');
+                return { ok: true };
+            },
+        });
+        const res = new MockRes();
+        await runWithContext({}, () =>
+            handler(
+                makeReq({ interface: 'test-iface', method: 'run' }),
+                res as unknown as Response,
+                () => {},
+            ),
+        );
+        res.end();
+        await new Promise((r) => setImmediate(r));
+
+        expect(seen?.aborted).toBe(false);
     });
 });

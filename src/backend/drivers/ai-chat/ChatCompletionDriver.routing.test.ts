@@ -419,3 +419,51 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
     });
 });
+
+// A transport timeout carries no status, so the classifier used to lump a
+// chain of them in with "our bug" and page. It is the provider's pace.
+describe('ChatCompletionDriver timeout classification across the chain', () => {
+    // Shaped like the Stainless SDKs' timeout: no status, only the class.
+    class APIConnectionTimeoutError extends Error {
+        constructor() {
+            super('Request timed out.');
+        }
+    }
+
+    const completeShared = () =>
+        withTestActor(() =>
+            driver.complete({
+                model: 'deepseek-v4-pro',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+    it('returns 504 upstream_timeout when every route timed out', async () => {
+        createMock.mockRejectedValue(new APIConnectionTimeoutError());
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+        const attempts = (
+            err as unknown as { fields: { attempts: { timedOut?: boolean }[] } }
+        ).fields.attempts;
+        expect(attempts.length).toBeGreaterThan(1);
+        expect(attempts.every((a) => a.timedOut === true)).toBe(true);
+    });
+
+    it('counts a timed-out route as an upstream signal, so a mixed chain is not a 500', async () => {
+        createMock
+            .mockRejectedValueOnce(new APIConnectionTimeoutError())
+            .mockRejectedValue(new Error('upstream down'));
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
+        });
+    });
+});
