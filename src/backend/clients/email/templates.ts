@@ -365,6 +365,19 @@ as you. Choose your own password promptly.</li>
 <p>Puter</p>
         `,
     },
+    team_password_reset: {
+        subject: 'Your {{team_name}} account password was reset',
+        html: `
+<p>Hi there,</p>
+<p>An administrator of {{team_name}} reset the password on your Puter account
+<b>{{username}}</b>. They will send you a temporary password separately, and you
+will be asked to choose your own the next time you sign in.</p>
+<p>If you did not expect this, the record of who reset it and when is in your
+team activity, along with every sign-in to your account.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     enabled_2fa: {
         subject: '2FA Enabled on your Account',
         html: `
