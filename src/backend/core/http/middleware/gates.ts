@@ -325,10 +325,10 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
  * still reach the screens that clear the gate).
  *
  * Returns 403 with a per-gate legacy code (`email_confirmation_required` /
- * `phone_verification_required` / `card_verification_required`) so clients can
- * show the right prompt instead of a generic error. There is no state where a
- * user should be allowed in with one verification pending, so any pending gate
- * rejects.
+ * `phone_verification_required` / `card_verification_required` /
+ * `password_change_required`) so clients can show the right prompt instead of a
+ * generic error. There is no state where a user should be allowed in with one
+ * verification pending, so any pending gate rejects.
  */
 export const requireVerifiedAccount = (): RequestHandler => {
     return (req, _res, next) => {
@@ -353,10 +353,10 @@ export const requireVerifiedAccount = (): RequestHandler => {
  * WebDAV came to bypass the phone/card gate to begin with).
  *
  * Throws 403 with a per-gate legacy code (`email_confirmation_required` /
- * `phone_verification_required` / `card_verification_required`) so clients can
- * show the right prompt instead of a generic error. There is no state where a
- * user should be let in with any verification pending, so the first pending
- * gate rejects.
+ * `phone_verification_required` / `card_verification_required` /
+ * `password_change_required`) so clients can show the right prompt instead of a
+ * generic error. There is no state where a user should be let in with any
+ * verification pending, so the first pending gate rejects.
  */
 export const assertVerifiedAccount = (
     user:
@@ -365,6 +365,7 @@ export const assertVerifiedAccount = (
               email_confirmed?: unknown;
               requires_phone_verification?: unknown;
               requires_card_verification?: unknown;
+              requires_password_change?: unknown;
           }
         | undefined,
 ): void => {
@@ -386,6 +387,17 @@ export const assertVerifiedAccount = (
         throw new HttpError(403, 'Please verify your card to continue', {
             legacyCode: 'card_verification_required',
         });
+    }
+    // A team seat signs in on a password its administrator still holds,
+    // so it reaches nothing until it has replaced that password.
+    if (user?.requires_password_change) {
+        throw new HttpError(
+            403,
+            'Please choose your own password to continue',
+            {
+                legacyCode: 'password_change_required',
+            },
+        );
     }
 };
 
@@ -413,8 +425,7 @@ export const assertVerifiedAccount = (
  */
 export const assertPhoneVerified = (
     user:
-        | { phone?: unknown; requires_phone_verification?: unknown }
-        | undefined,
+        { phone?: unknown; requires_phone_verification?: unknown } | undefined,
 ): void => {
     if (user?.phone && !user?.requires_phone_verification) return;
     throw new HttpError(403, 'Please verify your phone number to continue', {

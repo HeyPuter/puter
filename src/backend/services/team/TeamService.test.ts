@@ -386,6 +386,172 @@ describe('TeamService', () => {
             service.reissueCredential(team.uid, owner.id, result.userId),
         ).rejects.toMatchObject({ statusCode: 409 });
     });
+
+    // -- password reset ------------------------------------------------
+
+    it('bounds an issued credential so an unused one dies', async () => {
+        const { team } = await makeTeam();
+        const username = `exp_${Math.random().toString(36).slice(2, 9)}`;
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const user = await server.stores.user.getByProperty(
+            'id',
+            result.userId,
+            { force: true },
+        );
+        const expiry = Number(user?.temp_password_expires_at);
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        expect(expiry).toBeGreaterThan(nowSeconds);
+        expect(expiry).toBeLessThanOrEqual(nowSeconds + 24 * 60 * 60);
+    });
+
+    it('takes a live account back with a fresh credential', async () => {
+        const { team } = await makeTeam();
+        const username = `rst_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        // The member chose their own password, so reissue is closed to them.
+        await server.stores.user.update(created.userId, {
+            requires_password_change: 0,
+            temp_password_expires_at: null,
+        });
+
+        const { temporaryPassword } = await service.resetMemberPassword(
+            team.uid,
+            owner.id,
+            created.userId,
+        );
+
+        expect(temporaryPassword).toMatch(/^[A-Za-z2-9]{16}$/u);
+        const user = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(Number(user?.requires_password_change)).toBe(1);
+        expect(user?.password).not.toBe(temporaryPassword);
+    });
+
+    it('records the reset without recording the credential', async () => {
+        const { team } = await makeTeam();
+        const username = `aur_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const { temporaryPassword } = await service.resetMemberPassword(
+            team.uid,
+            owner.id,
+            created.userId,
+        );
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items.map((e) => e.action)).toEqual([
+            'reset_member_password',
+            'provision',
+        ]);
+        expect(items[0].actor_username).toBe(ownerUsername);
+        expect(JSON.stringify(items)).not.toContain(temporaryPassword);
+    });
+
+    it('leaves 2FA in place, so a reset alone is not takeover', async () => {
+        const { team } = await makeTeam();
+        const username = `otp_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await server.stores.user.update(created.userId, {
+            otp_enabled: 1,
+            otp_secret: 'ABCDEFGHIJKLMNOP',
+        });
+
+        await service.resetMemberPassword(team.uid, owner.id, created.userId);
+
+        const user = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(Boolean(user?.otp_enabled)).toBe(true);
+        expect(user?.otp_secret).toBe('ABCDEFGHIJKLMNOP');
+    });
+
+    it('records a re-issue too, so no credential is handed over unlogged', async () => {
+        const { team } = await makeTeam();
+        const username = `rei_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        await service.reissueCredential(team.uid, owner.id, created.userId);
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items.map((e) => e.action)).toEqual([
+            'reset_member_password',
+            'provision',
+        ]);
+    });
+
+    it('refuses a reset ordered by someone who is not the owner', async () => {
+        const { team, member } = await makeTeam();
+        const username = `nres_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        await expect(
+            service.resetMemberPassword(team.uid, member.id, created.userId),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('refuses to reset the team owner, who is not org-owned', async () => {
+        const { team } = await makeTeam();
+        await expect(
+            service.resetMemberPassword(team.uid, owner.id, owner.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('lets the member clear the gate and closes re-issue behind them', async () => {
+        const { team } = await makeTeam();
+        const username = `act_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        // What the change-password route writes once the member sets their own.
+        await server.stores.user.update(created.userId, {
+            requires_password_change: 0,
+            temp_password_expires_at: null,
+        });
+        await service.recordPasswordSelfChange(created.userId);
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items[0]).toMatchObject({
+            action: 'activate',
+            username,
+            actor_username: username,
+        });
+        await expect(
+            service.reissueCredential(team.uid, owner.id, created.userId),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('ignores a password change by an account no team owns', async () => {
+        const outsider = await makeUser();
+        await expect(
+            service.recordPasswordSelfChange(outsider.id),
+        ).resolves.toBeUndefined();
+    });
     it('refuses an email that already belongs to an account', async () => {
         const { team } = await makeTeam();
         const existing = await makeUser();

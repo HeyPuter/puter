@@ -345,6 +345,162 @@ describe('team endpoints over HTTP', () => {
         };
         expect(body.results[0].recipient).toBe(handle);
     });
+
+    // -- the forced-change gate ---------------------------------------
+
+    /**
+     * A seat that has signed in on its temporary password. Email confirmation
+     * is cleared first so the gate under test is the one that answers.
+     */
+    const signedInSeat = async (teamUid: string) => {
+        const username = `seat_${Math.random().toString(36).slice(2, 9)}`;
+        const res = await call(
+            'POST',
+            `/teams/${teamUid}/members`,
+            env.users.user.token,
+            { username, email: `${username}@test.local` },
+        );
+        expect(res.status).toBe(200);
+        const { temporary_password: password } = (await res.json()) as {
+            temporary_password: string;
+        };
+
+        const row = (await env.server.stores.user.getByUsername(username))!;
+        await env.server.stores.user.update(row.id, {
+            requires_email_confirmation: false,
+            email_confirmed: true,
+        });
+        await env.server.stores.user.invalidateById(row.id);
+
+        const fresh = (await env.server.stores.user.getById(row.id))!;
+        const { token } = await env.server.services.auth.createSessionToken(
+            fresh,
+            { user_agent: 'puter-test-seat' },
+        );
+        return { username, password, userId: row.id, token };
+    };
+
+    /** Cookie-credentialed on the GUI origin, as the user-protected gate insists. */
+    const changePassword = (token: string, password: string, next: string) =>
+        fetch(new URL('/user-protected/change-password', env.origin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${token}`,
+                cookie: `puter_auth_token=${token}`,
+            },
+            body: JSON.stringify({ password, new_pass: next }),
+        });
+
+    it('signs the seat in but refuses every authenticated route after that', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+
+        const res = await call('GET', '/teams', seat.token);
+        expect(res.status).toBe(403);
+        expect(await res.text()).toContain('password_change_required');
+    });
+
+    it('leaves change-password reachable, since it is what clears the gate', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+
+        const changed = await changePassword(
+            seat.token,
+            seat.password,
+            'chosen-by-the-member',
+        );
+        expect(changed.status).toBe(200);
+
+        const row = await env.server.stores.user.getByProperty(
+            'id',
+            seat.userId,
+            { force: true },
+        );
+        expect(Number(row?.requires_password_change)).toBe(0);
+        expect(row?.temp_password_expires_at ?? null).toBeNull();
+    });
+
+    it('admits the seat to the product once it has chosen a password', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        expect(
+            (await changePassword(seat.token, seat.password, 'my-own-password'))
+                .status,
+        ).toBe(200);
+
+        // The session that changed the password is the one that survives.
+        const res = await call('GET', '/teams', seat.token);
+        expect(res.status).toBe(200);
+    });
+
+    it('closes re-issue behind a seat that has activated', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await changePassword(seat.token, seat.password, 'a-password-of-mine');
+
+        const res = await call(
+            'POST',
+            `/teams/${team.uid}/members/${seat.username}/activation`,
+            env.users.user.token,
+        );
+        expect(res.status).toBe(409);
+    });
+
+    it('shows the member the reset and their own sign-in, and nothing else', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await changePassword(seat.token, seat.password, 'chosen-once-already');
+
+        const reset = await call(
+            'POST',
+            `/teams/${team.uid}/members/${seat.username}/password-reset`,
+            env.users.user.token,
+        );
+        expect(reset.status).toBe(200);
+        const { temporary_password: issued } = (await reset.json()) as {
+            temporary_password: string;
+        };
+
+        const { token } = await env.server.services.auth.createSessionToken(
+            (await env.server.stores.user.getById(seat.userId))!,
+            { user_agent: 'puter-test-seat' },
+        );
+        const mine = await call('GET', `/teams/${team.uid}/audit/me`, token);
+        // The seat owes a password change again, so its own view is all it reaches.
+        expect(mine.status).toBe(403);
+
+        const admin = await call(
+            'GET',
+            `/teams/${team.uid}/audit`,
+            env.users.user.token,
+        );
+        const body = (await admin.json()) as { items: { action: string }[] };
+        expect(body.items.map((e) => e.action)).toContain(
+            'reset_member_password',
+        );
+        expect(JSON.stringify(body)).not.toContain(issued);
+    });
+
+    it('refuses a temporary password that was never used in time', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await env.server.stores.user.update(seat.userId, {
+            temp_password_expires_at: Math.floor(Date.now() / 1000) - 1,
+        });
+        await env.server.stores.user.invalidateById(seat.userId);
+
+        const res = await fetch(new URL('/login', env.origin), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                username: seat.username,
+                password: seat.password,
+            }),
+        });
+        expect(res.status).toBe(401);
+        expect(await res.text()).toContain('temporary_password_expired');
+    });
 });
 
 describe('team endpoints with teams_enabled off', () => {

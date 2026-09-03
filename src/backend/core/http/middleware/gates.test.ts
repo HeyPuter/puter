@@ -742,6 +742,20 @@ describe('requireVerifiedAccount', () => {
         expectHttpError(got, 403, 'card_verification_required');
     });
 
+    it('returns 403 password_change_required while the account owes a password', () => {
+        const got = runGate(requireVerifiedAccount(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    requires_email_confirmation: false,
+                    email_confirmed: true,
+                    requires_password_change: 1,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'password_change_required');
+    });
+
     it('passes through once every gate is cleared', () => {
         const got = runGate(requireVerifiedAccount(), {
             actor: {
@@ -751,6 +765,7 @@ describe('requireVerifiedAccount', () => {
                     email_confirmed: true,
                     requires_phone_verification: false,
                     requires_card_verification: false,
+                    requires_password_change: 0,
                 },
             },
         });

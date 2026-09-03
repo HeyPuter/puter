@@ -18,7 +18,6 @@
  */
 
 import bcrypt from 'bcrypt';
-import { randomBytes } from 'node:crypto';
 import validator from 'validator';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -40,22 +39,12 @@ import type {
 } from '../../stores/team/TeamStore';
 import type { UserRow } from '../../stores/user/UserStore';
 import { cleanEmail } from '../../util/email.js';
+import {
+    generateTemporaryPassword,
+    temporaryPasswordExpiry,
+} from '../../util/temporaryPassword.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { PuterService } from '../types';
-
-/** Unambiguous alphabet -- no 0/O or 1/l, since a human retypes this. */
-const TEMP_PASSWORD_ALPHABET =
-    'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-
-/** ~95 bits, generated rather than chosen so it is never a reused pattern. */
-export const generateTemporaryPassword = (length = 16): string => {
-    const bytes = randomBytes(length);
-    let out = '';
-    for (let i = 0; i < length; i++) {
-        out += TEMP_PASSWORD_ALPHABET[bytes[i] % TEMP_PASSWORD_ALPHABET.length];
-    }
-    return out;
-};
 
 /** Why an account was disabled. Free text in `0063`; this is the team one. */
 export const DISABLED_BY_TEAM = 'disabled_by_team';
@@ -69,6 +58,14 @@ export const DISABLED_BY_TEAM = 'disabled_by_team';
 const CAP_LOCK_ATTEMPTS = 8;
 const CAP_LOCK_RETRY_MS = 25;
 const CAP_LOCK_TTL_SECONDS = 10;
+
+/**
+ * Audit vocabulary. `reset_member_password` covers both a reissue before first
+ * use and a reset of a live account: from the member's side both mean the
+ * administrator now holds a working credential for their account.
+ */
+export const AUDIT_RESET_PASSWORD = 'reset_member_password';
+export const AUDIT_ACTIVATE = 'activate';
 
 export class TeamService extends PuterService {
     // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
@@ -604,11 +601,7 @@ export class TeamService extends PuterService {
         });
 
         // Returned once; forced change on first use is what bounds it.
-        const temporaryPassword = generateTemporaryPassword();
-        await this.stores.user.update(user.id, {
-            password: await bcrypt.hash(temporaryPassword, 8),
-            requires_password_change: 1,
-        });
+        const temporaryPassword = await this.#issueTemporaryPassword(user.id);
         await this.#notifyAccountCreated(user, team);
 
         // Last: the seat is only chargeable once it exists and can be used.
@@ -633,8 +626,82 @@ export class TeamService extends PuterService {
         targetUserId: number,
     ): Promise<{ temporaryPassword: string }> {
         const team = await this.requireOwner(teamUid, actorUserId);
-        await this.requireOrgAccount(teamUid, targetUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
 
+        // Only before first use; changing a live account's password is reset.
+        if (!user.requires_password_change) {
+            throw new HttpError(409, 'That account is already activated', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        // Recorded first, so a failed append cannot leave an unlogged credential.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_PASSWORD,
+            reason: 'reissue',
+        });
+        const temporaryPassword =
+            await this.#issueTemporaryPassword(targetUserId);
+        await this.#notifyAccountCreated(user, team);
+        return { temporaryPassword };
+    }
+
+    /**
+     * Takes a live account back with a fresh temporary password. The one route
+     * from a team to member data, and the answer to a locked-out
+     * employee.
+     */
+    async resetMemberPassword(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<{ temporaryPassword: string }> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+
+        // Recorded first, so a failed append cannot leave an unlogged reset.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_PASSWORD,
+        });
+        const temporaryPassword =
+            await this.#issueTemporaryPassword(targetUserId);
+        // 2FA is deliberately untouched: a reset alone is not takeover.
+        await this.#dropSessions(targetUserId);
+        await this.#notifyPasswordReset(user, team);
+        return { temporaryPassword };
+    }
+
+    /**
+     * Records that a member replaced the credential their administrator issued.
+     * A no-op for everyone who is not a seat, which is almost every account.
+     */
+    async recordPasswordSelfChange(userId: number): Promise<void> {
+        const seat = await this.stores.team.getOrgSeat(userId);
+        if (!seat) return;
+        const team = await this.stores.team.getByUidIncludingDeleted(
+            seat.team_uid,
+        );
+        if (!team) return;
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId,
+            actorUserId: userId,
+            action: AUDIT_ACTIVATE,
+        });
+    }
+
+    /** The target of a member route, read past the cache the caller just wrote. */
+    async #requireTargetAccount(
+        teamUid: string,
+        targetUserId: number,
+    ): Promise<UserRow> {
+        await this.requireOrgAccount(teamUid, targetUserId);
         const user = await this.stores.user.getByProperty('id', targetUserId, {
             force: true,
         });
@@ -643,20 +710,32 @@ export class TeamService extends PuterService {
                 legacyCode: 'not_found',
             });
         }
-        // Only before first use; changing a live account's password is reset.
-        if (!user.requires_password_change) {
-            throw new HttpError(409, 'That account is already activated', {
-                legacyCode: 'conflict',
-            });
-        }
+        return user as UserRow;
+    }
 
+    /** Never logged and never stored in plaintext; the caller shows it once. */
+    async #issueTemporaryPassword(userId: number): Promise<string> {
         const temporaryPassword = generateTemporaryPassword();
-        await this.stores.user.update(targetUserId, {
+        await this.stores.user.update(userId, {
             password: await bcrypt.hash(temporaryPassword, 8),
             requires_password_change: 1,
+            temp_password_expires_at: temporaryPasswordExpiry(),
         });
-        await this.#notifyAccountCreated(user, team);
-        return { temporaryPassword };
+        await this.stores.user.invalidateById(userId);
+        return temporaryPassword;
+    }
+
+    /** Carries no credential -- the administrator delivers that out of band. */
+    async #notifyPasswordReset(user: UserRow, team: TeamRow): Promise<void> {
+        if (!this.clients.email || !user.email) return;
+        try {
+            await this.clients.email.send(user.email, 'team_password_reset', {
+                username: user.username,
+                team_name: team.name ?? 'Your team',
+            });
+        } catch (e) {
+            console.warn('[team-reset] notice failed:', e);
+        }
     }
 
     /** A notice only -- it carries no credential, so delivery is best effort. */
