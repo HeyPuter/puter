@@ -91,6 +91,7 @@ const playgroundHtml = `
         </h1>
         <div style="float:right;" class="navbar">
             <a href="/" target="_blank" style="margin-right: 35px;">Docs</a>
+            <!-- <a href="/recipes/" target="_blank" style="margin-right: 35px;">Recipes</a> -->
             <a style="display: flex; flex-direction: row; align-items: center;"
                 href="https://github.com/heyPuter/puter/" target="_blank"><svg role="img"
                     style="margin-right:4px; margin-bottom: 3px;" width="17" height="17" viewBox="0 0 24 24" fill="#fff"
