@@ -977,6 +977,108 @@ describe('PermissionStore', () => {
             expect(rows[0].issuer_user_id).toBe(issuerB.id);
         });
 
+        it('takes a subtree from one holder without touching another`s', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const other = await makeUser();
+            const region = 'kv-share:owner:app:workspace:abc';
+
+            for (const user of [holder, other]) {
+                await store.upsertUserUserPerm(user.id, issuer.id, region, {});
+                await store.upsertUserUserPerm(
+                    user.id,
+                    issuer.id,
+                    `${region}:messages`,
+                    {},
+                );
+            }
+            // A neighbour that merely shares the text prefix.
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:owner:app:workspace:abcdef',
+                {},
+            );
+
+            const removed = await store.deleteUserUserPermSubtreeForHolder(
+                holder.id,
+                issuer.id,
+                region,
+            );
+
+            expect(removed.sort()).toEqual([region, `${region}:messages`]);
+            expect(
+                (
+                    await store.readLinkedUserUserPerms(holder.id, [
+                        'kv-share:owner:app:workspace:abcdef',
+                    ])
+                ).map((row) => row.permission),
+            ).toEqual(['kv-share:owner:app:workspace:abcdef']);
+            // The same region granted to somebody else is a different grant.
+            expect(
+                await store.readLinkedUserUserPerms(other.id, [
+                    region,
+                    `${region}:messages`,
+                ]),
+            ).toHaveLength(2);
+        });
+
+        it('leaves another issuer`s subtree grant standing', async () => {
+            const issuerA = await makeUser();
+            const issuerB = await makeUser();
+            const holder = await makeUser();
+            const region = 'kv-share:owner:app:shared';
+            await store.upsertUserUserPerm(holder.id, issuerA.id, region, {});
+            await store.upsertUserUserPerm(holder.id, issuerB.id, region, {});
+
+            expect(
+                await store.deleteUserUserPermSubtreeForHolder(
+                    holder.id,
+                    issuerA.id,
+                    region,
+                ),
+            ).toEqual([region]);
+
+            const rows = await store.readLinkedUserUserPerms(holder.id, [
+                region,
+            ]);
+            expect(rows).toHaveLength(1);
+            expect(rows[0].issuer_user_id).toBe(issuerB.id);
+        });
+
+        it('treats LIKE wildcards in the holder-scoped subtree as literal text', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+
+            // Same hazard as deleteAppGrantsByPermissionPrefix, at the
+            // holder-scoped delete this family also uses.
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:owner:app:a_c',
+                {},
+            );
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:owner:app:abc',
+                {},
+            );
+
+            const removed = await store.deleteUserUserPermSubtreeForHolder(
+                holder.id,
+                issuer.id,
+                'kv-share:owner:app:a_c',
+            );
+
+            expect(removed).toEqual(['kv-share:owner:app:a_c']);
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [
+                    'kv-share:owner:app:abc',
+                ]),
+            ).toHaveLength(1);
+        });
+
         it('reports whether the delete matched a row', async () => {
             const issuer = await makeUser();
             const holder = await makeUser();

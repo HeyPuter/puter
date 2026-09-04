@@ -21,6 +21,13 @@ export const MANAGE_PERM_PREFIX = 'manage';
 export const PERM_KEY_PREFIX = 'perm';
 
 /**
+ * Width of the `permission` column in the permission tables, which every
+ * dialect declares as `varchar(255)`. Anything building a permission string
+ * from user-supplied parts has to fit inside it.
+ */
+export const PERMISSION_MAX_LEN = 255;
+
+/**
  * De-facto placeholder permission for permission rewrites that do not grant any
  * access.
  */

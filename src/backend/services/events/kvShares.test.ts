@@ -23,6 +23,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import {
     assertShareableAppUid,
+    assertShareablePermission,
     assertShareablePrefix,
     keyPrefixSegments,
     kvShareGrantCovers,
@@ -136,10 +137,14 @@ describe('granted prefixes', () => {
         );
     });
 
-    it('refuses a prefix past the key size limit', () => {
-        expect(() => assertShareablePrefix('a'.repeat(1025))).toThrow(
-            HttpError,
-        );
+    it('refuses a region too deep to fit the grant column', () => {
+        const deep = kvSharePermission(OWNER, APP, 'a'.repeat(300));
+        expect(() => assertShareablePermission(deep)).toThrow(HttpError);
+        expect(
+            assertShareablePermission(
+                kvSharePermission(OWNER, APP, 'workspace:abc:'),
+            ),
+        ).toBeTypeOf('string');
     });
 
     it('keeps the trailing delimiter optional', () => {

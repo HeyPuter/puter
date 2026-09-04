@@ -19,8 +19,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { HttpError } from '../../core/http/HttpError.js';
-import { MAX_KEY_BYTES } from '../../stores/systemKv/SystemKVStore.js';
-import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
+import {
+    MANAGE_PERM_PREFIX,
+    PERMISSION_MAX_LEN,
+} from '../permission/consts.js';
 import type { PermissionImplicator } from '../permission/permissionUtil.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import {
@@ -52,9 +54,6 @@ import {
 
 /** Root of the cross-user key-value share namespace. */
 export const KV_SHARE_PERMISSION_PREFIX = 'kv-share';
-
-/** Longest key prefix a handle may be granted on, matching the key limit. */
-export const KV_SHARE_PREFIX_MAX_BYTES = MAX_KEY_BYTES;
 
 /** Width of the `app_uid` column the handle row stores its namespace in. */
 export const KV_SHARE_APP_UID_MAX_LENGTH = 40;
@@ -143,11 +142,6 @@ export const assertShareablePrefix = (keyPrefix: unknown): string => {
         throw invalidPrefix('`prefix` must be a string');
     if (keyPrefix.includes('*') || keyPrefix.includes('?'))
         throw invalidPrefix('A share prefix is a key prefix, not a pattern');
-    if (Buffer.byteLength(keyPrefix, 'utf8') > KV_SHARE_PREFIX_MAX_BYTES)
-        throw invalidPrefix(
-            `A share prefix may not exceed ${KV_SHARE_PREFIX_MAX_BYTES} bytes`,
-        );
-
     // Normalizing drops empty segments, so `a::b:` would silently become a
     // grant on `a:b:` — a region other than the one asked for. Refused rather
     // than rewritten; only the trailing delimiter is optional.
@@ -175,6 +169,19 @@ export const assertShareableAppUid = (appUid: string): string => {
     if (isKvHandleId(appUid))
         throw invalidAppUid('A share handle does not name a namespace');
     return appUid;
+};
+
+/**
+ * The grant a mint would issue, refused when it would not fit the column every
+ * permission table declares. Key prefixes run to a kilobyte and permissions do
+ * not, so the real bound on how deep a region may be is this one.
+ */
+export const assertShareablePermission = (permission: string): string => {
+    if (permission.length > PERMISSION_MAX_LEN)
+        throw invalidPrefix(
+            `A share prefix must leave the grant under ${PERMISSION_MAX_LEN} characters`,
+        );
+    return permission;
 };
 
 // -- Permission rules -------------------------------------------------

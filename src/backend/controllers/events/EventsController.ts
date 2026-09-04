@@ -19,9 +19,10 @@
 
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
-import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
+import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
 import {
@@ -153,6 +154,48 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         res.json(
             await this.services.events.mintKvHandle(actor, this.#body(req)),
+        );
+    }
+
+    /** GET /events/kv-handles — what this account has shared out. */
+    @Get('/kv-handles', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async listKvHandles(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+
+        const page = await this.services.events.listKvHandles(actor, {
+            limit: normalizeLimit(query.limit, {
+                cap: KV_HANDLE_LIST_LIMIT_CAP,
+            }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    /**
+     * DELETE /events/kv-handles/:handle — take a shared region back. A handle
+     * this account did not mint reads as absent.
+     */
+    @Delete('/kv-handles/:handle', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async revokeKvHandle(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(
+            await this.services.events.revokeKvHandle(actor, req.params.handle),
         );
     }
 

@@ -137,7 +137,7 @@ export interface RecursiveRecord<T> {
 /** Namespace app component for an actor acting without an app. */
 export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
-export const MAX_KEY_BYTES = 1024;
+const MAX_KEY_BYTES = 1024;
 
 /** Optimistic-concurrency counter every reserved-item write moves. */
 const RESERVED_VERSION_ATTR = 'version';

@@ -18,6 +18,11 @@
  */
 
 import { mintKvHandleId } from '../../services/events/kvShares.js';
+import {
+    decodeCursor,
+    encodeCursor,
+    type PageResult,
+} from '../../util/pagination.js';
 import { PuterStore } from '../types.js';
 
 /**
@@ -30,6 +35,9 @@ import { PuterStore } from '../types.js';
  */
 
 const TABLE = 'kv_share_handles';
+
+export const KV_HANDLE_LIST_DEFAULT_LIMIT = 50;
+export const KV_HANDLE_LIST_LIMIT_CAP = 200;
 
 export interface KvShareHandle {
     handle: string;
@@ -44,6 +52,12 @@ export interface KvShareHandle {
     revokedAt: number | null;
 }
 
+export interface KvShareHandleListOptions {
+    limit?: number;
+    cursor?: string;
+    includeTotal?: boolean;
+}
+
 export interface MintKvShareHandleInput {
     ownerUserId: number;
     granteeUserId: number;
@@ -53,6 +67,11 @@ export interface MintKvShareHandleInput {
 }
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+const asNumber = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
 
 const toRow = (row: Record<string, unknown>): KvShareHandle => ({
     handle: String(row.handle),
@@ -115,5 +134,87 @@ export class KvShareHandleStore extends PuterStore {
             [handle],
         );
         return rows.length > 0 ? toRow(rows[0]) : null;
+    }
+
+    /**
+     * Retire one handle, scoped to its owner. Returns the row as it now stands,
+     * or `null` when this owner has no handle by that name — the one answer an
+     * unknown handle and somebody else's both get, so retiring cannot be used
+     * to find out that a handle exists.
+     *
+     * Idempotent: an already-retired handle keeps the timestamp it has. The
+     * caller withdraws the grant first and that step can fail, so this one has
+     * to be safe to reach twice.
+     *
+     * The `revoked_at IS NULL` predicate makes the read-then-write a
+     * compare-and-set: two callers racing means one stamps the row and the
+     * other reports the stamp it found, rather than both writing.
+     */
+    async retire(
+        handle: string,
+        ownerUserId: number,
+    ): Promise<KvShareHandle | null> {
+        const existing = await this.getByHandle(handle);
+        if (!existing || existing.ownerUserId !== ownerUserId) return null;
+        if (existing.revokedAt !== null) return existing;
+
+        const at = nowSeconds();
+        const result = await this.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`revoked_at\` = ? ` +
+                'WHERE `handle` = ? AND `owner_user_id` = ? ' +
+                'AND `revoked_at` IS NULL',
+            [at, handle, ownerUserId],
+        );
+        if (result?.anyRowsAffected === false)
+            return await this.getByHandle(handle);
+        return { ...existing, revokedAt: at };
+    }
+
+    /**
+     * What one owner has minted, revoked handles included — they are the record
+     * of what was shared and when it stopped. Keyset-paginated on `id`.
+     */
+    async listForOwner(
+        ownerUserId: number,
+        options: KvShareHandleListOptions = {},
+    ): Promise<PageResult<KvShareHandle>> {
+        const limit = Math.min(
+            Math.max(
+                1,
+                Math.floor(options.limit ?? KV_HANDLE_LIST_DEFAULT_LIMIT),
+            ),
+            KV_HANDLE_LIST_LIMIT_CAP,
+        );
+        const after = asNumber(decodeCursor(options.cursor)?.id);
+
+        const where = ['`owner_user_id` = ?'];
+        const params: unknown[] = [ownerUserId];
+        if (after !== null) {
+            where.push('`id` > ?');
+            params.push(after);
+        }
+
+        const rows = await this.clients.db.read(
+            `SELECT \`id\`, ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                `WHERE ${where.join(' AND ')} ORDER BY \`id\` LIMIT ?`,
+            [...params, limit + 1],
+        );
+
+        const page = rows.slice(0, limit);
+        const result: PageResult<KvShareHandle> = { items: page.map(toRow) };
+        if (rows.length > limit)
+            result.cursor = encodeCursor({
+                id: Number(page[page.length - 1].id),
+            });
+
+        if (options.includeTotal) {
+            const [count] = await this.clients.db.read(
+                `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
+                    'WHERE `owner_user_id` = ?',
+                [ownerUserId],
+            );
+            result.total = Number(count?.total ?? 0);
+        }
+        return result;
     }
 }
