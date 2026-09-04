@@ -7513,3 +7513,166 @@ body.dashboard-mode .notifications-close-all {
         animation: none;
     }
 }
+
+/* ======================================
+   Teams tab
+   ====================================== */
+
+.teams-panel {
+    padding: 20px 24px;
+    margin-bottom: 16px;
+}
+
+.teams-panel h3 {
+    margin: 0 0 4px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-card-title);
+}
+
+.teams-panel-hint,
+.teams-billing-note,
+.teams-empty {
+    margin: 0 0 16px 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-empty {
+    margin-bottom: 0;
+}
+
+.teams-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.teams-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.teams-info strong {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-card-title);
+}
+
+.teams-info span {
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-picker-select,
+.teams-form input {
+    padding: 7px 10px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background: var(--dashboard-input-background);
+    color: inherit;
+    font-size: 13px;
+}
+
+.teams-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.teams-form input {
+    flex: 1 1 160px;
+    min-width: 0;
+}
+
+/* Shown once and never retrievable, so it is deliberately hard to miss. */
+.teams-credential {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 8px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 13px;
+}
+
+.teams-credential-value {
+    font-family: monospace;
+    font-size: 15px;
+    user-select: all;
+    word-break: break-all;
+}
+
+.teams-table-wrapper {
+    overflow-x: auto;
+}
+
+.teams-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.teams-table th {
+    padding: 7px 8px;
+    border: 1px solid var(--dashboard-border);
+    background: var(--dashboard-input-background);
+    text-align: left;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.teams-table td {
+    padding: 7px 8px;
+    border: 1px solid var(--dashboard-border);
+    vertical-align: middle;
+}
+
+/* Suspended accounts stay legible: they are still on the bill. */
+.teams-member-disabled td {
+    color: var(--dashboard-text-muted);
+}
+
+.teams-member-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-left: none;
+}
+
+.teams-audit-reason {
+    color: var(--dashboard-text-muted);
+}
+
+@media (max-width: 768px) {
+    .teams-card {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .teams-card .button,
+    .teams-form .button {
+        width: 100%;
+    }
+
+    .teams-form input {
+        flex-basis: 100%;
+    }
+}
