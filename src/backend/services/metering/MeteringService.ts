@@ -146,6 +146,9 @@ export class MeteringService extends PuterService {
     static CREDIT_CACHE_MS = 15_000;
     static CREDIT_CACHE_LIMIT = 50_000;
 
+    /** Where "about to run out" starts, as a fraction of the month allowance. */
+    static NEAR_LIMIT_FRACTION = 0.9;
+
     /**
      * How long usage that isn't decided on may sit in memory before it is
      * written, and how many actor buckets are held at once. Egress and
@@ -170,6 +173,12 @@ export class MeteringService extends PuterService {
     private subscriptionCache = new Map<
         string,
         { policy: SubscriptionPolicy; expiresAt: number }
+    >();
+
+    /** Uuid → the last budget state announced, so a retry loop emits once. */
+    private creditAlertState = new Map<
+        string,
+        'ok' | 'near-limit' | 'exhausted'
     >();
 
     /** Uuid → whether the actor had budget left. See CREDIT_CACHE_MS. */
@@ -1276,6 +1285,8 @@ export class MeteringService extends PuterService {
     /** Local-only drop. The announcement path is `invalidateActorCredits`. */
     #dropCachedCredits(userUuid: string): void {
         this.creditCache.delete(userUuid);
+        // Added capacity re-arms the alert: the next exhaustion is news again.
+        this.creditAlertState.delete(userUuid);
     }
 
     async #refreshCredits(actor: Actor): Promise<void> {
@@ -1333,14 +1344,66 @@ export class MeteringService extends PuterService {
             this.rememberHasCredits(userId, true);
             return;
         }
-        this.rememberHasCredits(
-            userId,
-            MeteringService.remainingFrom(
-                allowanceUsed,
-                monthUsageAllowance,
-                addons,
-            ) > 0,
+        const remaining = MeteringService.remainingFrom(
+            allowanceUsed,
+            monthUsageAllowance,
+            addons,
         );
+        this.rememberHasCredits(userId, remaining > 0);
+        this.#noteCreditState(
+            userId,
+            remaining,
+            allowanceUsed,
+            monthUsageAllowance,
+            addons,
+        );
+    }
+
+    /** Transitions only: a blocked actor retries, and every retry lands here. */
+    #noteCreditState(
+        userUuid: string,
+        remaining: number,
+        allowanceUsed: number,
+        monthUsageAllowance: number,
+        addons: UsageAddons | null | undefined,
+    ): void {
+        // Purchased credits are spendable, so the allowance alone warns early.
+        const capacity =
+            (monthUsageAllowance || 0) + (addons?.purchasedCredits || 0);
+        const state =
+            remaining <= 0
+                ? 'exhausted'
+                : remaining <=
+                    capacity * (1 - MeteringService.NEAR_LIMIT_FRACTION)
+                  ? 'near-limit'
+                  : 'ok';
+
+        if (this.creditAlertState.get(userUuid) === state) return;
+        // Same FIFO bound as `creditCache`; this map has one entry per actor.
+        if (
+            this.creditAlertState.size >= MeteringService.CREDIT_CACHE_LIMIT &&
+            !this.creditAlertState.has(userUuid)
+        ) {
+            const oldest = this.creditAlertState.keys().next().value;
+            if (oldest !== undefined) this.creditAlertState.delete(oldest);
+        }
+        this.creditAlertState.set(userUuid, state);
+        if (state === 'ok') return;
+
+        try {
+            this.clients.event.emit(
+                'metering.credit-state',
+                {
+                    user_uuid: userUuid,
+                    state,
+                    allowance_used: allowanceUsed,
+                    month_usage_allowance: monthUsageAllowance,
+                },
+                {},
+            );
+        } catch (e) {
+            console.warn('[metering] credit-state emit failed:', e);
+        }
     }
 
     private rememberHasCredits(userId: string, hasCredits: boolean): void {
