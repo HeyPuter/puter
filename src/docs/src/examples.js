@@ -450,6 +450,12 @@ const examples = [
                 source: '/playground/examples/kv-add.html',
             },
             {
+                title: 'Add (Array value)',
+                description: 'Append values to an array stored at a key with Puter.js key-value API. Run and experiment with this example in the playground.',
+                slug: 'kv-add-array',
+                source: '/playground/examples/kv-add-array.html',
+            },
+            {
                 title: 'Remove',
                 description: 'Remove values by path with Puter.js key-value API. Run and modify this code example instantly in your browser.',
                 slug: 'kv-remove',
