@@ -162,15 +162,16 @@ export class PortalProcess extends Process {
         }
     }
 
-    send (channel, data, context) {
+    send (channel, data, { transfer = [] } = {}) {
         const target = this.references.iframe.contentWindow;
         target.postMessage({
             msg: 'messageToApp',
             appInstanceID: channel.returnAddress,
             targetAppInstanceID: this.uuid,
             contents: data,
+            transfer,
         // }, new URL(this.references.iframe.src).origin);
-        }, '*');
+        }, '*', transfer);
     }
 
     async handle_connection (connection, args) {

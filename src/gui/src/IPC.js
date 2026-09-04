@@ -2050,30 +2050,41 @@ const ipc_listener = async (event, handled) => {
     // messageToApp
     //--------------------------------------------------------
     else if ( event.data.msg === 'messageToApp' ) {
-        const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
+        const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents, transfer } = event.data;
         // TODO: Determine if we should allow the message
         // TODO: Track message traffic between apps
         const svc_ipc = globalThis.services.get('ipc');
         // const svc_exec = globalThis.services()
 
-        const conn = svc_ipc.get_connection(targetAppInstanceID);
-        if ( conn ) {
-            conn.send(contents);
-            return;
-        }
-
         // pass on the message
-        const target_iframe = window.iframe_for_app_instance(targetAppInstanceID);
-        if ( ! target_iframe ) {
+        const conn = svc_ipc.get_connection(targetAppInstanceID);
+        const target_iframe = conn ? null : window.iframe_for_app_instance(targetAppInstanceID);
+        if ( ! conn && ! target_iframe ) {
             console.error('Failed to send message to non-existent app', event);
             return;
         }
-        target_iframe.contentWindow.postMessage({
-            msg: 'messageToApp',
-            appInstanceID,
-            targetAppInstanceID,
-            contents,
-        }, targetAppOrigin);
+
+        // The sender transferred these to us, so they have to keep moving: the
+        // target app wants the objects themselves, not copies stranded here.
+        // `transfer` is whatever the sending app put in the message and
+        // postMessage is the authority on what may be transferred, so a bad
+        // list throws (detaching nothing) — and `ipc_listener` has no outer
+        // catch to stop that escaping.
+        try {
+            if ( conn ) {
+                conn.send(contents, { transfer });
+            } else {
+                target_iframe.contentWindow.postMessage({
+                    msg: 'messageToApp',
+                    appInstanceID,
+                    targetAppInstanceID,
+                    contents,
+                    transfer,
+                }, targetAppOrigin, transfer);
+            }
+        } catch ( e ) {
+            console.error('Failed to relay message between apps', e);
+        }
     }
     //--------------------------------------------------------
     // closeApp
