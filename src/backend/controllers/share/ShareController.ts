@@ -144,7 +144,7 @@ export class ShareController extends PuterController {
         const results: ShareOutcome[] = await Promise.all(
             settled.map(async (outcome, index) => {
                 const { recipient, item } = pairs[index];
-                const label = recipient.email ?? recipient.username ?? '';
+                const label = this.#recipientLabel(recipient);
                 if (outcome.status === 'fulfilled') {
                     // The whole share, not just an acknowledgement, so a caller
                     // needn't re-read to learn what it created.
@@ -227,7 +227,7 @@ export class ShareController extends PuterController {
         );
         const results: ShareOutcome[] = settled.map((outcome, index) => {
             const { recipient, item } = pairs[index];
-            const label = recipient.email ?? recipient.username ?? '';
+            const label = this.#recipientLabel(recipient);
             if (outcome.status === 'fulfilled') {
                 return {
                     recipient: label,
@@ -554,9 +554,13 @@ export class ShareController extends PuterController {
         const unique: T[] = [];
         const seen = new Map<string, number>();
         const indexOf = pairs.map((pair) => {
+            // Every recipient field, or two teams key alike and collapse
+            // into one -- the second reporting the first's outcome as its own.
             const key = JSON.stringify([
                 pair.recipient.email ?? null,
                 pair.recipient.username ?? null,
+                pair.recipient.team ?? null,
+                pair.recipient.teamHandle ?? null,
                 pair.item.uid ?? null,
                 pair.item.path ?? null,
             ]);
@@ -638,6 +642,17 @@ export class ShareController extends PuterController {
         return value === NO_APP ? null : value;
     }
 
+    /** Echoes back the identifier the caller named, so results are matchable. */
+    #recipientLabel(recipient: ShareRecipient): string {
+        return (
+            recipient.email ??
+            recipient.username ??
+            recipient.teamHandle ??
+            recipient.team ??
+            ''
+        );
+    }
+
     #recipients(body: Record<string, unknown>): ShareRecipient[] {
         const raw = body.recipients ?? body.recipient;
         const list = Array.isArray(raw) ? raw : [raw];
@@ -659,6 +674,24 @@ export class ShareController extends PuterController {
                     typeof rec.email === 'string' ? rec.email.trim() : '';
                 const username =
                     typeof rec.username === 'string' ? rec.username.trim() : '';
+                const team =
+                    typeof rec.team === 'string' ? rec.team.trim() : '';
+                const teamHandle =
+                    typeof rec.teamHandle === 'string'
+                        ? rec.teamHandle.trim()
+                        : '';
+                // Ambiguous rather than a precedence rule to memorise.
+                if (team && teamHandle) {
+                    throw new HttpError(
+                        400,
+                        'pass `team` or `teamHandle`, not both',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                if (team || teamHandle) {
+                    out.push(team ? { team } : { teamHandle });
+                    continue;
+                }
                 if (email || username) {
                     out.push(email ? { email } : { username });
                 }

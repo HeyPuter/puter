@@ -63,6 +63,8 @@ export async function toClientShare(
         is_dir: share.isDir,
         issuer: share.issuer.username,
         holder: share.holder.username,
+        // Named, or a team share reads as a share with nobody.
+        ...(share.holderTeam ? { holder_team: share.holderTeam } : {}),
         created_at: share.createdAt,
         issued_by_app: share.issuedByApp ?? null,
         inherited_from: share.inheritedFrom ?? null,

@@ -908,6 +908,22 @@ export class PermissionService extends PuterService {
         );
     }
 
+    /** The group analogue of `queryIssuerHolderPermissionsByPrefix`. */
+    async queryIssuerGroupPermissionsByPrefix(
+        issuer: Actor,
+        groupUid: string,
+        prefix: string,
+    ): Promise<string[]> {
+        if (!issuer.user?.id) return [];
+        const groupId = await this.stores.permission.resolveGroupId(groupUid);
+        if (groupId === null) return [];
+        return this.stores.permission.queryIssuerGroupPermsByPrefix(
+            issuer.user.id,
+            groupId,
+            prefix,
+        );
+    }
+
     async grantUserGroupPermission(
         actor: Actor,
         groupUid: string,
@@ -969,6 +985,7 @@ export class PermissionService extends PuterService {
         groupUid: string,
         permission: string,
         meta: GrantMeta = {},
+        opts: { issuerUserId?: number } = {},
     ): Promise<boolean> {
         // Same rewrite as the grant, or this matches nothing and says it did.
         permission = await this.rewritePermission(permission);
@@ -979,7 +996,9 @@ export class PermissionService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
-        const issuerId = actor.user.id;
+        // Whose grant to clear; authority still comes from `actor`, so an owner
+        // can withdraw a delegate's grant without impersonating them.
+        const issuerId = opts.issuerUserId ?? actor.user.id;
 
         if (!(await this.canManagePermission(actor, permission))) {
             throw new HttpError(403, `permission_denied: ${permission}`, {

@@ -487,6 +487,33 @@ export class PermissionStore extends PuterStore {
     }
 
     /** As above, for several prefixes in one scan. */
+    /** The group analogue: a deleted node's group grants must go with it. */
+    async deleteUserGroupPermsByPermissionPrefixes(
+        permissions: string[],
+    ): Promise<Array<{ group_id: number; permission: string }>> {
+        if (permissions.length === 0) return [];
+        const where = permissions
+            .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
+            .join(' OR ');
+        const params = permissions.flatMap((permission) => [
+            permission,
+            `${permission.replace(/([!%_])/g, '!$1')}:%`,
+        ]);
+
+        const rows = (await this.clients.db.read(
+            'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
+                `WHERE ${where}`,
+            params,
+        )) as Array<{ group_id: number; permission: string }>;
+        if (rows.length === 0) return [];
+
+        await this.clients.db.write(
+            `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
+            params,
+        );
+        return rows;
+    }
+
     async deleteUserUserPermsByPermissionPrefixes(
         permissions: string[],
     ): Promise<
@@ -1002,6 +1029,47 @@ export class PermissionStore extends PuterStore {
             [groupId],
         )) as { user_id: number }[];
         return rows.map((r) => Number(r.user_id));
+    }
+
+    /** Batched `readUserGroupPerms`, tagged with the user each row reached. */
+    async readUserGroupPermsForHolders(
+        userIds: number[],
+        permissions: string[],
+    ): Promise<
+        Array<{ holder_user_id: number; permission: string; user_id: number }>
+    > {
+        const holders = [...new Set(userIds)];
+        const perms = [...new Set(permissions)];
+        if (holders.length === 0 || perms.length === 0) return [];
+        const rows = await this.clients.db.read(
+            'SELECT ug.`user_id` AS `holder_user_id`, p.`permission`, p.`user_id` ' +
+                'FROM `user_to_group_permissions` p ' +
+                'JOIN `jct_user_group` ug ON p.`group_id` = ug.`group_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE ug.\`user_id\` IN (${holders.map(() => '?').join(', ')}) ` +
+                'AND g.`deleted_at` IS NULL ' +
+                `AND p.\`permission\` IN (${perms.map(() => '?').join(', ')})`,
+            [...holders, ...perms],
+        );
+        return rows as unknown as Array<{
+            holder_user_id: number;
+            permission: string;
+            user_id: number;
+        }>;
+    }
+
+    /** What this issuer already granted this group under a prefix. */
+    async queryIssuerGroupPermsByPrefix(
+        issuerUserId: number,
+        groupId: number,
+        prefix: string,
+    ): Promise<string[]> {
+        const rows = await this.clients.db.read(
+            'SELECT permission FROM `user_to_group_permissions` ' +
+                'WHERE `user_id` = ? AND `group_id` = ? AND permission LIKE ?',
+            [issuerUserId, groupId, `${prefix}%`],
+        );
+        return rows.map((r) => String(r.permission));
     }
 
     /** `user_id` is the issuer; `group_id` is who receives it. */
