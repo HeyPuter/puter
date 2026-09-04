@@ -20,6 +20,15 @@ import {
 } from '../src/commands/worker.js';
 import { appList, appGet } from '../src/commands/app.js';
 import { kvConnect } from '../src/commands/kv.js';
+import {
+  fsLs,
+  fsCat,
+  fsCp,
+  fsMv,
+  fsRm,
+  fsMkdir,
+  fsStat,
+} from '../src/commands/fs.js';
 
 // The Puter.js SDK emits duplicate "stray" rejections for failed API calls in
 // addition to rejecting the promise we await. We already route the awaited
@@ -141,5 +150,83 @@ kv
   .description("Open an interactive shell against an app's or worker's KV store")
   .argument('<identifier>', 'app name, worker name or URL, or app uid')
   .action(action(kvConnect));
+
+// --- fs ---------------------------------------------------------------------
+
+const fsCmd = program
+  .command('fs')
+  .description('Work with files on your Puter drive (remote paths are puter:/...)');
+
+// `--app` rebases puter:/ onto one app's storage directory. Flag only: because
+// it changes what an absolute path means, it has to be visible in the command
+// itself — an invisible default turns `rm -r puter:/dist` into a command whose
+// target you can't work out by reading it.
+const withApp = (cmd) =>
+  cmd.option(
+    '--app <id>',
+    "resolve puter:/ against an app's storage (app name, uid, worker name or URL)",
+  );
+
+withApp(
+  fsCmd
+    .command('ls')
+    .description('List a remote directory')
+    .argument('<path>', 'remote path (puter:/...)')
+    .option('-l, --long', 'show type, size and modification time')
+    .option('--json', 'emit the full entries as JSON'),
+).action(action(fsLs));
+
+withApp(
+  fsCmd
+    .command('cat')
+    .description("Write a remote file's contents to stdout")
+    .argument('<path>', 'remote path (puter:/...)'),
+).action(action(fsCat));
+
+withApp(
+  fsCmd
+    .command('cp')
+    .description('Copy between local and remote paths, or within the drive')
+    .argument('<source>', "local path, puter:/... or '-' for stdin")
+    .argument('<destination>', "local path, puter:/... or '-' for stdout")
+    .option('-r, --recursive', 'copy directories')
+    .option('-n, --no-clobber', 'skip files that already exist')
+    .option('--concurrency <n>', 'parallel transfers (1-32, default 8)')
+    .option('--dry-run', 'list what would be copied'),
+).action(action(fsCp));
+
+withApp(
+  fsCmd
+    .command('mv')
+    .description('Move or rename within the drive')
+    .argument('<source>', 'remote path (puter:/...)')
+    .argument('<destination>', 'remote path (puter:/...)'),
+).action(action(fsMv));
+
+withApp(
+  fsCmd
+    .command('rm')
+    .description('Delete a remote file or directory')
+    .argument('<path>', 'remote path (puter:/...)')
+    .option('-r, --recursive', 'remove a directory and its contents')
+    .option('-y, --yes', 'skip confirmation')
+    .option('--dry-run', 'list what would be deleted'),
+).action(action(fsRm));
+
+withApp(
+  fsCmd
+    .command('mkdir')
+    .description('Create a remote directory')
+    .argument('<path>', 'remote path (puter:/...)')
+    .option('-p, --parents', 'create missing parents, and succeed if it exists'),
+).action(action(fsMkdir));
+
+withApp(
+  fsCmd
+    .command('stat')
+    .description('Show details for one remote file or directory')
+    .argument('<path>', 'remote path (puter:/...)')
+    .option('--json', 'emit the full entry as JSON'),
+).action(action(fsStat));
 
 program.parseAsync(process.argv);
