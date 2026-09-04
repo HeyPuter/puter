@@ -26,6 +26,9 @@ import { icons } from '../helpers/actionIcons.js';
 import { mode_label, options_for } from '../helpers/shareModes.js';
 import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
 import { share_outcome } from '../helpers/shareOutcome.js';
+import {
+    team_for_share, team_label, teams_for_sharing,
+} from '../helpers/shareTeams.js';
 
 /** What each outcome of a share call is called on screen. */
 const SHARE_MESSAGE = {
@@ -65,6 +68,18 @@ async function UIWindowShare (options) {
     h += `<select class="share-mode">${options_for('read', { allow_manage })}</select>`;
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
+
+    // A team can't be typed into the field above: a bare string there is
+    // already read as an email or a username, so it needs its own control.
+    h += '<div class="share-team" style="display:none;">';
+    h += `<label for="share-team-select">${i18n('share_with_team')}</label>`;
+    h += '<div class="share-dialog-row">';
+    h += '<select class="share-team-select" id="share-team-select"></select>';
+    h += `<select class="share-team-mode">${options_for('read', { allow_manage })}</select>`;
+    h += '</div>';
+    h += `<p class="share-team-note">${i18n('share_team_note')}</p>`;
+    h += `<button class="share-team-btn button button-block button-normal">${i18n('share')}</button>`;
+    h += '</div>';
 
     h += `<div class="share-dialog-heading">${i18n('share_who_has_access')}</div>`;
     h += '<div class="share-list"></div>';
@@ -126,8 +141,24 @@ async function UIWindowShare (options) {
     /** The access list as last drawn, which is what a share call changes. */
     let shown_shares = [];
 
+    /** The caller's teams, offered as recipients. */
+    let teams = [];
+
+    /** The team behind each `data-team` row as last drawn. */
+    const row_teams = new Map();
+
+    const render_team_picker = () => {
+        if ( ! teams.length ) return;
+        const options = teams
+            .map(team => `<option value="${html_encode(team.uid)}">${html_encode(team_label(team))}</option>`)
+            .join('');
+        $(el_window).find('.share-team-select').html(options);
+        $(el_window).find('.share-team').show();
+    };
+
     const render = (shares) => {
         shown_shares = Array.isArray(shares) ? shares : [];
+        row_teams.clear();
         let rows = '';
         // The owner's access comes from owning the item, so it can't be revoked
         rows += '<div class="share-row">';
@@ -156,10 +187,18 @@ async function UIWindowShare (options) {
                 rows += '</div>';
                 continue;
             }
-            rows += '<div class="share-row">';
-            rows += `<span class="share-row-who">${holder}</span>`;
-            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode, { allow_manage })}</select>`;
-            rows += `<button class="share-revoke" data-holder="${holder}" title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
+            // A team holds the share itself, so the row has no username to
+            // key on; `data-team` carries the uid the handlers address it by.
+            const team = team_for_share(teams, share);
+            if ( team ) row_teams.set(team.uid, team);
+            const key = team
+                ? `data-team="${html_encode(team.uid)}"`
+                : `data-holder="${holder}"`;
+            rows += `<div class="share-row${team ? ' share-row-team' : ''}">`;
+            rows += `<span class="share-row-who">${team ? html_encode(team_label(team)) : holder}</span>`;
+            if ( team ) rows += `<span class="share-row-via">${i18n('share_row_team')}</span>`;
+            rows += `<select class="share-row-mode-select" ${key}>${options_for(share.mode, { allow_manage })}</select>`;
+            rows += `<button class="share-revoke" ${key} title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
             rows += '</div>';
         }
         if ( !shares.length ) {
@@ -207,13 +246,45 @@ async function UIWindowShare (options) {
         }
     });
 
+    $(el_window).on('click', '.share-team-btn', async function () {
+        const uid = $(el_window).find('.share-team-select').val();
+        const team = teams.find(t => t.uid === uid);
+        if ( ! team ) return;
+
+        $(this).prop('disabled', true);
+        try {
+            // The object form, not a string: a `team:`-style prefix would
+            // change how an already-released spelling is read.
+            const created = await puter.fs.share({
+                path: item_path,
+                recipient: { team: team.uid },
+                mode: $(el_window).find('.share-team-mode').val(),
+            });
+            $error.hide();
+            show_success(
+                i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
+                    recipient: team_label(team),
+                }),
+            );
+            invalidate_shared_roots();
+            await refresh();
+        } catch (e) {
+            show_error(e?.message ?? i18n('share_failed'));
+        } finally {
+            $(this).prop('disabled', false);
+        }
+    });
+
     $(el_window).on('change', '.share-row-mode-select', async function () {
+        const team = row_teams.get($(this).attr('data-team'));
         const holder = $(this).attr('data-holder');
+        const recipient = team ? { team: team.uid } : holder;
+        const name = team ? team_label(team) : holder;
         const mode = $(this).val();
         $(this).prop('disabled', true);
         try {
-            await puter.fs.share({ path: item_path, recipient: holder, mode });
-            show_success(i18n('share_access_updated', { recipient: holder }));
+            await puter.fs.share({ path: item_path, recipient, mode });
+            show_success(i18n('share_access_updated', { recipient: name }));
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
@@ -226,10 +297,14 @@ async function UIWindowShare (options) {
     $(el_window).on('click', '.share-revoke', async function () {
         const holder = $(this).attr('data-holder');
         const is_pending = $(this).closest('.share-row').hasClass('share-row-pending');
+        const team = row_teams.get($(this).attr('data-team'));
+        // Losing a team's access is losing everyone in it at once, which
+        // the ordinary "remove {recipient}" wording would understate.
+        const removed_name = team ? team_label(team) : holder;
         const confirmed = await UIAlert({
             message: is_pending
                 ? i18n('share_confirm_cancel_invite', { recipient: holder })
-                : i18n('share_confirm_remove', { recipient: holder }),
+                : i18n(team ? 'share_confirm_remove_team' : 'share_confirm_remove', { recipient: removed_name }),
             buttons: [
                 { label: i18n('share_remove'), value: true, type: 'primary' },
                 { label: i18n('cancel'), value: false },
@@ -245,14 +320,14 @@ async function UIWindowShare (options) {
         if ( ! confirmed ) return;
         $(this).prop('disabled', true);
         try {
-            await puter.fs.unshare(item_path, holder);
+            await puter.fs.unshare(item_path, team ? { team: team.uid } : holder);
             // `i18n()` encodes what it returns, replacements included, so the
             // raw value goes in — encoding first would show the entities to
             // anyone whose address or username contains one.
             show_success(
                 is_pending
                     ? i18n('share_invite_cancelled', { recipient: holder })
-                    : i18n('share_access_removed', { recipient: holder }),
+                    : i18n('share_access_removed', { recipient: removed_name }),
             );
             invalidate_shared_roots();
             await refresh();
@@ -262,6 +337,9 @@ async function UIWindowShare (options) {
         }
     });
 
+    // Teams first: the access list names its rows from them.
+    teams = await teams_for_sharing();
+    render_team_picker();
     await refresh();
     return el_window;
 }

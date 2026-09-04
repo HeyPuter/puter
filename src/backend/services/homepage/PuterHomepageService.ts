@@ -230,6 +230,8 @@ export class PuterHomepageService extends PuterService {
                 this.config.disable_user_signup ||
                 this.config.gui_params?.disable_temp_users,
             ),
+            // Off until the teams UI ships; the API can be on without it.
+            teams_ui: this.config.gui_params?.teams_ui === true,
             domain: this.config.domain,
             env,
             api_base_url: this.config.api_base_url,
