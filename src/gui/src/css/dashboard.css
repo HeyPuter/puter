@@ -2966,6 +2966,397 @@ select.share-modal-row-mode:focus {
     }
 }
 
+/* -- Profile picture adjust modal --
+   Opens after the Account tab's file picker so the user can reposition and
+   zoom the photo inside the circular crop. Same shell as the share and item
+   properties modals: a centered card on desktop, a bottom sheet on mobile. */
+.profile-crop-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--dashboard-shadow-overlay, rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    z-index: 1000;
+}
+.profile-crop-overlay.profile-crop-show {
+    opacity: 1;
+}
+
+.profile-crop-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(400px, 100%);
+    max-height: 100%;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
+    overflow: hidden;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+.profile-crop-overlay.profile-crop-show .profile-crop-modal {
+    transform: scale(1);
+    opacity: 1;
+}
+.profile-crop-modal:focus {
+    outline: none;
+}
+
+/* Header */
+.profile-crop-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.profile-crop-title {
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.profile-crop-close,
+.profile-crop-zoom-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+    .profile-crop-close:hover,
+    .profile-crop-zoom-btn:hover:not(:disabled) {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+.profile-crop-close:focus-visible,
+.profile-crop-zoom-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.profile-crop-zoom-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+.profile-crop-zoom-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Body */
+.profile-crop-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    overflow-y: auto;
+}
+
+/* The frame is a square viewport the photo moves inside; the mask dims
+   whatever falls outside the circle that becomes the avatar. */
+.profile-crop-frame {
+    position: relative;
+    width: min(280px, 100%);
+    aspect-ratio: 1 / 1;
+    flex-shrink: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--dashboard-sidebar-background);
+    touch-action: none;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.profile-crop-frame.profile-crop-frame-dragging {
+    cursor: grabbing;
+}
+.profile-crop-frame:focus {
+    outline: none;
+}
+.profile-crop-frame:focus-visible {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+/* Focus taken on pointerdown so the arrow keys work after a click or tap;
+   the ring waits for an actual key press (see the frame's keydown). */
+.profile-crop-frame.profile-crop-frame-pointer-focus:focus-visible {
+    box-shadow: none;
+}
+.profile-crop-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    max-width: none;
+    max-height: none;
+    transform-origin: 0 0;
+    will-change: transform;
+    pointer-events: none;
+}
+.profile-crop-mask {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    box-shadow:
+        inset 0 0 0 2px rgba(255, 255, 255, 0.85),
+        0 0 0 400px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+}
+.profile-crop-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border: 2px solid var(--dashboard-text-muted);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: profile-crop-spin 0.7s linear infinite;
+}
+@keyframes profile-crop-spin {
+    to { transform: rotate(360deg); }
+}
+
+.profile-crop-hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    text-align: center;
+}
+
+/* Zoom: [-] slider [+] */
+.profile-crop-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: min(280px, 100%);
+}
+.profile-crop-zoom {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+}
+.profile-crop-zoom:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.profile-crop-zoom:focus {
+    outline: none;
+}
+.profile-crop-zoom::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--dashboard-border);
+}
+.profile-crop-zoom::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    margin-top: -7px;
+    border-radius: 50%;
+    border: 2px solid var(--dashboard-card-background);
+    background: var(--dashboard-link);
+    box-shadow: 0 1px 3px var(--dashboard-shadow-medium);
+}
+.profile-crop-zoom:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.profile-crop-zoom::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--dashboard-border);
+}
+/* Firefox sizes the thumb without its border */
+.profile-crop-zoom::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--dashboard-card-background);
+    background: var(--dashboard-link);
+    box-shadow: 0 1px 3px var(--dashboard-shadow-medium);
+}
+.profile-crop-zoom:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* Status line (aria-live). Collapses when empty rather than going
+   display:none so it stays in the a11y tree; the negative margin swallows
+   the body's flex gap it would otherwise still claim. */
+.profile-crop-status {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--dashboard-danger-border);
+    border-radius: 8px;
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+    font-size: 13px;
+    text-align: center;
+}
+.profile-crop-status:empty {
+    padding: 0;
+    border-width: 0;
+    margin-top: -14px;
+}
+
+/* Footer */
+.profile-crop-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.profile-crop-btn-quiet,
+.profile-crop-save {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 88px;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.profile-crop-btn-quiet {
+    border: 1px solid var(--dashboard-border);
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+}
+.profile-crop-save {
+    border: 1px solid var(--dashboard-link);
+    background: var(--dashboard-link);
+    color: #fff;
+}
+@media (hover: hover) {
+    .profile-crop-btn-quiet:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+    .profile-crop-save:hover:not(:disabled) {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+}
+.profile-crop-btn-quiet:focus-visible,
+.profile-crop-save:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.profile-crop-save:disabled {
+    background: var(--dashboard-input-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-muted);
+    cursor: default;
+}
+
+/* Touch: every control clears 44px. The close button keeps its 32px visual
+   and hit-tests at 44x44 via a pseudo-element; the zoom buttons grow for
+   real so their hit areas never reach under the slider's thumb. */
+@media (pointer: coarse) {
+    .profile-crop-close {
+        position: relative;
+    }
+    .profile-crop-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+    .profile-crop-zoom-btn {
+        width: 44px;
+        height: 44px;
+    }
+    .profile-crop-zoom {
+        height: 44px;
+    }
+    .profile-crop-zoom::-webkit-slider-thumb {
+        width: 24px;
+        height: 24px;
+        margin-top: -10px;
+    }
+    .profile-crop-zoom::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+    }
+    .profile-crop-btn-quiet,
+    .profile-crop-save {
+        min-height: 44px;
+        height: auto;
+        padding: 10px 18px;
+    }
+}
+
+/* Mobile: dock to the bottom as a slide-up sheet */
+@media (max-width: 600px) {
+    .profile-crop-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .profile-crop-modal {
+        width: 100%;
+        max-width: none;
+        max-height: 92vh;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        transform: translateY(24px);
+    }
+    .profile-crop-overlay.profile-crop-show .profile-crop-modal {
+        transform: translateY(0);
+    }
+    /* The sheet sits flush with the physical bottom edge (viewport-fit=
+       cover), so the footer clears the home indicator itself. */
+    .profile-crop-footer {
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .profile-crop-overlay,
+    .profile-crop-modal {
+        transition: none;
+    }
+    .profile-crop-spinner {
+        animation-duration: 1.6s;
+    }
+}
+
 /* A tile installed by a deep-link landing, not yet arrived: rendered in
    place — layout, page count, and the wayfinding flip all see it — but held
    invisible for the intro's arrival beat to reveal (see _spliceDeepLinkApp /
@@ -5795,6 +6186,10 @@ body.myapps-reordering .myapps-tile {
     cursor: pointer;
     transition: transform 0.2s ease;
     box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
+}
+.dashboard-profile-avatar:focus-visible {
+    outline: none;
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium), 0 0 0 3px var(--select-ring);
 }
 
 @media (hover: hover) {
