@@ -107,12 +107,15 @@ async function processPart(
     restores: Array<() => void>,
 ): Promise<void> {
     const path = part.puter_path!;
-    const original = { ...part };
+    // Only the path needs to come back: `type`/`source` on success and
+    // `type`/`text` on failure are the sole fields written below, and the
+    // next provider's uploader keys off `puter_path` alone. Undoing those by
+    // name rather than snapshotting the part keeps nothing else alive.
     restores.push(() => {
-        for (const key of Object.keys(part)) {
-            delete (part as Record<string, unknown>)[key];
-        }
-        Object.assign(part, original);
+        delete part.type;
+        delete part.text;
+        delete part.source;
+        part.puter_path = path;
     });
     delete part.puter_path;
 
