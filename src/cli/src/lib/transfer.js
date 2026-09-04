@@ -56,9 +56,9 @@ export async function withRetry(fn, { attempts = ATTEMPTS, onRetry } = {}) {
 }
 
 /**
- * Run `worker` over `items` with at most `limit` in flight, in order of
- * completion. Rejections are the worker's to handle — this resolves with
- * whatever each call returned.
+ * Run `worker` over `items` with at most `limit` in flight, preserving input
+ * order in the returned results. Rejections are the worker's to handle — this
+ * resolves with whatever each call returned.
  *
  * @template T, R
  * @param {T[]} items
