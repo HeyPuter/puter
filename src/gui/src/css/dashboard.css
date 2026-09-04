@@ -7676,3 +7676,17 @@ body.dashboard-mode .notifications-close-all {
         flex-basis: 100%;
     }
 }
+
+.teams-directory-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 10px;
+    cursor: pointer;
+}
+
+.teams-directory-note {
+    margin: 0;
+    font-size: 13px;
+    opacity: 0.7;
+}

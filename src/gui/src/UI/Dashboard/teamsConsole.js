@@ -39,6 +39,8 @@ const AUDIT_ACTION_KEYS = {
     reset_member_password: 'teams_audit_reset_member_password',
     activate: 'teams_audit_activate',
     delete_account: 'teams_audit_delete_account',
+    directory_enabled: 'teams_audit_directory_enabled',
+    directory_disabled: 'teams_audit_directory_disabled',
 };
 
 /** i18n keys for the reasons the team attaches to an action. */

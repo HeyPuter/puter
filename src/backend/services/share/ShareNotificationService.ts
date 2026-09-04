@@ -287,7 +287,6 @@ export class ShareNotificationService extends PuterService {
             );
         }
 
-
         // Each recipient fails alone: one refused send must not cost the next
         // person their notification. Failures are logged, never thrown.
         await Promise.allSettled(
@@ -329,9 +328,9 @@ export class ShareNotificationService extends PuterService {
     }
 
     /**
-     * Who each share announces to. A user share is its own holder; a team
-     * share is every live member except the issuer, expanded at announcement
-     * time so the grant stays one row and only the telling fans out.
+     * Who each share announces to. A user share is its own holder; a team share
+     * is every live member except the issuer, expanded at announcement time so
+     * the grant stays one row and only the telling fans out.
      *
      * A member who joins later resolves the grant through the scan but is never
      * told: access follows the team, announcements describe a moment.

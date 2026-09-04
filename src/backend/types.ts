@@ -678,10 +678,10 @@ interface IConfigOptional {
      */
     pub_port: number;
     /**
-     * Teams and teams. Off means `/teams` 404s and the schema is inert, so
-     * the tables can ship to production before anything can create a team.
-     * It is also the backout: turning it off removes the feature without
-     * touching data.
+     * Teams and teams. Off means `/teams` 404s and the schema is inert, so the
+     * tables can ship to production before anything can create a team. It is
+     * also the backout: turning it off removes the feature without touching
+     * data.
      */
     teams_enabled: boolean;
     /** Live teams one user may own. Default 1. */

@@ -65,6 +65,7 @@ const toClientTeam = (team: TeamRow, isOwner: boolean) => ({
     handle: team.handle,
     is_owner: isOwner,
     created_at: team.created_at,
+    directory_enabled: Number(team.directory_enabled) === 1,
 });
 
 @Controller('/teams')
@@ -138,17 +139,24 @@ export class TeamController extends PuterController {
         await this.services.team.requireOwner(this.#param(req, 'uid'), userId);
         const body = this.#body(req);
 
-        const changes: { name?: string; handle?: string | null } = {};
+        const changes: {
+            name?: string;
+            handle?: string | null;
+            directoryEnabled?: boolean;
+        } = {};
         if (body.name !== undefined)
             changes.name = this.#requireString(body.name, 'name');
         if (body.handle !== undefined)
             changes.handle = body.handle === null ? null : String(body.handle);
+        if (body.directory_enabled !== undefined)
+            changes.directoryEnabled = body.directory_enabled === true;
 
-        const team = await this.stores.team.update(
+        // Through the service: turning the directory on writes an audit row.
+        const team = await this.services.team.updateTeam(
             this.#param(req, 'uid'),
+            userId,
             changes,
         );
-        if (!team) throw this.#notFound();
         res.json(toClientTeam(team, true));
     }
 
@@ -160,10 +168,7 @@ export class TeamController extends PuterController {
     })
     async deleteTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.deleteTeam(
-            this.#param(req, 'uid'),
-            userId,
-        );
+        await this.services.team.deleteTeam(this.#param(req, 'uid'), userId);
         res.json({ success: true });
     }
 
@@ -200,6 +205,33 @@ export class TeamController extends PuterController {
             })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         });
+    }
+
+    /**
+     * The only team route that admits an app actor. It discloses nothing a
+     * colleague cannot already read through `/members`, and the team has to
+     * have opted in, so an app cannot enumerate a team by default.
+     */
+    @Get('/:uid/directory', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: TEAM_READ_LIMIT,
+    })
+    async listDirectory(req: Request, res: Response): Promise<void> {
+        // The membership is the person's, never the app's.
+        const userId = this.#requireUserId(req);
+        const page = await this.services.team.listDirectory(
+            this.#param(req, 'uid'),
+            userId,
+            {
+                limit: req.query.limit,
+                cursor:
+                    typeof req.query.cursor === 'string'
+                        ? req.query.cursor
+                        : undefined,
+            },
+        );
+        res.json(page);
     }
 
     @Post('/:uid/members', {
