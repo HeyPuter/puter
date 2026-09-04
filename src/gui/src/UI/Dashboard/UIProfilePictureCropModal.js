@@ -255,10 +255,14 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
     const pointers = new Map();
 
     frame.addEventListener('pointerdown', (e) => {
-        if ( ! state ) return;
+        if ( ! state || e.button !== 0 ) return;
         // Also suppresses the compatibility mouse events, so a drag never
-        // registers as a backdrop press or a text selection.
+        // registers as a backdrop press or a text selection -- nor moves
+        // focus, so the frame takes it itself for the arrow keys. Focus that
+        // arrives by pointer draws no ring (CSS); the first key press does.
         e.preventDefault();
+        frame.classList.add('profile-crop-frame-pointer-focus');
+        frame.focus({ preventScroll: true });
         frame.setPointerCapture(e.pointerId);
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         frame.classList.add('profile-crop-frame-dragging');
@@ -286,6 +290,7 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
     };
     frame.addEventListener('pointerup', releasePointer);
     frame.addEventListener('pointercancel', releasePointer);
+    frame.addEventListener('lostpointercapture', releasePointer);
 
     frame.addEventListener('wheel', (e) => {
         if ( ! state ) return;
@@ -298,6 +303,7 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
     }, { passive: false });
 
     frame.addEventListener('keydown', (e) => {
+        frame.classList.remove('profile-crop-frame-pointer-focus');
         if ( ! state ) return;
         const pan = {
             ArrowLeft: [-KEYBOARD_PAN_STEP, 0],
@@ -317,6 +323,7 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
             setSlider(Number($slider.val()) - BUTTON_ZOOM_STEP);
         }
     });
+    frame.addEventListener('blur', () => frame.classList.remove('profile-crop-frame-pointer-focus'));
 
     // -- Zoom controls --
     $slider.on('input', function () {

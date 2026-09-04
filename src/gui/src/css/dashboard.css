@@ -3099,6 +3099,11 @@ select.share-modal-row-mode:focus {
 .profile-crop-frame:focus-visible {
     box-shadow: 0 0 0 3px var(--select-ring);
 }
+/* Focus taken on pointerdown so the arrow keys work after a click or tap;
+   the ring waits for an actual key press (see the frame's keydown). */
+.profile-crop-frame.profile-crop-frame-pointer-focus:focus-visible {
+    box-shadow: none;
+}
 .profile-crop-image {
     position: absolute;
     top: 0;
