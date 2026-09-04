@@ -684,6 +684,10 @@ interface IConfigOptional {
      * touching data.
      */
     teams_enabled: boolean;
+    /** Live teams one user may own. Default 1. */
+    max_teams_per_user?: number;
+    /** Seats one team may provision. Default 50. */
+    max_seats_per_team?: number;
     /**
      * Fully-qualified externally-visible URL (protocol + domain + port).
      * Computed from `protocol`/`domain`/`pub_port` if unset.

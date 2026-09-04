@@ -68,7 +68,11 @@ describe('TeamService', () => {
 
     beforeAll(async () => {
         // The policy and resolver are gated on the same flag as the routes.
-        server = await setupTestServer({ teams_enabled: true } as never);
+        // The cap has its own suite; these tests need many teams.
+        server = await setupTestServer({
+            teams_enabled: true,
+            max_teams_per_user: 100,
+        } as never);
         service = server.services.team;
         owner = await makeUser();
         ownerUsername = (await server.stores.user.getById(owner.id))!.username;
