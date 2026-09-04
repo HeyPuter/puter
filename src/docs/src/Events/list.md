@@ -36,7 +36,7 @@ Each subscription is the object [`onPersistent()`](/Events/onPersistent/) return
 - `contextKeys` (Array | null) and `contextHash` (String | null) describe the stored `context`. **The values are never returned** — the context is where an API key lives, and a listing is the one surface an app can call repeatedly. The hash changes whenever any value does, which is enough to tell two subscriptions apart or to notice one was re-created.
 - `suspendedAt` (Number | null) and `suspendedReason` (String | null) say whether a subscription stopped delivering without being removed, and why: `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
 
-The promise rejects with `{ message, code }` — `too_many_requests` over the listing budget, `events_disabled` where events are off.
+The promise rejects with `{ message, code }` — `too_many_requests` over the listing budget, `events_disabled` where events are off, `events_failed` for anything the server answered that the SDK could not make sense of.
 
 ## Examples
 

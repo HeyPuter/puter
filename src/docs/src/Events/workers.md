@@ -50,6 +50,7 @@ Both methods reject with `{ message, code }`:
 | `events_handler_forbidden` | The caller does not own the app named to `destroy()` — and an app that is not there answers the same way. |
 | `too_many_requests` | Over the handler publish/remove or listing budget. |
 | `events_disabled` | Events are not enabled on this server. |
+| `events_failed` | The server answered with something the SDK could not make sense of. |
 
 ## Example
 

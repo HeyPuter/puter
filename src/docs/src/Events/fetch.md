@@ -50,9 +50,9 @@ Each item is a notification event:
 
 An app sees only what its audience allows: `account` notifications — email changed, credits exhausted, an account action — are never returned to an app, whatever subject it names, and `developer` notifications only where the recipient owns the app. Nothing is refused for asking; a slice you may not see comes back empty, so the call cannot be used to find out what exists.
 
-Notifications are kept for 14 days. A fetch reads inside that window, so a client away longer than that starts from what is left rather than from where it stopped.
+How long a notification is kept is deployment-configured, not a fixed number — a notification may be removed once its deployment's retention window has passed. A fetch reads whatever is still there, so a client away longer than that starts from what is left rather than from where it stopped.
 
-The promise rejects with `{ message, code }` — `fetch_unsupported_subject` for a family with no store, `invalid_subject` or `invalid_subject_audience` for one that does not parse, `too_many_requests` over the fetch budget, `events_disabled` where events are off.
+The promise rejects with `{ message, code }` — `fetch_unsupported_subject` for a family with no store, `invalid_subject` or `invalid_subject_audience` for one that does not parse, `too_many_requests` over the fetch budget, `events_disabled` where events are off, `events_failed` for anything the server answered that the SDK could not make sense of.
 
 ## Examples
 

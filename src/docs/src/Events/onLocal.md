@@ -38,7 +38,7 @@ A `Promise` that resolves, once the server has confirmed the subscription, to a 
 - `subId` (String | null): The server's id for the subscription. It changes whenever the connection is rebuilt, so don't store anything against it.
 - `subject` (String): The subject you subscribed with.
 - `subject` is returned fully qualified: a `kv:` subject you wrote in the two-segment form comes back as `kv:<appId>:<key>`.
-- `anchor` (Object): `{ uid, path }` of the node the subscription is keyed to — the nearest existing ancestor when the subject named something that does not exist yet. For a `kv:` subject, `uid` is the app whose store is being watched and `path` is the key prefix it is anchored at.
+- `anchor` (Object): `{ uid, path }` of the node the subscription is keyed to — the nearest existing ancestor when the subject named something that does not exist yet. For a `kv:` subject, `uid` is the app whose store is being watched and `path` is the key prefix it is anchored at; for one made through a share handle, `uid` is the handle and `path` is empty. The path is the one the anchor had when you subscribed — a later rename or move does not update it.
 - `match` (String | null): The pattern events under the anchor are matched against, if the subject had one.
 - `op` (String | null): The single operation this subscription is limited to, or `null` for all of them.
 - `off` (Function): Ends the subscription — see [`subscription.off()`](/Events/off/).
@@ -52,6 +52,7 @@ The promise rejects with `{ message, code }`:
 | `invalid_subject_op` | The `:op` suffix is not one of the five operations. |
 | `invalid_subject_pattern` | The match pattern is past its bounds: 256 characters, 16 segments, one `*` per segment, one `**` in total. |
 | `invalid_kv_pattern` | A `kv:` subject has a `*` somewhere other than the end, or a `?`. |
+| `invalid_kv_handle_key` | A `kv:<handle>:…` subject names no key, or one that tries to leave the handle's granted region. |
 | `events_cross_app_disabled` | The subject names another app's key-value data and that is not enabled here. |
 | `forbidden` | The target app does not share its data, or this app has not been granted `app-data:<appId>:kv:read` on it. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
@@ -60,6 +61,7 @@ The promise rejects with `{ message, code }`:
 | `events_disabled` | Events are not enabled on this server. |
 | `reauth_required` | The session backing this connection is no longer valid. |
 | `events_connection_failed` | The events connection could not be established, the server did not answer in time, or the server closed the connection. |
+| `events_failed` | The server answered with something the SDK could not make sense of. |
 
 ## Examples
 

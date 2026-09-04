@@ -61,28 +61,39 @@ const makeWorkersClient = (pages) => {
 };
 
 describe('fetchAllEventsWorkers', () => {
-    it('returns [] when the client is missing (older SDK)', async () => {
-        expect(await fetchAllEventsWorkers(undefined)).toEqual([]);
-        expect(await fetchAllEventsWorkers({})).toEqual([]);
+    it('reports failed when the client is missing (older SDK)', async () => {
+        expect(await fetchAllEventsWorkers(undefined)).toEqual({
+            items: [], deployable: false, failed: true,
+        });
+        expect(await fetchAllEventsWorkers({})).toEqual({
+            items: [], deployable: false, failed: true,
+        });
     });
 
-    it('returns every item from a single page', async () => {
+    it('returns every item from a single page, and deployable off it', async () => {
         const client = makeWorkersClient([
-            { items: [worker({ appUid: 'a' }), worker({ appUid: 'b' })], cursor: undefined },
+            {
+                items: [worker({ appUid: 'a' }), worker({ appUid: 'b' })],
+                cursor: undefined,
+                deployable: true,
+            },
         ]);
-        const items = await fetchAllEventsWorkers(client);
-        expect(items.map((w) => w.appUid)).toEqual(['a', 'b']);
+        const result = await fetchAllEventsWorkers(client);
+        expect(result.items.map((w) => w.appUid)).toEqual(['a', 'b']);
+        expect(result.deployable).toBe(true);
+        expect(result.failed).toBe(false);
         expect(client.calls).toEqual([{ limit: 100, cursor: undefined }]);
     });
 
     it('follows the cursor across pages until one comes back empty', async () => {
         const client = makeWorkersClient([
-            { items: [worker({ appUid: 'a' })], cursor: '1' },
+            { items: [worker({ appUid: 'a' })], cursor: '1', deployable: true },
             { items: [worker({ appUid: 'b' })], cursor: '2' },
             { items: [], cursor: undefined },
         ]);
-        const items = await fetchAllEventsWorkers(client, { limit: 1 });
-        expect(items.map((w) => w.appUid)).toEqual(['a', 'b']);
+        const result = await fetchAllEventsWorkers(client, { limit: 1 });
+        expect(result.items.map((w) => w.appUid)).toEqual(['a', 'b']);
+        expect(result.deployable).toBe(true);
         expect(client.calls).toEqual([
             { limit: 1, cursor: undefined },
             { limit: 1, cursor: '1' },
@@ -92,14 +103,43 @@ describe('fetchAllEventsWorkers', () => {
 
     it('stops at maxPages against a cursor that never runs out', async () => {
         const client = {
-            list: async () => ({ items: [worker()], cursor: 'always-more' }),
+            list: async () => ({ items: [worker()], cursor: 'always-more', deployable: true }),
         };
-        const items = await fetchAllEventsWorkers(client, { maxPages: 3 });
-        expect(items).toHaveLength(3);
+        const result = await fetchAllEventsWorkers(client, { maxPages: 3 });
+        expect(result.items).toHaveLength(3);
     });
 
     it('tolerates a malformed response (no items array)', async () => {
         const client = { list: async () => ({}) };
-        expect(await fetchAllEventsWorkers(client)).toEqual([]);
+        expect(await fetchAllEventsWorkers(client)).toEqual({
+            items: [], deployable: false, failed: false,
+        });
+    });
+
+    it('treats a missing deployable on the first page as false', async () => {
+        const client = { list: async () => ({ items: [] }) };
+        const result = await fetchAllEventsWorkers(client);
+        expect(result.deployable).toBe(false);
+    });
+
+    it('reports failed only when the first page itself rejects', async () => {
+        const client = { list: async () => { throw new Error('offline'); } };
+        const result = await fetchAllEventsWorkers(client);
+        expect(result).toEqual({ items: [], deployable: false, failed: true });
+    });
+
+    it('keeps items already collected when a later page rejects', async () => {
+        let call = 0;
+        const client = {
+            list: async () => {
+                call += 1;
+                if ( call === 1 ) return { items: [worker({ appUid: 'a' })], cursor: '1', deployable: true };
+                throw new Error('offline');
+            },
+        };
+        const result = await fetchAllEventsWorkers(client);
+        expect(result.items.map((w) => w.appUid)).toEqual(['a']);
+        expect(result.deployable).toBe(true);
+        expect(result.failed).toBe(false);
     });
 });

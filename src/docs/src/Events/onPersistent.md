@@ -63,6 +63,8 @@ A `single` delivery is owed to exactly one consumer, so it stays owed until it i
 
 In the events worker the same three outcomes are the response status: `2xx` takes the delivery, `4xx` refuses it (it is dropped with a `gap` marker carrying `reason: 'handler_rejected'`), and `5xx`, `429` or no answer within 30 seconds means "not now" — the delivery is retried after 2 seconds, doubling to at most 5 minutes. **Five failures in a row, refusals included, suspend the subscription** with `failures`; the developer is notified and republishing the handler puts it back in service.
 
+A handler that throws normally lands on the retriable side (`5xx`) — the failure might be transient. To refuse a delivery outright instead — a malformed event, say, where retrying changes nothing — throw an error with `terminal: true`, or a `code` of `'events_terminal'`; the worker maps that to a `4xx`, the same `handler_rejected` gap a plain refusal gets. This only matters in the events worker: thrown here, in the client, it just reaches whatever caught the promise.
+
 ## `context` is evaluated once, and capped at 4 KB
 
 A handler is deployed, not called: it is serialized and run later, somewhere else, so it cannot close over anything. `context` is how values reach it — and it is evaluated **at this call**, serialized, and never re-evaluated. `ctx.endpoint` is whatever `process.env.INGEST_URL` was when you subscribed, forever, until you subscribe again.
@@ -109,8 +111,10 @@ The promise rejects with `{ message, code }`:
 | `invalid_expires_at` | `expiresAt` is not a future time. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
 | `events_subscription_limit` | This account already holds the maximum number of persistent subscriptions. |
+| `events_durable_requires_account` | Called from a temporary (anonymous) account, which gets session subscriptions only. |
 | `too_many_requests` | Over the subscribe/unsubscribe call budget. |
 | `events_disabled` | Events are not enabled on this server. |
+| `events_failed` | The server answered with something the SDK could not make sense of. |
 
 ## Examples
 

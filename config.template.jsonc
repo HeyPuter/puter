@@ -283,8 +283,9 @@
 
     // ── Notifications ───────────────────────────────────────────────────
     // How long a notification is kept, in days from creation. Acknowledged or
-    // not, a row past this is swept. Set 0 to keep everything forever.
-    "notificationRetentionDays": 14,
+    // not, a row past this is swept. Off by default; any value above 0 arms
+    // the sweep.
+    // "notificationRetentionDays": 14,
 
     // ── Alarms / alerting ───────────────────────────────────────────────
     // Where system alarms go. Severity is the routing decision — each

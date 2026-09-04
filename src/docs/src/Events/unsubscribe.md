@@ -31,6 +31,7 @@ An id this caller does not hold — one already ended, or one another app create
 | `subscription_does_not_exist` | No such subscription, or not this caller's. |
 | `too_many_requests` | Over the subscribe/unsubscribe call budget. |
 | `events_disabled` | Events are not enabled on this server. |
+| `events_failed` | The server answered with something the SDK could not make sense of. |
 
 An app may only end the subscriptions it created. A session acting for the account may end any of them, including ones left behind by an app that is gone.
 

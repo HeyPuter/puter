@@ -850,6 +850,11 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         };
     };
 
+    let el_workers_section = null;
+    // Set once the first load lands, so a later transient failure keeps
+    // whatever is already shown instead of hiding it again.
+    let workersEverLoaded = false;
+
     const render_workers = () => {
         if ( ! w_workers_list ) return;
         w_workers_list.replaceChildren();
@@ -867,18 +872,28 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
 
     const reload_workers = async () => {
         if ( ! hasWorkersApi ) return;
-        try {
-            cachedWorkers = await fetchAllEventsWorkers(workersClient);
-        } catch {
-            // Network flake — keep whatever's currently rendered.
-            return;
+        const { items, deployable, failed } = await fetchAllEventsWorkers(workersClient);
+
+        if ( failed && workersEverLoaded ) return; // Network flake — keep whatever's currently rendered.
+
+        // Nothing to manage and no sign the feature would ever offer anything:
+        // events disabled server-side, the worker runtime unconfigured, or the
+        // list call itself failing all read the same way to this window.
+        if ( el_workers_section ) {
+            el_workers_section.style.display = failed || (! deployable && items.length === 0) ? 'none' : '';
         }
+
+        if ( failed ) return;
+        workersEverLoaded = true;
+        cachedWorkers = items;
         render_workers();
     };
 
     if ( hasWorkersApi ) {
-        const el_workers_section = document.createElement('div');
+        el_workers_section = document.createElement('div');
         el_workers_section.classList.add('session-manager-workers-section');
+        // Hidden until the first load resolves and says otherwise.
+        el_workers_section.style.display = 'none';
 
         const el_workers_head = document.createElement('div');
         el_workers_head.classList.add('session-manager-workers-head');
