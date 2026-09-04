@@ -1,6 +1,7 @@
 ---
 title: Dynamic Workers
 description: Deploy server-side code from inside a hosted website by dropping a .worker.js file into a __workers folder, with no deploy step and no worker to register.
+platforms: [workers]
 ---
 
 If you already [deploy your site to Puter](/deployments/#deploy-to-puter), dynamic workers let you add backend endpoints to it without managing workers separately.
