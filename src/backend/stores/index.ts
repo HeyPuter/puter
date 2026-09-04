@@ -24,6 +24,7 @@ import { GroupStore } from './group/GroupStore.js';
 import { DurableSubscriptionStore } from './events/DurableSubscriptionStore.js';
 import { EventHandlerStore } from './events/EventHandlerStore.js';
 import { EventSubscriptionStore } from './events/EventSubscriptionStore.js';
+import { KvShareHandleStore } from './events/KvShareHandleStore.js';
 import { PendingDeliveryStore } from './events/PendingDeliveryStore.js';
 import { CreditHoldStore } from './metering/CreditHoldStore.js';
 import { MeteringBufferStore } from './metering/MeteringBufferStore.js';
@@ -70,6 +71,7 @@ declare module './types.js' {
         eventSubscription: EventSubscriptionStore;
         durableSubscription: DurableSubscriptionStore;
         eventHandler: EventHandlerStore;
+        kvShareHandle: KvShareHandleStore;
         pendingDelivery: PendingDeliveryStore;
         presence: PresenceStore;
     }
@@ -109,6 +111,8 @@ export const puterStores = {
     durableSubscription: DurableSubscriptionStore,
     // Table only, and reads the subscription table for its dependent counts.
     eventHandler: EventHandlerStore,
+    // Table only.
+    kvShareHandle: KvShareHandleStore,
     // Writes presence rows through `kv`'s reserved-item path, so it follows it.
     presence: PresenceStore,
 } satisfies IPuterStoreRegistry;

@@ -173,6 +173,8 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Subscriptions per connection                 | 50           |
 | `subscribe` / `unsubscribe` calls per minute | 60           |
 | Subscription listings per minute             | 120          |
+| Key-value share-handle calls per minute      | 60           |
+| Live key-value share handles per account     | 200          |
 | Missed-event fetches per minute              | 120          |
 | Events per fetch page                        | 200          |
 | Matched subscriptions per event              | 50           |

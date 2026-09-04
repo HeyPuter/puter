@@ -1142,11 +1142,17 @@ interface IConfigOptional {
      *   nowhere to dispatch from with the surface itself switched off. The
      *   socket wire is identical either way — the flag decides which layer
      *   produced the delivery, not what the desktop receives.
+     * - `kvHandles` — whether one user may hand another a watchable region of
+     *   their key-value namespace. Absent means off: minting and subscribing
+     *   through a handle both reject with `events_kv_handles_disabled`, and a
+     *   handle row already made stops delivering. Nothing on the write path
+     *   reads it.
      */
     events?: {
         enabled?: boolean;
         crossAppKv?: boolean;
         notificationsFoldIn?: boolean;
+        kvHandles?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
     };

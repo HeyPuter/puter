@@ -144,6 +144,21 @@ export const EVENTS_LIST_LIMIT = userWindow('events:list', 120);
  */
 export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
 
+/**
+ * Share-handle mint + revoke calls per minute, per user.
+ *
+ * Each one issues or withdraws a grant and settles what stood on it, so it is
+ * budgeted with the subscribe verbs rather than the listings.
+ */
+export const EVENTS_KV_HANDLE_LIMIT = userWindow('events:kvHandles', 60);
+
+/**
+ * Live share handles one account may hold out at a time. Each is a standing
+ * grant on part of the account's data, and revoking marks rather than deletes,
+ * so without a ceiling the rate limit alone lets the rows grow forever.
+ */
+export const EVENTS_KV_HANDLES_PER_USER = 200;
+
 // -- Handler surface -------------------------------------------------
 
 /**

@@ -34,6 +34,7 @@ import {
 } from './subjects.js';
 
 const APP = 'app-1234';
+const HANDLE = 'kvh-9f1c2d3e';
 
 interface SubjectRow {
     subject: string;
@@ -134,6 +135,24 @@ const ACCEPTED: SubjectRow[] = [
         rawMatch: null,
     },
     {
+        subject: `kv:${HANDLE}:messages:*`,
+        anchorRef: { kind: 'kvHandle', handle: HANDLE, key: 'messages:*' },
+        op: null,
+        rawMatch: null,
+    },
+    {
+        subject: `kv:${HANDLE}:*`,
+        anchorRef: { kind: 'kvHandle', handle: HANDLE, key: '*' },
+        op: null,
+        rawMatch: null,
+    },
+    {
+        subject: `kv:${HANDLE}:messages:1`,
+        anchorRef: { kind: 'kvHandle', handle: HANDLE, key: 'messages:1' },
+        op: null,
+        rawMatch: null,
+    },
+    {
         subject: 'notif:account',
         anchorRef: { kind: 'notifScope', ref: null, audience: 'account' },
         op: null,
@@ -164,6 +183,12 @@ const REJECTED: Array<{ subject: string; code: string }> = [
     { subject: `kv:${APP}:ca*rt`, code: 'invalid_kv_pattern' },
     { subject: `kv:${APP}:cart:*:items`, code: 'invalid_kv_pattern' },
     { subject: `kv:${APP}:car?`, code: 'invalid_kv_pattern' },
+    { subject: `kv:${HANDLE}:..:secrets`, code: 'invalid_kv_handle_key' },
+    { subject: `kv:${HANDLE}:..`, code: 'invalid_kv_handle_key' },
+    { subject: `kv:${HANDLE}::absolute`, code: 'invalid_kv_handle_key' },
+    { subject: `kv:${HANDLE}`, code: 'invalid_kv_handle_key' },
+    { subject: `kv:${HANDLE}:`, code: 'invalid_subject' },
+    { subject: `kv:${HANDLE}:mes*ages`, code: 'invalid_kv_pattern' },
     { subject: 'notif:', code: 'invalid_subject' },
     { subject: `notif:${APP}:`, code: 'invalid_subject' },
     { subject: 'notif:everyone', code: 'invalid_subject_audience' },

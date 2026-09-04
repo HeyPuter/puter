@@ -31,6 +31,7 @@ import {
     EventSubscriptionStore,
     type DurableSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
+import type { KvShareHandle } from '../../stores/events/KvShareHandleStore.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UsageInput } from '../metering/types.js';
 import type { IConfig } from '../../types.js';
@@ -44,8 +45,10 @@ import {
     type DeliveryEnvelope,
     type EventSocket,
 } from './EventsService.js';
+import { kvSharePermission } from './kvShares.js';
 import { FILTER_EVALUATIONS_PER_EVENT } from './matcher.js';
 import { SUBSCRIPTION_CACHE_TTL_MS } from './subscriptionCache.js';
+import { kvAnchorToken } from './subjects.js';
 
 /**
  * The hot path is a cost claim before it is a behaviour claim, so the Redis
@@ -184,6 +187,13 @@ const userStore = {
     }),
 };
 
+/** Share handles the kv resolver can be asked to resolve. */
+let handles: Map<string, KvShareHandle>;
+
+const kvShareHandleStore = {
+    getByHandle: async (handle: string) => handles.get(handle) ?? null,
+};
+
 /** Apps the cross-app gate can be asked about, and what they share. */
 let apps: Map<string, { uid: string; id: number; metadata?: unknown } | null>;
 
@@ -201,6 +211,7 @@ const permissionService = () => ({
         permissionChecks.push(permission);
         return grants.has(permission);
     },
+    registerImplicator: () => undefined,
 });
 
 /**
@@ -266,6 +277,7 @@ const buildService = (
             user: userStore,
             app: appStore,
             permission: permissionStore,
+            kvShareHandle: kvShareHandleStore,
         } as never,
         {
             eventForward: {
@@ -429,6 +441,7 @@ beforeEach(() => {
     denied = new Map();
     apps = new Map();
     grants = new Set();
+    handles = new Map();
     permissionChecks = [];
     permissionGeneration = 1;
     hasCredits = true;
@@ -1871,5 +1884,198 @@ describe('the cross-app kv gate', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toEqual([]);
+    });
+});
+
+describe('cross-user kv handles', () => {
+    const PREFIX = 'workspace:abc:';
+    let handle: string;
+    let guestId: number;
+    let permission: string;
+
+    const handleService = () =>
+        buildService({
+            events: { enabled: true, kvHandles: true },
+        } as IConfig);
+
+    /** A live handle over the dispatching user's namespace, held by a guest. */
+    const mintHandle = (
+        overrides: Partial<KvShareHandle> = {},
+    ): KvShareHandle => {
+        const row: KvShareHandle = {
+            handle,
+            ownerUserId: userId,
+            granteeUserId: guestId,
+            appUid: OWN_APP,
+            keyPrefix: PREFIX,
+            permission,
+            createdAt: 0,
+            revokedAt: null,
+            ...overrides,
+        };
+        handles.set(row.handle, row);
+        return row;
+    };
+
+    const subscribeAsGuest = (subject: string, on = service) =>
+        on.subscribe(actorFor(guestId), socketId, { subject });
+
+    beforeEach(() => {
+        handle = `kvh-${userId}`;
+        guestId = userId + 500;
+        permission = kvSharePermission(`user-${userId}`, OWN_APP, PREFIX);
+        ({ service, sent, delivered } = {
+            ...handleService(),
+            delivered: [],
+        } as never);
+        grants.add(permission);
+    });
+
+    it('is off unless the config turns it on', async () => {
+        mintHandle();
+        const { service: off } = buildService({
+            events: { enabled: true },
+        } as IConfig);
+        expect(off.kvHandlesEnabled).toBe(false);
+        expect(service.kvHandlesEnabled).toBe(true);
+
+        await expect(
+            subscribeAsGuest(`kv:${handle}:*`, off),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.legacyCode === 'events_kv_handles_disabled',
+        );
+    });
+
+    it('anchors where the owner`s own equivalent subject would', async () => {
+        mintHandle();
+        const guest = (await subscribeAsGuest(`kv:${handle}:*`)).sub;
+        const owner = await subscribeKv(`kv:${OWN_APP}:${PREFIX}*`);
+
+        // The socket set is keyed by the holder, and these two are different
+        // people watching one anchor.
+        const [guestRow] = await store.listForSocket(guestId, socketId);
+        const [ownerRow] = await store.listForSocket(userId, socketId);
+        expect(guestRow?.subId).toBe(guest.subId);
+        expect(ownerRow?.subId).toBe(owner.subId);
+
+        expect(guestRow?.token).toBe(ownerRow?.token);
+        expect(guestRow?.token).toBe(
+            kvAnchorToken(`user-${userId}`, OWN_APP, PREFIX),
+        );
+        // Keyed on the owner, because that is all a write knows about itself.
+        expect(guestRow?.ownerUserId).toBe(userId);
+        expect(guestRow?.holderUserId).toBe(guestId);
+    });
+
+    it('never hands the grantee the owner`s identity', async () => {
+        mintHandle();
+        const { sub } = await subscribeAsGuest(`kv:${handle}:messages:*`);
+
+        const wire = JSON.stringify(sub);
+        expect(sub.subject).toBe(`kv:${handle}:messages:*`);
+        expect(wire).not.toContain(`user-${userId}`);
+        expect(wire).not.toContain(`u${userId}`);
+    });
+
+    it('delivers every key under the granted region', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        const { sub } = await subscribeAsGuest(`kv:${handle}:*`);
+
+        await dispatchKv([`${PREFIX}messages:1`, `${PREFIX}title`]);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.map((out) => out.envelope.subId)).toEqual([
+            sub.subId,
+            sub.subId,
+        ]);
+        // The write was the owner's, and the grantee is somebody else.
+        expect(sent[0].envelope.event).toMatchObject({ self: false });
+    });
+
+    it('leaves a key outside the granted region alone', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        await subscribeAsGuest(`kv:${handle}:*`);
+
+        await dispatchKv(['workspace:other:messages:1']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
+
+    it('narrows to a sub-region under the handle', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        await subscribeAsGuest(`kv:${handle}:messages:*`);
+
+        await dispatchKv([`${PREFIX}title`]);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(sent).toEqual([]);
+
+        await dispatchKv([`${PREFIX}messages:1`]);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(sent).toHaveLength(1);
+    });
+
+    it('asks once per subscription however many events arrive', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        await subscribeAsGuest(`kv:${handle}:*`);
+        permissionChecks.length = 0;
+
+        for (let i = 0; i < 5; i++) {
+            await dispatchKv([`${PREFIX}messages:${i}`]);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        }
+
+        expect(sent).toHaveLength(5);
+        // The handle is the granted root, so nothing under it can vary the
+        // answer — one evaluation covers the lot until a generation moves.
+        expect(
+            permissionChecks.filter((asked) => asked === permission),
+        ).toEqual([permission]);
+    });
+
+    it('stops delivering when the grant is gone', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        await subscribeAsGuest(`kv:${handle}:*`);
+
+        grants.delete(permission);
+        permissionGeneration++;
+        await dispatchKv([`${PREFIX}messages:1`]);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
+
+    it.each([
+        ['an unknown handle', () => undefined],
+        ['a revoked handle', () => mintHandle({ revokedAt: 1 })],
+        ['a handle whose grant the caller does not hold', () => {
+            mintHandle();
+            grants.delete(permission);
+        }],
+    ])('answers %s as absent', async (_case, setUp) => {
+        setUp();
+        await expect(subscribeAsGuest(`kv:${handle}:*`)).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 404 &&
+                err.legacyCode === 'subject_does_not_exist',
+        );
+    });
+
+    it('refuses a key that reads as leaving the region', async () => {
+        mintHandle();
+        await expect(
+            subscribeAsGuest(`kv:${handle}:..:secrets`),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'invalid_kv_handle_key',
+        );
     });
 });

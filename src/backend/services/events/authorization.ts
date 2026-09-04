@@ -20,7 +20,10 @@
 import { actorUid, makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import type { SubscriptionTarget } from '../../stores/events/types.js';
+import type {
+    SubscriptionPermission,
+    SubscriptionTarget,
+} from '../../stores/events/types.js';
 import type {
     AclError,
     AclMode,
@@ -31,7 +34,7 @@ import {
     appDataSharingAllowed,
 } from '../permission/appDataScopes.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
-import { isKvToken } from './subjects.js';
+import { isKvToken, kvHandleFromSubject } from './subjects.js';
 
 /**
  * Who may subscribe to an anchor, who may still be delivered from it, and which
@@ -65,7 +68,7 @@ export interface AuthorizedNode {
 export interface SubscriptionGrant {
     holderUserId: number;
     appUid: string | null;
-    permission: AclMode;
+    permission: SubscriptionPermission;
 }
 
 export interface EventAclDeps {
@@ -240,14 +243,63 @@ export const backgroundConsentRequired = (): HttpError =>
  */
 export const subscriptionTokenPermissions = (row: {
     token: string;
+    subject: string;
     anchorUid: string;
     appUid: string | null;
-    permission: AclMode;
+    permission: SubscriptionPermission;
 }): string[] => {
     if (!isKvToken(row.token))
         return [PermissionUtil.join('fs', row.anchorUid, row.permission)];
+    // A row on a shared region reaches it through the share grant and nothing
+    // else, so that is the whole of what its token may carry.
+    if (kvHandleFromSubject(row.subject) !== null) return [row.permission];
     if (row.appUid === null || row.appUid === row.anchorUid) return [];
     return [appDataPermission(row.anchorUid, 'kv', CROSS_APP_KV_CLASS)];
+};
+
+// -- Cross-user KV -----------------------------------------------------
+
+/**
+ * Whether this actor may still watch a shared key-value region.
+ *
+ * The permission row is the source of truth and the handle is an address for
+ * it: a subscription is authorized by holding the grant, never by being named
+ * on the handle. That is what makes a handle passed on to a delegate work the
+ * same way it does for the person it was minted for, and what makes revoking
+ * the grant the one thing that stops it.
+ */
+export interface KvSharedRegionDeps {
+    /** Whether share handles are available on this install at all. */
+    enabled: boolean;
+    checkPermission: (actor: Actor, permission: string) => Promise<boolean>;
+}
+
+export const kvShareHandleDisabled = (): HttpError =>
+    new HttpError(403, 'kv: share handles are not available', {
+        legacyCode: 'events_kv_handles_disabled',
+    });
+
+/**
+ * A handle that is unknown, retired, or not the caller's to use reads the same
+ * way: absent. Distinguishing them would turn subscribe into a way to ask
+ * whether a handle exists and who holds it.
+ */
+export const unknownKvShareHandle = (handle: string): HttpError =>
+    new HttpError(404, `No such handle: ${handle}`, {
+        legacyCode: 'subject_does_not_exist',
+    });
+
+export const kvSharedRegionAuthorized = async (
+    actor: Actor,
+    permission: string,
+    deps: KvSharedRegionDeps,
+): Promise<boolean> => {
+    if (!deps.enabled) return false;
+    try {
+        return await deps.checkPermission(actor, permission);
+    } catch {
+        return false;
+    }
 };
 
 // -- Cross-app KV ------------------------------------------------------

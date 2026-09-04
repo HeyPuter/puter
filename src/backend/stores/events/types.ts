@@ -67,6 +67,14 @@ export const targetsAllowedForDelivery = (
     (!targets.includes('push') &&
         (appUid === null || targets.includes('worker')));
 
+/**
+ * What a row's delivery re-check runs against. An access mode for a filesystem
+ * row, which composes with its anchor uid; the whole grant string for a row on
+ * a shared key-value region, where the grant is what a revoke names and there
+ * is no anchor to compose it with.
+ */
+export type SubscriptionPermission = AclMode | string;
+
 /** What dispatch needs from a subscription, whichever store it came from. */
 export interface DispatchSubscription {
     subId: string;
@@ -94,8 +102,8 @@ export interface DispatchSubscription {
     op: FsOp | null;
     /** The app that created the row, and the scope of the three verbs. */
     appUid: string | null;
-    /** ACL mode the subscribe check passed under; re-checked per delivery. */
-    permission: AclMode;
+    /** What the subscribe check passed under; re-checked per delivery. */
+    permission: SubscriptionPermission;
     /** Transports this row's deliveries may take. */
     targets?: SubscriptionTarget[];
     /** Session rows only: the connection a delivery is addressed at. */

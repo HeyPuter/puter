@@ -30,6 +30,8 @@ import {
     EVENTS_FETCH_LIMIT_DEFAULT,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
+    EVENTS_KV_HANDLE_LIMIT,
+    EVENTS_KV_HANDLES_PER_USER,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -71,10 +73,14 @@ import {
     SESSION_TARGETS,
     isSubscriptionTarget,
     targetsAllowedForDelivery,
+    type SubscriptionPermission,
     type SubscriptionTarget,
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
+import {
+    KV_GLOBAL_APP_KEY,
+    parseKvNamespace,
+} from '../../stores/systemKv/SystemKVStore.js';
 import {
     decodeCursor,
     encodeCursor,
@@ -97,6 +103,7 @@ import { PuterService } from '../types.js';
 import {
     resolveFsAnchor,
     resolveKvAnchor,
+    resolveKvHandleAnchor,
     resolveNotifAnchor,
     type FsAnchorDeps,
 } from './anchors.js';
@@ -109,14 +116,18 @@ import {
     crossAppKvPermissions,
     deliveryGenerationTag,
     EVENTS_BACKGROUND_PERMISSION,
+    kvShareHandleDisabled,
+    kvSharedRegionAuthorized,
     needsBackgroundConsent,
     nodeDescriptor,
     resolveGrantActor,
     rowInActorScope,
     subscriptionTokenPermissions,
     SUBSCRIBE_MODE,
+    unknownKvShareHandle,
     type CrossAppKvDeps,
     type EventAclDeps,
+    type KvSharedRegionDeps,
     type SubscriptionGrant,
 } from './authorization.js';
 import { DeliveryCoalescer } from './coalescer.js';
@@ -152,15 +163,25 @@ import {
     type MatchSpec,
     type NotifEventContext,
     type ProjectedEvent,
+    type ProjectedKvEvent,
     type ProjectedNotifEvent,
     type SubjectSpec,
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
+    assertShareableAppUid,
+    assertShareablePrefix,
+    kvShareGrantCovers,
+    kvShareOwnerImplicator,
+    kvSharePermission,
+    relativeToKvShareRoot,
+} from './kvShares.js';
+import {
     KV_MATCH_SEPARATOR,
     NOTIF_MATCH_SEPARATOR,
     fsAnchorToken,
     isKvToken,
+    kvHandleFromSubject,
     parseSubject,
     type FsOp,
     type ParsedSubject,
@@ -327,6 +348,35 @@ export interface DurableSubscriptionView extends SubscriptionView {
     suspendedReason: string | null;
 }
 
+/** Body of the handle-minting surface. The grantee is named either way. */
+export interface MintKvHandleRequest {
+    granteeUsername?: unknown;
+    granteeUid?: unknown;
+    appUid?: unknown;
+    prefix?: unknown;
+}
+
+/**
+ * What minting returns. Only the handle and the region it covers: the owner
+ * already knows the rest, and the grantee is handed this verbatim, so anything
+ * else here would be something the handle exists to not say.
+ */
+export interface MintedKvHandle {
+    handle: string;
+    prefix: string;
+}
+
+/**
+ * One handle as its owner sees it, revoked ones included — they are the record
+ * of what was shared and when it stopped.
+ */
+export interface KvShareHandleView extends MintedKvHandle {
+    appUid: string;
+    granteeUsername: string | null;
+    createdAt: number;
+    revokedAt: number | null;
+}
+
 export type VerbAck<T extends object> =
     | ({ ok: true } & T)
     | { ok: false; error: { code: string; message: string } };
@@ -413,7 +463,7 @@ interface ResolvedAnchor {
     match: string | null;
     op: FsOp | null;
     ownerUserId: number;
-    permission: AclMode;
+    permission: SubscriptionPermission;
     /** Fully-qualified wire form, which is what the row records. */
     subject: string;
 }
@@ -613,6 +663,16 @@ const handlerAppRequired = (): HttpError =>
  * its user's ownership of some other app. Same answer for an app that is not
  * there: which apps exist is not this surface's to disclose.
  */
+/**
+ * Minting is the user disposing of a region of their own data. An app doing it
+ * on their behalf is delegation, which is a `manage:` grant's job and a
+ * separate consent.
+ */
+const handleOwnerOnly = (): HttpError =>
+    new HttpError(403, 'Only an account session may mint a share handle', {
+        legacyCode: 'events_kv_handle_owner_only',
+    });
+
 const handlerAppForbidden = (): HttpError =>
     new HttpError(403, 'Only the app owner may publish its handlers', {
         legacyCode: 'events_handler_forbidden',
@@ -954,6 +1014,10 @@ export class EventsService extends PuterService {
             });
         });
 
+        // Owning a key-value namespace is holding every share grant over it,
+        // which is what lets its owner mint a handle on their own data.
+        this.services.permission.registerImplicator(kvShareOwnerImplicator());
+
         this.#armExpirySweep();
         this.#armPendingSweep();
         this.#armCreditSweep();
@@ -1003,6 +1067,16 @@ export class EventsService extends PuterService {
      */
     get crossAppKvEnabled(): boolean {
         return this.config.events?.crossAppKv === true;
+    }
+
+    /**
+     * Whether one user may hand another a watchable region of their key-value
+     * namespace. Off by default, and read on the mint, the subscribe and the
+     * delivery re-check alike — turning it off stops rows already made rather
+     * than only new ones.
+     */
+    get kvHandlesEnabled(): boolean {
+        return this.config.events?.kvHandles === true;
     }
 
     /**
@@ -1604,6 +1678,112 @@ export class EventsService extends PuterService {
         return { name, removed: removed !== null, suspended };
     }
 
+    // -- Cross-user key-value handles --------------------------------
+
+    /**
+     * Hand another user a watchable region of this account's key-value data.
+     *
+     * Two writes, in this order: the grant, which is the authorization and
+     * carries its own `manage:` check and its own refusal to grant to yourself,
+     * and then the handle, which is only a name for it. A handle whose grant
+     * never landed would be a name for nothing; a grant whose handle never
+     * landed is unaddressable, since a handle is the only thing that can name
+     * this family.
+     */
+    async mintKvHandle(
+        actor: Actor,
+        request: MintKvHandleRequest,
+    ): Promise<MintedKvHandle> {
+        if (!this.enabled) throw disabled();
+        if (!this.kvHandlesEnabled) throw kvShareHandleDisabled();
+
+        const owner = actor.user;
+        if (!owner?.uuid || owner.id === undefined) throw disabled();
+        // `undefined` is an app that could not be resolved, not the absence of
+        // one — reading it as an account session is what would hand an app the
+        // surface this refuses it.
+        if (actor.effectiveApp !== null) throw handleOwnerOnly();
+
+        await this.#spendHandleBudget(owner.id);
+        await this.#assertHandleCeiling(owner.id);
+
+        const keyPrefix = assertShareablePrefix(request?.prefix);
+        const appUid = assertShareableAppUid(
+            parseAppUid(request?.appUid) ?? KV_GLOBAL_APP_KEY,
+        );
+        const grantee = await this.#resolveGrantee(request);
+
+        const permission = kvSharePermission(owner.uuid, appUid, keyPrefix);
+        await this.services.permission.grantUserUserPermission(
+            actor,
+            grantee.username,
+            permission,
+            {},
+            { reason: 'kv share handle' },
+        );
+
+        const row = await this.stores.kvShareHandle.mint({
+            ownerUserId: owner.id,
+            granteeUserId: grantee.id,
+            appUid,
+            keyPrefix,
+            permission,
+        });
+        return { handle: row.handle, prefix: row.keyPrefix };
+    }
+
+    /** Who a mint is for. Named by username or uuid; unknown reads as absent. */
+    async #resolveGrantee(
+        request: MintKvHandleRequest,
+    ): Promise<{ id: number; username: string }> {
+        const username =
+            typeof request?.granteeUsername === 'string'
+                ? request.granteeUsername.trim()
+                : '';
+        const uid =
+            typeof request?.granteeUid === 'string'
+                ? request.granteeUid.trim()
+                : '';
+        if (!username && !uid)
+            throw badRequest(
+                'Name the grantee with `granteeUsername` or `granteeUid`',
+                'bad_request',
+            );
+
+        const user = username
+            ? await this.stores.user.getByUsername(username)
+            : await this.stores.user.getByUuid(uid);
+        if (!user?.username || user.id === undefined)
+            throw new HttpError(404, 'user_does_not_exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+        return { id: user.id, username: user.username };
+    }
+
+    /**
+     * Whether this account may hold out another share handle. Retired ones do
+     * not count: the row stays as the record of what was shared, not as a
+     * slot.
+     */
+    async #assertHandleCeiling(userId: number): Promise<void> {
+        const live = await this.stores.kvShareHandle.countLiveForOwner(userId);
+        if (live >= EVENTS_KV_HANDLES_PER_USER)
+            throw new HttpError(
+                409,
+                `An account may hold out ${EVENTS_KV_HANDLES_PER_USER} share handles at a time`,
+                { legacyCode: 'events_kv_handle_limit_reached' },
+            );
+    }
+
+    async #spendHandleBudget(userId: number): Promise<void> {
+        const ok = await checkRateLimit(
+            `${EVENTS_KV_HANDLE_LIMIT.scope}:${userId}`,
+            EVENTS_KV_HANDLE_LIMIT.limit,
+            EVENTS_KV_HANDLE_LIMIT.window,
+        );
+        if (!ok) throw tooManyCalls();
+    }
+
     // -- Suspension --------------------------------------------------
 
     /**
@@ -2160,6 +2340,13 @@ export class EventsService extends PuterService {
         const user = actor.user;
         if (!user) throw disabled();
 
+        if (parsed.anchorRef.kind === 'kvHandle')
+            return this.#resolveKvHandleSubscribe(
+                actor,
+                parsed,
+                parsed.anchorRef.handle,
+            );
+
         const anchor = resolveKvAnchor(parsed, {
             userUuid: user.uuid,
             appUid: actor.effectiveApp?.uid ?? null,
@@ -2187,6 +2374,63 @@ export class EventsService extends PuterService {
             // The column wants a mode; a KV row's re-check is the cross-app
             // gate rather than an ACL reading, so nothing reads this back.
             permission: SUBSCRIBE_MODE,
+            subject: anchor.subject,
+        };
+    }
+
+    /**
+     * Resolve and authorize a `kv:<handle>:<key>` subject.
+     *
+     * The handle resolves to the region it was granted on and the key is
+     * composed onto it, so the row lands on exactly the anchor the owner's own
+     * subject would — same token, same keyspace, no dispatch change. Which
+     * keyspace that is matters: the row is indexed under the **owner**, because
+     * a write only ever knows whose namespace it touched.
+     *
+     * Authority is the grant, never the handle: an actor holding the mirrored
+     * permission may subscribe, and one who does not is told the handle is not
+     * there rather than that it is theirs to want.
+     */
+    async #resolveKvHandleSubscribe(
+        actor: Actor,
+        parsed: ParsedSubject,
+        handle: string,
+    ): Promise<ResolvedAnchor> {
+        if (!this.kvHandlesEnabled) throw kvShareHandleDisabled();
+
+        const share = await this.stores.kvShareHandle.getByHandle(handle);
+        if (!share || share.revokedAt !== null)
+            throw unknownKvShareHandle(handle);
+
+        const held = await kvSharedRegionAuthorized(
+            actor,
+            share.permission,
+            this.#kvShareDeps(),
+        );
+        if (!held) throw unknownKvShareHandle(handle);
+
+        const owner = await this.stores.user.getById(share.ownerUserId);
+        if (!owner?.uuid) throw unknownKvShareHandle(handle);
+
+        const anchor = resolveKvHandleAnchor(parsed, {
+            ownerUserUuid: owner.uuid,
+            appUid: share.appUid,
+            keyPrefix: share.keyPrefix,
+        });
+
+        if (anchor.match)
+            compileMatch(anchor.match, { separator: KV_MATCH_SEPARATOR });
+
+        return {
+            token: anchor.token,
+            uid: anchor.appUid,
+            path: anchor.prefix,
+            match: anchor.match,
+            op: null,
+            ownerUserId: share.ownerUserId,
+            // The grant string rather than a mode: it is what a revoke names,
+            // and what the delivery re-check asks again.
+            permission: share.permission,
             subject: anchor.subject,
         };
     }
@@ -2525,13 +2769,16 @@ export class EventsService extends PuterService {
 
         let seq = 0;
         for (const row of matched) {
-            const event = subject.project({
-                ...context,
-                self:
-                    actingUserId === undefined ||
-                    actingUserId === row.holderUserId,
-                seq: seq++,
-            });
+            const event = this.#asRowAddressesIt(
+                row,
+                subject.project({
+                    ...context,
+                    self:
+                        actingUserId === undefined ||
+                        actingUserId === row.holderUserId,
+                    seq: seq++,
+                }),
+            );
 
             // A `single` is owed rather than sent: it is queued, and never
             // coalesced or broadcast — collapsing two of them would drop one
@@ -2575,6 +2822,30 @@ export class EventsService extends PuterService {
                 ? 'filter_evaluation_limit'
                 : 'matched_subscription_limit',
         );
+    }
+
+    /**
+     * One event named the way the row that receives it addresses things. Only a
+     * share-handle row differs: the projection names the owner's namespace and
+     * an absolute key, neither of which its holder can address or was told
+     * about, so both are re-based on the handle. Every other row is untouched.
+     */
+    #asRowAddressesIt<P extends ProjectedEvent>(
+        row: DispatchSubscription,
+        event: P,
+    ): P {
+        // Asked of every delivery, so the families that can never answer are
+        // turned away on a token comparison rather than a subject parse.
+        if (!isKvToken(row.token)) return event;
+        const handle = kvHandleFromSubject(row.subject);
+        if (handle === null) return event;
+
+        const key = relativeToKvShareRoot(
+            row.permission,
+            (event as ProjectedKvEvent).key,
+        );
+        if (key === null) return event;
+        return { ...event, subject: `kv:${handle}:${key}`, key };
     }
 
     /** Op filter first — a comparison, where the glob is not. */
@@ -2659,7 +2930,7 @@ export class EventsService extends PuterService {
         if (!decision) {
             decision = checkDeliveryAuthorized(
                 resolved.actor,
-                row.permission,
+                row.permission as AclMode,
                 node,
                 this.#aclDeps(),
             );
@@ -2692,6 +2963,11 @@ export class EventsService extends PuterService {
         const decisions = new Map<string, Promise<boolean>>();
         const allowed = await Promise.all(
             rows.map((row) => {
+                // A row on a shared region is authorized by its grant, not by
+                // whose namespace it names — and that is one question per
+                // subscription, because the handle *is* the granted root.
+                if (kvHandleFromSubject(row.subject) !== null)
+                    return this.#kvShareHolds(row);
                 if (!isCrossAppKvRow(row.appUid, targetAppUid))
                     return Promise.resolve(true);
                 const key = `${row.holderUserId}|${row.appUid ?? ''}`;
@@ -2704,6 +2980,35 @@ export class EventsService extends PuterService {
             }),
         );
         return rows.filter((_row, i) => allowed[i]);
+    }
+
+    /**
+     * Whether one row's holder may still watch the region it was made on.
+     *
+     * Held in the cross-event cache under the row's anchor, which for a shared
+     * region is the whole of what it can address: nothing above the handle is
+     * nameable, so the answer does not vary by key and one evaluation covers
+     * every event under it until a grant or a revoke moves the generation.
+     */
+    async #kvShareHolds(row: DispatchSubscription): Promise<boolean> {
+        const identity = await this.#grantIdentity(row);
+        if (!identity) return false;
+
+        const key = {
+            subId: row.subId,
+            generation: identity.generation,
+            nodeUid: row.anchorUid,
+        };
+        const cached = this.#deliveryAuth.read(key);
+        if (cached !== null) return cached;
+
+        const allowed = await kvSharedRegionAuthorized(
+            identity.actor,
+            row.permission,
+            this.#kvShareDeps(),
+        );
+        this.#deliveryAuth.write(key, allowed);
+        return allowed;
     }
 
     /** Whether one row's holder may still be told about `targetAppUid`'s data. */
@@ -2905,19 +3210,39 @@ export class EventsService extends PuterService {
     ): Promise<DurableSubscription[]> {
         const settling: DurableSubscription[] = [];
         for (const row of rows) {
-            const covered = isKvToken(row.token)
-                ? crossAppKvPermissions(row.anchorUid).includes(permission)
-                : this.services.acl
-                      .permissionsFor(row.anchorUid, row.permission)
-                      .includes(permission);
+            const covered = this.#coveredByRevocation(row, permission);
             if (covered && !(await this.#anchorStillReachable(row)))
                 settling.push(row);
         }
         return settling;
     }
 
+    /**
+     * Whether one withdrawn grant is one of the ones a row was standing on.
+     * Narrowing only — the question is asked again for real below.
+     *
+     * A shared key-value region is the exact string match plus prefix
+     * implication, which is what makes handle to subscriptions a lookup over
+     * rows the holder index already returned rather than a scan for the
+     * handle.
+     */
+    #coveredByRevocation(
+        row: DurableSubscription,
+        permission: string,
+    ): boolean {
+        if (kvHandleFromSubject(row.subject) !== null)
+            return kvShareGrantCovers(permission, row.permission);
+        if (isKvToken(row.token))
+            return crossAppKvPermissions(row.anchorUid).includes(permission);
+        return this.services.acl
+            .permissionsFor(row.anchorUid, row.permission as AclMode)
+            .includes(permission);
+    }
+
     /** Whether a row's holder can still reach its anchor, asked fresh. */
     async #anchorStillReachable(row: DurableSubscription): Promise<boolean> {
+        if (kvHandleFromSubject(row.subject) !== null)
+            return this.#kvShareHolds(row);
         if (isKvToken(row.token)) {
             if (!isCrossAppKvRow(row.appUid, row.anchorUid)) return true;
             return this.#kvGrantHolds(row, row.anchorUid);
@@ -2938,7 +3263,7 @@ export class EventsService extends PuterService {
         if (!actor) return false;
         return checkDeliveryAuthorized(
             actor,
-            row.permission,
+            row.permission as AclMode,
             nodeDescriptor({ uid: at.anchorUid, path: at.anchorPath }, deps),
             deps,
         );
@@ -3848,6 +4173,14 @@ export class EventsService extends PuterService {
         return {
             resolveNode: (ref) => resolveNode(this.stores.fsEntry, ref),
             getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+        };
+    }
+
+    #kvShareDeps(): KvSharedRegionDeps {
+        return {
+            enabled: this.kvHandlesEnabled,
+            checkPermission: (actor, permission) =>
+                this.services.permission.check(actor, permission),
         };
     }
 

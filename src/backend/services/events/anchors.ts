@@ -25,6 +25,7 @@ import { expandTildePath, normalizeAbsolutePath } from '../fs/resolveNode.js';
 import { relativeTo } from './matcher.js';
 import {
     fsAnchorToken,
+    kvAnchorFor,
     kvAnchorToken,
     notifAnchorToken,
     notifMatchOn,
@@ -185,6 +186,52 @@ export function resolveKvAnchor(
         // their own has never been gated — the same branch a cross-app KV read
         // takes before it reaches a permission lookup.
         crossApp: actor.appUid !== null && appUid !== actor.appUid,
+    };
+}
+
+/** The shared region a handle resolves to, as the resolver needs it. */
+export interface KvShareRegion {
+    ownerUserUuid: string;
+    appUid: string;
+    /** The granted root, ending on the key delimiter. */
+    keyPrefix: string;
+}
+
+/**
+ * Resolve a `kv:<handle>:<relativeKey>` subject against the region the handle
+ * was granted on.
+ *
+ * The key is composed onto the granted prefix and then anchored by exactly the
+ * path an owner's own subject takes, which is what makes the two produce the
+ * same token: the handle is an address for a region, not a second kind of
+ * subscription. Nothing here can reach above the region — the composition is a
+ * concatenation onto the prefix, so being at-or-below the grant is structural
+ * rather than checked.
+ */
+export function resolveKvHandleAnchor(
+    parsed: ParsedSubject,
+    region: KvShareRegion,
+): ResolvedKvAnchor {
+    const { anchorRef } = parsed;
+    if (anchorRef.kind !== 'kvHandle')
+        throw new HttpError(400, 'Not a key-value handle subject', {
+            legacyCode: 'invalid_subject',
+        });
+
+    const { prefix, rawMatch } = kvAnchorFor(
+        `${region.keyPrefix}${anchorRef.key}`,
+    );
+
+    return {
+        token: kvAnchorToken(region.ownerUserUuid, region.appUid, prefix),
+        appUid: region.appUid,
+        prefix,
+        match: rawMatch,
+        // The wire form stays the one the grantee wrote: it names the handle,
+        // and the handle is all they are ever told about where the data lives.
+        subject: `kv:${anchorRef.handle}:${anchorRef.key}`,
+        // The gate is the share grant, not the cross-app one.
+        crossApp: false,
     };
 }
 
