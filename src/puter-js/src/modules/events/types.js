@@ -4,7 +4,8 @@
  * What a subscription is keyed to. For an `fs:` subject naming something that
  * does not exist yet, this is the nearest existing ancestor and the rest of the
  * subject became `match`. For a `kv:` subject there is no node: `uid` is the app
- * whose store is watched and `path` is the key prefix it anchors at.
+ * whose store is watched and `path` is the key prefix it anchors at; for one made
+ * through a share handle, `uid` is the handle and `path` is empty.
  *
  * @typedef {Object} EventAnchor
  * @property {string} uid The anchor node's uid, or the watched app's id.
@@ -25,6 +26,8 @@
  * @property {'add' | 'write' | 'move' | 'remove' | 'meta'} op What happened.
  * @property {string} uid The uid of the node the event is about.
  * @property {string} path The path of the node the event is about.
+ * @property {string} [from] On a `move`, the path the node left — present only
+ *   when the subscription was watching that side.
  * @property {boolean} self `true` when the change was made by the account
  *   holding the subscription — the flag to check to ignore your own writes.
  * @property {number} ts Milliseconds since the epoch.

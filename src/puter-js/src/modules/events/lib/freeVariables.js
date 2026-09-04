@@ -110,19 +110,21 @@ const matchGroup = (tokens, start) => {
 
 /**
  * Collect the names a binding pattern introduces, between `start` and `end`.
- * Everything after an `=` is an initializer — a reference, not a binding — so
- * it is skipped until the comma that ends that binder.
+ * A `=` opens a default-value expression at the current nesting depth; only a
+ * `,` back at that same depth ends it (a `,` one level deeper belongs to the
+ * default value itself, e.g. the call in `{ a = f(x, y), b }`).
  */
 const collectPattern = (tokens, start, end, into) => {
     let depth = 0;
     let inInitializer = false;
+    let initializerDepth = -1;
     for ( let i = start; i < end; i++ ) {
         const token = tokens[i];
         if ( token.type === 'punct' ) {
             if ( OPENERS[token.value] ) depth++;
             else if ( CLOSERS.has(token.value) ) depth--;
-            else if ( token.value === '=' ) inInitializer = true;
-            else if ( token.value === ',' && depth <= 0 ) inInitializer = false;
+            else if ( token.value === '=' && ! inInitializer ) { inInitializer = true; initializerDepth = depth; }
+            else if ( token.value === ',' && inInitializer && depth === initializerDepth ) inInitializer = false;
             continue;
         }
         if ( inInitializer || ! isName(token) || KEYWORDS.has(token.value) ) continue;
@@ -132,11 +134,10 @@ const collectPattern = (tokens, start, end, into) => {
     }
 };
 
-/** Names a `var`/`let`/`const` head introduces, and where the head ends. */
-const collectDeclaration = (tokens, start, into) => {
+/** Where a declarator's binding pattern ends: `=`, `,`, `;`, a depth-0 closer, or `of`/`in`. */
+const findPatternEnd = (tokens, start) => {
     let depth = 0;
     let i = start;
-    let inInitializer = false;
     for ( ; i < tokens.length; i++ ) {
         const token = tokens[i];
         if ( token.type === 'punct' ) {
@@ -146,38 +147,67 @@ const collectDeclaration = (tokens, start, into) => {
                 depth--;
                 continue;
             }
-            if ( depth > 0 ) {
-                if ( token.value === '=' ) inInitializer = true;
-                else if ( token.value === ',' ) inInitializer = false;
-                continue;
-            }
-            if ( token.value === ';' ) return i;
-            if ( token.value === '=' ) inInitializer = true;
-            else if ( token.value === ',' ) inInitializer = false;
+            if ( depth === 0 && (token.value === '=' || token.value === ',' || token.value === ';') )
+                return i;
             continue;
         }
         if ( isName(token) && depth === 0 && (token.value === 'of' || token.value === 'in') )
             return i;
-        if ( inInitializer || ! isName(token) || KEYWORDS.has(token.value) ) continue;
-        if ( isPunct(tokens[i - 1], '.') ) continue;
-        into.add(token.value);
     }
     return i;
 };
 
 /**
- * Every name the source binds, wherever it binds it. Over-approximate on
- * purpose: the alternative is a scope tree, and the cost of getting one wrong
- * is rejecting a handler that works.
- *
- * @param {import('./tokenize.js').Token[]} tokens
- * @returns {Set<string>}
+ * Names a `var`/`let`/`const` head introduces, and where the head ends. Only
+ * the pattern is bound here — an initializer is a reference, not a binding,
+ * but it can still contain its own arrow/function/class/catch, each binding
+ * its own names, so it is handed to `scanBindings` rather than skipped whole.
  */
-export const collectBindings = (tokens) => {
-    /** @type {Set<string>} */
-    const bound = new Set();
+const collectDeclaration = (tokens, start, into) => {
+    let i = start;
+    for ( ;; ) {
+        const patternEnd = findPatternEnd(tokens, i);
+        collectPattern(tokens, i, patternEnd, into);
+        i = patternEnd;
+        if ( i >= tokens.length ) return i;
 
-    for ( let i = 0; i < tokens.length; i++ ) {
+        const boundary = tokens[i];
+        if ( isName(boundary) || CLOSERS.has(boundary.value) || boundary.value === ';' )
+            return i;
+        if ( boundary.value === ',' ) { i++; continue; }
+
+        // boundary is '=': scan the initializer for constructs that bind
+        // their own names, then resume after it.
+        i++;
+        const initStart = i;
+        let depth = 0;
+        for ( ; i < tokens.length; i++ ) {
+            const token = tokens[i];
+            if ( token.type !== 'punct' ) continue;
+            if ( OPENERS[token.value] ) { depth++; continue; }
+            if ( CLOSERS.has(token.value) ) {
+                if ( depth === 0 ) break;
+                depth--;
+                continue;
+            }
+            if ( depth === 0 && (token.value === ',' || token.value === ';') ) break;
+        }
+        scanBindings(tokens, initStart, i, into);
+
+        if ( i >= tokens.length || tokens[i].value !== ',' ) return i;
+        i++;
+    }
+};
+
+/**
+ * The binding constructs `collectBindings` looks for — arrow/function/class
+ * declarations, `catch`, a `var`/`let`/`const` head — restricted to
+ * `[start, end)`. Shared by the top-level scan and by `collectDeclaration`,
+ * which needs it to see an arrow or function inside an initializer without
+ * also handing it the pattern-only tokens around it.
+ */
+const scanBindings = (tokens, start, end, bound) => {
+    for ( let i = start; i < end; i++ ) {
         const token = tokens[i];
 
         if ( isPunct(token, '=>') ) {
@@ -185,7 +215,7 @@ export const collectBindings = (tokens) => {
             if ( isPunct(before, ')') ) {
                 // Walk back to the `(` this `)` closes.
                 let depth = 0;
-                for ( let j = i - 1; j >= 0; j-- ) {
+                for ( let j = i - 1; j >= start; j-- ) {
                     const back = tokens[j];
                     if ( back.type !== 'punct' ) continue;
                     if ( CLOSERS.has(back.value) ) depth++;
@@ -238,6 +268,20 @@ export const collectBindings = (tokens) => {
             continue;
         }
     }
+};
+
+/**
+ * Every name the source binds, wherever it binds it. Over-approximate on
+ * purpose: the alternative is a scope tree, and the cost of getting one wrong
+ * is rejecting a handler that works.
+ *
+ * @param {import('./tokenize.js').Token[]} tokens
+ * @returns {Set<string>}
+ */
+export const collectBindings = (tokens) => {
+    /** @type {Set<string>} */
+    const bound = new Set();
+    scanBindings(tokens, 0, tokens.length, bound);
 
     // An anonymous `function (a, b) {`, whose parameters the pass above only
     // reaches when the function is named.

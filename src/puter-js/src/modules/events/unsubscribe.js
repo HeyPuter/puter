@@ -19,5 +19,8 @@ export async function unsubscribe (subId) {
             'subscription_does_not_exist',
         );
     }
+    // Otherwise this page keeps running the handler for a subscription that
+    // no longer exists, and the connection it needed that for is never idle.
+    this.channel.deregisterDurable(subId);
     await request(this.puter, '/events/unsubscribe', { subId });
 }

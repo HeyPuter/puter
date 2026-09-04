@@ -399,7 +399,13 @@ export class EventChannel {
      */
     runDurable (registration, envelope) {
         const event = /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event);
-        const delivery = { event, ctx: registration.ctx };
+        const { puter } = this.module;
+        const delivery = {
+            event,
+            ctx: registration.ctx,
+            user: puter,
+            fetch: puter?.net?.fetch ?? globalThis.fetch,
+        };
 
         if ( ! envelope.ackRequired || typeof envelope.ackId !== 'string' ) {
             settleHandler(() => registration.handler(delivery));
@@ -416,15 +422,8 @@ export class EventChannel {
                 envelope.origin,
             );
         };
-        const { puter } = this.module;
         settleHandler(
-            () =>
-                registration.handler({
-                    ...delivery,
-                    user: puter,
-                    fetch: puter?.net?.fetch ?? globalThis.fetch,
-                    ack,
-                }),
+            () => registration.handler({ ...delivery, ack }),
             () => ack(),
         );
     }

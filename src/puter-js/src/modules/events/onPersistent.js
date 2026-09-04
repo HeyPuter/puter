@@ -39,6 +39,15 @@ export async function onPersistent (options = {}) {
             'events_handler_name_required',
         );
     }
+    // A `single` delivery is owed to exactly one consumer, and the handler is
+    // the only one always there to take it — checked here rather than only
+    // discovered on the round trip.
+    if ( options.delivery === 'single' && ! handlerName ) {
+        throw new PuterJSError(
+            'A `single` subscription needs a `handlerName`',
+            'events_handler_required',
+        );
+    }
 
     const inline = handler === undefined || handler === null
         ? null
@@ -70,10 +79,7 @@ export async function onPersistent (options = {}) {
         this.channel.registerDurable(sub.subId, handler, options.context);
     }
 
-    const { channel } = this;
-    sub.off = async () => {
-        if ( typeof sub.subId === 'string' ) channel.deregisterDurable(sub.subId);
-        await this.unsubscribe(sub.subId);
-    };
+    // `unsubscribe()` deregisters routing here too, so `off()` is just that.
+    sub.off = async () => this.unsubscribe(sub.subId);
     return sub;
 }
