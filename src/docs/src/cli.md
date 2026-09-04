@@ -1,9 +1,9 @@
 ---
 title: CLI
-description: Manage your Puter resources directly from your terminal with the Puter CLI. Deploy static sites and serverless workers without leaving your shell.
+description: Manage your Puter resources directly from your terminal with the Puter CLI. Deploy static sites and serverless workers, and work with your cloud files, without leaving your shell.
 ---
 
-The [Puter CLI](https://www.npmjs.com/package/@heyputer/cli) lets you manage your Puter resources straight from the terminal: deploy static websites, ship serverless workers, inspect the apps registered to your account, and explore the key-value stores behind your apps and workers, all without leaving your shell.
+The [Puter CLI](https://www.npmjs.com/package/@heyputer/cli) lets you manage your Puter resources straight from the terminal: deploy static websites, ship serverless workers, work with your cloud files, inspect the apps registered to your account, and explore the key-value stores behind your apps and workers, all without leaving your shell.
 
 <div class="info">The Puter CLI is in beta (0.x). Behavior may change between releases.</div>
 
@@ -80,6 +80,66 @@ Browse the apps registered to your account. These commands are read-only.
 puter app list           # list your apps
 puter app get <name>     # show one app's details
 ```
+
+## Files
+
+Work with your [cloud storage](/FS/) from the terminal: list a directory, read a file, copy files and folders in either direction, move them, delete them, and inspect them. Remote paths carry a `puter:` prefix and are absolute from your home directory, `-` means stdin or stdout, and anything else is a local path — so the direction of a transfer comes from the paths themselves rather than from a flag.
+
+```sh
+puter fs ls puter:/Desktop
+puter fs cat puter:/notes.txt
+puter fs cp -r ./dist puter:/Documents/backup
+```
+
+`cp` decides what to do from the pair of paths you give it:
+
+| From | To | What happens |
+| --- | --- | --- |
+| local | `puter:/…` | uploaded |
+| `puter:/…` | local | downloaded |
+| `puter:/…` | `puter:/…` | copied on the server, without passing through your machine |
+| `-` | `puter:/…` | stdin is written to the file |
+| `puter:/…` | `-` | the file's bytes are written to stdout |
+
+Two local paths — or two of anything else — is an error rather than a guess. `mv` works within your Puter storage only; to move something between your machine and Puter, copy it, check the copy, then delete the original.
+
+### Piping
+
+Status messages, progress and prompts go to stderr and data goes to stdout, so output can be piped without status text mixed into it:
+
+```sh
+puter fs ls puter:/logs | xargs -n1 puter fs cat
+```
+
+In a terminal you get the readable view: bare names, aligned columns with `-l`, and a progress spinner during transfers. When output is piped or redirected, `ls` prints full `puter:` paths instead, one per line, so each line can be handed straight to another command. `--json` prints the complete entries, for both `ls` and `stat`.
+
+### App storage
+
+Every app has its own storage directory. `--app` resolves `puter:/` against that directory instead of your home directory, so you can read and edit the files an app works with. It accepts the same identifiers as `puter kv connect` — an app name, an app uid, a worker name, or a worker URL:
+
+```console
+$ puter fs ls --app notes puter:/
+puter:/settings.json
+```
+
+`--app` is a flag and nothing else: there is no environment variable and no saved default, because it changes what an absolute path means. Every command that writes or deletes prints the path it resolved to, so you can see the difference it made:
+
+```console
+$ puter fs rm -r --app notes puter:/cache
+rm -r puter:/cache → ~/AppData/app-1f2e3d4c…/cache (412 entries) [notes (app-1f2e3d4c…)]
+```
+
+Paths stay inside that directory: `puter:/../../Documents` is an error, not a way out of it.
+
+### Deleting files
+
+`rm` deletes a single file. Deleting a directory needs `-r`, which prints the resolved path and how many entries it holds, then asks you to confirm in a terminal, or requires `--yes` when there is nobody to ask. `puter:/` on its own is always refused. Anything recursive accepts `--dry-run`, which lists what would be deleted without deleting it.
+
+<div class="info">Deleted files do not go to Trash — <code>puter fs rm</code> removes them.</div>
+
+### Transfers
+
+Copying a folder transfers 8 files at a time, which `--concurrency` adjusts (1–32), and retries a file whose failure looks temporary. If files still fail, the rest of the copy continues, the failures are listed at the end, and the command exits with a non-zero status — so a large upload does not start over because one file failed. `-n` skips files that already exist; without it, `cp` overwrites them.
 
 ## Key-value store
 
@@ -221,6 +281,88 @@ Show details for one app.
 | Argument | Description |
 | --- | --- |
 | `<name>` | The app to inspect. |
+
+### `puter fs ls`
+
+List a remote directory.
+
+| Argument / Option | Description |
+| --- | --- |
+| `<path>` | The remote path to list (`puter:/…`). |
+| `-l`, `--long` | Show type, size and modification time. |
+| `--json` | Print the full entries as JSON. |
+| `--app <id>` | Resolve `puter:/` against an app's storage instead of your home directory. |
+
+### `puter fs cat`
+
+Write a remote file's contents to stdout.
+
+| Argument / Option | Description |
+| --- | --- |
+| `<path>` | The remote file to read (`puter:/…`). |
+| `--app <id>` | Resolve `puter:/` against an app's storage instead of your home directory. |
+
+### `puter fs cp`
+
+Copy between your machine and Puter, or within your Puter storage.
+
+| Argument / Option | Description |
+| --- | --- |
+| `<source>` | A local path, a remote path (`puter:/…`), or `-` to read stdin. |
+| `<destination>` | A local path, a remote path (`puter:/…`), or `-` to write stdout. |
+| `-r`, `--recursive` | Copy directories. |
+| `-n`, `--no-clobber` | Skip files that already exist instead of overwriting them. |
+| `--concurrency <n>` | How many files to transfer at once, from 1 to 32. Defaults to 8. |
+| `--dry-run` | List what would be copied without copying it. |
+| `--app <id>` | Resolve `puter:/` against an app's storage instead of your home directory. |
+
+One of the two paths must be remote. Copying between two local paths is an error.
+
+### `puter fs mv`
+
+Move or rename within your Puter storage.
+
+| Argument / Option | Description |
+| --- | --- |
+| `<source>` | The remote path to move (`puter:/…`). |
+| `<destination>` | The remote path to move it to (`puter:/…`). |
+| `--app <id>` | Resolve `puter:/` against an app's storage instead of your home directory. |
+
+Both paths must be remote, and `puter:/` itself cannot be moved.
+
+### `puter fs rm`
+
+Delete a remote file or directory.
+
+| Argument / Option | Description |
+| --- | --- |
+| `<path>` | The remote path to delete (`puter:/…`). |
+| `-r`, `--recursive` | Delete a directory and everything in it. |
+| `-y`, `--yes` | Skip the confirmation prompt. Required for `-r` when not running in a terminal. |
+| `--dry-run` | List what would be deleted without deleting it. |
+| `--app <id>` | Resolve `puter:/` against an app's storage instead of your home directory. |
+
+`puter:/` on its own is refused, with or without `--app`.
+
+### `puter fs mkdir`
+
+Create a remote directory.
+
+| Argument / Option | Description |
+| --- | --- |
+| `<path>` | The remote directory to create (`puter:/…`). |
+| `-p`, `--parents` | Create missing parent directories, and succeed if the directory already exists. |
+| `--app <id>` | Resolve `puter:/` against an app's storage instead of your home directory. |
+
+### `puter fs stat`
+
+Show details for one remote file or directory.
+
+| Argument / Option | Description |
+| --- | --- |
+| `<path>` | The remote path to inspect (`puter:/…`). |
+| `--json` | Print the full entry as JSON. |
+| `--app <id>` | Resolve `puter:/` against an app's storage instead of your home directory. |
 
 ### `puter kv connect`
 

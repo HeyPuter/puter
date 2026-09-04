@@ -6,7 +6,8 @@ import { isInteractive, SITE_DOMAIN } from '../lib/env.js';
 import { ensureClient } from '../lib/auth.js';
 import { randName } from '../lib/client.js';
 import { walk } from '../lib/fswalk.js';
-import { CLIError } from '../lib/errors.js';
+import { CLIError, messageOf } from '../lib/errors.js';
+import { uploadFiles } from '../lib/transfer.js';
 import * as ui from '../lib/ui.js';
 
 // --- subdomain helpers (spec §5.3): liberal in, strict out ----------------
@@ -42,16 +43,6 @@ const IGNORED_NAMES = new Set(['.DS_Store', 'Thumbs.db', '.localized']);
 
 function isIgnored(relPath) {
   return IGNORED_NAMES.has(relPath.split('/').pop());
-}
-
-// Build a File the SDK's upload() accepts, preserving the file's relative path
-// so nested directories are recreated. The SDK overwrites .filepath/.fullPath
-// with the basename but reads .finalPath first, so that's where the rel path
-// has to go.
-function toUploadFile(buf, relPath) {
-  const file = new File([buf], relPath.split('/').pop());
-  file.finalPath = relPath;
-  return file;
 }
 
 // --- deploy (spec §5.5) ---------------------------------------------------
@@ -150,21 +141,36 @@ export async function siteDeploy(dirArg, subArg, opts) {
   ui.debug('mkdir returned:', JSON.stringify(folder));
   ui.debug('target path:', targetPath);
 
-  // 4. Upload the whole tree in one batch. Each File carries its relative path
-  // (via finalPath) so nested folders are recreated under targetPath;
-  // createMissingParents builds those intermediate folders server-side.
-  const items = files.map((f) => toUploadFile(fs.readFileSync(f.full), f.rel));
-  const sp = ui.spinner(`Uploading ${items.length} file(s)...`);
+  // 4. Upload the tree one directory at a time, so subfolders are recreated
+  // under targetPath. On Node the batch endpoint cannot build a directory
+  // tree, so the nesting has to come from each upload's own dirPath.
+  const sp = ui.spinner(`Uploading ${files.length} file(s)...`);
+  let uploaded;
+  let failures;
   try {
-    await puter.fs.upload(items, targetPath, {
-      overwrite: true,
-      createMissingParents: true,
-    });
-    sp.stop(`Uploaded ${items.length} file(s).`);
+    ({ uploaded, failures } = await uploadFiles(puter, {
+      files,
+      destination: targetPath,
+      onProgress: (done, total) => sp.message(`Uploaded ${done}/${total} file(s)...`),
+      onRetry: (err, attempt) => ui.debug(`retry ${attempt}:`, messageOf(err)),
+    }));
+    sp.stop(`Uploaded ${uploaded} of ${files.length} file(s).`);
   } catch (err) {
     sp.stop('Upload failed.');
     ui.debug('upload error object:', JSON.stringify(err));
-    throw new CLIError(`Upload failed: ${err.message ?? JSON.stringify(err)}`);
+    throw new CLIError(`Upload failed: ${messageOf(err)}`);
+  }
+
+  // A site missing files is a broken site, so a partial upload fails here —
+  // before the subdomain is pointed at it.
+  if (failures.length > 0) {
+    for (const failure of failures.slice(0, 10)) {
+      ui.warn(`${failure.rel}: ${failure.message}`);
+    }
+    if (failures.length > 10) ui.info(`... and ${failures.length - 10} more.`);
+    throw new CLIError(
+      `${failures.length} of ${files.length} file(s) failed to upload; nothing was deployed.`,
+    );
   }
 
   // 5. Point the subdomain at the new folder.
