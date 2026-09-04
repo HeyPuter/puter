@@ -26,7 +26,7 @@ A string containing the name of the key you want to create/update. The maximum a
 
 #### `value` (String | Number | Boolean | Object | Array)
 
-A string containing the value you want to give the key you are creating/updating. The maximum allowed `value` size is **400 KB**.
+The value you want to give the key you are creating/updating. Objects and arrays are stored as-is and come back the same way. The maximum allowed `value` size is **400 KB**.
 
 Numbers are stored with the precision JavaScript itself keeps: every number in the value — including one nested inside an object or array — must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`). A number past that is stored clamped to the bound rather than rejected, and `NaN` is stored as `null`. Store an id or a total that has to stay exact past that point as a string.
 
