@@ -308,6 +308,23 @@ export class TeamController extends PuterController {
         res.json({ success: true });
     }
 
+    @Delete('/:uid/members/:username', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: TEAM_LIMIT,
+    })
+    async deleteMember(req: Request, res: Response): Promise<void> {
+        const userId = this.#requireUserId(req);
+        const uid = this.#param(req, 'uid');
+        // Authority first, or resolving `:username` is an existence oracle.
+        await this.services.team.requireOwner(uid, userId);
+        const target = await this.#requireTargetUserId(req);
+
+        await this.services.team.deleteMember(uid, userId, target);
+        res.json({ success: true });
+    }
+
     // -- Audit --------------------------------------------------------
 
     @Get('/:uid/audit', {

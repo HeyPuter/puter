@@ -174,6 +174,8 @@ A reset returns a temporary password once and never again. It stops working 24 h
 
 Deleting a team frees the owner's slot, but it does **not** free the seats: the accounts it created still exist, still hold their files, and keep their usernames. They are disabled, not removed — deleting a team is not a way to stop paying for the accounts in it.
 
+Removing a seat for good is a separate, explicit request, and it is refused unless the account is already disabled (`account_must_be_disabled_first`). That ordering puts a reversible step in front of the only irreversible operation in the feature. **There is no restore window**: deletion removes the files, returns the username to the pool, and invalidates every credential. Nothing expires a disabled account on a timer — it persists, costing only the bytes it holds, until someone asks for it to go.
+
 Lowering the seat limit never disables anyone. A team already above a reduced limit keeps every account it has and is simply refused new ones until it is back under.
 
 Both limits are per deployment (`max_teams_per_user`, `max_seats_per_team`) rather than per team, so raising them moves every team at once.
