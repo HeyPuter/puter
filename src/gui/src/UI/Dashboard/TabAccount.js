@@ -43,7 +43,7 @@ const TabAccount = {
         // Profile picture card
         h += '<div class="dashboard-card dashboard-profile-card">';
         h += '<div class="dashboard-profile-picture-section">';
-        h += `<div class="profile-picture change-profile-picture dashboard-profile-avatar profile-pic" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
+        h += `<div class="profile-picture change-profile-picture dashboard-profile-avatar profile-pic" role="button" tabindex="0" aria-label="${i18n('change_profile_picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
         h += '</div>';
         h += '<div class="dashboard-profile-info">';
         h += `<h3>${html_encode(window.user?.username || 'User')}</h3>`;
@@ -208,6 +208,11 @@ const TabAccount = {
                 },
             });
         });
+        $el_window.find('.dashboard-section-account .change-profile-picture').on('keydown', function (e) {
+            if ( e.key !== 'Enter' && e.key !== ' ' ) return;
+            e.preventDefault();
+            $(this).trigger('click');
+        });
         $el_window.find('.dashboard-section-account .change-profile-picture').on('click', async function (e) {
             // open dialog
             UIWindow({
@@ -233,6 +238,7 @@ const TabAccount = {
             UIProfilePictureCropModal({
                 picture: puter.fs.read(selectedFile.path),
                 $container: $el_window,
+                returnFocusTo: $el_window.find('.dashboard-section-account .change-profile-picture').get(0),
                 onSave: (dataUrl) => {
                     // update profile picture everywhere (matches helpers.js session refresh)
                     $('.profile-pic').css('background-image', `url(${ html_encode(dataUrl) })`);

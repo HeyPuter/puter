@@ -77,6 +77,7 @@ const en = {
         change_email: 'Change Email',
         change_language: 'Change Language',
         change_password: 'Change Password',
+        change_profile_picture: 'Change profile picture',
         change_ui_colors: 'Change UI Colors',
         change_username: 'Change Username',
         revalidate_with_google: 'Re-validate with Google',

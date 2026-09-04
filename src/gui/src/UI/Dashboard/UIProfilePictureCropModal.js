@@ -54,9 +54,11 @@ const zoomInIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
  * @param {Blob | Promise<Blob>} opts.picture - The chosen image file
  * @param {(dataUrl: string) => void} opts.onSave - Receives the cropped PNG as a data URL
  * @param {jQuery} [opts.$container] - Element to append the overlay to (defaults to <body>)
+ * @param {HTMLElement} [opts.returnFocusTo] - Where focus goes on close; the picker that
+ *   opened this modal has already closed by then, so the caller names its own trigger
  * @returns {{ close: () => void }}
  */
-export default function UIProfilePictureCropModal ({ picture, onSave, $container }) {
+export default function UIProfilePictureCropModal ({ picture, onSave, $container, returnFocusTo }) {
     const $root = $container && $container.length ? $container : $('body');
     const id = window.uuidv4();
     const hint = isTouchPrimaryDevice()
@@ -102,7 +104,7 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
     const $save = $overlay.find('.profile-crop-save');
     const $controls = $overlay.find('.profile-crop-zoom, .profile-crop-zoom-btn');
 
-    // Focus returns to wherever the user was (the avatar) when the modal closes.
+    // Focus returns to the caller's trigger, or wherever it was, when the modal closes.
     const el_previous_focus = document.activeElement;
     $overlay.find('.profile-crop-modal').get(0)?.focus({ preventScroll: true });
 
@@ -206,9 +208,10 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
         resizeObserver?.disconnect();
         if ( objectUrl ) URL.revokeObjectURL(objectUrl);
         setTimeout(() => $overlay.remove(), 200);
-        if ( el_previous_focus && document.contains(el_previous_focus) ) {
+        const el_focus_target = [returnFocusTo, el_previous_focus].find((el) => el && document.contains(el));
+        if ( el_focus_target ) {
             try {
-                el_previous_focus.focus({ preventScroll: true });
+                el_focus_target.focus({ preventScroll: true });
             } catch { /* focus restoration is best-effort */ }
         }
     };

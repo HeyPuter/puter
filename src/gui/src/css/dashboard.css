@@ -6187,6 +6187,10 @@ body.myapps-reordering .myapps-tile {
     transition: transform 0.2s ease;
     box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
 }
+.dashboard-profile-avatar:focus-visible {
+    outline: none;
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium), 0 0 0 3px var(--select-ring);
+}
 
 @media (hover: hover) {
     .dashboard-profile-avatar:hover {
