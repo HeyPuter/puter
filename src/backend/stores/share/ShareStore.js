@@ -431,9 +431,9 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Team shares on one node. Neither `listByFsentry` (holder rows) nor
-     * the invite feed matches them, so without this the share dialog shows
-     * nothing for a file shared with a team.
+     * Team shares on one node. Neither `listByFsentry` (holder rows) nor the
+     * invite feed matches them, so without this the share dialog shows nothing
+     * for a file shared with a team.
      *
      * @param {number} fsentryId
      */
@@ -453,9 +453,9 @@ export class ShareStore extends PuterStore {
      * Unclaimed invites on one node, whoever sent them. What someone managing
      * the node needs to see who has been asked but has not arrived.
      *
-     * A team share also has no `holder_user_id` -- its holder is the group
-     * -- so both columns are checked, or every team share is listed here
-     * as an invite to a blank address.
+     * A team share also has no `holder_user_id` -- its holder is the group --
+     * so both columns are checked, or every team share is listed here as an
+     * invite to a blank address.
      *
      * @param {number} fsentryId
      */

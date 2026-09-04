@@ -23,6 +23,7 @@ const TEAM = {
     name: 'Acme',
     handle: 'acme',
     isOwner: true,
+    directoryEnabled: false,
     createdAt: '2026-01-01T00:00:00Z',
 };
 
@@ -245,6 +246,36 @@ describe('members', () => {
             },
         });
         await expect(teams.deleteMemberAccount('t-1', 'bob')).rejects.toMatchObject({ code: 'account_must_be_disabled_first' });
+    });
+});
+
+describe('directory', () => {
+    it('lists colleagues, mapping the row to the public shape', async () => {
+        routes({
+            'GET /teams/t-1/directory': {
+                items: [{ username: 'ana', uuid: 'u-1' }, { username: 'bo', uuid: 'u-2' }],
+            },
+        });
+        await expect(teams.listDirectory('t-1')).resolves.toEqual([
+            { username: 'ana', uuid: 'u-1' },
+            { username: 'bo', uuid: 'u-2' },
+        ]);
+    });
+
+    it('surfaces the closed directory as the same not-found the API gives', async () => {
+        routes({
+            'GET /teams/t-1/directory': () => {
+                throw Object.assign(new Error('Team not found'), { code: 'team_not_found' });
+            },
+        });
+        await expect(teams.listDirectory('t-1')).rejects.toMatchObject({ code: 'team_not_found' });
+    });
+
+    it('sends the toggle as the snake_case the route expects', async () => {
+        routes({ 'PUT /teams/t-1': { ...TEAM_ROW, directory_enabled: true } });
+        const res = await teams.update('t-1', { directoryEnabled: true });
+        expect(call().body).toEqual({ directory_enabled: true });
+        expect(res.directoryEnabled).toBe(true);
     });
 });
 

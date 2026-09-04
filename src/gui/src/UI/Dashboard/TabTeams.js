@@ -173,6 +173,20 @@ const renderMemberView = () => {
     return h + renderAudit();
 };
 
+const renderDirectory = () => {
+    const on = state.selected?.directoryEnabled === true;
+    let h = '<div class="dashboard-card teams-panel">';
+    h += `<h2>${i18n('teams_directory')}</h2>`;
+    h += `<p class="teams-panel-hint">${i18n('teams_directory_hint')}</p>`;
+    h += '<label class="teams-directory-toggle">';
+    h += `<input type="checkbox" class="teams-directory-check"${on ? ' checked' : ''}>`;
+    h += `<span>${i18n('teams_directory_label')}</span>`;
+    h += '</label>';
+    h += `<p class="teams-directory-note">${i18n(on ? 'teams_directory_on_note' : 'teams_directory_off_note')}</p>`;
+    h += '</div>';
+    return h;
+};
+
 const renderOwnerView = () => {
     let h = '<div class="dashboard-card teams-panel teams-card">';
     h += '<div class="teams-info">';
@@ -182,6 +196,7 @@ const renderOwnerView = () => {
     h += `<button class="button teams-rename">${i18n('teams_rename')}</button>`;
     h += '</div>';
 
+    h += renderDirectory();
     h += renderAddAccount();
     h += renderMembers();
     h += renderAudit();
@@ -377,6 +392,29 @@ const deleteMemberAccount = async ($el_window, username) => {
     }
 };
 
+const setDirectoryEnabled = async ($el_window, enabled) => {
+    // Turning it on is a disclosure, so it is confirmed; turning it off only
+    // takes something away and does not need to interrupt anyone.
+    if ( enabled ) {
+        const ok = await confirm(
+            $el_window,
+            i18n('teams_directory_confirm'),
+            i18n('teams_directory_confirm_action'),
+            // Reversible, and the wording says so — red would overstate it.
+            'primary',
+        );
+        // Repaint so the checkbox does not sit checked after a refusal.
+        if ( ! ok ) return paint($el_window);
+    }
+    try {
+        await puter.teams.update(state.selected.uid, { directoryEnabled: enabled });
+        await refresh($el_window);
+    } catch (e) {
+        await showError($el_window, e);
+        await refresh($el_window);
+    }
+};
+
 const createTeam = async ($el_window) => {
     const name = await UIPrompt({
         message: i18n('teams_create_team_prompt'),
@@ -449,6 +487,9 @@ const TabTeams = {
         });
         $el_window.on('click', `${SECTION} .teams-delete-account`, function () {
             deleteMemberAccount($el_window, $(this).attr('data-username'));
+        });
+        $el_window.on('change', `${SECTION} .teams-directory-check`, function () {
+            setDirectoryEnabled($el_window, $(this).is(':checked'));
         });
         $el_window.on('change', `${SECTION} .teams-picker-select`, async function () {
             state.selected = state.teams.find(t => t.uid === $(this).val()) ?? state.selected;

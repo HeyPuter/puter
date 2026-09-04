@@ -134,6 +134,7 @@ describe('audit labels', () => {
     it.each([
         'provision', 'disable', 'enable', 'delete_team',
         'reset_member_password', 'activate', 'delete_account',
+        'directory_enabled', 'directory_disabled',
     ])('has a label for %s', (action) => {
         expect(auditActionKey(action)).not.toBeNull();
     });

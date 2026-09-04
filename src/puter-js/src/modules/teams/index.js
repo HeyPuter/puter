@@ -8,6 +8,7 @@ import { enableMember } from './enableMember.js';
 import { get } from './get.js';
 import { list } from './list.js';
 import { listAudit } from './listAudit.js';
+import { listDirectory } from './listDirectory.js';
 import { listMembers } from './listMembers.js';
 import { listOwnAudit } from './listOwnAudit.js';
 import { resendActivation } from './resendActivation.js';
@@ -23,7 +24,7 @@ const METHODS = [
     'create', 'list', 'get', 'update', 'delete',
     'listMembers', 'createMember', 'resendActivation',
     'disableMember', 'enableMember', 'resetPassword', 'deleteMemberAccount',
-    'listAudit', 'listOwnAudit',
+    'listAudit', 'listOwnAudit', 'listDirectory',
 ];
 
 /**
@@ -58,6 +59,7 @@ export class TeamsModule extends PuterModule {
 
     listAudit = listAudit;
     listOwnAudit = listOwnAudit;
+    listDirectory = listDirectory;
 
     /** @param {Puter} puter */
     constructor (puter) {
