@@ -10,7 +10,7 @@
   "devDependencies": {
     "terser-webpack-plugin": "^5.3.14",
     "webpack": "^5.88.2",
-    "webpack-cli": "^5.1.1"
+    "webpack-cli": "^7.2.3"
   },
   "author": "Puter Technologies Inc.",
   "license": "AGPL-3.0-only"

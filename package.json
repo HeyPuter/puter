@@ -37,7 +37,7 @@
     "uglify-js": "^3.17.4",
     "vitest": "^4.1.5",
     "webpack": "^5.88.2",
-    "webpack-cli": "^5.1.1"
+    "webpack-cli": "^7.2.3"
   },
   "scripts": {
     "test:backend": "npm run setupExtensions && npm run build:workerLib && vitest run --config src/backend/vitest.config.ts ",

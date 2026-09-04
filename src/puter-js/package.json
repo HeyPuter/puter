@@ -48,7 +48,7 @@
         "@playwright/test": "^1.49.0",
         "concurrently": "^8.2.2",
         "http-server": "^14.1.1",
-        "webpack-cli": "^5.1.4"
+        "webpack-cli": "^7.2.3"
     },
     "dependencies": {
         "@heyputer/kv.js": "^0.2.1",
