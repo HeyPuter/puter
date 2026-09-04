@@ -41,13 +41,16 @@ const font_list = new Set([
 async function UIWindowFontPicker (options) {
     // set sensible defaults
     if ( arguments.length > 0 ) {
-        // if first argument is a string, then assume it is the default color
+        // if first argument is a string, then assume it is the default font
         if ( window.isString(arguments[0]) ) {
             options = {};
             options.default = arguments[0];
         }
     }
     options = options || {};
+    // `defaultValue` and `defaultFont` are aliases for the legacy `default`
+    // option, matching the names puter.js accepts in showFontPicker().
+    const defaultFont = options.defaultValue || options.defaultFont || options.default;
 
     return new Promise(async (resolve) => {
         let h = '';
@@ -55,7 +58,7 @@ async function UIWindowFontPicker (options) {
         h += '<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">';
         h += '<div class="font-list" style="margin-bottom: 10px; height: 200px; overflow-y: scroll; background-color: white; padding: 0 10px;">';
         fontAvailable.forEach(element => {
-            h += `<p class="font-selector disable-user-select ${options.default === element ? 'font-selector-active' : ''}" style="font-family: '${html_encode(element)}';" data-font-family="${html_encode(element)}">${html_encode(element)}</p>`; // 👉️ one, two, three, four
+            h += `<p class="font-selector disable-user-select ${defaultFont === element ? 'font-selector-active' : ''}" style="font-family: '${html_encode(element)}';" data-font-family="${html_encode(element)}">${html_encode(element)}</p>`; // 👉️ one, two, three, four
         });
         h += '</div>';
 
