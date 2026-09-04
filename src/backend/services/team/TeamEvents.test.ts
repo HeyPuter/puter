@@ -280,6 +280,45 @@ describe('team billing events', () => {
         ).not.toContain(seat.userId);
     });
 
+    it('refuses to delete a live account', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+
+        await expect(
+            service.deleteMember(team.uid, owner.id, seat.userId),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            legacyCode: 'account_must_be_disabled_first',
+        });
+        expect(await server.stores.user.getById(seat.userId)).toBeTruthy();
+    });
+
+    it('deletes a disabled account and closes the storage charge once', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        await service.disableMember(team.uid, owner.id, seat.userId);
+        seen.length = 0;
+
+        await service.deleteMember(team.uid, owner.id, seat.userId);
+
+        expect(await server.stores.user.getById(seat.userId)).toBeFalsy();
+        expect(of('team.account.deleted')).toHaveLength(1);
+    });
+
+    it('keeps the audit trail attributable after the account is gone', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        await service.disableMember(team.uid, owner.id, seat.userId);
+        await service.deleteMember(team.uid, owner.id, seat.userId);
+
+        const rows = await server.stores.team.listAudit(team.id);
+        const mine = rows.items.filter(
+            (r) => Number(r.user_id_keep) === seat.userId,
+        );
+        // The FKs are ON DELETE SET NULL, so `_keep` is the only thing left.
+        expect(mine.map((r) => r.action)).toContain('delete_account');
+    });
+
     it('says nothing about an account no team pays for', async () => {
         const outsider = await makeUser();
         seen.length = 0;

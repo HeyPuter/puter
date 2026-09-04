@@ -153,6 +153,25 @@ describe('team endpoints over HTTP', () => {
         expect(res.status).toBe(404);
     });
 
+    it('deletes a seat over HTTP only once it is disabled', async () => {
+        const { team, memberUsername } = await makeTeam();
+        const path = `/teams/${team.uid}/members/${memberUsername}`;
+
+        const live = await call('DELETE', path, env.users.user.token);
+        expect(live.status).toBe(409);
+        expect(await live.json()).toMatchObject({
+            code: 'account_must_be_disabled_first',
+        });
+
+        await call('POST', `${path}/disable`, env.users.user.token);
+        const gone = await call('DELETE', path, env.users.user.token);
+
+        expect(gone.status).toBe(200);
+        expect(
+            await env.server.stores.user.getByUsername(memberUsername),
+        ).toBeFalsy();
+    });
+
     it('lists members with org_owned distinguishing the owner', async () => {
         const { team, memberUsername } = await makeTeam();
 
