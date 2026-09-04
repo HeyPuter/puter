@@ -666,6 +666,135 @@ describe('TeamService', () => {
         expect(own[0]).not.toHaveProperty('actor_user_id');
     });
 
+    // -- the member's own view ----------------------------------------
+
+    /**
+     * A sign-in row of the shape `sessions` records for a browser session.
+     * `secondsLater` moves it off the audit rows' timestamp -- within one
+     * second the order of two different sources is arbitrary, and asserting on
+     * it would be asserting on the tie-break rather than on the timeline.
+     */
+    const signIn = async (userId: number, ip: string, secondsLater = 0) => {
+        const created = (await server.stores.session.create(userId, {
+            kind: 'web',
+            last_ip: ip,
+            last_user_agent: 'Chrome/macOS',
+        })) as { uuid: string };
+        if (secondsLater) {
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `created_at` = `created_at` + ? WHERE `uuid` = ?',
+                [secondsLater, created.uuid],
+            );
+        }
+        return created;
+    };
+
+    it('shows the sign-in between a reset and the member noticing', async () => {
+        const { team } = await makeTeam();
+        const username = `tell_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await service.resetMemberPassword(team.uid, owner.id, created.userId);
+        await signIn(created.userId, '203.0.113.7', 60);
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        const tell = items.find((e) => e.action === 'sign_in');
+        expect(tell).toMatchObject({
+            username,
+            actor_username: null,
+            ip: '203.0.113.7',
+            user_agent: 'Chrome/macOS',
+        });
+        // Newest first, so the sign-in sits above the reset that preceded it.
+        expect(items.map((e) => e.action)).toEqual([
+            'sign_in',
+            'reset_member_password',
+            'provision',
+        ]);
+    });
+
+    it('shows no sign-in belonging to anyone else', async () => {
+        const { team } = await makeTeam();
+        const mine = `mine_${Math.random().toString(36).slice(2, 9)}`;
+        const theirs = `thrs_${Math.random().toString(36).slice(2, 9)}`;
+        const a = await service.provisionAccount(team.uid, owner.id, {
+            username: mine,
+            email: `${mine}@test.local`,
+        });
+        const b = await service.provisionAccount(team.uid, owner.id, {
+            username: theirs,
+            email: `${theirs}@test.local`,
+        });
+        await signIn(b.userId, '198.51.100.4');
+
+        const { items } = await service.listOwnAudit(team.uid, a.userId);
+        expect(items.map((e) => e.action)).not.toContain('sign_in');
+        expect(JSON.stringify(items)).not.toContain('198.51.100.4');
+        expect(JSON.stringify(items)).not.toContain(theirs);
+    });
+
+    it('counts only browser sign-ins, not credentials derived from one', async () => {
+        const { team } = await makeTeam();
+        const username = `drv_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await server.stores.session.create(created.userId, {
+            kind: 'access_token',
+            last_ip: '198.51.100.77',
+        });
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items.map((e) => e.action)).not.toContain('sign_in');
+    });
+
+    it('leaves the team audit free of sign-ins', async () => {
+        const { team } = await makeTeam();
+        const username = `noss_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await signIn(created.userId, '192.0.2.9');
+
+        const { items } = await service.listAudit(team.uid, owner.id);
+        expect(items.map((e) => e.action)).not.toContain('sign_in');
+    });
+
+    it('pages both streams rather than dropping one of them', async () => {
+        const { team } = await makeTeam();
+        const username = `pgm_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await service.resetMemberPassword(team.uid, owner.id, created.userId);
+        await signIn(created.userId, '203.0.113.1');
+        await signIn(created.userId, '203.0.113.2');
+
+        // Four entries: provision, reset, and two sign-ins.
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < 8; page++) {
+            const result = await service.listOwnAudit(team.uid, created.userId, {
+                limit: 1,
+                cursor,
+            });
+            seen.push(...result.items.map((e) => e.action));
+            cursor = result.cursor;
+            if (!cursor) break;
+        }
+        expect(seen.sort()).toEqual([
+            'provision',
+            'reset_member_password',
+            'sign_in',
+            'sign_in',
+        ]);
+    });
+
     it('keeps the audit from a member who is not the owner', async () => {
         const { team, member } = await makeTeam();
         await expect(
@@ -704,6 +833,110 @@ describe('TeamService', () => {
 
         // org_owned = 0, so it pays for itself and is not the team's to close.
         expect(Boolean((await suspensionOf(owner.id)).suspended)).toBe(false);
+    });
+
+    it('keeps memberships and group grants behind the deleted_at', async () => {
+        const { team } = await makeTeam();
+        const username = `grnt_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await server.clients.db.write(
+            'INSERT INTO `user_to_group_permissions` ' +
+                '(`user_id`, `group_id`, `permission`) VALUES (?, ?, ?)',
+            [owner.id, team.id, 'fs:some-uid:read'],
+        );
+
+        await service.deleteTeam(team.uid, owner.id);
+
+        // A hard DELETE would cascade both of these away with no audit row.
+        const members = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `jct_user_group` WHERE `group_id` = ?',
+            [team.id],
+        )) as { n: number }[];
+        expect(Number(members[0].n)).toBeGreaterThanOrEqual(2);
+
+        const grants = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `user_to_group_permissions` WHERE `group_id` = ?',
+            [team.id],
+        )) as { n: number }[];
+        expect(Number(grants[0].n)).toBe(1);
+
+        // And the account itself is disabled, not destroyed.
+        expect(await server.stores.user.getById(created.userId)).toBeTruthy();
+    });
+
+    // -- notifications -------------------------------------------------
+
+    /** Captures what would go out, without standing up a transport. */
+    const captureMail = () => {
+        const sent: { to: string; subject: string }[] = [];
+        const client = server.clients.email as unknown as {
+            sendRaw: (o: { to?: string; subject?: string }) => Promise<unknown>;
+        };
+        const original = client.sendRaw.bind(client);
+        client.sendRaw = async (options) => {
+            sent.push({
+                to: String(options.to ?? ''),
+                subject: String(options.subject ?? ''),
+            });
+            return null;
+        };
+        return { sent, restore: () => (client.sendRaw = original) };
+    };
+
+    it('tells a member their account was disabled', async () => {
+        const { team } = await makeTeam();
+        const username = `dis_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const mail = captureMail();
+        try {
+            await service.disableMember(team.uid, owner.id, created.userId);
+        } finally {
+            mail.restore();
+        }
+
+        expect(mail.sent).toHaveLength(1);
+        expect(mail.sent[0].to).toBe(`${username}@test.local`);
+        expect(mail.sent[0].subject).toContain('disabled');
+    });
+
+    it('tells every member the team closed, and tells them once', async () => {
+        const { team } = await makeTeam();
+        const names = [
+            `cl1_${Math.random().toString(36).slice(2, 9)}`,
+            `cl2_${Math.random().toString(36).slice(2, 9)}`,
+        ];
+        for (const username of names) {
+            await service.provisionAccount(team.uid, owner.id, {
+                username,
+                email: `${username}@test.local`,
+            });
+        }
+
+        const mail = captureMail();
+        try {
+            await service.deleteTeam(team.uid, owner.id);
+        } finally {
+            mail.restore();
+        }
+
+        // The closure notice covers the disabling; two notices would be spam.
+        for (const username of names) {
+            const forMember = mail.sent.filter(
+                (m) => m.to === `${username}@test.local`,
+            );
+            expect(forMember).toHaveLength(1);
+            expect(forMember[0].subject).toContain('closed');
+        }
+        const ownerRow = await server.stores.user.getById(owner.id);
+        // The owner account is not the team's to close.
+        expect(mail.sent.map((m) => m.to)).not.toContain(ownerRow!.email);
     });
 
     it('pages the audit rather than truncating it', async () => {

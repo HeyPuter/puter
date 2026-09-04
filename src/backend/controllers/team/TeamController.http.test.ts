@@ -346,6 +346,17 @@ describe('team endpoints over HTTP', () => {
         expect(body.results[0].recipient).toBe(handle);
     });
 
+    it('gives a non-member 404 on the member view, not an empty page', async () => {
+        const { team } = await makeTeam();
+
+        const res = await call(
+            'GET',
+            `/teams/${team.uid}/audit/me`,
+            env.users.other.token,
+        );
+        expect(res.status).toBe(404);
+    });
+
     // -- the forced-change gate ---------------------------------------
 
     /**
@@ -480,6 +491,32 @@ describe('team endpoints over HTTP', () => {
             'reset_member_password',
         );
         expect(JSON.stringify(body)).not.toContain(issued);
+    });
+
+    it('shows an activated seat its own reset and sign-in over the wire', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await changePassword(seat.token, seat.password, 'the-one-i-picked');
+
+        const res = await call('GET', `/teams/${team.uid}/audit/me`, seat.token);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            items: {
+                action: string;
+                username: string | null;
+                ip: string | null;
+                user_agent: string | null;
+            }[];
+        };
+        expect(body.items.map((e) => e.action)).toContain('activate');
+
+        const tell = body.items.find((e) => e.action === 'sign_in');
+        expect(tell?.username).toBe(seat.username);
+        expect(tell?.user_agent).toBe('puter-test-seat');
+        // Only their own; the team owner's entries are not theirs to read.
+        expect(
+            body.items.every((e) => e.username === seat.username),
+        ).toBe(true);
     });
 
     it('refuses a temporary password that was never used in time', async () => {
