@@ -59,6 +59,12 @@ export interface ScanState {
 
 export interface GrantMeta {
     reason?: string;
+    /**
+     * The app that acted, when a grant is issued programmatically on its user's
+     * behalf. The issuer is still the user — this is what makes the audit trail
+     * able to say which app it was.
+     */
+    appUid?: string | null;
 }
 
 /**
@@ -864,7 +870,9 @@ export class PermissionService extends PuterService {
                 permission,
                 action: 'grant',
                 reason: meta.reason ?? 'granted via PermissionService',
-                extra: this.#auditActorContext(actor),
+                extra: meta.appUid
+                    ? { appUid: meta.appUid }
+                    : this.#auditActorContext(actor),
             })
             .catch((err) => {
                 console.warn(

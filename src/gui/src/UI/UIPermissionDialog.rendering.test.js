@@ -12,11 +12,14 @@ window.auth_token = 'tok';
 globalThis.html_encode = (str) => encode(str);
 
 let get_app_data_description;
+let get_kv_share_description;
 
 beforeAll(async () => {
     await import('../i18n/i18n.js'); // installs window.i18n
     globalThis.i18n = window.i18n;
-    ({ get_app_data_description } = await import('./UIPermissionDialog.js'));
+    ({ get_app_data_description, get_kv_share_description } = await import(
+        './UIPermissionDialog.js'
+    ));
 });
 
 const CONTACTS = 'app-contacts';
@@ -84,6 +87,42 @@ describe('UIPermissionDialog app-data rendering', () => {
     it('escapes a hostile app title exactly once', async () => {
         stubApp({ uid: CONTACTS, title: '<img src=x onerror=alert(1)>' });
         const html = await render(`app-data:${CONTACTS}:kv:get`);
+        expect(html).not.toContain('<img');
+        expect(decode(html)).toContain('<img');
+        stubApp({ uid: CONTACTS, title: 'Contacts' });
+    });
+});
+
+describe('UIPermissionDialog key-value delegation rendering', () => {
+    const OWNER = '2a1b0c9d-0000-4000-8000-000000000001';
+
+    const renderShare = async (permission) => {
+        const d = await get_kv_share_description(permission.split(':'), {
+            app_uid: CONTACTS,
+        });
+        return d.html;
+    };
+
+    beforeAll(() => {
+        globalThis.puter = { auth: { whoami: async () => ({ uuid: OWNER }) } };
+    });
+
+    // The region is a key prefix an app names in its own `grant-user-app`
+    // request — attacker-controlled the same way an app title is.
+    it('escapes a hostile region exactly once', async () => {
+        stubApp({ uid: CONTACTS, title: 'Contacts' });
+        const html = await renderShare(
+            `manage:kv-share:${OWNER}:${CONTACTS}:<img src=x onerror=alert(1)>`,
+        );
+        expect(html).not.toContain('<img');
+        expect(decode(html)).toContain('<img');
+    });
+
+    it('escapes a hostile app title exactly once', async () => {
+        stubApp({ uid: CONTACTS, title: '<img src=x onerror=alert(1)>' });
+        const html = await renderShare(
+            `manage:kv-share:${OWNER}:${CONTACTS}:workspace:abc`,
+        );
         expect(html).not.toContain('<img');
         expect(decode(html)).toContain('<img');
         stubApp({ uid: CONTACTS, title: 'Contacts' });

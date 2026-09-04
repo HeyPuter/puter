@@ -2053,6 +2053,50 @@ describe('AuthController grant flows', () => {
         expect(res.body).toEqual({});
     });
 
+    it('grant-user-app: refuses a key-value delegation over a whole namespace', async () => {
+        // The prompt for it would read "let this app show your app data to
+        // whoever it picks", which describes no bounded capability — so the
+        // request is refused where it is made, not after the user answers it.
+        const appName = `tkv-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestKvShareApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const namespace = `manage:kv-share:${issuer.uuid}:${app.uid}`;
+
+        await expect(
+            inCtx(issuerActor, () =>
+                controller.handleGrantUserApp(
+                    makeReq(
+                        { app_uid: app.uid, permission: namespace },
+                        { actor: issuerActor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ legacyCode: 'invalid_kv_share_prefix' });
+
+        // A region under it is exactly what the flow is for.
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    {
+                        app_uid: app.uid,
+                        permission: `${namespace}:workspace:abc`,
+                    },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
+
     it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
         // 300 chars is under the 4096 input cap but over `varchar(255)`, so it
         // used to reach the INSERT and fault on MySQL/Postgres. The check runs
