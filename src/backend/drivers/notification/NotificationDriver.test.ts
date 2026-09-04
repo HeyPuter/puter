@@ -101,6 +101,13 @@ const asIssuedToken = (holder: Actor, issuer: Actor): Actor =>
 const withActor = async <T>(actor: Actor, fn: () => Promise<T>): Promise<T> =>
     runWithContext({ actor }, fn);
 
+/**
+ * A registered, account-audience, unscoped type — what every test below uses
+ * that only cares about the driver's plumbing (create/read/select/mark), not
+ * about a specific type's meaning.
+ */
+const NOTIF_TYPE = 'share.received';
+
 // ── create ──────────────────────────────────────────────────────────
 
 describe('NotificationDriver.create', () => {
@@ -108,12 +115,12 @@ describe('NotificationDriver.create', () => {
         const { actor, userId } = await makeUser();
         const result = (await withActor(actor, () =>
             driver.create({
-                object: { value: { title: 'hi' } },
+                object: { value: { type: NOTIF_TYPE, title: 'hi' } },
             }),
         )) as Record<string, unknown> | null;
 
         expect(result?.uid).toEqual(expect.any(String));
-        expect(result?.value).toEqual({ title: 'hi' });
+        expect(result?.value).toEqual({ type: NOTIF_TYPE, title: 'hi' });
         // shown / acknowledged are unset on creation.
         expect(result?.shown).toBeNull();
         expect(result?.acknowledged).toBeNull();
@@ -123,14 +130,59 @@ describe('NotificationDriver.create', () => {
             { userId },
         );
         expect(row).not.toBeNull();
+        expect(row?.type).toBe(NOTIF_TYPE);
     });
 
-    it('defaults `value` to {} when omitted', async () => {
+    it('rejects a `value` with no `type` with 400', async () => {
         const { actor } = await makeUser();
-        const result = (await withActor(actor, () =>
-            driver.create({ object: {} }),
-        )) as Record<string, unknown> | null;
-        expect(result?.value).toEqual({});
+        await expect(
+            withActor(actor, () => driver.create({ object: {} })),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        await expect(
+            withActor(actor, () =>
+                driver.create({ object: { value: { title: 'no type' } } }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a `type` the registry does not have with 400', async () => {
+        const { actor } = await makeUser();
+        const call = () =>
+            withActor(actor, () =>
+                driver.create({
+                    object: { value: { type: 'not.a.real.type' } },
+                }),
+            );
+        await expect(call()).rejects.toThrow('not registered');
+        await expect(call()).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects an account-audience type carrying an app uid with 400', async () => {
+        const { actor } = await makeUser();
+        const call = () =>
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        value: { type: NOTIF_TYPE },
+                        appUid: 'some-app',
+                    },
+                }),
+            );
+        await expect(call()).rejects.toThrow('cannot name an app');
+        await expect(call()).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a serialized `value` over the byte cap', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        value: { type: NOTIF_TYPE, blob: 'x'.repeat(20_000) },
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('rejects a missing object body with 400', async () => {
@@ -150,7 +202,9 @@ describe('NotificationDriver.create', () => {
         });
         await expect(
             withActor(appActor, () =>
-                driver.create({ object: { value: { title: 'app' } } }),
+                driver.create({
+                    object: { value: { type: NOTIF_TYPE, title: 'app' } },
+                }),
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
     });
@@ -163,14 +217,18 @@ describe('NotificationDriver.create', () => {
         );
         await expect(
             withActor(issued, () =>
-                driver.create({ object: { value: { title: 'token' } } }),
+                driver.create({
+                    object: { value: { type: NOTIF_TYPE, title: 'token' } },
+                }),
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
     it('throws 401 with no actor in context', async () => {
         await expect(
-            driver.create({ object: { value: { title: 'noctx' } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, title: 'noctx' } },
+            }),
         ).rejects.toMatchObject({ statusCode: 401 });
     });
 });
@@ -181,7 +239,9 @@ describe('NotificationDriver.read', () => {
     it('reads a notification by uid for its owner', async () => {
         const { actor } = await makeUser();
         const created = (await withActor(actor, () =>
-            driver.create({ object: { value: { title: 'a' } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, title: 'a' } },
+            }),
         )) as Record<string, unknown>;
 
         const fetched = (await withActor(actor, () =>
@@ -189,13 +249,13 @@ describe('NotificationDriver.read', () => {
         )) as Record<string, unknown> | null;
 
         expect(fetched?.uid).toBe(created.uid);
-        expect(fetched?.value).toEqual({ title: 'a' });
+        expect(fetched?.value).toEqual({ type: NOTIF_TYPE, title: 'a' });
     });
 
     it('accepts `id` as an alias for `uid`', async () => {
         const { actor } = await makeUser();
         const created = (await withActor(actor, () =>
-            driver.create({ object: { value: {} } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE } } }),
         )) as Record<string, unknown>;
         const fetched = (await withActor(actor, () =>
             driver.read({ id: created.uid }),
@@ -207,7 +267,9 @@ describe('NotificationDriver.read', () => {
         const a = await makeUser();
         const b = await makeUser();
         const created = (await withActor(a.actor, () =>
-            driver.create({ object: { value: { hidden: true } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, hidden: true } },
+            }),
         )) as Record<string, unknown>;
 
         await expect(
@@ -229,10 +291,10 @@ describe('NotificationDriver.select', () => {
     it('returns the actor-owned notifications', async () => {
         const { actor } = await makeUser();
         await withActor(actor, () =>
-            driver.create({ object: { value: { i: 1 } } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE, i: 1 } } }),
         );
         await withActor(actor, () =>
-            driver.create({ object: { value: { i: 2 } } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE, i: 2 } } }),
         );
 
         const result = (await withActor(actor, () =>
@@ -250,7 +312,7 @@ describe('NotificationDriver.select', () => {
         const a = await makeUser();
         const b = await makeUser();
         await withActor(a.actor, () =>
-            driver.create({ object: { value: { who: 'a' } } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE, who: 'a' } } }),
         );
         const result = (await withActor(b.actor, () =>
             driver.select({}),
@@ -261,10 +323,10 @@ describe('NotificationDriver.select', () => {
     it('predicate `unseen` filters out shown notifications', async () => {
         const { actor, userId } = await makeUser();
         const seen = (await withActor(actor, () =>
-            driver.create({ object: { value: { i: 'seen' } } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'seen' } } }),
         )) as Record<string, unknown>;
         const unseen = (await withActor(actor, () =>
-            driver.create({ object: { value: { i: 'unseen' } } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'unseen' } } }),
         )) as Record<string, unknown>;
 
         await server.stores.notification.markShown(seen.uid as string, userId);
@@ -281,10 +343,10 @@ describe('NotificationDriver.select', () => {
     it('predicate `acknowledged` returns only acked rows', async () => {
         const { actor, userId } = await makeUser();
         const ack = (await withActor(actor, () =>
-            driver.create({ object: { value: { i: 'ack' } } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'ack' } } }),
         )) as Record<string, unknown>;
         await withActor(actor, () =>
-            driver.create({ object: { value: { i: 'pending' } } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'pending' } } }),
         );
         await server.stores.notification.markAcknowledged(
             ack.uid as string,
@@ -314,7 +376,7 @@ describe('NotificationDriver.mark_shown / mark_acknowledged', () => {
     it('mark_shown sets `shown` and reports success', async () => {
         const { actor, userId } = await makeUser();
         const created = (await withActor(actor, () =>
-            driver.create({ object: { value: {} } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE } } }),
         )) as Record<string, unknown>;
 
         const result = (await withActor(actor, () =>
@@ -332,7 +394,7 @@ describe('NotificationDriver.mark_shown / mark_acknowledged', () => {
     it('mark_acknowledged sets `acknowledged` and reports success', async () => {
         const { actor, userId } = await makeUser();
         const created = (await withActor(actor, () =>
-            driver.create({ object: { value: {} } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE } } }),
         )) as Record<string, unknown>;
 
         const result = (await withActor(actor, () =>
@@ -347,6 +409,33 @@ describe('NotificationDriver.mark_shown / mark_acknowledged', () => {
         expect(row?.acknowledged).not.toBeNull();
     });
 
+    it('mark_acknowledged emits `notif.ack` through the service, once', async () => {
+        const { actor } = await makeUser();
+        const created = (await withActor(actor, () =>
+            driver.create({ object: { value: { type: NOTIF_TYPE } } }),
+        )) as Record<string, unknown>;
+
+        const acks: unknown[] = [];
+        const handler = (_key: string, data: unknown) => acks.push(data);
+        server.clients.event.on('outer.gui.notif.ack', handler);
+        try {
+            const first = (await withActor(actor, () =>
+                driver.mark_acknowledged({ uid: created.uid }),
+            )) as { success: boolean };
+            expect(first.success).toBe(true);
+            expect(acks).toHaveLength(1);
+
+            // Already acknowledged: no affected row, so no second emission.
+            const second = (await withActor(actor, () =>
+                driver.mark_acknowledged({ uid: created.uid }),
+            )) as { success: boolean };
+            expect(second.success).toBe(false);
+            expect(acks).toHaveLength(1);
+        } finally {
+            server.clients.event.off?.('outer.gui.notif.ack', handler);
+        }
+    });
+
     it('mark_shown rejects missing uid with 400', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -358,7 +447,7 @@ describe('NotificationDriver.mark_shown / mark_acknowledged', () => {
         const a = await makeUser();
         const b = await makeUser();
         const created = (await withActor(a.actor, () =>
-            driver.create({ object: { value: {} } }),
+            driver.create({ object: { value: { type: NOTIF_TYPE } } }),
         )) as Record<string, unknown>;
 
         const result = (await withActor(b.actor, () =>

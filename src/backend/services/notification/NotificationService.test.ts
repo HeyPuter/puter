@@ -325,8 +325,12 @@ describe('NotificationService.markAcknowledged', () => {
         });
         const acks = collect('outer.gui.notif.ack');
 
-        await notifications.markAcknowledged(row.uid, user.id);
+        const acknowledged = await notifications.markAcknowledged(
+            row.uid,
+            user.id,
+        );
 
+        expect(acknowledged).toBe(true);
         expect(acks.seen).toEqual([
             { user_id_list: [user.id], response: { uid: row.uid } },
         ]);
@@ -337,6 +341,38 @@ describe('NotificationService.markAcknowledged', () => {
         acks.stop();
     });
 
+    it('emits nothing and reports false for a row already acknowledged', async () => {
+        const user = await makeUser();
+        const row = await server.stores.notification.create({
+            userId: user.id,
+            value: { source: 'test', title: 'ack twice' },
+        });
+        await notifications.markAcknowledged(row.uid, user.id);
+
+        const acks = collect('outer.gui.notif.ack');
+        const acknowledgedAgain = await notifications.markAcknowledged(
+            row.uid,
+            user.id,
+        );
+
+        expect(acknowledgedAgain).toBe(false);
+        expect(acks.seen).toEqual([]);
+        acks.stop();
+    });
+
+    it('emits nothing and reports false for a uid naming nobody`s row', async () => {
+        const user = await makeUser();
+        const acks = collect('outer.gui.notif.ack');
+
+        const acknowledged = await notifications.markAcknowledged(
+            'no-such-uid',
+            user.id,
+        );
+
+        expect(acknowledged).toBe(false);
+        expect(acks.seen).toEqual([]);
+        acks.stop();
+    });
 });
 
 describe('NotificationService — unread delivery on connect', () => {

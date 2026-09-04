@@ -220,10 +220,19 @@ export class NotificationService extends PuterService {
     /**
      * Mark a notification as acknowledged (user dismissed it) and push the ack
      * event to sockets so other tabs update.
+     *
+     * @returns Whether a row was actually acknowledged — false for one already
+     *   acknowledged, or naming nobody's row. Callers use it to decide whether
+     *   the ack happened at all, and it is also why no event goes out for
+     *   either: there is nothing for another tab to update on.
      */
-    async markAcknowledged(uid: string, userId: number): Promise<void> {
-        await this.stores.notification.markAcknowledged(uid, userId);
-        this.#socket().ack(userId, uid);
+    async markAcknowledged(uid: string, userId: number): Promise<boolean> {
+        const acknowledged = await this.stores.notification.markAcknowledged(
+            uid,
+            userId,
+        );
+        if (acknowledged) this.#socket().ack(userId, uid);
+        return acknowledged;
     }
 
     /**
