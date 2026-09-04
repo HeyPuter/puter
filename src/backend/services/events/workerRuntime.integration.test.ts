@@ -67,9 +67,19 @@ interface SinkPost {
     token?: string;
     /** What the isolate exposes to handler code, reported from inside it. */
     ambient?: Record<string, string>;
+    /** What `user.fs.stat(event.path)` answered, or the error it raised. */
+    stat?: { name?: string; error?: string };
 }
 
 const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
+    // The design's own example: the handler looks the changed node up as the
+    // subscriber, through the token the delivery carried.
+    const stat = event.path
+        ? await user.fs.stat(event.path).then(
+              (entry) => ({ name: entry.name }),
+              (err) => ({ error: String(err && err.code || err) }),
+          )
+        : undefined;
     await fetch(ctx.sink, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -77,6 +87,7 @@ const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
             kind: ctx.kind || 'ingest',
             path: event.path,
             label: ctx.label,
+            stat,
             token: user.authToken,
             ambient: {
                 me: typeof me,
@@ -424,6 +435,10 @@ describe('single delivery through the real worker', () => {
                 token!,
             ) as { exp: number; iat: number };
             expect(decoded.exp - decoded.iat).toBe(5 * 60);
+
+            // And that token gets through the API: the read routes admit it,
+            // and the ACL lets it see what the subscription could list.
+            expect(sinkPosts[0].stat).toEqual({ name: 'scoped.txt' });
         },
     );
 
