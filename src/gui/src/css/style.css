@@ -5645,6 +5645,42 @@ html.dark-mode .usage-table-show-less:hover {
     background: var(--dashboard-content-background, #fcfcfd);
 }
 
+/* -- Events workers section (below the session list) -- */
+.session-manager-workers-section {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--dashboard-border, #e0e0e0);
+    max-height: 260px;
+}
+
+.session-manager-workers-head {
+    flex: 0 0 auto;
+}
+
+.session-manager-workers-title {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary, #1e293b);
+}
+
+.session-manager-workers-description {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--dashboard-text-muted, #94a3b8);
+}
+
+.session-manager-workers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+}
+
 /* Touch devices have no hover — keep the row actions visible */
 @media (hover: none), (pointer: coarse) {
     .session-widget-rename,
