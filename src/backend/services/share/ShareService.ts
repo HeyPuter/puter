@@ -271,8 +271,9 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const BLOCK_ALL_SHARES_KEY = 'blockAllShares';
 
 /** Whether this account refuses shares from everyone. */
-export const blocksAllShares = (user: Pick<UserRow, 'metadata'> | null): boolean =>
-    Boolean(user?.metadata?.[BLOCK_ALL_SHARES_KEY]);
+export const blocksAllShares = (
+    user: Pick<UserRow, 'metadata'> | null,
+): boolean => Boolean(user?.metadata?.[BLOCK_ALL_SHARES_KEY]);
 
 /**
  * What a share recipient's browser is told about someone else's entry.
@@ -886,7 +887,9 @@ export class ShareService extends PuterService {
         if (resolved.kind === 'team') {
             // Handles are public, so without this anyone could push files into
             // every member's inbox by naming one.
-            if (!(await this.stores.team.isMember(resolved.team.uid, issuerId))) {
+            if (
+                !(await this.stores.team.isMember(resolved.team.uid, issuerId))
+            ) {
                 throw new HttpError(404, 'Team does not exist', {
                     legacyCode: 'team_not_found',
                 });
@@ -1684,9 +1687,7 @@ export class ShareService extends PuterService {
                                 .filter((row) => row.holder_group_id)
                                 .map((row) => Number(row.holder_group_id)),
                         ),
-                    ].map((id) =>
-                        this.stores.team.getByIdIncludingDeleted(id),
-                    ),
+                    ].map((id) => this.stores.team.getByIdIncludingDeleted(id)),
                 )
             )
                 .filter((team): team is TeamRow => team !== null)
@@ -2114,9 +2115,7 @@ export class ShareService extends PuterService {
                 await Promise.all(
                     [
                         ...new Set(
-                            groupRows.map((row) =>
-                                Number(row.holder_group_id),
-                            ),
+                            groupRows.map((row) => Number(row.holder_group_id)),
                         ),
                     ].map((id) => this.stores.team.getByIdIncludingDeleted(id)),
                 )
@@ -2560,27 +2559,28 @@ export class ShareService extends PuterService {
         onlyIssuer?: number,
     ): Promise<{ revoked: number }> {
         const isOwner = entry.userId === issuerId;
-        const issuers = onlyIssuer !== undefined
-            ? [onlyIssuer]
-            : isOwner
-            ? [
-                  ...new Set(
-                      (
-                          await this.stores.share.listGroupSharesByFsentry(
-                              entry.id,
-                          )
-                      )
-                          .filter(
-                              (row: { holder_group_id: number }) =>
-                                  Number(row.holder_group_id) === team.id,
-                          )
-                          .map((row: { issuer_user_id: number }) =>
-                              Number(row.issuer_user_id),
-                          ),
-                  ),
-                  issuerId,
-              ]
-            : [issuerId];
+        const issuers =
+            onlyIssuer !== undefined
+                ? [onlyIssuer]
+                : isOwner
+                  ? [
+                        ...new Set(
+                            (
+                                await this.stores.share.listGroupSharesByFsentry(
+                                    entry.id,
+                                )
+                            )
+                                .filter(
+                                    (row: { holder_group_id: number }) =>
+                                        Number(row.holder_group_id) === team.id,
+                                )
+                                .map((row: { issuer_user_id: number }) =>
+                                    Number(row.issuer_user_id),
+                                ),
+                        ),
+                        issuerId,
+                    ]
+                  : [issuerId];
 
         // Authority is the caller's throughout, as on the user-to-user path:
         // impersonating a delegate who has since lost it throws 403 and aborts
@@ -2723,7 +2723,11 @@ export class ShareService extends PuterService {
             entryMeta?: boolean;
             provenance?: boolean;
             holderUsername?: string | null;
-            holderTeam?: { uid: string; name: string | null; handle: string | null };
+            holderTeam?: {
+                uid: string;
+                name: string | null;
+                handle: string | null;
+            };
             via?: string | null;
             path?: string;
         } = {},
@@ -2931,10 +2935,7 @@ export class ShareService extends PuterService {
      * Who the share is for. An unconfirmed address resolves to an invite rather
      * than a failure; a username cannot be invited, there is nothing to reach.
      */
-    /**
-     * Null when the caller named no team; throws when they named a bad
-     * one.
-     */
+    /** Null when the caller named no team; throws when they named a bad one. */
     async #resolveTeamRecipient(
         recipient: ShareRecipient,
     ): Promise<TeamRow | null> {

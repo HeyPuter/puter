@@ -81,6 +81,10 @@ export const AUDIT_ACTIVATE = 'activate';
 /** Written before the row it names goes; `_keep` is what preserves it. */
 export const AUDIT_DELETE_ACCOUNT = 'delete_account';
 
+/** A disclosure change, so it is recorded like anything else the team does. */
+export const AUDIT_DIRECTORY_ON = 'directory_enabled';
+export const AUDIT_DIRECTORY_OFF = 'directory_disabled';
+
 /** Not an audit row: synthesised from `sessions` for the member's own view. */
 export const SIGN_IN_ACTION = 'sign_in';
 
@@ -222,7 +226,7 @@ export class TeamService extends PuterService {
     // -- Caps ---- bounds, not billing; the charge is out of repo ---------
 
     /** Live teams one user may own. */
-    #workspaceCap(): number {
+    #teamCap(): number {
         const n = Number(this.config.max_teams_per_user);
         return Number.isFinite(n) && n > 0 ? n : 1;
     }
@@ -317,9 +321,13 @@ export class TeamService extends PuterService {
     async updateTeam(
         teamUid: string,
         actorUserId: number,
-        changes: { name?: string; handle?: string | null },
+        changes: {
+            name?: string;
+            handle?: string | null;
+            directoryEnabled?: boolean;
+        },
     ): Promise<TeamRow> {
-        await this.requireOwner(teamUid, actorUserId);
+        const before = await this.requireOwner(teamUid, actorUserId);
         if (changes.handle) await this.assertHandleUsable(changes.handle);
 
         const team = await this.#asHttpErrors(() =>
@@ -330,7 +338,53 @@ export class TeamService extends PuterService {
                 legacyCode: 'team_not_found',
             });
         }
+
+        // Recorded because it changes who can read the member list, which is
+        // not something a team should be able to alter silently.
+        const was = Number(before.directory_enabled) === 1;
+        if (
+            changes.directoryEnabled !== undefined &&
+            changes.directoryEnabled !== was
+        ) {
+            await this.stores.team.appendAudit({
+                teamId: team.id,
+                userId: actorUserId,
+                actorUserId,
+                action: changes.directoryEnabled
+                    ? AUDIT_DIRECTORY_ON
+                    : AUDIT_DIRECTORY_OFF,
+            });
+        }
         return team;
+    }
+
+    /**
+     * The member list as an app may read it. Unlike every other team route this
+     * admits an app actor, so the team has to have opted in and the page
+     * carries only what a colleague already sees.
+     */
+    async listDirectory(
+        teamUid: string,
+        actorUserId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ): Promise<PageResult<{ username: string; uuid: string }>> {
+        const team = await this.requireMembership(teamUid, actorUserId);
+        // 404 rather than 403: whether a team has this on is itself
+        // something an app should not be able to probe for.
+        if (Number(team.directory_enabled) !== 1) {
+            throw new HttpError(404, 'Team not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+
+        const page = await this.stores.team.listDirectory(teamUid, opts);
+        return {
+            items: page.items.map((m) => ({
+                username: m.username,
+                uuid: m.uuid,
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+        };
     }
 
     /** Creates a team and admits its creator as the team owner. */
@@ -348,7 +402,7 @@ export class TeamService extends PuterService {
         input: { name: string; handle?: string | null },
     ): Promise<TeamRow> {
         // First: a capped user should hear that, not that the name was taken.
-        const cap = this.#workspaceCap();
+        const cap = this.#teamCap();
         if ((await this.stores.team.countOwned(ownerUserId)) >= cap) {
             throw new HttpError(
                 409,
@@ -435,11 +489,7 @@ export class TeamService extends PuterService {
 
                 // The team notice covers the disabling, so a member is
                 // told once rather than twice about the same event.
-                await this.#notifyMember(
-                    member.user_id,
-                    'team_closed',
-                    team,
-                );
+                await this.#notifyMember(member.user_id, 'team_closed', team);
             }
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
@@ -786,8 +836,7 @@ export class TeamService extends PuterService {
 
     /**
      * Takes a live account back with a fresh temporary password. The one route
-     * from a team to member data, and the answer to a locked-out
-     * employee.
+     * from a team to member data, and the answer to a locked-out employee.
      */
     async resetMemberPassword(
         teamUid: string,
@@ -861,10 +910,10 @@ export class TeamService extends PuterService {
     }
 
     /**
-     * A notice about something the team did to a member's account. It
-     * carries no credential, so delivery is best effort -- nothing the caller
-     * did depends on it arriving, and an address the administrator supplied may
-     * not even reach its holder.
+     * A notice about something the team did to a member's account. It carries
+     * no credential, so delivery is best effort -- nothing the caller did
+     * depends on it arriving, and an address the administrator supplied may not
+     * even reach its holder.
      */
     async #notifyUser(
         user: UserRow | null | undefined,
