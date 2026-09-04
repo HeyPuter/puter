@@ -488,6 +488,14 @@ let sidebar = [
                 path: '/Workers/types',
             },
             {
+                title: 'Dynamic Workers',
+                page_title: 'Dynamic Workers',
+                title_tag: 'Dynamic Workers',
+                icon: '/assets/img/object.svg',
+                source: '/Workers/dynamic.md',
+                path: '/Workers/dynamic',
+            },
+            {
                 title: '<code>create()</code>',
                 page_title: '<code>puter.workers.create()</code>',
                 title_tag: 'puter.workers.create()',
