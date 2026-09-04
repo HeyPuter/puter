@@ -17,7 +17,7 @@
     "@esbuild/linux-x64": "0.25.11"
   },
   "dependencies": {
-    "@fontsource/inter": "^5.2.8",
+    "@fontsource/inter": "^5.3.0",
     "esbuild": "0.25.11",
     "fs-extra": "^11.2.0",
     "highlight.js": "^11.11.1",
