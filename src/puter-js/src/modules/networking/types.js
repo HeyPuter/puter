@@ -24,7 +24,7 @@
  * @property {() => Promise<string>} generateWispV1URL Mints a relay URL (server plus single-use
  * token) for speaking the Wisp v1 protocol directly.
  * @property {typeof import('./PSocket.js').PSocket} Socket Constructor for a raw TCP `Socket`.
- * @property {{ TLSSocket: typeof import('./PTLS.js').PTLSSocket }} tls Constructor for a
+ * @property {{ TLSSocket: typeof import('./PSocket.js').PTLSSocket }} tls Constructor for a
  * TLS-protected `TLSSocket`.
  * @property {(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>} fetch
  * Fetch an http/https resource without being bound by CORS restrictions.
