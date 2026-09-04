@@ -100,6 +100,8 @@ export class UserAccountService extends PuterService {
         }
         // Tells prod to stop charging the owner for this seat.
         this.services.team.emitSeatDeleted(seat);
+        // The membership row cascaded away, so anything keyed on it is stale.
+        if (seat) await this.services.team.forgetSeat(seat);
     }
 
     /**

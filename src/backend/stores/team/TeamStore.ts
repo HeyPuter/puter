@@ -40,6 +40,9 @@ export interface TeamRow {
 
 export const TEAM_KIND = 'team';
 
+/** Short: a stale read here costs a notification, not access. */
+const TEAM_CACHE_TTL_SECONDS = 60;
+
 /** A membership row, joined to the member's username. */
 /** A seat, joined to the team that pays for it. */
 export interface OrgSeatRow {
@@ -76,6 +79,13 @@ export const MEMBER_PAGE_SIZE = 50;
 export const MEMBER_PAGE_CAP = 200;
 export const AUDIT_PAGE_SIZE = 50;
 export const AUDIT_PAGE_CAP = 200;
+
+/**
+ * Ceiling on a share announcement's fan-out. Well above the default seat cap,
+ * so it bounds a pathological team rather than a real one; the caller logs
+ * when it bites, because a silently shortened fan-out reads as "everyone knows".
+ */
+export const NOTIFY_FANOUT_CAP = 500;
 
 /** Longest handle mysql can store — `varchar(64)` in mysql_mig_28. */
 export const HANDLE_MAX_LENGTH = 64;
@@ -173,6 +183,10 @@ export class TeamStore extends PuterStore {
 
     /** The team with this uid, or null. Soft-deleted ones are excluded. */
     async getByUid(uid: string): Promise<TeamRow | null> {
+        return this.#cached(`team:row:${uid}`, () => this.#readByUid(uid));
+    }
+
+    async #readByUid(uid: string): Promise<TeamRow | null> {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`group\` WHERE \`uid\` = ? AND ${this.#live()}`,
             [uid, TEAM_KIND],
@@ -270,15 +284,27 @@ export class TeamStore extends PuterStore {
             `UPDATE \`group\` SET ${sets.join(', ')} WHERE \`uid\` = ? AND ${this.#live()}`,
             [...params, uid, TEAM_KIND],
         );
+        await this.#bustRow(uid);
         return this.getByUid(uid);
     }
     /** Releases the handle, since nothing addresses by it; keeps `name`. */
     async softDelete(uid: string): Promise<boolean> {
+        // Both resolved first: once `deleted_at` is set neither lookup finds it.
+        const team = await this.getByUid(uid);
+        const memberIds = team
+            ? await this.#readMemberIds(team.id, NOTIFY_FANOUT_CAP)
+            : [];
         const result = await this.clients.db.write(
             `UPDATE \`group\` SET \`deleted_at\` = CURRENT_TIMESTAMP, \`handle\` = NULL ` +
                 `WHERE \`uid\` = ? AND ${this.#live()}`,
             [uid, TEAM_KIND],
         );
+        if (result.anyRowsAffected && team) {
+            // Bounded by the fan-out cap, and this runs once per deletion.
+            await this.bustMembership(team.id);
+            await this.#bustRow(uid);
+            await Promise.all(memberIds.map((id) => this.bustMember(uid, id)));
+        }
         return result.anyRowsAffected;
     }
 
@@ -286,6 +312,15 @@ export class TeamStore extends PuterStore {
 
     /** The membership row for this user in this team, or null. */
     async getMembership(
+        teamUid: string,
+        userId: number,
+    ): Promise<TeamMemberRow | null> {
+        return this.#cached(`team:member:${teamUid}:${userId}`, () =>
+            this.#readMembership(teamUid, userId),
+        );
+    }
+
+    async #readMembership(
         teamUid: string,
         userId: number,
     ): Promise<TeamMemberRow | null> {
@@ -358,6 +393,87 @@ export class TeamStore extends PuterStore {
         return rows[0] ?? null;
     }
 
+    /** Members to announce a team share to; bounded, or the send is too. */
+    /**
+     * Short-lived, and deliberately only over reads that are not authorization.
+     * A stale entry here costs a notification, never access -- `isMember` and
+     * `getByUid` are left uncached for that reason.
+     *
+     * `jct_user_group.user_id` is ON DELETE CASCADE, so deleting an account
+     * changes membership without passing through this store. The TTL is the
+     * backstop for that; the explicit busts cover everything else.
+     */
+    async #cached<T>(key: string, read: () => Promise<T>): Promise<T> {
+        try {
+            const hit = await this.clients.redis.get(key);
+            if (hit !== null) return JSON.parse(hit) as T;
+        } catch {
+            return read();
+        }
+        const value = await read();
+        try {
+            await this.clients.redis.set(
+                key,
+                JSON.stringify(value),
+                'EX',
+                TEAM_CACHE_TTL_SECONDS,
+            );
+        } catch {
+            /* a cache that cannot be written is still correct */
+        }
+        return value;
+    }
+
+    async #bust(...keys: string[]): Promise<void> {
+        try {
+            await Promise.all(keys.map((k) => this.clients.redis.del(k)));
+        } catch {
+            /* the TTL clears it */
+        }
+    }
+
+    /** Busts everything keyed on this team's membership. */
+    async bustMembership(groupId: number, userId?: number): Promise<void> {
+        await this.#bust(
+            `team:members:${groupId}`,
+            ...(userId === undefined ? [] : [`team:seat:${userId}`]),
+        );
+    }
+
+    /**
+     * One membership pair. Authorization reads this, so every path that can
+     * change it busts here -- the TTL is not the mechanism.
+     */
+    async bustMember(teamUid: string, userId: number): Promise<void> {
+        await this.#bust(`team:member:${teamUid}:${userId}`);
+    }
+
+    async #bustRow(uid: string): Promise<void> {
+        await this.#bust(`team:row:${uid}`);
+    }
+
+    async listMemberIdsByGroupId(
+        groupId: number,
+        limit = NOTIFY_FANOUT_CAP,
+    ): Promise<number[]> {
+        if (limit !== NOTIFY_FANOUT_CAP)
+            return this.#readMemberIds(groupId, limit);
+        return this.#cached(`team:members:${groupId}`, () =>
+            this.#readMemberIds(groupId, limit),
+        );
+    }
+
+    async #readMemberIds(groupId: number, limit: number): Promise<number[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`user_id` FROM `jct_user_group` ug ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE ug.\`group_id\` = ? AND g.${this.#live()} ` +
+                'ORDER BY ug.`id` LIMIT ?',
+            [groupId, TEAM_KIND, limit + 1],
+        )) as { user_id: number }[];
+        return rows.map((r) => Number(r.user_id));
+    }
+
     /** Teams this user belongs to, oldest first. */
     async listTeamsForUser(userId: number): Promise<TeamRow[]> {
         const rows = await this.clients.db.read(
@@ -396,6 +512,7 @@ export class TeamStore extends PuterStore {
             // Not `booleanValue`: it yields a real boolean on postgres.
             [userId, opts.orgOwned ? 1 : 0, teamUid, TEAM_KIND],
         );
+        if (result.anyRowsAffected) await this.#bustForTeamUid(teamUid, userId);
         return result.anyRowsAffected;
     }
 
@@ -433,6 +550,12 @@ export class TeamStore extends PuterStore {
 
     /** Soft-deleted teams count: their seats still hold billable bytes. */
     async getOrgSeat(userId: number): Promise<OrgSeatRow | null> {
+        return this.#cached(`team:seat:${userId}`, () =>
+            this.#readOrgSeat(userId),
+        );
+    }
+
+    async #readOrgSeat(userId: number): Promise<OrgSeatRow | null> {
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, u.`uuid`, u.`username`, ' +
                 'g.`uid` AS `team_uid`, g.`owner_user_id` ' +
@@ -529,7 +652,14 @@ export class TeamStore extends PuterStore {
                 `(SELECT \`id\` FROM \`group\` WHERE \`uid\` = ? AND ${this.#live()})`,
             [userId, teamUid, TEAM_KIND],
         );
+        if (result.anyRowsAffected) await this.#bustForTeamUid(teamUid, userId);
         return result.anyRowsAffected;
     }
 
+    /** The membership row is gone by now, so the team is resolved by uid. */
+    async #bustForTeamUid(teamUid: string, userId: number): Promise<void> {
+        const team = await this.getByUidIncludingDeleted(teamUid);
+        await this.bustMembership(team?.id ?? -1, userId);
+        await this.bustMember(teamUid, userId);
+    }
 }

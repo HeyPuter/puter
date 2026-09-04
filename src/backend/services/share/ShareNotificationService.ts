@@ -40,7 +40,8 @@ import {
     shareDeepLink,
     sharedViewLink,
 } from './shareDeepLink';
-import type { ResolvedShare } from './ShareService';
+import { NOTIFY_FANOUT_CAP } from '../../stores/team/TeamStore';
+import { blocksAllShares, type ResolvedShare } from './ShareService';
 
 /**
  * How long one sharer stays quiet after reaching a recipient, and how long a
@@ -264,26 +265,28 @@ export class ShareNotificationService extends PuterService {
         const counts = new Map<number, number>();
         const named = new Map<number, DigestItem[]>();
         const targets = new Map<number, ShareNotificationTarget | null>();
-        for (const share of shares) {
-            if (share.pending) continue;
-            if (!share.isNew || !share.holderId) continue;
-            if (share.holderId === issuerId) continue;
-            counts.set(share.holderId, (counts.get(share.holderId) ?? 0) + 1);
+        // A team share has no holder of its own, so it is expanded here.
+        for (const { holderId, share } of await this.#recipientsOf(
+            shares,
+            issuerId,
+        )) {
+            counts.set(holderId, (counts.get(holderId) ?? 0) + 1);
             const item = this.#digestItem(share);
             if (item) {
-                const items = named.get(share.holderId) ?? [];
+                const items = named.get(holderId) ?? [];
                 if (items.length < DIGEST_NAMES_PER_SENDER) items.push(item);
-                named.set(share.holderId, items);
+                named.set(holderId, items);
             }
             // Only a lone item is worth pointing at; a second nulls it.
             const path = this.#targetPath(share);
             targets.set(
-                share.holderId,
-                targets.has(share.holderId) || !path
+                holderId,
+                targets.has(holderId) || !path
                     ? null
                     : { path, name: share.name as string },
             );
         }
+
 
         // Each recipient fails alone: one refused send must not cost the next
         // person their notification. Failures are logged, never thrown.
@@ -323,6 +326,95 @@ export class ShareNotificationService extends PuterService {
         } catch (err) {
             console.warn('[share-notify] could not email invites:', err);
         }
+    }
+
+    /**
+     * Who each share announces to. A user share is its own holder; a team
+     * share is every live member except the issuer, expanded at announcement
+     * time so the grant stays one row and only the telling fans out.
+     *
+     * A member who joins later resolves the grant through the scan but is never
+     * told: access follows the team, announcements describe a moment.
+     */
+    async #recipientsOf(
+        shares: ResolvedShare[],
+        issuerId: number,
+    ): Promise<Array<{ holderId: number; share: ResolvedShare }>> {
+        const out: Array<{ holderId: number; share: ResolvedShare }> = [];
+        const byGroup = new Map<number, number[]>();
+        const allowedByGroup = new Map<number, number[]>();
+        for (const share of shares) {
+            if (share.pending || !share.isNew) continue;
+
+            if (share.holderId) {
+                if (share.holderId === issuerId) continue;
+                out.push({ holderId: share.holderId, share });
+                continue;
+            }
+            if (!share.holderGroupId) continue;
+
+            // Cached per group: N items shared with one team is one read.
+            let members = byGroup.get(share.holderGroupId);
+            if (!members) {
+                try {
+                    members = await this.stores.team.listMemberIdsByGroupId(
+                        share.holderGroupId,
+                    );
+                } catch (err) {
+                    // Silence is this path's failure mode, so say so out loud.
+                    console.warn(
+                        '[share-notify] could not expand team',
+                        share.holderGroupId,
+                        err,
+                    );
+                    continue;
+                }
+                byGroup.set(share.holderGroupId, members);
+            }
+            // The store reads one past the cap, so `>` means it really did
+            // truncate; exactly the cap did not.
+            if (members.length > NOTIFY_FANOUT_CAP) {
+                members = members.slice(0, NOTIFY_FANOUT_CAP);
+                byGroup.set(share.holderGroupId, members);
+                console.warn(
+                    '[share-notify] team fan-out hit the cap; some members were not told',
+                    { groupId: share.holderGroupId, cap: NOTIFY_FANOUT_CAP },
+                );
+            }
+            // A block refuses contact, and this is the contact: the group grant
+            // is one row so it cannot exclude a member, but the telling can.
+            // Cached with the member list -- block state is per pair, not per item.
+            let allowed = allowedByGroup.get(share.holderGroupId);
+            if (!allowed) {
+                allowed = await this.#unblocked(members, issuerId);
+                allowedByGroup.set(share.holderGroupId, allowed);
+            }
+            for (const holderId of allowed) {
+                if (holderId === issuerId) continue;
+                out.push({ holderId, share });
+            }
+        }
+        return out;
+    }
+
+    /** Members who have not refused shares from this issuer. */
+    async #unblocked(members: number[], issuerId: number): Promise<number[]> {
+        const kept = await Promise.all(
+            members.map(async (id) => {
+                try {
+                    const user = await this.stores.user.getById(id);
+                    if (blocksAllShares(user)) return null;
+                    return (await this.stores.userBlock.isBlocked(id, issuerId))
+                        ? null
+                        : id;
+                } catch (err) {
+                    // Failing open would announce to someone who refused it.
+                    console.warn('[share-notify] block check failed', id, err);
+                    return null;
+                }
+            }),
+        );
+        return kept.filter((id): id is number => id !== null);
     }
 
     /**
