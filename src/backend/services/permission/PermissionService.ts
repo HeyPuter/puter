@@ -885,6 +885,145 @@ export class PermissionService extends PuterService {
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
     }
 
+    // -- Group grants ---- the write half; `#scanUserGroup` reads them ----
+
+    /** Resolved once here so neither grant nor revoke holds SQL. */
+    async #requireGroupId(groupUid: string): Promise<number> {
+        const groupId = await this.stores.permission.resolveGroupId(groupUid);
+        if (groupId === null) {
+            throw new HttpError(404, `group_does_not_exist: ${groupUid}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        }
+        return groupId;
+    }
+
+    /** Batched: one event for the whole group, not one per member. */
+    async #bumpGroupCacheGeneration(groupId: number): Promise<void> {
+        const uuids =
+            await this.stores.permission.listGroupMemberUuids(groupId);
+        if (uuids.length === 0) return;
+        await this.stores.permission.bumpCacheGenerations(
+            uuids.map((uuid) => `user:${uuid}`),
+        );
+    }
+
+    async grantUserGroupPermission(
+        actor: Actor,
+        groupUid: string,
+        permission: string,
+        extra: Record<string, unknown> = {},
+        meta: GrantMeta = {},
+    ): Promise<void> {
+        // First: the rewrite decides the row's width and what a revoke matches.
+        permission = await this.rewritePermission(permission);
+        if (permission.length > PERMISSION_MAX_LEN) {
+            throw new HttpError(400, 'permission is too long', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const groupId = await this.#requireGroupId(groupUid);
+
+        if (!(await this.canManagePermission(actor, permission))) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+        if (!actor.user?.id) {
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const issuerId = actor.user.id;
+
+        await this.stores.permission.upsertUserGroupPerm(
+            groupId,
+            issuerId,
+            permission,
+            extra,
+        );
+
+        // Off the critical path, but a silent drop makes the log untrustworthy.
+        this.stores.permission
+            .auditUserGroupPerm({
+                group_id: groupId,
+                issuer_user_id: issuerId,
+                permission,
+                action: 'grant',
+                reason: meta.reason ?? 'granted via PermissionService',
+                extra: this.#auditActorContext(actor),
+            })
+            .catch((err) => {
+                console.warn(
+                    '[PermissionService] failed to audit user-group grant:',
+                    err,
+                );
+            });
+
+        await this.#bumpGroupCacheGeneration(groupId);
+    }
+
+    /** Scoped to this issuer's grant; returns whether one was removed. */
+    async revokeUserGroupPermission(
+        actor: Actor,
+        groupUid: string,
+        permission: string,
+        meta: GrantMeta = {},
+    ): Promise<boolean> {
+        // Same rewrite as the grant, or this matches nothing and says it did.
+        permission = await this.rewritePermission(permission);
+        const groupId = await this.#requireGroupId(groupUid);
+
+        if (!actor.user?.id) {
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const issuerId = actor.user.id;
+
+        if (!(await this.canManagePermission(actor, permission))) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+
+        const revoked = await this.stores.permission.deleteUserGroupPerm(
+            groupId,
+            issuerId,
+            permission,
+        );
+
+        this.stores.permission
+            .auditUserGroupPerm({
+                group_id: groupId,
+                issuer_user_id: issuerId,
+                permission,
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked via PermissionService',
+                extra: this.#auditActorContext(actor),
+            })
+            .catch((err) => {
+                console.warn(
+                    '[PermissionService] failed to audit user-group revoke:',
+                    err,
+                );
+            });
+
+        // Bumped even when nothing matched: a cached allow must not survive.
+        await this.#bumpGroupCacheGeneration(groupId);
+
+        // Nothing but the membership names the holders, so without this their
+        // watches outlive the revoke.
+        if (revoked) {
+            for (const memberId of await this.stores.permission.listGroupMemberIds(
+                groupId,
+            )) {
+                this.#announceRevoked(memberId, null, permission);
+            }
+        }
+        return revoked;
+    }
+
     /**
      * Remove the grant `actor` issued, or the one named by `opts.issuerUserId`
      * when the caller has established authority over another issuer's grant (a
