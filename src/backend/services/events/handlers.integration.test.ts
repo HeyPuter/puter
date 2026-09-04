@@ -30,7 +30,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { v4 as uuidv4 } from 'uuid';
 import {
     EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_HANDLER_PUBLISH_BATCH,
+    EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_SUSPENDED_PENDING_CAP,
+    EVENTS_WORKER_SOURCE_MAX_BYTES,
 } from '../../controllers/events/limits.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import { hashContent } from '../../stores/events/EventHandlerStore.js';
@@ -325,6 +328,54 @@ describe('publishing a set', () => {
             (listed.body.handlers as Array<{ name: string }>).map((h) => h.name),
         ).toContain('indexDocument');
     });
+});
+
+describe('the total-source cap', () => {
+    it(
+        'refuses a publish that would push the app past the size cap',
+        { timeout: 30_000 },
+        async () => {
+            // Every handler at the per-handler max: the fewest handlers that
+            // can reach the total cap.
+            const bigSource = 'x'.repeat(EVENTS_HANDLER_SOURCE_MAX_BYTES);
+            const names = Array.from(
+                { length: EVENTS_WORKER_SOURCE_MAX_BYTES / EVENTS_HANDLER_SOURCE_MAX_BYTES },
+                (_, i) => `big${i}`,
+            );
+
+            for (let i = 0; i < names.length; i += EVENTS_HANDLER_PUBLISH_BATCH) {
+                const batch = names
+                    .slice(i, i + EVENTS_HANDLER_PUBLISH_BATCH)
+                    .map((name) => ({ name, source: bigSource }));
+                const res = await call(
+                    'POST',
+                    '/events/handlers/publishAll',
+                    appToken,
+                    { handlers: batch },
+                );
+                expect(res.status).toBe(200);
+            }
+
+            // Sitting exactly at the cap; one more handler of any size, at all,
+            // pushes the set over it.
+            const refused = await publish(appToken, {
+                name: 'overflow',
+                source: 'async () => {}',
+            });
+            expect(refused.status).toBe(413);
+            expect(refused.body.code).toBe('events_worker_too_large');
+
+            // Replacing an existing name is judged on the new total with that
+            // name's own bytes backed out first, not added on top of them —
+            // same size, different content, so it must not double-count.
+            const replace = await publish(appToken, {
+                name: 'big0',
+                source: 'y'.repeat(EVENTS_HANDLER_SOURCE_MAX_BYTES),
+                replace: true,
+            });
+            expect(replace.status).toBe(200);
+        },
+    );
 });
 
 describe('listing handlers', () => {

@@ -474,6 +474,14 @@ export type EventMap = {
         worker: string;
     };
 
+    // An app's events worker coming into being (its handler count going 0→1)
+    // and going away (1→0, whether by removing the last handler or by the
+    // destroy route). `actor.user` is the app's owner, not the caller — a
+    // developer session publishing for an app it owns is the common case, but
+    // billing follows ownership.
+    'events.worker.create': { actor: Actor; appUid: string };
+    'events.worker.destroy': { actor: Actor; appUid: string };
+
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
         cacheKey: string[];

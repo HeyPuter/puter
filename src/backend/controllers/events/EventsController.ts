@@ -23,6 +23,7 @@ import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
+import { EVENTS_WORKERS_LIST_LIMIT_CAP } from '../../stores/events/EventHandlerStore.js';
 import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
@@ -32,6 +33,7 @@ import {
     EVENTS_FETCH_LIMIT_CAP,
     EVENTS_HANDLER_LIST_LIMIT,
     EVENTS_LIST_LIMIT,
+    EVENTS_WORKER_LIST_LIMIT,
 } from './limits.js';
 import {
     EventsWorkerDeployer,
@@ -54,6 +56,9 @@ import {
  */
 /** What a dispatcher may ask to have deployed: an events script name. */
 const EVENTS_SCRIPT_REGEX = new RegExp(`^${EVENTS_WORKER_PREFIX}[a-f0-9]{32}$`);
+
+/** Matches the edge dispatcher's own validation of the app uid it forwards. */
+const APP_UID_REGEX = /^app-[A-Za-z0-9_-]{1,64}$/;
 
 @Controller('/events')
 export class EventsController extends PuterController {
@@ -276,6 +281,57 @@ export class EventsController extends PuterController {
         );
     }
 
+    // -- Events workers ------------------------------------------------
+    //
+    // The billable artifact a published handler set implies. Account-scoped
+    // like the kv-handle surface above: this is the owner's own view of what
+    // it is paying for, so — unlike the handler routes — an app token cannot
+    // act here on its owner's behalf.
+
+    /** GET /events/workers — the caller's own events workers, one per app. */
+    @Get('/workers', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_WORKER_LIST_LIMIT,
+    })
+    async listEventsWorkers(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+
+        const page = await this.services.events.listEventsWorkers(actor, {
+            limit: normalizeLimit(query.limit, {
+                cap: EVENTS_WORKERS_LIST_LIMIT_CAP,
+            }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            deployable: page.deployable,
+        });
+    }
+
+    /**
+     * POST /events/workers/destroy — remove every handler an app has published,
+     * taking its events worker down with the last one.
+     */
+    @Post('/workers/destroy', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async destroyEventsWorker(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(
+            await this.services.events.destroyEventsWorker(
+                actor,
+                this.#body(req),
+            ),
+        );
+    }
+
     /**
      * POST /events/worker/rehydrate — the events dispatcher asking for a script
      * it could not find in its namespace, which is also how a handler set is
@@ -300,7 +356,7 @@ export class EventsController extends PuterController {
         const body = this.#body(req);
         const script = String(body.script ?? '');
         const appUid = String(body.appUid ?? '');
-        if (!EVENTS_SCRIPT_REGEX.test(script) || !appUid)
+        if (!EVENTS_SCRIPT_REGEX.test(script) || !APP_UID_REGEX.test(appUid))
             throw new HttpError(400, 'Missing or invalid `script`/`appUid`', {
                 legacyCode: 'bad_request',
             });
@@ -316,9 +372,11 @@ export class EventsController extends PuterController {
             res.json({ deployed: true });
             return;
         }
-        // `failed` is the only one worth another attempt: the rest say this
-        // script is not what the app's handlers currently are.
-        res.status(outcome === 'failed' ? 502 : 404).json({
+        // `failed` and `throttled` are worth another attempt: the rest say
+        // this script is not what the app's handlers currently are.
+        res.status(
+            outcome === 'failed' || outcome === 'throttled' ? 502 : 404,
+        ).json({
             deployed: false,
             reason: outcome,
         });
@@ -344,6 +402,7 @@ export class EventsController extends PuterController {
     #eventsWorkerDeployer(): EventsWorkerDeployer {
         this.#deployer ??= new EventsWorkerDeployer({
             config: this.config,
+            clients: this.clients,
             stores: this.stores,
             services: this.services,
             drivers: this.drivers,
@@ -351,14 +410,21 @@ export class EventsController extends PuterController {
         return this.#deployer;
     }
 
-    /** Constant-time, so the secret cannot be recovered a byte at a time. */
+    /**
+     * Constant-time, so the secret cannot be recovered a byte at a time.
+     * Compares Buffer byte lengths, not string lengths — a string length
+     * compares UTF-16 code units, which can differ from the byte length
+     * `timingSafeEqual` actually requires to match.
+     */
     #requireInternalAuth(req: Request): void {
-        const expected = this.config.events?.internalSecret ?? '';
-        const offered = String(req.headers['x-puter-internal-auth'] ?? '');
+        const expected = Buffer.from(this.config.events?.internalSecret ?? '');
+        const offered = Buffer.from(
+            String(req.headers['x-puter-internal-auth'] ?? ''),
+        );
         const ok =
             expected.length > 0 &&
             expected.length === offered.length &&
-            timingSafeEqual(Buffer.from(expected), Buffer.from(offered));
+            timingSafeEqual(expected, offered);
         if (!ok)
             throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
     }

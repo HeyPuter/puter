@@ -270,3 +270,50 @@
  * @property {number} subscriptions How many subscriptions are bound to this
  *   name, suspended ones included.
  */
+
+/**
+ * Options for `puter.events.workers.list()`.
+ *
+ * @typedef {Object} EventsWorkersListOptions
+ * @property {number} [limit] Apps per page.
+ * @property {string} [cursor] The `cursor` from a previous page. Absent starts
+ *   from the first page.
+ */
+
+/**
+ * One app of the caller's with published handlers — and so with an events
+ * worker standing behind them.
+ *
+ * @typedef {Object} EventsWorkerSummary
+ * @property {string} appUid
+ * @property {string} appName
+ * @property {string} appTitle
+ * @property {number} handlerCount How many handlers this app has published.
+ * @property {number} createdAt When this app's events worker first came into
+ *   being — its earliest published handler. Unix seconds.
+ * @property {number} updatedAt Its most recently published or updated handler.
+ *   Unix seconds.
+ * @property {string} script The deployed script name, for support/diagnosis.
+ */
+
+/**
+ * One page of `puter.events.workers.list()`.
+ *
+ * @typedef {Object} EventsWorkerPage
+ * @property {EventsWorkerSummary[]} items
+ * @property {string} [cursor] Pass to read the next page. Absent means there
+ *   is no next page.
+ * @property {boolean} deployable Whether this server actually deploys events
+ *   workers. `false` on a self-hosted install without the runtime turned on —
+ *   apps can still publish handlers, but nothing runs a background delivery.
+ */
+
+/**
+ * What `puter.events.workers.destroy()` reports back.
+ *
+ * @typedef {Object} DestroyedEventsWorker
+ * @property {string} appUid
+ * @property {number} removed How many handlers were deleted.
+ * @property {number} suspended How many subscriptions were suspended as a
+ *   result, across all of them.
+ */

@@ -195,6 +195,7 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Handlers per `publishAll` call               | 50           |
 | Handler publish / remove calls per minute    | 60           |
 | Handler listings per minute                  | 120          |
+| Events worker listings per minute            | 120          |
 
 `fetch()` reads a page of what a subject recorded rather than a delivery, so it is budgeted with the listings: a page defaults to 50 events and is capped at 200, and a client catching up walks pages until one comes back with no cursor. Only `notif:` has a store to read — the notification mailbox, kept for 14 days — and any other subject family is refused with `fetch_unsupported_subject`.
 
@@ -204,7 +205,9 @@ The 51st subscription on one connection, and the durable subscription past your 
 
 A durable subscription may carry a `context`: JSON that is stored with it and handed to its handler on every delivery, capped at a hard **4 KB** and rejected over that with `events_context_too_large` — client-side, before the request. It is stored in plaintext and read only on the delivery path; listings return its **key names and a content hash**, never its values. For anything larger, store it in a file and put the path in `context`. An app sees and revokes only the subscriptions it created; a session acting for the account sees them all, including ones left behind by an app that has since been removed.
 
-A durable subscription runs a **handler** its app published by name. An app may publish **100** of them, each up to **64 KB** of source, and a name is unique inside one app. Publishing is a developer operation: the account has to own the app. Publishing the same source again is a no-op; publishing different source under a name whose current source the caller did not name as its base is refused with `events_handler_conflict`, so two racing build steps never silently pick a winner — `replace: true` is how a caller says it means to take the name. Handler source is never returned by any listing.
+A durable subscription runs a **handler** its app published by name. An app may publish **100** of them, each up to **64 KB** of source, and a name is unique inside one app. All of an app's handlers combined may not exceed **5 MB** of source; a publish that would push the total over that is refused with `events_worker_too_large`. Publishing is a developer operation: the account has to own the app. Publishing the same source again is a no-op; publishing different source under a name whose current source the caller did not name as its base is refused with `events_handler_conflict`, so two racing build steps never silently pick a winner — `replace: true` is how a caller says it means to take the name. Handler source is never returned by any listing.
+
+The first published handler brings up an **events worker** for that app; the last one removed, or `puter.events.workers.destroy()`, takes it down. An app's events worker may (re)deploy at most **30 times an hour**; past that, delivery stays retriable until the hour rolls over. `puter.events.workers.list()` shows every app you own that currently has one — see [`puter.events.workers`](/Events/workers/) for details, including how a hosted deployment may bill it.
 
 **A subscription can end or stop without you unsubscribing.** Access is re-checked against the stored permission on every delivery, so a share that is taken back stops delivering immediately; the subscription is then *suspended*, with `suspendedAt` and `suspendedReason` in `list`. There are four reasons:
 

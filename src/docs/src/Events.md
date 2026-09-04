@@ -222,7 +222,7 @@ Values reach a handler through **`context`**, which is evaluated **once, at subs
 
 **`context` is capped at a hard 4 KB.** These are database rows read on every delivery, and `context` is the one field a developer controls the size of — over the cap the call fails with `events_context_too_large`, client-side, before the request. It is stored in plaintext and read only on the delivery path: [`list()`](/Events/list/) returns its **key names and a content hash**, never its values. For anything larger, store it in a file and put the path in `context`; a wider column is not the upgrade path.
 
-See [`puter.events.handlers`](/Events/handlers/) for the deploy side — publishing, replacing, and what removing a name does to the subscriptions bound to it.
+See [`puter.events.handlers`](/Events/handlers/) for the deploy side — publishing, replacing, and what removing a name does to the subscriptions bound to it. Publishing your first handler for an app stands up an **events worker** for it; see [`puter.events.workers`](/Events/workers/) to list and destroy them.
 
 ### Running when nobody is there takes consent
 
@@ -251,3 +251,4 @@ Subscriptions per connection, persistent subscriptions per account, published ha
 - **[`puter.events.unsubscribe()`](/Events/unsubscribe/)** - End a persistent subscription
 - **[`puter.events.fetch()`](/Events/fetch/)** - Read what a subject recorded while nothing was listening
 - **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers a persistent subscription runs
+- **[`puter.events.workers`](/Events/workers/)** - List and destroy the events worker a published handler set stands up

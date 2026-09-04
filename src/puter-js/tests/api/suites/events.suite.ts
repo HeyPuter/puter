@@ -772,6 +772,87 @@ export default suite('events', {
         t.assert.equal((await t.puter.events.handlers.list({ appUid })).length, 2);
     },
 
+    // -- Events workers -----------------------------------------------
+
+    'exposes the workers surface': async (t) => {
+        for (const method of ['list', 'destroy'] as const) {
+            t.assert.equal(
+                typeof t.puter.events.workers[method],
+                'function',
+                `puter.events.workers.${method} is a function`,
+            );
+        }
+    },
+
+    'lists the events worker a first publish stood up, and destroys it': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', HANDLER, { appUid });
+        await t.puter.events.handlers.publish('indexDocument', OTHER_HANDLER, {
+            appUid,
+        });
+
+        const page = await t.puter.events.workers.list();
+        const worker = page.items.find((row) => row.appUid === appUid);
+        t.assert.ok(worker, 'the app with published handlers is listed');
+        t.assert.equal(worker?.handlerCount, 2);
+        t.assert.equal(typeof worker?.script, 'string');
+        t.assert.equal(typeof page.deployable, 'boolean');
+
+        const destroyed = await t.puter.events.workers.destroy(appUid);
+        t.assert.equal(destroyed.appUid, appUid);
+        t.assert.equal(destroyed.removed, 2);
+
+        const after = await t.puter.events.workers.list();
+        t.assert.equal(
+            after.items.find((row) => row.appUid === appUid),
+            undefined,
+            'destroying removes it from the listing',
+        );
+        t.assert.deepEqual(await t.puter.events.handlers.list({ appUid }), []);
+
+        // Destroying dropped the publish bases this client had cached, so a
+        // fresh publish reads as a create rather than as a lost race.
+        const republished = await t.puter.events.handlers.publish(
+            'ingestUpload',
+            HANDLER,
+            { appUid },
+        );
+        t.assert.equal(republished.name, 'ingestUpload');
+    },
+
+    'refuses to destroy an app with no published handlers': async (t) => {
+        const appUid = await makeApp(t);
+        const error = await t.assert.rejects(() =>
+            t.puter.events.workers.destroy(appUid),
+        );
+        t.assert.equal(codeOf(error), 'events_handler_not_found');
+    },
+
+    'refuses an app token trying to list events workers': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', HANDLER, { appUid });
+
+        await asApp(t, appUid, async () => {
+            const error = await t.assert.rejects(() => t.puter.events.workers.list());
+            t.assert.equal(codeOf(error), 'events_worker_owner_only');
+        });
+    },
+
+    'refuses to destroy an app the caller does not own': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', HANDLER, { appUid });
+
+        await asApp(t, appUid, async () => {
+            // An app token names its own app; a second app's token would be
+            // this account's own to make, so a foreign uid is what stands in
+            // for "not owned" here.
+            const error = await t.assert.rejects(() =>
+                t.puter.events.workers.destroy(unique('not-owned')),
+            );
+            t.assert.equal(codeOf(error), 'events_handler_forbidden');
+        });
+    },
+
     // -- fetch ------------------------------------------------------
     //
     // Catching up is a query against the subject's own store, so these need no

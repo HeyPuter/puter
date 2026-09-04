@@ -23,6 +23,11 @@ import {
     EVENTS_HANDLER_SOURCE_MAX_BYTES,
 } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    decodeCursor,
+    encodeCursor,
+    type PageResult,
+} from '../../util/pagination.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { PuterStore } from '../types.js';
 
@@ -43,6 +48,14 @@ import { PuterStore } from '../types.js';
 
 const TABLE = 'event_handlers';
 const SUBSCRIPTION_TABLE = 'event_subscriptions';
+const APP_TABLE = 'apps';
+
+/**
+ * Default and cap for `listEventsWorkersForOwner`, same shape as other list
+ * stores.
+ */
+export const EVENTS_WORKERS_LIST_DEFAULT_LIMIT = 50;
+export const EVENTS_WORKERS_LIST_LIMIT_CAP = 200;
 
 /** Longest a handler name may be, matching the column that holds it. */
 export const HANDLER_NAME_MAX_LENGTH = 128;
@@ -69,6 +82,29 @@ export interface EventHandlerSummary {
     updatedAt: number;
     /** Subscriptions currently bound to this name, suspended ones included. */
     subscriptions: number;
+}
+
+/**
+ * One app with published handlers, as an owner's events-worker listing reports
+ * it.
+ */
+export interface EventsWorkerSummary {
+    appUid: string;
+    appName: string;
+    appTitle: string;
+    handlerCount: number;
+    /**
+     * Earliest handler `created_at` — when this app's events worker first came
+     * into being.
+     */
+    createdAt: number;
+    /** Latest handler `updated_at` across the app's handlers. */
+    updatedAt: number;
+}
+
+export interface ListEventsWorkersOptions {
+    limit?: number;
+    cursor?: string;
 }
 
 export interface PublishHandlerInput {
@@ -310,6 +346,22 @@ export class EventHandlerStore extends PuterStore {
     }
 
     /**
+     * Bytes of source an app has published, across every handler. What a
+     * publish is checked against before it lands, so the app's generated events
+     * worker never grows past what the runtime may load.
+     *
+     * `OCTET_LENGTH`, not `LENGTH`: only MySQL measures the latter in bytes,
+     * and the caller compares this against `Buffer.byteLength`.
+     */
+    async totalSourceBytesForApp(appUid: string): Promise<number> {
+        const [row] = await this.clients.db.pread(
+            `SELECT SUM(OCTET_LENGTH(\`source\`)) AS \`total\` FROM \`${TABLE}\` WHERE \`app_uid\` = ?`,
+            [appUid],
+        );
+        return Number(row?.total ?? 0);
+    }
+
+    /**
      * How many subscriptions each of an app's handler names is carrying,
      * suspended rows included — a suspended subscription is still a dependent,
      * and it is the reason a removal is not a delete.
@@ -330,6 +382,99 @@ export class EventHandlerStore extends PuterStore {
                 Number(row.total) || 0,
             ]),
         );
+    }
+
+    /**
+     * How many of an owner's apps have at least one published handler — what a
+     * rent listener counts to tell a first publish (0→1) from a redeploy, and a
+     * last removal (1→0) from one of several.
+     *
+     * `createdBefore` (epoch ms) restricts to apps whose events worker existed
+     * before that time, by its earliest handler; used to bill only what was
+     * already standing at a charge boundary.
+     */
+    async countAppsWithHandlersForOwner(
+        ownerUserId: number,
+        opts: { createdBefore?: number } = {},
+    ): Promise<number> {
+        const params: unknown[] = [ownerUserId];
+        let having = '';
+        if (opts.createdBefore !== undefined) {
+            having = ` HAVING MIN(\`${TABLE}\`.\`created_at\`) < ?`;
+            // Column is unix seconds, the option is epoch ms. Rounding up is
+            // what makes "strictly before" exact: second `s` starts at
+            // `s * 1000`, so `s < ceil(ms / 1000)` is `s * 1000 < ms`.
+            params.push(Math.ceil(opts.createdBefore / 1000));
+        }
+
+        const rows = await this.clients.db.pread(
+            'SELECT COUNT(*) AS `total` FROM (' +
+                `SELECT \`${TABLE}\`.\`app_uid\` FROM \`${TABLE}\` ` +
+                `JOIN \`${APP_TABLE}\` ON \`${APP_TABLE}\`.\`uid\` = \`${TABLE}\`.\`app_uid\` ` +
+                `WHERE \`${APP_TABLE}\`.\`owner_user_id\` = ? ` +
+                `GROUP BY \`${TABLE}\`.\`app_uid\`${having}` +
+                ') AS `counted`',
+            params,
+        );
+        return Number(rows[0]?.total ?? 0);
+    }
+
+    /**
+     * The events workers an owner is running, one row per app with at least one
+     * published handler. Keyset-paginated on `app_uid`, since the grouping key
+     * is the only stable order a set this shape can offer.
+     */
+    async listEventsWorkersForOwner(
+        ownerUserId: number,
+        opts: ListEventsWorkersOptions = {},
+    ): Promise<PageResult<EventsWorkerSummary>> {
+        const limit = Math.min(
+            Math.max(
+                1,
+                Math.floor(opts.limit ?? EVENTS_WORKERS_LIST_DEFAULT_LIMIT),
+            ),
+            EVENTS_WORKERS_LIST_LIMIT_CAP,
+        );
+        const after = decodeCursor(opts.cursor)?.appUid;
+
+        const where = [`\`${APP_TABLE}\`.\`owner_user_id\` = ?`];
+        const params: unknown[] = [ownerUserId];
+        if (typeof after === 'string') {
+            where.push(`\`${TABLE}\`.\`app_uid\` > ?`);
+            params.push(after);
+        }
+
+        const rows = await this.clients.db.read(
+            `SELECT \`${TABLE}\`.\`app_uid\` AS \`app_uid\`, ` +
+                `\`${APP_TABLE}\`.\`name\` AS \`app_name\`, ` +
+                `\`${APP_TABLE}\`.\`title\` AS \`app_title\`, ` +
+                'COUNT(*) AS `handler_count`, ' +
+                `MIN(\`${TABLE}\`.\`created_at\`) AS \`created_at\`, ` +
+                `MAX(\`${TABLE}\`.\`updated_at\`) AS \`updated_at\` ` +
+                `FROM \`${TABLE}\` ` +
+                `JOIN \`${APP_TABLE}\` ON \`${APP_TABLE}\`.\`uid\` = \`${TABLE}\`.\`app_uid\` ` +
+                `WHERE ${where.join(' AND ')} ` +
+                `GROUP BY \`${TABLE}\`.\`app_uid\`, \`${APP_TABLE}\`.\`name\`, \`${APP_TABLE}\`.\`title\` ` +
+                `ORDER BY \`${TABLE}\`.\`app_uid\` LIMIT ?`,
+            [...params, limit + 1],
+        );
+
+        const page = rows.slice(0, limit);
+        const result: PageResult<EventsWorkerSummary> = {
+            items: page.map((row) => ({
+                appUid: String(row.app_uid),
+                appName: String(row.app_name),
+                appTitle: String(row.app_title),
+                handlerCount: Number(row.handler_count) || 0,
+                createdAt: Number(row.created_at) || 0,
+                updatedAt: Number(row.updated_at) || 0,
+            })),
+        };
+        if (rows.length > limit)
+            result.cursor = encodeCursor({
+                appUid: page[page.length - 1]!.app_uid,
+            });
+        return result;
     }
 
     // -- Internals ---------------------------------------------------

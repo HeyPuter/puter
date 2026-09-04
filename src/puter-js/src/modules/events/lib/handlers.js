@@ -131,6 +131,21 @@ export class EventHandlers {
     }
 
     /**
+     * @internal Drop every cached publish base for an app, after something
+     *   removed its whole set. Sending a base for a name that is gone is what
+     *   makes the next publish look like a lost race. The implicit-app keys go
+     *   too: those are an app token's own app, which is the only app it can
+     *   have emptied.
+     * @param {string} appUid
+     */
+    forget (appUid) {
+        for ( const key of [...this.known.keys()] ) {
+            if ( key.startsWith(`${appUid}|`) || key.startsWith('|') )
+                this.known.delete(key);
+        }
+    }
+
+    /**
      * @internal Serialize, scan and send one or more publications, then record
      *   what is now published so the next publish can name its base.
      * @param {HandlerPublication[]} items

@@ -36,6 +36,7 @@ import {
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
+    EVENTS_WORKER_SOURCE_MAX_BYTES,
     limitFor,
     SUSPENDED_ROW_TTL_DAYS,
     type SubscriptionQuota,
@@ -61,6 +62,7 @@ import {
     HANDLER_NAME_MAX_LENGTH,
     hashContent,
     type EventHandlerSummary,
+    type EventsWorkerSummary,
     type PublishOutcome,
 } from '../../stores/events/EventHandlerStore.js';
 import {
@@ -199,7 +201,11 @@ import {
 } from './subjects.js';
 import { backlogPolicyFor, isResumable } from './suspension.js';
 import type { EventsInvokeTransport } from '../../clients/events/EventsWorkerInvokerClient.js';
-import { eventsInvokeKey, eventsWorkerScript } from './workerRuntime.js';
+import {
+    eventsInvokeKey,
+    eventsWorkerScope,
+    eventsWorkerScript,
+} from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
 import {
     EventsWorkerInvoker,
@@ -309,6 +315,30 @@ export interface PublishedHandlerView {
 export interface RemovedHandlerView {
     name: string;
     removed: boolean;
+    suspended: number;
+}
+
+/** Query for `GET /events/workers`. Always the caller's own account. */
+export interface ListEventsWorkersRequest {
+    limit?: number;
+    cursor?: string;
+}
+
+/** One events worker as its owner's listing reports it. */
+export interface EventsWorkerView extends EventsWorkerSummary {
+    /** Deployed script name, for support/diagnosis. */
+    script: string;
+}
+
+/** Body of `POST /events/workers/destroy`. */
+export interface DestroyEventsWorkerRequest {
+    appUid?: unknown;
+}
+
+/** What destroying an app's events worker did. */
+export interface DestroyedEventsWorkerView {
+    appUid: string;
+    removed: number;
     suspended: number;
 }
 
@@ -650,6 +680,24 @@ const handlerNotFound = (name: string): HttpError =>
         legacyCode: 'events_handler_not_found',
     });
 
+/** Same code as `handlerNotFound`: an app with no handlers has no events worker. */
+const noEventsWorker = (appUid: string): HttpError =>
+    new HttpError(404, `No handlers are published for \`${appUid}\``, {
+        legacyCode: 'events_handler_not_found',
+    });
+
+/**
+ * The app's generated events worker — every published handler's source, baked
+ * into one file — would exceed what the runtime may load. Refused before the
+ * write rather than left to fail at deploy time.
+ */
+const eventsWorkerTooLarge = (): HttpError =>
+    new HttpError(
+        413,
+        `This app's events worker would exceed ${EVENTS_WORKER_SOURCE_MAX_BYTES} bytes across its published handlers`,
+        { legacyCode: 'events_worker_too_large' },
+    );
+
 /**
  * The inline body the caller sent is not what is published. Refused rather than
  * bound: the point of sending a hash is to find out, and binding the published
@@ -683,6 +731,16 @@ const handlerAppRequired = (): HttpError =>
 const handleOwnerOnly = (): HttpError =>
     new HttpError(403, 'Only an account session may manage share handles', {
         legacyCode: 'events_kv_handle_owner_only',
+    });
+
+/**
+ * Events workers are billed to the owning account, so listing them is that
+ * account's own view of what it is paying for — an app has no surface of its
+ * own here, the same posture `handleOwnerOnly` takes for kv share handles.
+ */
+const eventsWorkerOwnerOnly = (): HttpError =>
+    new HttpError(403, 'Only an account session may list its events workers', {
+        legacyCode: 'events_worker_owner_only',
     });
 
 /**
@@ -1658,7 +1716,10 @@ export class EventsService extends PuterService {
     ): Promise<PublishedHandlerView> {
         await this.#spendHandlerBudget(actor);
         const appUid = await this.#handlerApp(actor, request?.appUid);
-        return this.#publishOne(appUid, request);
+        const before = await this.stores.eventHandler.countForApp(appUid);
+        const result = await this.#publishOne(appUid, request);
+        await this.#maybeAnnounceWorkerCreate(appUid, before);
+        return result;
     }
 
     /**
@@ -1685,16 +1746,27 @@ export class EventsService extends PuterService {
                 'bad_request',
             );
 
+        const before = await this.stores.eventHandler.countForApp(appUid);
         const published: PublishedHandlerView[] = [];
-        for (const item of handlers) {
-            if (!item || typeof item !== 'object' || Array.isArray(item))
-                throw badRequest(
-                    'each handler must be an object',
-                    'bad_request',
+        try {
+            for (const item of handlers) {
+                if (!item || typeof item !== 'object' || Array.isArray(item))
+                    throw badRequest(
+                        'each handler must be an object',
+                        'bad_request',
+                    );
+                published.push(
+                    await this.#publishOne(
+                        appUid,
+                        item as PublishHandlerRequest,
+                    ),
                 );
-            published.push(
-                await this.#publishOne(appUid, item as PublishHandlerRequest),
-            );
+            }
+        } finally {
+            // A refused item stops the pass but leaves the ones before it
+            // published, and those are what stood the worker up.
+            if (published.length > 0)
+                await this.#maybeAnnounceWorkerCreate(appUid, before);
         }
         return published;
     }
@@ -1730,7 +1802,94 @@ export class EventsService extends PuterService {
 
         const removed = await this.stores.eventHandler.remove(appUid, name);
         const suspended = await this.#suspendHandlerDependents(appUid, name);
+        if (removed) await this.#maybeAnnounceWorkerDestroy(appUid);
         return { name, removed: removed !== null, suspended };
+    }
+
+    // -- Events workers ------------------------------------------------
+    //
+    // The billable artifact a published handler set implies, not the handlers
+    // themselves. Listing is account-scoped like kv handle listing — this is
+    // the owner's own view of what it is paying for, so it takes no `appUid`
+    // and, unlike the handler routes, an app cannot act on its owner's behalf
+    // here. Destroying one is scoped to an app, the same way publishing is.
+
+    /**
+     * The events workers billed to this account — one per app it owns with at
+     * least one published handler.
+     */
+    async listEventsWorkers(
+        actor: Actor,
+        request: ListEventsWorkersRequest = {},
+    ): Promise<{
+        items: EventsWorkerView[];
+        cursor?: string;
+        deployable: boolean;
+    }> {
+        if (!this.enabled) throw disabled();
+        if (actor.effectiveApp !== null) throw eventsWorkerOwnerOnly();
+        const ownerUserId = actor.user?.id;
+        if (ownerUserId === undefined) throw disabled();
+
+        const page = await this.stores.eventHandler.listEventsWorkersForOwner(
+            ownerUserId,
+            { limit: request.limit, cursor: request.cursor },
+        );
+        const items: EventsWorkerView[] = [];
+        for (const worker of page.items) {
+            const handlers = await this.stores.eventHandler.setForApp(
+                worker.appUid,
+            );
+            items.push({
+                ...worker,
+                script: eventsWorkerScript(
+                    handlerSetHash(handlers),
+                    eventsWorkerScope(this.config),
+                ),
+            });
+        }
+
+        return {
+            items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            deployable: this.config.events?.workerRuntime === true,
+        };
+    }
+
+    /**
+     * Remove every handler an app has published, in one call. Same consequences
+     * as removing each by name — dependents suspend, not delete — since it runs
+     * the same per-name removal, just for the whole set.
+     */
+    async destroyEventsWorker(
+        actor: Actor,
+        request: DestroyEventsWorkerRequest,
+    ): Promise<DestroyedEventsWorkerView> {
+        await this.#spendHandlerBudget(actor);
+        const appUid = await this.#handlerApp(actor, request?.appUid);
+
+        const names = (await this.stores.eventHandler.listForApp(appUid)).map(
+            (handler) => handler.name,
+        );
+        if (names.length === 0) throw noEventsWorker(appUid);
+
+        let removed = 0;
+        let suspended = 0;
+        try {
+            for (const name of names) {
+                const droppedRow = await this.stores.eventHandler.remove(
+                    appUid,
+                    name,
+                );
+                if (droppedRow) removed += 1;
+                suspended += await this.#suspendHandlerDependents(appUid, name);
+            }
+        } finally {
+            // A pass that stops partway may still have taken the last handler
+            // with it, and the announce is what a rent listener stops on.
+            if (removed > 0) await this.#maybeAnnounceWorkerDestroy(appUid);
+        }
+        return { appUid, removed, suspended };
     }
 
     // -- Cross-user key-value handles --------------------------------
@@ -2309,10 +2468,14 @@ export class EventsService extends PuterService {
         appUid: string,
         item: PublishHandlerRequest,
     ): Promise<PublishedHandlerView> {
+        const name = String(item?.name ?? '');
+        const source = typeof item?.source === 'string' ? item.source : '';
+        await this.#assertHandlerSetSize(appUid, name, source);
+
         const { handler, outcome } = await this.stores.eventHandler.publish({
             appUid,
-            name: String(item?.name ?? ''),
-            source: typeof item?.source === 'string' ? item.source : '',
+            name,
+            source,
             ifHash: typeof item?.ifHash === 'string' ? item.ifHash : null,
             replace: item?.replace === true,
         });
@@ -2324,6 +2487,94 @@ export class EventsService extends PuterService {
             outcome,
             resumed: await this.#resumeHandlerDependents(appUid, handler.name),
         };
+    }
+
+    /**
+     * Refuse a publish that would push the app's events worker — every
+     * handler's source, baked into one file — over the size cap. The name being
+     * published may already have a row; its current bytes are backed out of the
+     * total since this publish replaces them rather than adding to them.
+     */
+    async #assertHandlerSetSize(
+        appUid: string,
+        name: string,
+        source: string,
+    ): Promise<void> {
+        const [totalBytes, existing] = await Promise.all([
+            this.stores.eventHandler.totalSourceBytesForApp(appUid),
+            this.stores.eventHandler.getByName(appUid, name),
+        ]);
+        const existingBytes = existing
+            ? Buffer.byteLength(existing.source, 'utf8')
+            : 0;
+        const projected =
+            totalBytes - existingBytes + Buffer.byteLength(source, 'utf8');
+        if (projected > EVENTS_WORKER_SOURCE_MAX_BYTES)
+            throw eventsWorkerTooLarge();
+    }
+
+    /**
+     * Announce `events.worker.create` when this request just took the app from
+     * zero published handlers to one or more. `before` is read at the start of
+     * the request and compared against a fresh count now — a publish racing
+     * against another one for the same app can double-announce or (rarely) miss
+     * the transition, which is accepted rather than adding a lock around
+     * something a listener idempotently prices anyway.
+     */
+    async #maybeAnnounceWorkerCreate(
+        appUid: string,
+        before: number,
+    ): Promise<void> {
+        if (before > 0) return;
+        await this.#emitWorkerLifecycle('events.worker.create', appUid);
+    }
+
+    /**
+     * The other half of {@link #maybeAnnounceWorkerCreate}, for a 1→0
+     * transition.
+     */
+    async #maybeAnnounceWorkerDestroy(appUid: string): Promise<void> {
+        await this.#emitWorkerLifecycle('events.worker.destroy', appUid);
+    }
+
+    /**
+     * Emitted after the row write that triggered it has committed, and awaited
+     * — so a rent listener has settled before the caller is told the publish or
+     * removal succeeded. The actor carries the app's _owner_, not the caller: a
+     * developer session publishing for an app it owns is the common case, but
+     * billing follows ownership, resolved fresh through the user store rather
+     * than assumed from the request.
+     *
+     * Never throws: this runs on the way out of a write, including one that is
+     * itself failing, so nothing here may be what the caller sees.
+     */
+    async #emitWorkerLifecycle(
+        name: 'events.worker.create' | 'events.worker.destroy',
+        appUid: string,
+    ): Promise<void> {
+        try {
+            // Only a count now on the far side of the transition is one: a
+            // `create` needs a handler standing, a `destroy` needs none.
+            const count = await this.stores.eventHandler.countForApp(appUid);
+            if (name === 'events.worker.create' ? count === 0 : count > 0)
+                return;
+
+            const app = await this.stores.app.getByUid(appUid);
+            const ownerUserId = Number(
+                (app as { owner_user_id?: unknown } | null)?.owner_user_id,
+            );
+            if (!Number.isFinite(ownerUserId) || ownerUserId <= 0) return;
+            const owner = await this.stores.user.getById(ownerUserId);
+            if (!owner) return;
+
+            await this.clients.event.emitAndWait(
+                name,
+                { actor: makeActor({ user: owner }), appUid },
+                {},
+            );
+        } catch (err) {
+            console.warn(`[events] ${name} was not announced`, appUid, err);
+        }
     }
 
     /**
@@ -3990,7 +4241,21 @@ export class EventsService extends PuterService {
         const set = await this.stores.eventHandler.setForApp(appUid);
         if (set.length === 0) return null;
 
-        const script = eventsWorkerScript(handlerSetHash(set));
+        // A gone or suspended owner is nobody to deploy or bill this as, so
+        // there is nothing to address — retriable rather than a kill switch,
+        // the same posture `no-owner` takes on the deploy side.
+        const app = await this.stores.app.getByUid(appUid);
+        const ownerUserId = Number(
+            (app as { owner_user_id?: unknown } | null)?.owner_user_id,
+        );
+        if (!app || !Number.isFinite(ownerUserId)) return null;
+        const owner = await this.stores.user.getById(ownerUserId);
+        if (!owner || owner.suspended) return null;
+
+        const script = eventsWorkerScript(
+            handlerSetHash(set),
+            eventsWorkerScope(this.config),
+        );
         return { script, key: eventsInvokeKey(secret, script) };
     }
 

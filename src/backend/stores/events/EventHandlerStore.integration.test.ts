@@ -36,6 +36,8 @@ const BOOT_TIMEOUT_MS = 120_000;
 let env: PuterTestEnv;
 let appUid: string;
 let otherAppUid: string;
+let ownerUserId: number;
+let otherOwnerUserId: number;
 
 const handlers = () => env.server.stores.eventHandler;
 
@@ -45,10 +47,29 @@ const OTHER_SOURCE = 'async ({ event, ctx }) => { console.log(ctx.url); }';
 const codeOf = (code: string) => (err: unknown) =>
     isHttpError(err) && err.legacyCode === code;
 
+/** A minimal `apps` row, owned by `ownerUserId`, for the events-workers reads to join against. */
+const makeApp = async (owner: number): Promise<string> => {
+    const uid = `app-${uuidv4()}`;
+    await env.server.clients.db.write(
+        'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+        [uid, uid, uid, `https://${uid}.example/`, owner],
+    );
+    return uid;
+};
+
 beforeAll(async () => {
     env = await setupPuterTestEnv({ events: { enabled: true } } as IConfig);
     appUid = `app-${uuidv4()}`;
     otherAppUid = `app-${uuidv4()}`;
+
+    const user = await env.server.stores.user.getByUsername(
+        env.users.user.username,
+    );
+    ownerUserId = user!.id;
+    const other = await env.server.stores.user.getByUsername(
+        env.users.other.username,
+    );
+    otherOwnerUserId = other!.id;
 }, BOOT_TIMEOUT_MS);
 
 afterAll(async () => {
@@ -58,6 +79,7 @@ afterAll(async () => {
 beforeEach(async () => {
     await env.server.clients.db.write('DELETE FROM `event_handlers`', []);
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
+    await env.server.clients.db.write('DELETE FROM `apps`', []);
 });
 
 describe('publishing a handler', () => {
@@ -347,5 +369,180 @@ describe('removing a handler', () => {
 
     it('answers null for a name the app never published', async () => {
         await expect(handlers().remove(appUid, 'nothing')).resolves.toBeNull();
+    });
+});
+
+describe('totalSourceBytesForApp', () => {
+    it('is zero for an app with nothing published', async () => {
+        expect(await handlers().totalSourceBytesForApp(appUid)).toBe(0);
+    });
+
+    it('sums every handler`s source, and only that app`s', async () => {
+        await handlers().publish({ appUid, name: 'a', source: SOURCE });
+        await handlers().publish({ appUid, name: 'b', source: OTHER_SOURCE });
+        await handlers().publish({
+            appUid: otherAppUid,
+            name: 'a',
+            source: SOURCE,
+        });
+
+        expect(await handlers().totalSourceBytesForApp(appUid)).toBe(
+            Buffer.byteLength(SOURCE, 'utf8') +
+                Buffer.byteLength(OTHER_SOURCE, 'utf8'),
+        );
+        expect(await handlers().totalSourceBytesForApp(otherAppUid)).toBe(
+            Buffer.byteLength(SOURCE, 'utf8'),
+        );
+    });
+
+    it('drops back down once a handler is removed', async () => {
+        await handlers().publish({ appUid, name: 'a', source: SOURCE });
+        await handlers().remove(appUid, 'a');
+        expect(await handlers().totalSourceBytesForApp(appUid)).toBe(0);
+    });
+
+    it('counts bytes, not characters, for multibyte source', async () => {
+        const source = 'async () => { console.log("日本語 — ✨"); }';
+        await handlers().publish({ appUid, name: 'a', source });
+
+        expect(await handlers().totalSourceBytesForApp(appUid)).toBe(
+            Buffer.byteLength(source, 'utf8'),
+        );
+        expect(Buffer.byteLength(source, 'utf8')).toBeGreaterThan(
+            source.length,
+        );
+    });
+});
+
+describe('counting an owner`s apps with published handlers', () => {
+    it('is zero for an owner with nothing published', async () => {
+        await makeApp(ownerUserId);
+        expect(
+            await handlers().countAppsWithHandlersForOwner(ownerUserId),
+        ).toBe(0);
+    });
+
+    it('counts distinct apps, not handlers', async () => {
+        const uid = await makeApp(ownerUserId);
+        await handlers().publish({ appUid: uid, name: 'a', source: SOURCE });
+        await handlers().publish({ appUid: uid, name: 'b', source: SOURCE });
+
+        expect(
+            await handlers().countAppsWithHandlersForOwner(ownerUserId),
+        ).toBe(1);
+    });
+
+    it('scopes to the owner, not other accounts` apps', async () => {
+        const mine = await makeApp(ownerUserId);
+        const theirs = await makeApp(otherOwnerUserId);
+        await handlers().publish({ appUid: mine, name: 'a', source: SOURCE });
+        await handlers().publish({ appUid: theirs, name: 'a', source: SOURCE });
+
+        expect(
+            await handlers().countAppsWithHandlersForOwner(ownerUserId),
+        ).toBe(1);
+        expect(
+            await handlers().countAppsWithHandlersForOwner(otherOwnerUserId),
+        ).toBe(1);
+    });
+
+    it('with createdBefore, counts only apps whose earliest handler predates it', async () => {
+        const early = await makeApp(ownerUserId);
+        await handlers().publish({ appUid: early, name: 'a', source: SOURCE });
+
+        // `created_at` is unix seconds, so the cutoff and the later publish
+        // each need a full second of clearance to land in a different bucket.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        const cutoff = Date.now();
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+
+        const late = await makeApp(ownerUserId);
+        await handlers().publish({ appUid: late, name: 'a', source: SOURCE });
+
+        expect(
+            await handlers().countAppsWithHandlersForOwner(ownerUserId, {
+                createdBefore: cutoff,
+            }),
+        ).toBe(1);
+        expect(
+            await handlers().countAppsWithHandlersForOwner(ownerUserId),
+        ).toBe(2);
+    });
+
+    it('reads createdBefore as an exact millisecond boundary', async () => {
+        const uid = await makeApp(ownerUserId);
+        await handlers().publish({ appUid: uid, name: 'a', source: SOURCE });
+        const [row] = await env.server.clients.db.read(
+            'SELECT `created_at` FROM `event_handlers` WHERE `app_uid` = ?',
+            [uid],
+        );
+        const createdAtMs = Number(row.created_at) * 1000;
+
+        const count = (createdBefore: number) =>
+            handlers().countAppsWithHandlersForOwner(ownerUserId, {
+                createdBefore,
+            });
+
+        // Strictly before: the instant the handler was created is not before
+        // itself, and one millisecond past it is.
+        await expect(count(createdAtMs)).resolves.toBe(0);
+        await expect(count(createdAtMs + 1)).resolves.toBe(1);
+        await expect(count(createdAtMs + 999)).resolves.toBe(1);
+    });
+});
+
+describe('listing an owner`s events workers', () => {
+    it('reports one row per app, with its handler count and app details', async () => {
+        const uid = await makeApp(ownerUserId);
+        await handlers().publish({ appUid: uid, name: 'a', source: SOURCE });
+        await handlers().publish({ appUid: uid, name: 'b', source: OTHER_SOURCE });
+
+        const page = await handlers().listEventsWorkersForOwner(ownerUserId);
+
+        expect(page.items).toEqual([
+            expect.objectContaining({
+                appUid: uid,
+                appName: uid,
+                appTitle: uid,
+                handlerCount: 2,
+            }),
+        ]);
+        expect(page.cursor).toBeUndefined();
+    });
+
+    it('never lists an app that is not this owner`s', async () => {
+        const theirs = await makeApp(otherOwnerUserId);
+        await handlers().publish({ appUid: theirs, name: 'a', source: SOURCE });
+
+        const page = await handlers().listEventsWorkersForOwner(ownerUserId);
+        expect(page.items).toEqual([]);
+    });
+
+    it('paginates with a cursor, keyset on app_uid', async () => {
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) {
+            const uid = await makeApp(ownerUserId);
+            await handlers().publish({ appUid: uid, name: 'a', source: SOURCE });
+            uids.push(uid);
+        }
+
+        const first = await handlers().listEventsWorkersForOwner(ownerUserId, {
+            limit: 2,
+        });
+        expect(first.items).toHaveLength(2);
+        expect(first.cursor).toBeDefined();
+
+        const second = await handlers().listEventsWorkersForOwner(ownerUserId, {
+            limit: 2,
+            cursor: first.cursor,
+        });
+        expect(second.items).toHaveLength(1);
+        expect(second.cursor).toBeUndefined();
+
+        expect(
+            [...first.items, ...second.items]
+                .map((row) => row.appUid)
+                .sort(),
+        ).toEqual([...uids].sort());
     });
 });
