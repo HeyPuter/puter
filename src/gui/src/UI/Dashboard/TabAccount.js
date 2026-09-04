@@ -23,6 +23,7 @@ import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
 import UIWindowConfirmUserDeletion from '../Settings/UIWindowConfirmUserDeletion.js';
 import UIWindowCopyToken from '../UIWindowCopyToken.js';
 import UIWindow from '../UIWindow.js';
+import UIProfilePictureCropModal from './UIProfilePictureCropModal.js';
 
 const TabAccount = {
     id: 'account',
@@ -226,32 +227,20 @@ const TabAccount = {
                 stay_on_top: true,
             });
         });
-        $el_window.on('file_opened', async function (e) {
-            let selected_file = Array.isArray(e.detail) ? e.detail[0] : e.detail;
-            // set profile picture
-            const profile_pic = await puter.fs.read(selected_file.path);
-            // blob to base64
-            const reader = new FileReader();
-            reader.readAsDataURL(profile_pic);
-            reader.onloadend = function () {
-                // resizes the image to 150x150
-                const img = new Image();
-                img.src = reader.result;
-                img.onload = function () {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = 150;
-                    canvas.height = 150;
-                    ctx.drawImage(img, 0, 0, 150, 150);
-                    const base64data = canvas.toDataURL('image/png');
+        $el_window.on('file_opened', function (e) {
+            const selectedFile = Array.isArray(e.detail) ? e.detail[0] : e.detail;
+            // Let the user frame the photo before it becomes the avatar.
+            UIProfilePictureCropModal({
+                picture: puter.fs.read(selectedFile.path),
+                $container: $el_window,
+                onSave: (dataUrl) => {
                     // update profile picture everywhere (matches helpers.js session refresh)
-                    $('.profile-pic').css('background-image', `url(${ html_encode(base64data) })`);
-                    $('.profile-image').css('background-image', `url(${ html_encode(base64data) })`);
+                    $('.profile-pic').css('background-image', `url(${ html_encode(dataUrl) })`);
+                    $('.profile-image').css('background-image', `url(${ html_encode(dataUrl) })`);
                     $('.profile-image').addClass('profile-image-has-picture');
-                    // update profile picture
-                    update_profile(window.user.username, { picture: base64data });
-                };
-            };
+                    update_profile(window.user.username, { picture: dataUrl });
+                },
+            });
         });
     },
 };
