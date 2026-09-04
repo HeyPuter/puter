@@ -78,6 +78,9 @@ const CAP_LOCK_TTL_SECONDS = 10;
 export const AUDIT_RESET_PASSWORD = 'reset_member_password';
 export const AUDIT_ACTIVATE = 'activate';
 
+/** Written before the row it names goes; `_keep` is what preserves it. */
+export const AUDIT_DELETE_ACCOUNT = 'delete_account';
+
 /** Not an audit row: synthesised from `sessions` for the member's own view. */
 export const SIGN_IN_ACTION = 'sign_in';
 
@@ -984,6 +987,38 @@ export class TeamService extends PuterService {
             username: user.username,
             held_bytes: await this.#heldBytes(targetUserId),
         });
+    }
+
+    /** Disable is the reversible step in front of the irreversible one. */
+    async deleteMember(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        await this.requireOrgAccount(teamUid, targetUserId);
+
+        // Forced, as `enableMember` is: a cached row predates the disable.
+        const user = await this.stores.user.getByProperty('id', targetUserId, {
+            force: true,
+        });
+        if (!user?.suspended) {
+            throw new HttpError(409, 'Disable the account before deleting it', {
+                legacyCode: 'account_must_be_disabled_first',
+            });
+        }
+
+        // Written first; `_keep` is what makes it outlive the account.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_DELETE_ACCOUNT,
+        });
+
+        // `cascadeDelete` emits `team.account.deleted` itself; a second emit
+        // here would close the storage charge twice.
+        await this.services.userAccount.cascadeDelete(targetUserId);
     }
 
     /** The three columns together; `suspended` is the one that gates requests. */
