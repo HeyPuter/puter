@@ -1,6 +1,6 @@
 ---
 title: puter.fs.mkdir()
-description: Create directories in Puter file system.
+description: Create directories in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 

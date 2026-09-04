@@ -1,6 +1,6 @@
 ---
 title: puter.kv.list()
-description: Retrieve all keys from your app's key-value store.
+description: Retrieve all keys from the user's own key-value store for your app.
 platforms: [websites, apps, nodejs, workers]
 ---
 

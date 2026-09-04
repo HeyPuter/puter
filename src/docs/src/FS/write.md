@@ -1,6 +1,6 @@
 ---
 title: puter.fs.write()
-description: Write data to files in Puter file system.
+description: Write data to files in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 

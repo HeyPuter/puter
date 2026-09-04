@@ -1,6 +1,6 @@
 ---
 title: puter.kv.add()
-description: Add values to an existing key or nested path.
+description: Add values to an existing key or nested path in the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: router
-description: Handle HTTP requests with the router object with Puter Serverless Workers.
+description: Handle HTTP requests in a worker with the router object, reading and writing the worker owner's shared KV and storage.
 platforms: [workers]
 ---
 

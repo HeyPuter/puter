@@ -1,6 +1,6 @@
 ---
 title: Serverless Workers
-description: Run and manage serverless JavaScript functions in the cloud.
+description: Run server-side JavaScript in the cloud. Use workers when your app needs a backend, so all users read and write the same database, storage, and other resources.
 ---
 
 Serverless Workers are serverless functions that run JavaScript code in the cloud.

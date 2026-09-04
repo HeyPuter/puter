@@ -1,6 +1,6 @@
 ---
 title: puter.fs.getReadURL()
-description: Generate a temporary URL to read a file in Puter file system.
+description: Generate a temporary URL that lets anyone read one file from the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 

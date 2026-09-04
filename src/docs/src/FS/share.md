@@ -1,6 +1,6 @@
 ---
 title: puter.fs.share()
-description: Give another Puter user access to a file or directory.
+description: Give another Puter user access to a file or directory in your own storage.
 platforms: [websites, apps, nodejs, workers]
 ---
 

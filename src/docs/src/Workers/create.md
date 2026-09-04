@@ -1,6 +1,6 @@
 ---
 title: puter.workers.create()
-description: Create and deploy workers from JavaScript files.
+description: Create and deploy a worker from a JavaScript file, giving your app one shared server-side backend.
 platforms: [websites, apps, nodejs, workers]
 ---
 

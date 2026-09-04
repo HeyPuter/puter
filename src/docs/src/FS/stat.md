@@ -1,6 +1,6 @@
 ---
 title: puter.fs.stat()
-description: Get file or directory information in Puter file system.
+description: Get file or directory information in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 

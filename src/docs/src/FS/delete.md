@@ -1,6 +1,6 @@
 ---
 title: puter.fs.delete()
-description: Deletes a file or directory in Puter file system.
+description: Deletes a file or directory in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 
