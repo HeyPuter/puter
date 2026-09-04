@@ -1,6 +1,6 @@
 ---
 title: puter.kv.remove()
-description: Remove values at one or more paths from a key.
+description: Remove values at one or more paths from a key in the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 

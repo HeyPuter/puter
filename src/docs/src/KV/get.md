@@ -1,6 +1,6 @@
 ---
 title: puter.kv.get()
-description: Get the value stored in a key from key-value store.
+description: Get the value stored in a key from the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 

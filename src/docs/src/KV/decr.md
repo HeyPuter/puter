@@ -1,6 +1,6 @@
 ---
 title: puter.kv.decr()
-description: Decrement numeric values in key-value store by a specified amount.
+description: Decrement numeric values in the user's own key-value store by a specified amount.
 platforms: [websites, apps, nodejs, workers]
 ---
 

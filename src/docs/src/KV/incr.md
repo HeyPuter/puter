@@ -1,6 +1,6 @@
 ---
 title: puter.kv.incr()
-description: Increment values in key-value store by a specified amount.
+description: Increment values in the user's own key-value store by a specified amount.
 platforms: [websites, apps, nodejs, workers]
 ---
 

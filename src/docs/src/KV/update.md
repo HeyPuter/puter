@@ -1,6 +1,6 @@
 ---
 title: puter.kv.update()
-description: Update one or more paths within a stored value.
+description: Update one or more paths within a stored value in the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 

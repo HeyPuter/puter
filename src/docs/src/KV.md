@@ -1,6 +1,6 @@
 ---
 title: Key-Value Store
-description: Store and retrieve data using key-value pairs in the cloud.
+description: Store and retrieve data using key-value pairs in the user's own cloud store.
 ---
 
 The Key-Value Store API lets you store and retrieve data using key-value pairs in the cloud.
