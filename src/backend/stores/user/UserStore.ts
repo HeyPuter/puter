@@ -67,6 +67,18 @@ export interface UserRow {
     /** True while the account must complete credit-card verification before use. */
     requires_card_verification?: boolean;
     /**
+     * 1 while the account still holds a password its team administrator
+     * issued; enforced by `assertVerifiedAccount` and cleared only by the
+     * account choosing its own. Unlike the other `requires_*` flags this is a
+     * numeric column on every dialect, so it is not normalized to a boolean.
+     */
+    requires_password_change?: number;
+    /**
+     * Unix seconds after which the administrator-issued password stops
+     * authenticating. Null for every password the account chose itself.
+     */
+    temp_password_expires_at?: number | string | null;
+    /**
      * Payment-provider fingerprint of the card this account verified with —
      * stable per card, written only on a successful check. Its presence is what
      * "this account verified a card" reads off; null for accounts that never

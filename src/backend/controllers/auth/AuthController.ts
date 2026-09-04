@@ -69,6 +69,7 @@ import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
+import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
     generateDefaultFsentries,
@@ -457,6 +458,15 @@ export class AuthController extends PuterController {
             throw new HttpError(401, 'Incorrect password.', {
                 legacyCode: 'password_mismatch',
             });
+        }
+        // An administrator-issued temporary password that was never used dies
+        // rather than becoming a standing credential the team holds.
+        if (isTemporaryPasswordExpired(user)) {
+            throw new HttpError(
+                401,
+                'This temporary password has expired. Ask your team administrator for a new one.',
+                { legacyCode: 'temporary_password_expired' },
+            );
         }
 
         const reauthAuthId = this.#extractAuthIdFromReauthToken(
@@ -2420,7 +2430,8 @@ export class AuthController extends PuterController {
         let result;
         try {
             result = await this.clients.db.write(
-                'UPDATE `user` SET `password` = ?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ? AND `pass_recovery_token` = ?',
+                'UPDATE `user` SET `password` = ?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL, ' +
+                    '`requires_password_change` = 0, `temp_password_expires_at` = NULL WHERE `id` = ? AND `pass_recovery_token` = ?',
                 [password_hash, user.id, decoded.token],
             );
         } catch (e) {
@@ -2448,6 +2459,13 @@ export class AuthController extends PuterController {
             });
         }
         await this.stores.user.invalidateById(user.id);
+        // Best effort: the password is already committed, and an audit write
+        // must not skip the eviction below.
+        await this.services.team
+            .recordPasswordSelfChange(user.id as number)
+            .catch((err: unknown) => {
+                console.warn('[team] password self-change audit failed:', err);
+            });
 
         // A password reset is the "I think someone else has access" flow —
         // evict every interactive session so a hijacked one doesn't survive.
@@ -2485,11 +2503,20 @@ export class AuthController extends PuterController {
         const user = req.userProtected!.user;
 
         const password_hash = await bcrypt.hash(new_pass, 8);
+        // Clearing the forced-change gate is what lets a team seat back
+        // in; nothing else writes these two columns to their cleared state.
         await this.stores.user.update(user.id, {
             password: password_hash,
             pass_recovery_token: null,
             change_email_confirm_token: null,
+            requires_password_change: 0,
+            temp_password_expires_at: null,
         });
+        await this.services.team
+            .recordPasswordSelfChange(user.id)
+            .catch((err: unknown) => {
+                console.warn('[team] password self-change audit failed:', err);
+            });
 
         // Sign out every other web session (cascading to their derived
         // rows); only the session that changed the password survives.
@@ -4264,6 +4291,9 @@ export class AuthController extends PuterController {
             '/user-protected/change-password',
             {
                 requireUserActor: true,
+                // The forced-change gate refuses everything else, so this is
+                // the one route an account owing a password change may reach.
+                allowUnconfirmed: true,
                 rateLimit: {
                     scope: 'passwd',
                     limit: 10,

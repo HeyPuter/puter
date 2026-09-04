@@ -40,6 +40,17 @@ const TEAM_LIMIT = [
     },
 ];
 
+/** Tighter than TEAM_LIMIT: a reset hands the admin a working credential. */
+const TEAM_RESET_LIMIT = [
+    ...TEAM_LIMIT,
+    {
+        scope: 'team:reset-password',
+        limit: 20,
+        window: 24 * 60 * 60_000,
+        key: 'user' as const,
+    },
+];
+
 const TEAM_READ_LIMIT = {
     scope: 'team:read',
     limit: 600,
@@ -215,11 +226,13 @@ export class TeamController extends PuterController {
         });
     }
 
+    // Same budget as a reset: both hand the administrator a working credential,
+    // and a reset re-arms the flag this route needs.
     @Post('/:uid/members/:username/activation', {
         subdomain: 'api',
         requireUserActor: true,
         requireVerified: true,
-        rateLimit: TEAM_LIMIT,
+        rateLimit: TEAM_RESET_LIMIT,
     })
     async reissueCredential(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
@@ -231,6 +244,25 @@ export class TeamController extends PuterController {
         const { temporaryPassword } =
             await this.services.team.reissueCredential(uid, userId, target);
         // Shown once for the admin to deliver out of band.
+        res.json({ temporary_password: temporaryPassword });
+    }
+
+    @Post('/:uid/members/:username/password-reset', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: TEAM_RESET_LIMIT,
+    })
+    async resetMemberPassword(req: Request, res: Response): Promise<void> {
+        const userId = this.#requireUserId(req);
+        const uid = this.#param(req, 'uid');
+        // Authority first, or resolving `:username` is an existence oracle.
+        await this.services.team.requireOwner(uid, userId);
+        const target = await this.#requireTargetUserId(req);
+
+        const { temporaryPassword } =
+            await this.services.team.resetMemberPassword(uid, userId, target);
+        // Shown once; it is not retrievable afterwards.
         res.json({ temporary_password: temporaryPassword });
     }
 
