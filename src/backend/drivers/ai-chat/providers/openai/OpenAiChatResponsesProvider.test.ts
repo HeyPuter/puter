@@ -161,12 +161,35 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
         expect(provider.getDefaultModel()).toBe('gpt-5-nano');
     });
 
-    it('models() with default args exposes only responses_api_only entries', () => {
+    it('exposes GPT-6 Astra with its API metadata and pricing', () => {
+        const { provider } = makeProvider();
+        const astra = provider.models().find((m) => m.id === 'gpt-6-astra');
+
+        expect(astra).toMatchObject({
+            puterId: 'openai:openai/gpt-6-astra',
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            knowledge: '2026-04-30',
+            release_date: '2026-09-04',
+            aliases: ['openai/gpt-6-astra'],
+            costs_currency: 'usd-cents',
+            costs: {
+                tokens: 1_000_000,
+                prompt_tokens: 1000,
+                cached_tokens: 100,
+                completion_tokens: 5000,
+            },
+            context: 1_050_000,
+            max_tokens: 128_000,
+            responses_api: true,
+        });
+        expect(astra).not.toHaveProperty('responses_api_only');
+    });
+
+    it('models() exposes Responses-only and dual-API entries', () => {
         const { provider } = makeProvider();
         const ids = provider.models().map((m: { id: string }) => m.id);
-        // Sanity: a known responses_api_only model is included.
         expect(ids).toContain('o3-pro');
-        // And a known Chat-Completions-only model is excluded.
+        expect(ids).toContain('gpt-6-astra');
         expect(ids).not.toContain('gpt-5-nano-2025-08-07');
     });
 
@@ -180,11 +203,13 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
         expect(ids).toContain('gpt-5-nano-2025-08-07');
     });
 
-    it('list() flattens canonical ids and aliases for responses-only models', () => {
+    it('list() flattens canonical ids and aliases for Responses models', () => {
         const { provider } = makeProvider();
         const ids = provider.list();
         expect(ids).toContain('o3-pro');
         expect(ids).toContain('openai/o3-pro');
+        expect(ids).toContain('gpt-6-astra');
+        expect(ids).toContain('openai/gpt-6-astra');
     });
 });
 
@@ -345,6 +370,28 @@ describe('OpenAiResponsesChatProvider model resolution', () => {
         output_text: 'ok',
         usage: { input_tokens: 1, output_tokens: 1 },
     };
+
+    it('resolves the namespaced GPT-6 Astra alias', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'openai/gpt-6-astra',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(responsesCreateMock.mock.calls[0]![0].model).toBe(
+            'gpt-6-astra',
+        );
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            'openai:gpt-6-astra',
+            expect.any(Object),
+        );
+    });
 
     it('resolves an alias to its canonical id (across the entire model catalog)', async () => {
         const { provider } = makeProvider();
