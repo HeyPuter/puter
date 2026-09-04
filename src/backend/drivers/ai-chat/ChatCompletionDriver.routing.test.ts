@@ -47,6 +47,7 @@ import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import {
     clearUnhealthyRoutes,
+    isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
 
@@ -417,6 +418,31 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         );
 
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
+    });
+
+    it('marks a route only for failures that indict the route, not the request', async () => {
+        const complete = () =>
+            withTestActor(() =>
+                driver.complete({
+                    model: 'deepseek-v4-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ).catch(() => undefined);
+
+        // A 400 is the upstream judging this prompt; the next caller's may
+        // be fine, so the route stays in rotation.
+        createMock.mockRejectedValue(
+            Object.assign(new Error('invalid request'), { status: 400 }),
+        );
+        await complete();
+        expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(false);
+
+        // A 503 says the route itself is down and is remembered.
+        createMock.mockRejectedValue(
+            Object.assign(new Error('service unavailable'), { status: 503 }),
+        );
+        await complete();
+        expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
     });
 });
 

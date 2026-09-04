@@ -286,7 +286,7 @@ export class PuterAIController extends PuterController {
                     legacyCode: 'internal_error',
                 });
             const models = await driver.list();
-            const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
+            const HIDDEN = ['costly', 'fake', 'abuse'];
             res.json({
                 models: models?.filter((m) => !HIDDEN.includes(m)),
             });
@@ -301,7 +301,7 @@ export class PuterAIController extends PuterController {
                     legacyCode: 'internal_error',
                 });
             const models = await driver.models();
-            const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
+            const HIDDEN = ['costly', 'fake', 'abuse'];
             res.json({
                 models: models?.filter((m) => !HIDDEN.includes(m.id)),
             });
@@ -341,9 +341,12 @@ export class PuterAIController extends PuterController {
                 ? { temperature: Number(body.temperature) }
                 : {}),
             ...(finiteMaxTokens(body.max_tokens) ?? {}),
+            // Only an explicit provider pins the route. Left unset, the
+            // driver picks the preferred healthy provider for the model, as
+            // it does for puter.js callers.
             ...(body.provider
                 ? { provider: toStringOrEmpty(body.provider) }
-                : { provider: DEFAULTS.openaiChat }),
+                : {}),
         };
 
         const result = await this.#driver().complete(completeArgs);
@@ -501,7 +504,7 @@ export class PuterAIController extends PuterController {
             ...(finiteMaxTokens(body.max_tokens) ?? {}),
             ...(body.provider
                 ? { provider: toStringOrEmpty(body.provider) }
-                : { provider: DEFAULTS.openaiCompletion }),
+                : {}),
         };
 
         const completionId = `cmpl-${randomId()}`;
@@ -589,8 +592,7 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                | Record<string, unknown>
-                                | undefined
+                                Record<string, unknown> | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -1200,8 +1202,6 @@ export class PuterAIController extends PuterController {
 // -- Shared helpers --------------------------------------------------
 
 const DEFAULTS = {
-    openaiChat: 'openai-completion',
-    openaiCompletion: 'openai-completion',
     openaiResponses: 'openai-responses',
     anthropic: 'claude',
 } as const;

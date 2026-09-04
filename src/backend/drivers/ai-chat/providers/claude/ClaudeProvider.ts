@@ -403,14 +403,30 @@ export class ClaudeProvider implements IChatProvider {
         };
 
         if (stream) {
+            const completion = usesBeta
+                ? this.anthropic.beta.messages.stream(sdkParams)
+                : this.anthropic.messages.stream(sdkParams);
+            // Subscribed before the request is awaited: the SDK only queues
+            // events for iterators that already exist.
+            const events = completion[Symbol.asyncIterator]();
+
+            // The driver's fallback loop only sees what this method throws.
+            // Wait for the upstream to accept the request before handing back
+            // a populator: once that is returned the client already holds a
+            // 200, and an overloaded or rate-limited route would surface as
+            // an error frame instead of being retried elsewhere.
+            try {
+                await completion.withResponse();
+            } catch (e) {
+                await cleanupUploads();
+                throw e;
+            }
+
             const init_chat_stream = async ({
                 chatStream,
             }: {
                 chatStream: AIChatStream;
             }) => {
-                const completion = usesBeta
-                    ? this.anthropic.beta.messages.stream(sdkParams)
-                    : this.anthropic.messages.stream(sdkParams);
                 const usageSum: Record<string, number> = {};
 
                 let message, contentBlock;
@@ -425,7 +441,9 @@ export class ClaudeProvider implements IChatProvider {
                     buffer: string;
                 } | null = null;
                 let emittedCompaction = false;
-                for await (const event of completion) {
+                for await (const event of {
+                    [Symbol.asyncIterator]: () => events,
+                }) {
                     if (event.type === 'message_delta') {
                         const meteredData = this.#usageFormatterUtil(
                             (event?.usage ?? {}) as Usage | BetaUsage,

@@ -122,11 +122,13 @@ const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
 
 const makeStreamLike = (events: unknown[], finalUsage?: unknown) => {
     // Anthropic's `messages.stream(...)` returns an object that is itself
-    // both an async iterable (the events) AND has a `.finalMessage()`
-    // promise. The provider awaits both.
+    // an async iterable (the events), has a `.withResponse()` promise that
+    // settles once the upstream accepts the request, AND has a
+    // `.finalMessage()` promise. The provider awaits all three.
     const iter = asAsyncIterable(events);
     return {
         [Symbol.asyncIterator]: iter[Symbol.asyncIterator].bind(iter),
+        withResponse: () => Promise.resolve({}),
         finalMessage: () =>
             Promise.resolve({
                 usage: finalUsage ?? { input_tokens: 0, output_tokens: 0 },
@@ -881,6 +883,29 @@ describe('ClaudeProvider.complete non-stream output', () => {
 // ── Streaming deltas ────────────────────────────────────────────────
 
 describe('ClaudeProvider.complete streaming', () => {
+    it('rejects from complete() when the upstream refuses the stream, so the driver can fall back', async () => {
+        const { provider } = makeProvider();
+        const refused = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([]),
+            withResponse: () => Promise.reject(refused),
+        });
+
+        // Thrown here, before a populator exists — a populator that failed
+        // later would already have a 200 on the wire.
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [{ role: 'user', content: 'say hi' }],
+                    stream: true,
+                }),
+            ),
+        ).rejects.toBe(refused);
+    });
+
     it('streams text_delta events as text and meters usage from message_delta + finalMessage', async () => {
         const { provider } = makeProvider();
         messagesStreamMock.mockReturnValueOnce(

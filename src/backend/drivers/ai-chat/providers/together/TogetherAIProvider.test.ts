@@ -82,8 +82,7 @@ let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
 const KV_KEY = 'togetherai:models';
 // Together's `models.list()` returns API-shaped rows; the provider
-// coerces them to IChatModel and prepends a synthetic
-// `model-fallback-test-1` row at the end. Costs (per million):
+// coerces them to IChatModel. Costs (per million):
 // Llama-3.1-8B: input=18, output=18; Qwen-7B: input=20, output=20.
 const SAMPLE_API_MODELS = [
     {
@@ -208,8 +207,6 @@ describe('TogetherAIProvider model catalog', () => {
             'togetherai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
         );
         expect(ids).toContain('Meta-Llama-3.1-8B-Instruct-Turbo');
-        // The synthetic fallback-test model is appended.
-        expect(ids).toContain('model-fallback-test-1');
     });
 
     it('reserves headroom under the context length for the output cap', async () => {
@@ -355,22 +352,6 @@ describe('TogetherAIProvider.complete request shape', () => {
         expect(createMock.mock.calls[1]![0].stream_options).toEqual({
             include_usage: true,
         });
-    });
-
-    it('throws synthetic model-fallback-test-1 BEFORE hitting the SDK', async () => {
-        const { provider } = makeProvider();
-
-        await expect(
-            withTestActor(() =>
-                provider.complete({
-                    model: 'model-fallback-test-1',
-                    messages: [{ role: 'user', content: 'hi' }],
-                }),
-            ),
-        ).rejects.toThrow(/Model Fallback Test 1/);
-
-        expect(createMock).not.toHaveBeenCalled();
-        expect(recordSpy).not.toHaveBeenCalled();
     });
 
     // Together's APIError carries the whole response body on `.error`, so the

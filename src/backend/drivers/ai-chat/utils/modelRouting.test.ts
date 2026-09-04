@@ -133,10 +133,42 @@ describe('compareModelPreference', () => {
         const long = {
             ...geminiModel('gemini-2.5-flash'),
             id: 'some-vendor/gemini-x-2025-preview',
-            provider: 'azure-openai',
+            provider: 'xai',
         };
 
         expect(winner(long, short).id).toBe('gemini-x');
+    });
+
+    it('serves Azure ahead of the vendor it fronts, whichever registered first', () => {
+        // Azure's catalog copies the vendor's prices, so cost cannot decide
+        // and the winner used to be whichever provider registered first.
+        const azure = {
+            ...geminiModel('gemini-2.5-flash'),
+            id: 'gpt-x',
+            provider: 'azure-openai',
+        };
+        const vendor = { ...azure, provider: 'openai-completion' };
+
+        expect(winner(vendor, azure).provider).toBe('azure-openai');
+        expect(winner(azure, vendor).provider).toBe('azure-openai');
+    });
+
+    it('keeps Azure first even when its copied cost table drifts higher', () => {
+        const azure = {
+            ...geminiModel('gemini-2.5-pro'),
+            id: 'gpt-x',
+            provider: 'azure-openai',
+        };
+        const vendor = {
+            ...geminiModel('gemini-2.5-flash-lite'),
+            id: 'gpt-x',
+            provider: 'openai-completion',
+        };
+        expect(azure.costs.prompt_tokens).toBeGreaterThan(
+            vendor.costs.prompt_tokens as number,
+        );
+
+        expect(winner(vendor, azure).provider).toBe('azure-openai');
     });
 
     it('leaves a reseller serving models no vendor provider carries', () => {
