@@ -365,6 +365,33 @@ as you. Choose your own password promptly.</li>
 <p>Puter</p>
         `,
     },
+    team_account_disabled: {
+        subject: 'Your {{team_name}} account has been disabled',
+        html: `
+<p>Hi there,</p>
+<p>{{team_name}} has disabled your Puter account <b>{{username}}</b>. You can no
+longer sign in to it.</p>
+<p>Nothing has been deleted. Your files, apps and data are as you left them, and
+{{team_name}} can re-enable the account at any time. If you believe this is a
+mistake, ask them.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
+    team_closed: {
+        subject: '{{team_name}} has been closed',
+        html: `
+<p>Hi there,</p>
+<p>{{team_name}} has closed its Puter team, and your account
+<b>{{username}}</b> has been disabled along with it. You can no longer sign in to
+it.</p>
+<p>Nothing has been deleted. Your files and data are still there; closing the
+team does not destroy the accounts it created, and each one would have to be
+deleted on its own request.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     team_password_reset: {
         subject: 'Your {{team_name}} account password was reset',
         html: `
