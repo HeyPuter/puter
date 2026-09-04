@@ -66,6 +66,13 @@ export interface MintKvShareHandleInput {
     permission: string;
 }
 
+export interface FindLiveKvShareHandleInput {
+    ownerUserId: number;
+    granteeUserId: number;
+    appUid: string;
+    keyPrefix: string;
+}
+
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 const asNumber = (value: unknown): number | null => {
@@ -121,6 +128,47 @@ export class KvShareHandleStore extends PuterStore {
             [ownerUserId],
         );
         return Number(row?.total ?? 0);
+    }
+
+    /**
+     * The live handle already minted over this exact region, if one exists —
+     * what makes minting the same `(grantee, appUid, keyPrefix)` twice hand
+     * back the one capability rather than a second row over the same
+     * permission.
+     */
+    async findLive(
+        input: FindLiveKvShareHandleInput,
+    ): Promise<KvShareHandle | null> {
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` WHERE ` +
+                '`owner_user_id` = ? AND `grantee_user_id` = ? AND ' +
+                '`app_uid` = ? AND `key_prefix` = ? AND `revoked_at` IS NULL ' +
+                'LIMIT 1',
+            [
+                input.ownerUserId,
+                input.granteeUserId,
+                input.appUid,
+                input.keyPrefix,
+            ],
+        );
+        return rows.length > 0 ? toRow(rows[0]) : null;
+    }
+
+    /**
+     * Every live handle this owner holds out to one grantee, across every
+     * region — what a revoke walks to find a narrower handle whose grant just
+     * died as a side effect of a wider one being withdrawn.
+     */
+    async listLiveForOwnerAndGrantee(
+        ownerUserId: number,
+        granteeUserId: number,
+    ): Promise<KvShareHandle[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` WHERE ` +
+                '`owner_user_id` = ? AND `grantee_user_id` = ? AND `revoked_at` IS NULL',
+            [ownerUserId, granteeUserId],
+        );
+        return rows.map(toRow);
     }
 
     /**

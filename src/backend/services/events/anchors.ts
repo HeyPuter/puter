@@ -104,12 +104,17 @@ export async function resolveFsAnchor(
     parsed: ParsedSubject,
     deps: FsAnchorDeps,
     actor: { username?: string },
+    rawSubject: string,
 ): Promise<ResolvedFsAnchor> {
     const { anchorRef, op, rawMatch } = parsed;
 
     if (anchorRef.kind === 'fsUid') {
         const entry = await deps.resolveNode({ uid: anchorRef.uid });
-        if (!entry) throw anchorNotFound(anchorRef.uid);
+        // The raw subject, not the bare uid: `assertSubscribeAuthorized`'s
+        // safe-404 for the same anchor reads the same way, and a mismatch
+        // here is an existence oracle in itself — whether a uid exists would
+        // leak through which message format comes back.
+        if (!entry) throw anchorNotFound(rawSubject);
         return {
             token: fsAnchorToken(entry.uid),
             uid: entry.uid,
@@ -142,10 +147,10 @@ export async function resolveFsAnchor(
         };
 
     const [nearest] = await deps.getAncestorChain(expanded);
-    if (!nearest) throw anchorNotFound(expanded);
+    if (!nearest) throw anchorNotFound(rawSubject);
 
     const remainder = relativeTo(nearest.path, expanded);
-    if (remainder === null) throw anchorNotFound(expanded);
+    if (remainder === null) throw anchorNotFound(rawSubject);
 
     return {
         token: fsAnchorToken(nearest.uid),

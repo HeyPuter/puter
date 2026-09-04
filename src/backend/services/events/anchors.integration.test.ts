@@ -65,7 +65,7 @@ describe('resolveFsAnchor against a real tree', () => {
     });
 
     const resolve = (subject: string) =>
-        resolveFsAnchor(parseSubject(subject), deps, { username });
+        resolveFsAnchor(parseSubject(subject), deps, { username }, subject);
 
     it('anchors on the deepest existing directory', async () => {
         await expect(

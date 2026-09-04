@@ -174,6 +174,10 @@ const REJECTED: Array<{ subject: string; code: string }> = [
     { subject: 'ai:gpt:write', code: 'invalid_subject' },
     { subject: 'fs:/a/b:c:write', code: 'invalid_subject' },
     { subject: 'fs:uid-*', code: 'invalid_subject' },
+    // A slash means this was meant as a path, whatever leads it — never fall
+    // through and read it as an opaque uid.
+    { subject: 'fs:  /u/a', code: 'invalid_subject' },
+    { subject: 'fs:/alice/\x01evil', code: 'invalid_subject' },
     { subject: 'fs:~backup:add', code: 'invalid_subject' },
     { subject: 'fs:~/Documents:touch', code: 'invalid_subject_op' },
     { subject: 'fs:~/Documents:WRITE', code: 'invalid_subject_op' },

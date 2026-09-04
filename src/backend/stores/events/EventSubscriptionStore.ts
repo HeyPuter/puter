@@ -142,11 +142,12 @@ export const DURABLE_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 /**
  * How long a region trusts its durable cache before reading the table again.
- * Strictly under the session TTL, because a session refresh re-expires the
- * shared keys down to that — so the marker always lapses first and a rebuild
- * always precedes a row quietly expiring out from under it.
+ * Long, because most owners have nothing durable and a real change marks the
+ * region cold itself; this only backstops a bump a region never received.
+ * Longer than the session TTL, so `#keepDurableWindow` is what holds cached
+ * rows open against a session-shortened key.
  */
-export const DURABLE_WARM_TTL_SECONDS = 30 * 60;
+export const DURABLE_WARM_TTL_SECONDS = 6 * 60 * 60;
 
 const subscriptionLimitReached = (): HttpError =>
     new HttpError(
@@ -164,15 +165,36 @@ export class EventSubscriptionStore extends PuterStore {
      *
      * Ordering is deliberate: the row lands before the token joins the watched
      * set, so dispatch never sees a token whose rows it cannot read yet.
+     *
+     * The cap is decided on the cardinality after `sadd`, rolling the member
+     * back when over — `scard` then `sadd` would let two concurrent adds both
+     * pass.
      */
     async add(sub: SessionSubscription): Promise<GenerationBump> {
         const { holderUserId, ownerUserId, socketId, token, subId } = sub;
+        const ref = socketRef({ ownerUserId, token, subId });
 
-        const held = await this.clients.redis.scard(
+        const holder = this.clients.redis.pipeline();
+        holder.sadd(socketKey(holderUserId, socketId), ref);
+        holder.expire(
             socketKey(holderUserId, socketId),
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
-        if (held >= EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET)
-            throw subscriptionLimitReached();
+        holder.scard(socketKey(holderUserId, socketId));
+        const counted = ((await holder.exec()) ?? [])[2];
+        const held = Number(counted?.[1]);
+        // A count that could not be read is not a count under the cap.
+        if (
+            counted?.[0] ||
+            !Number.isFinite(held) ||
+            held > EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET
+        ) {
+            await this.clients.redis.srem(
+                socketKey(holderUserId, socketId),
+                ref,
+            );
+            throw counted?.[0] ?? subscriptionLimitReached();
+        }
 
         const rows = this.clients.redis.pipeline();
         rows.hset(tokenKey(ownerUserId, token), subId, JSON.stringify(sub));
@@ -184,21 +206,42 @@ export class EventSubscriptionStore extends PuterStore {
         rows.expire(watchedKey(ownerUserId), SESSION_SUBSCRIPTION_TTL_SECONDS);
         await rows.exec();
 
-        const holder = this.clients.redis.pipeline();
-        holder.sadd(
-            socketKey(holderUserId, socketId),
-            socketRef({ ownerUserId, token, subId }),
-        );
-        holder.expire(
-            socketKey(holderUserId, socketId),
-            SESSION_SUBSCRIPTION_TTL_SECONDS,
-        );
-        await holder.exec();
+        await this.#keepDurableWindow(ownerUserId, [token]);
 
         return {
             userId: ownerUserId,
             generation: await this.bumpGeneration(ownerUserId),
         };
+    }
+
+    /**
+     * Put the durable window back on whatever a session write just shortened.
+     * Session and durable rows share the watched set and the row hashes, and
+     * the session TTL is far the shorter of the two — left alone, a socket
+     * touching a key durable rows live in would expire them while this region
+     * still holds a warm marker saying it has looked, and dispatch would read
+     * "nobody is subscribed" until that marker lapsed.
+     */
+    async #keepDurableWindow(
+        ownerUserId: number,
+        touched: readonly string[],
+    ): Promise<void> {
+        const cached = await this.clients.redis.hvals(
+            durableMapKey(ownerUserId),
+        );
+        if (cached.length === 0) return;
+
+        const durable = new Set(cached.map(String));
+        const restore = this.clients.redis.pipeline();
+        restore.expire(watchedKey(ownerUserId), DURABLE_CACHE_TTL_SECONDS);
+        restore.expire(durableMapKey(ownerUserId), DURABLE_CACHE_TTL_SECONDS);
+        for (const token of touched)
+            if (durable.has(token))
+                restore.expire(
+                    tokenKey(ownerUserId, token),
+                    DURABLE_CACHE_TTL_SECONDS,
+                );
+        await restore.exec();
     }
 
     /**
@@ -263,6 +306,8 @@ export class EventSubscriptionStore extends PuterStore {
             SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
         await holder.exec();
+
+        await this.#keepDurableWindow(next.ownerUserId, [next.token]);
 
         const owners = new Set([previous.ownerUserId, next.ownerUserId]);
         return Promise.all(
@@ -337,13 +382,33 @@ export class EventSubscriptionStore extends PuterStore {
         const orphaned = tokens.filter(
             (_token, i) => Number(results[i]?.[1] ?? 0) === 0,
         );
-        if (orphaned.length > 0)
-            await this.clients.redis.srem(watchedKey(ownerUserId), ...orphaned);
+        if (orphaned.length === 0) return;
+
+        await this.clients.redis.srem(watchedKey(ownerUserId), ...orphaned);
+
+        // A concurrent `add` can `hset` a fresh row onto one of these tokens
+        // between the count above and the `srem` — self-heal rather than
+        // leave it orphaned in the hash but absent from the watched set until
+        // something else happens to touch it.
+        const recheck = this.clients.redis.pipeline();
+        for (const token of orphaned)
+            recheck.hlen(tokenKey(ownerUserId, token));
+        const recounted = (await recheck.exec()) ?? [];
+        const revived = orphaned.filter(
+            (_token, i) => Number(recounted[i]?.[1] ?? 0) > 0,
+        );
+        if (revived.length > 0)
+            await this.clients.redis.sadd(watchedKey(ownerUserId), ...revived);
     }
 
     /**
      * Keep a live socket's keys ahead of the TTL backstop — its own, and the
      * watched sets its rows live in, which may belong to other users.
+     *
+     * Re-asserts each token into the watched set rather than only extending its
+     * TTL: a live row is proof its token belongs there, so a race that silently
+     * dropped it (see `#dropRows`) heals itself on the next refresh even if
+     * nothing catches it sooner.
      */
     async refresh(holderUserId: number, socketId: string): Promise<void> {
         const refs = (
@@ -356,17 +421,21 @@ export class EventSubscriptionStore extends PuterStore {
         );
 
         for (const [ownerUserId, owned] of byOwner(refs)) {
+            const tokens = [...new Set(owned.map((ref) => ref.token))];
             const pipeline = this.clients.redis.pipeline();
+            pipeline.sadd(watchedKey(ownerUserId), ...tokens);
             pipeline.expire(
                 watchedKey(ownerUserId),
                 SESSION_SUBSCRIPTION_TTL_SECONDS,
             );
-            for (const token of new Set(owned.map((ref) => ref.token)))
+            for (const token of tokens)
                 pipeline.expire(
                     tokenKey(ownerUserId, token),
                     SESSION_SUBSCRIPTION_TTL_SECONDS,
                 );
             await pipeline.exec();
+
+            await this.#keepDurableWindow(ownerUserId, tokens);
         }
     }
 

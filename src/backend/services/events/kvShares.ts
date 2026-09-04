@@ -19,6 +19,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { HttpError } from '../../core/http/HttpError.js';
+import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
 import {
     MANAGE_PERM_PREFIX,
     PERMISSION_MAX_LEN,
@@ -157,9 +158,20 @@ export const assertShareablePrefix = (keyPrefix: unknown): string => {
 };
 
 /**
+ * The shape every app uid takes, minted or derived from an origin. Narrow on
+ * purpose: `:` and `#` delimit the anchor token and permission grammars, so
+ * excluding them matters as much as excluding the handle prefix does.
+ */
+const APP_UID_SHAPE = /^app-[A-Za-z0-9_-]{1,64}$/;
+
+/** Fixed namespaces with no app of their own. */
+const FIXED_KV_NAMESPACES: readonly string[] = [KV_GLOBAL_APP_KEY];
+
+/**
  * The namespace a handle may be minted over: the caller's own app slot, or the
- * app-less one. Bounded by the column that stores it, and never handle-shaped,
- * since the two share the app slot of a `kv:` subject.
+ * app-less one. Bounded by the column that stores it, shaped like a real app
+ * uid or one of the platform's fixed namespaces, and never handle-shaped, since
+ * the two share the app slot of a `kv:` subject.
  */
 export const assertShareableAppUid = (appUid: string): string => {
     if (appUid.length > KV_SHARE_APP_UID_MAX_LENGTH)
@@ -168,6 +180,8 @@ export const assertShareableAppUid = (appUid: string): string => {
         );
     if (isKvHandleId(appUid))
         throw invalidAppUid('A share handle does not name a namespace');
+    if (!APP_UID_SHAPE.test(appUid) && !FIXED_KV_NAMESPACES.includes(appUid))
+        throw invalidAppUid('`appUid` does not name a namespace');
     return appUid;
 };
 

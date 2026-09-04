@@ -65,7 +65,7 @@ const deps: FsAnchorDeps = {
 };
 
 const resolve = (subject: string) =>
-    resolveFsAnchor(parseSubject(subject), deps, { username: USERNAME });
+    resolveFsAnchor(parseSubject(subject), deps, { username: USERNAME }, subject);
 
 describe('resolveFsAnchor', () => {
     it('anchors an existing path on the node itself, unfiltered', async () => {
@@ -151,7 +151,12 @@ describe('resolveFsAnchor', () => {
 
     it('rejects a home path with no username to expand against', async () => {
         await expect(
-            resolveFsAnchor(parseSubject('fs:~/Documents'), deps, {}),
+            resolveFsAnchor(
+                parseSubject('fs:~/Documents'),
+                deps,
+                {},
+                'fs:~/Documents',
+            ),
         ).rejects.toMatchObject({ legacyCode: 'bad_request' });
     });
 
@@ -160,6 +165,9 @@ describe('resolveFsAnchor', () => {
         await expect(resolve('fs:uid-gone')).rejects.toMatchObject({
             statusCode: 404,
             legacyCode: 'subject_does_not_exist',
+            // Same message shape as `assertSubscribeAuthorized`'s safe-404 —
+            // a mismatch here would itself be an existence oracle.
+            message: 'No such entry: fs:uid-gone',
         });
     });
 

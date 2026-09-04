@@ -3810,8 +3810,16 @@ export class FSService extends PuterService {
      * here may fail it or slow it down. The ancestor walk is a thunk because
      * almost every write belongs to a user with no subscriptions, and that user
      * must not pay for the walk to find out.
+     *
+     * `movedFrom` is a move only: the folder `entry` left needs its own
+     * ancestor walk, taken from where it used to live, or its subscribers would
+     * never hear the node went.
      */
-    #dispatchEvents(key: EventKey, entry: FSEntry): void {
+    #dispatchEvents(
+        key: EventKey,
+        entry: FSEntry,
+        movedFrom?: { path: string },
+    ): void {
         const events = this.services.events;
         if (!events?.enabled) return;
         try {
@@ -3820,6 +3828,15 @@ export class FSService extends PuterService {
                     actingUserId: (Context.get('actor') as Actor | undefined)
                         ?.user?.id,
                     ancestors: () => this.getAncestorChain(entry.path),
+                    ...(movedFrom
+                        ? {
+                              movedFrom: {
+                                  path: movedFrom.path,
+                                  ancestors: () =>
+                                      this.getAncestorChain(movedFrom.path),
+                              },
+                          }
+                        : {}),
                 })
                 .catch((err: unknown) => {
                     console.warn('[fs] event dispatch failed', err);
@@ -4004,7 +4021,7 @@ export class FSService extends PuterService {
         } catch {
             // ignore — non-critical.
         }
-        this.#dispatchEvents('fs.move.node', updated);
+        this.#dispatchEvents('fs.move.node', updated, { path: source.path });
         return updated;
     }
 

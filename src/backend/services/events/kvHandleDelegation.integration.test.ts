@@ -173,6 +173,26 @@ describe('an app minting without consent', () => {
         ).resolves.toMatchObject({ prefix: 'session-probe:' });
     });
 
+    it('is refused for a region already shared, rather than handed the standing handle', async () => {
+        const prefix = `withdrawn-consent-${uuidv4().slice(0, 8)}:`;
+        await delegate(prefix);
+        const { handle } = await mint({ prefix });
+        await undelegate(prefix);
+
+        // Minting the same region twice answers with the handle that already
+        // covers it, so the consent check has to come first — otherwise
+        // withdrawing it would still leave the app able to read the handle
+        // back.
+        await expect(mint({ prefix })).rejects.toMatchObject({
+            legacyCode: 'events_kv_handle_not_delegated',
+        });
+        // The share itself is untouched: what was refused is the app asking.
+        const page = await events().listKvHandles(owner.actor, { limit: 100 });
+        expect(page.items).toContainEqual(
+            expect.objectContaining({ handle, revokedAt: null }),
+        );
+    });
+
     it('is refused for a region the consent does not cover', async () => {
         await delegate('workspace:abc:');
         // A sibling region, and the parent the consent sits under: coverage

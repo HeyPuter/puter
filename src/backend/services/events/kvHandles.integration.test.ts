@@ -191,6 +191,29 @@ describe('minting a handle', () => {
         ).resolves.toBe(false);
     });
 
+    it('hands back the existing handle for a region already minted to the same grantee', async () => {
+        const prefix = 'idempotent-probe:';
+        const first = await mint({ prefix });
+        const second = await mint({ prefix });
+
+        expect(second).toEqual(first);
+
+        const rows = await env.server.clients.db.pread(
+            'SELECT `handle` FROM `kv_share_handles` ' +
+                'WHERE `owner_user_id` = ? AND `key_prefix` = ? AND `revoked_at` IS NULL',
+            [owner.id, prefix],
+        );
+        expect(rows).toHaveLength(1);
+
+        // Still one grant row, not a second one over the same permission —
+        // which is the whole reason two handles must never point at it.
+        const permRows = await env.server.clients.db.pread(
+            'SELECT `holder_user_id` FROM `user_to_user_permissions` WHERE `permission` = ?',
+            [kvSharePermission(owner.uuid, 'os-global', prefix)],
+        );
+        expect(permRows).toHaveLength(1);
+    });
+
     it('refuses to share with yourself', async () => {
         await expect(
             mint({ granteeUsername: owner.username }),
@@ -323,6 +346,33 @@ describe('subscribing through a handle', () => {
         expect(guestRow.ownerUserId).toBe(owner.id);
     });
 
+    it('names the handle as its own anchor on the wire, never the owner`s namespace or prefix', async () => {
+        await clearRows();
+        const { handle } = await mint();
+
+        const guestSub = (
+            await events().subscribe(guest.actor, SOCKET_ID, {
+                subject: `kv:${handle}:*`,
+            })
+        ).sub;
+
+        // The subscribe ack: what the caller sees the instant they subscribe.
+        expect(guestSub.anchor).toEqual({ uid: handle, path: '' });
+        expect(JSON.stringify(guestSub)).not.toContain(owner.uuid);
+        expect(JSON.stringify(guestSub)).not.toContain('os-global');
+        expect(JSON.stringify(guestSub)).not.toContain(PREFIX);
+
+        // The listing: the same row read back later reports the same anchor.
+        const [listed] = await events().listSubscriptions(
+            guest.actor,
+            SOCKET_ID,
+        );
+        expect(listed.anchor).toEqual({ uid: handle, path: '' });
+        expect(JSON.stringify(listed)).not.toContain(owner.uuid);
+        expect(JSON.stringify(listed)).not.toContain('os-global');
+        expect(JSON.stringify(listed)).not.toContain(PREFIX);
+    });
+
     it('refuses a user the handle was not granted to', async () => {
         await clearRows();
         const { handle } = await mint();
@@ -395,6 +445,44 @@ describe('a write in the shared region', () => {
         delivered.length = 0;
 
         await ownerWrites('workspace:other:messages:1', { body: 'nope' });
+        await quiet();
+
+        expect(delivered).toEqual([]);
+    });
+
+    it('drops delivery rather than leak the owner`s namespace and absolute key when a row`s stored grant does not cover the key its token matched', async () => {
+        // A row this mis-scoped should never occur through the public surface —
+        // this pins the defensive behavior for the day storage disagrees with
+        // itself, rather than trusting a row that says it addresses one region
+        // while checking a permission that covers a different one.
+        await clearRows();
+        const { handle } = await mint();
+        await mint({ prefix: 'workspace:xyz:' });
+
+        const { sub } = await events().subscribe(guest.actor, SOCKET_ID, {
+            subject: `kv:${handle}:*`,
+        });
+        const [row] = await env.server.stores.eventSubscription.listForSocket(
+            guest.id,
+            SOCKET_ID,
+        );
+        const redisKey = `ev:t:{${owner.id}}:${row.token}`;
+        const raw = await env.server.clients.redis.hget(redisKey, sub.subId);
+        const tampered = {
+            ...JSON.parse(raw as string),
+            // A grant the guest genuinely holds, but over a region the token
+            // this row is indexed under (`workspace:abc:`) does not name.
+            permission: kvSharePermission(owner.uuid, 'os-global', 'workspace:xyz:'),
+        };
+        await env.server.clients.redis.hset(
+            redisKey,
+            sub.subId,
+            JSON.stringify(tampered),
+        );
+        events().invalidateUser(owner.id);
+        delivered.length = 0;
+
+        await ownerWrites(`${PREFIX}messages:1`, { body: 'leak?' });
         await quiet();
 
         expect(delivered).toEqual([]);

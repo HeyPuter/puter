@@ -250,9 +250,10 @@ export const subscriptionTokenPermissions = (row: {
 }): string[] => {
     if (!isKvToken(row.token))
         return [PermissionUtil.join('fs', row.anchorUid, row.permission)];
-    // A row on a shared region reaches it through the share grant and nothing
-    // else, so that is the whole of what its token may carry.
-    if (kvHandleFromSubject(row.subject) !== null) return [row.permission];
+    // A row on a shared region carries none: the grant string names the
+    // owner's app uid and absolute prefix, and the worker needs neither —
+    // `event.subject` already gives it everything it may address.
+    if (kvHandleFromSubject(row.subject) !== null) return [];
     if (row.appUid === null || row.appUid === row.anchorUid) return [];
     return [appDataPermission(row.anchorUid, 'kv', CROSS_APP_KV_CLASS)];
 };

@@ -289,7 +289,9 @@ describe('the call an owed delivery makes', () => {
         ]);
         expect(call.body.event).toMatchObject({
             path: `${anchor}/note.txt`,
-            self: true,
+            // `touch()` calls the service directly, with no request actor in
+            // context — an unknown actor is never "self".
+            self: false,
         });
     });
 

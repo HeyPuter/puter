@@ -28,7 +28,11 @@ import {
 } from '../../controllers/events/limits.js';
 import type { ProjectedEvent } from '../../services/events/registry.js';
 import type { IConfig } from '../../types.js';
-import { PendingDeliveryStore } from './PendingDeliveryStore.js';
+import {
+    PendingDeliveryStore,
+    RECONCILE_INTERVAL_SECONDS,
+    RECONCILE_SCAN_CAP,
+} from './PendingDeliveryStore.js';
 
 /**
  * What a subscription is owed, and what holding it costs. Two claims run
@@ -38,7 +42,7 @@ import { PendingDeliveryStore } from './PendingDeliveryStore.js';
  */
 
 // The keyspace is shared per process, so each test gets its own subscription
-// and the two region-wide keys are cleared between them.
+// and the region-wide keys are cleared between them.
 let seq = 0;
 let subId = '';
 let redis: InstanceType<typeof MockRedis.Cluster>;
@@ -47,9 +51,11 @@ let commands: string[];
 
 const INDEX_KEY = 'ev:qx';
 const COUNTER_KEY = 'ev:qc';
+const RECONCILE_CLAIM_KEY = 'ev:qxr';
 
 const entriesKey = (id = subId): string => `ev:q:{${id}}`;
 const pendingKey = (id = subId): string => `ev:qp:{${id}}`;
+const holdKey = (id = subId): string => `ev:qt:{${id}}`;
 
 /** Every command that crossed the client, so a test can say what was not. */
 const recordingRedis = (
@@ -119,7 +125,7 @@ beforeEach(async () => {
     subId = `app-x#sub-${seq}`;
     commands = [];
     redis = recordingRedis(new MockRedis.Cluster(['redis://localhost:7001']));
-    await redis.del(INDEX_KEY, COUNTER_KEY);
+    await redis.del(INDEX_KEY, COUNTER_KEY, RECONCILE_CLAIM_KEY);
     store = new PendingDeliveryStore(
         {} as IConfig,
         { redis } as never,
@@ -185,6 +191,41 @@ describe('handing a delivery out', () => {
         await expect(store.claim(subId)).resolves.toMatchObject({
             entryId,
             socketAttempts: 1,
+        });
+    });
+
+    it('counts remote candidates separately from socket attempts', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId, { leaseMs: 1 });
+
+        await store.recordSocketAttempt(subId, entryId);
+        await expect(
+            store.recordRemoteAttempt(subId, entryId),
+        ).resolves.toBe(1);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + 1_000);
+        await expect(store.claim(subId)).resolves.toMatchObject({
+            entryId,
+            socketAttempts: 1,
+            remoteAttempts: 1,
+        });
+    });
+
+    it('gives a delivery a fresh attempt budget on request', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId, { leaseMs: 1 });
+        await store.recordSocketAttempt(subId, entryId);
+        await store.recordRemoteAttempt(subId, entryId);
+
+        await store.resetSocketAttempts(subId, entryId);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + 1_000);
+        await expect(store.claim(subId)).resolves.toMatchObject({
+            entryId,
+            socketAttempts: 0,
+            remoteAttempts: 0,
         });
     });
 
@@ -384,6 +425,25 @@ describe('sharing the sweeper between backlogs', () => {
     });
 });
 
+describe('holding a suspended backlog down', () => {
+    it('puts a lifetime on the hold key itself', async () => {
+        await store.enqueue(subId, event('a'));
+
+        await store.hold(subId, 100, 1_000);
+
+        await expect(redis.ttl(holdKey())).resolves.toBeGreaterThan(0);
+    });
+
+    it('drops the hold key once the backlog it was guarding drains', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.hold(subId, 100, 1_000);
+
+        await store.settle(subId, entryId);
+
+        await expect(redis.exists(holdKey())).resolves.toBe(0);
+    });
+});
+
 describe('finding the work', () => {
     it('reads the oldest end of the index rather than the keyspace', async () => {
         const older = `app-x#older-${seq}`;
@@ -478,6 +538,36 @@ describe('keeping the region counter honest', () => {
                 ['scan', 'keys', 'hscan', 'sscan', 'zscan'].includes(command),
             ),
         ).toEqual([]);
+    });
+
+    it('throttles a second pass inside the same interval, region-wide', async () => {
+        await store.enqueue(subId, event('a'));
+        await expect(store.reconcileRegionDepth()).resolves.toBe(1);
+
+        // A drift a losing pass must not paper over by writing anyway.
+        await redis.incrby(COUNTER_KEY, 500);
+        await expect(store.reconcileRegionDepth()).resolves.toBe(501);
+        await expect(store.regionDepth()).resolves.toBe(501);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + (RECONCILE_INTERVAL_SECONDS + 1) * 1000);
+
+        await expect(store.reconcileRegionDepth()).resolves.toBe(1);
+        await expect(store.regionDepth()).resolves.toBe(1);
+    });
+
+    it('leaves the counter alone when the scan is capped', async () => {
+        const many: Array<string | number> = [];
+        for (let i = 0; i < RECONCILE_SCAN_CAP + 1; i++)
+            many.push(i, `fake-sub-${i}`);
+        await redis.zadd(INDEX_KEY, ...many);
+        await redis.set(COUNTER_KEY, 999);
+
+        await store.reconcileRegionDepth();
+
+        // Undercounts by construction; writing it would report the region as
+        // far quieter than it actually is.
+        await expect(store.regionDepth()).resolves.toBe(999);
     });
 });
 

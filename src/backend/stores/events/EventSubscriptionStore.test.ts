@@ -18,13 +18,14 @@
  */
 
 import MockRedis from 'ioredis-mock';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types.js';
 import {
     EventSubscriptionStore,
     SESSION_SUBSCRIPTION_TTL_SECONDS,
+    type DurableSubscription,
     type SessionSubscription,
 } from './EventSubscriptionStore.js';
 
@@ -58,8 +59,7 @@ const makeSub = (
 const sharedWith = (
     holderUserId: number,
     over: Partial<SessionSubscription> = {},
-): SessionSubscription =>
-    makeSub({ holderUserId, ownerUserId: USER, ...over });
+): SessionSubscription => makeSub({ holderUserId, ownerUserId: USER, ...over });
 
 beforeEach(() => {
     USER = ++userSeq;
@@ -167,6 +167,26 @@ describe('the per-socket cap', () => {
         await expect(
             store.add(makeSub({ subId: 'b-0', socketId: 'socket-b' })),
         ).resolves.toMatchObject({ userId: USER });
+    });
+
+    it('never lets pipelined concurrent adds exceed the cap', async () => {
+        const attempts = EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET + 10;
+
+        const results = await Promise.allSettled(
+            Array.from({ length: attempts }, (_, i) =>
+                store.add(makeSub({ subId: `race-${i}`, token: `f#n${i}` })),
+            ),
+        );
+
+        const fulfilled = results.filter((r) => r.status === 'fulfilled');
+        const rejected = results.filter((r) => r.status === 'rejected');
+        expect(fulfilled).toHaveLength(EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET);
+        expect(rejected).toHaveLength(
+            attempts - EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
+        );
+        expect(await redis.scard(`ev:s:{${USER}}:socket-a`)).toBe(
+            EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
+        );
     });
 });
 
@@ -282,6 +302,115 @@ describe('disconnect', () => {
         );
         await expect(store.userHasAny(USER)).resolves.toBe(false);
         await expect(store.userHasAny(otherOwner)).resolves.toBe(false);
+    });
+});
+
+describe('durable rows sharing a session key', () => {
+    const durable = (over: Partial<DurableSubscription> = {}) =>
+        ({
+            ...makeSub(),
+            socketId: undefined,
+            durable: true,
+            delivery: 'broadcast',
+            targets: ['socket'],
+            handlerName: null,
+            context: null,
+            expiresAt: null,
+            suspendedAt: null,
+            suspendedReason: null,
+            createdAt: 0,
+            ...over,
+        }) as DurableSubscription;
+
+    // The warm marker outlives the session TTL, so a session write leaving the
+    // session window on these keys would expire the cached rows while this
+    // region still believed it had looked.
+    it('keeps the durable window on the keys a session add shortens', async () => {
+        await store.cacheDurable([durable({ subId: 'durable-1' })]);
+        await store.add(makeSub({ subId: 'session-1' }));
+
+        expect(await redis.ttl(`ev:w:{${USER}}`)).toBeGreaterThan(
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
+        );
+        expect(await redis.ttl(`ev:t:{${USER}}:f#anchor`)).toBeGreaterThan(
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
+        );
+    });
+
+    it('puts it back on every refresh', async () => {
+        await store.cacheDurable([durable({ subId: 'durable-1' })]);
+        const session = makeSub({ subId: 'session-1' });
+        await store.add(session);
+        await redis.expire(`ev:w:{${USER}}`, SESSION_SUBSCRIPTION_TTL_SECONDS);
+
+        await store.refresh(session.holderUserId, session.socketId);
+
+        expect(await redis.ttl(`ev:w:{${USER}}`)).toBeGreaterThan(
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
+        );
+    });
+
+    it('leaves a session-only token on the session window', async () => {
+        await store.cacheDurable([
+            durable({ subId: 'durable-1', token: 'f#other' }),
+        ]);
+        await store.add(makeSub({ subId: 'session-1', token: 'f#anchor' }));
+
+        expect(await redis.ttl(`ev:t:{${USER}}:f#anchor`)).toBeLessThanOrEqual(
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
+        );
+    });
+});
+
+describe('the watched-set race', () => {
+    it('heals a token orphaned in the watched set on the next refresh', async () => {
+        const sub = makeSub();
+        await store.add(sub);
+
+        // What a concurrent `add` racing `#dropRows`'s hdel/hlen/srem leaves
+        // behind: the row still live in the hash, its token gone from `ev:w`.
+        await redis.srem(`ev:w:{${USER}}`, 'f#anchor');
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual(
+            [],
+        );
+
+        await store.refresh(sub.holderUserId, sub.socketId);
+
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual([
+            'f#anchor',
+        ]);
+    });
+
+    it('keeps a token watched when an add revives it between the count and the unwatch', async () => {
+        const first = makeSub({ subId: 'first', socketId: 'socket-a' });
+        await store.add(first);
+        const second = makeSub({ subId: 'second', socketId: 'socket-b' });
+
+        // Force the exact window the fix closes: `#dropRows` has already
+        // counted the token empty and decided to unwatch it, and is about to
+        // `srem` it from `ev:w` — but a concurrent `add` for a new row on the
+        // same token lands right before that call runs. `#dropRefs` also
+        // `srem`s the socket key first, so only intercept the watched-set one.
+        const original = redis.srem.bind(redis);
+        const spy = vi
+            .spyOn(redis, 'srem')
+            .mockImplementation(
+                async (...args: Parameters<typeof redis.srem>) => {
+                    if (args[0] !== `ev:w:{${USER}}`) return original(...args);
+                    spy.mockRestore();
+                    await store.add(second);
+                    return original(...args);
+                },
+            );
+
+        await store.remove(first);
+
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual([
+            'f#anchor',
+        ]);
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
+            second,
+        ]);
     });
 });
 
