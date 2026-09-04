@@ -329,13 +329,14 @@ export class ClaudeProvider implements IChatProvider {
         // Upload any `puter_path` parts to Anthropic's Files API and rewrite
         // them in-place to reference the returned `file_id`. Must happen
         // before sdkParams snapshots `messages`.
-        const { fileIds: uploadedFileIds } = await processPuterPathUploads(
-            this.anthropic,
-            messages,
-            this.#stores,
-            this.#fsService,
-            actor,
-        );
+        const { fileIds: uploadedFileIds, restore: restoreUploads } =
+            await processPuterPathUploads(
+                this.anthropic,
+                messages,
+                this.#stores,
+                this.#fsService,
+                actor,
+            );
         const usesBetaFiles = uploadedFileIds.length > 0;
         // The compaction beta is needed both to *request* compaction
         // (contextManagement) and to *accept a round-tripped* compaction block
@@ -410,15 +411,13 @@ export class ClaudeProvider implements IChatProvider {
             // events for iterators that already exist.
             const events = completion[Symbol.asyncIterator]();
 
-            // The driver's fallback loop only sees what this method throws.
-            // Wait for the upstream to accept the request before handing back
-            // a populator: once that is returned the client already holds a
-            // 200, and an overloaded or rate-limited route would surface as
-            // an error frame instead of being retried elsewhere.
+            // The driver's fallback loop only sees what this method throws, so
+            // the upstream has to accept the request before a populator exists.
             try {
                 await completion.withResponse();
             } catch (e) {
                 await cleanupUploads();
+                restoreUploads();
                 throw e;
             }
 
@@ -560,6 +559,11 @@ export class ClaudeProvider implements IChatProvider {
                         // signature_delta — ignored
                     }
                 }
+                // The SDK only rejects event readers that were already
+                // waiting, so a failure that landed before this loop started
+                // pulling ends it silently rather than throwing.
+                if (completion.errored) await completion.finalMessage();
+
                 const finalMessage = await completion
                     .finalMessage()
                     .catch((): null => null);
@@ -663,6 +667,9 @@ export class ClaudeProvider implements IChatProvider {
                       }
                     : {}),
             };
+        } catch (e) {
+            restoreUploads();
+            throw e;
         } finally {
             await cleanupUploads();
         }

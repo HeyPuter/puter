@@ -130,7 +130,7 @@ describe('claude processPuterPathUploads uploading', () => {
         );
 
         expect(upload).not.toHaveBeenCalled();
-        expect(result).toEqual({ fileIds: [] });
+        expect(result.fileIds).toEqual([]);
     });
 
     it('uploads an image and rewrites the part to an image block referencing the file_id', async () => {
@@ -231,6 +231,56 @@ describe('claude processPuterPathUploads uploading', () => {
 });
 
 // -- Rejection paths -------------------------------------------------
+
+describe('claude processPuterPathUploads restoring', () => {
+    it('puts a rewritten part back to the puter_path it arrived as', async () => {
+        const { actor, userId } = await makeUser();
+        const { client } = makeAnthropicStub();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/pic.png`;
+        await writeFile(
+            actor,
+            userId,
+            path,
+            Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            'image/png',
+        );
+
+        const part: Record<string, unknown> = { puter_path: path };
+        const result = await processPuterPathUploads(
+            client,
+            [{ content: [part] }],
+            server.stores,
+            server.services.fs,
+            actor,
+        );
+        expect(part.source).toEqual({ type: 'file', file_id: 'file_1' });
+
+        // A failed request deletes the uploads, and the driver hands these
+        // same objects to the next route — which can only use the path.
+        result.restore();
+        expect(part).toEqual({ puter_path: path });
+    });
+
+    it('undoes the inline text error swapped in for a part that could not load', async () => {
+        const { actor } = await makeUser();
+        const { client } = makeAnthropicStub();
+        const path = `/${actor.user!.username!}/Documents/missing.png`;
+
+        const part: Record<string, unknown> = { puter_path: path };
+        const result = await processPuterPathUploads(
+            client,
+            [{ content: [part] }],
+            server.stores,
+            server.services.fs,
+            actor,
+        );
+        expect(part.type).toBe('text');
+
+        result.restore();
+        expect(part).toEqual({ puter_path: path });
+    });
+});
 
 describe('claude processPuterPathUploads rejection paths', () => {
     it('replaces the part with an inline error when the caller is unauthenticated', async () => {

@@ -34,15 +34,14 @@ export const AGGREGATOR_PROVIDERS = new Set([
 ]);
 
 /**
- * Direct providers served ahead of the vendor's own endpoint for the models
- * both carry. Azure AI Foundry fronts OpenAI and xAI models at mirrored prices;
- * naming it here keeps it first even if the two cost tables drift, instead of
- * leaving the choice to a price tie and registration order.
+ * Direct providers served ahead of every other direct provider, at any price.
+ * Azure AI Foundry fronts OpenAI and xAI models at mirrored prices, so naming
+ * it here keeps it first even if the two cost tables drift. The rank is
+ * unconditional, not scoped to the vendors it fronts: any other provider that
+ * ever publishes one of these model ids loses the bucket however cheaply it
+ * quotes.
  */
-export const PREFERRED_PROVIDERS = new Set([
-    'azure-openai',
-    'azure-openai-responses',
-]);
+const PREFERRED_PROVIDERS = new Set(['azure-openai', 'azure-openai-responses']);
 
 // Lower rank is served first: preferred direct providers, then the other
 // direct vendors, then the resellers with `openrouter` and `together-ai` at

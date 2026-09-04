@@ -286,9 +286,8 @@ export class PuterAIController extends PuterController {
                     legacyCode: 'internal_error',
                 });
             const models = await driver.list();
-            const HIDDEN = ['costly', 'fake', 'abuse'];
             res.json({
-                models: models?.filter((m) => !HIDDEN.includes(m)),
+                models: models?.filter((m) => !HIDDEN_MODELS.includes(m)),
             });
         };
     }
@@ -301,9 +300,8 @@ export class PuterAIController extends PuterController {
                     legacyCode: 'internal_error',
                 });
             const models = await driver.models();
-            const HIDDEN = ['costly', 'fake', 'abuse'];
             res.json({
-                models: models?.filter((m) => !HIDDEN.includes(m.id)),
+                models: models?.filter((m) => !HIDDEN_MODELS.includes(m.id)),
             });
         };
     }
@@ -341,12 +339,7 @@ export class PuterAIController extends PuterController {
                 ? { temperature: Number(body.temperature) }
                 : {}),
             ...(finiteMaxTokens(body.max_tokens) ?? {}),
-            // Only an explicit provider pins the route. Left unset, the
-            // driver picks the preferred healthy provider for the model, as
-            // it does for puter.js callers.
-            ...(body.provider
-                ? { provider: toStringOrEmpty(body.provider) }
-                : {}),
+            ...openaiCompatProvider(body),
         };
 
         const result = await this.#driver().complete(completeArgs);
@@ -502,9 +495,7 @@ export class PuterAIController extends PuterController {
                 ? { temperature: Number(body.temperature) }
                 : {}),
             ...(finiteMaxTokens(body.max_tokens) ?? {}),
-            ...(body.provider
-                ? { provider: toStringOrEmpty(body.provider) }
-                : {}),
+            ...openaiCompatProvider(body),
         };
 
         const completionId = `cmpl-${randomId()}`;
@@ -614,6 +605,9 @@ export class PuterAIController extends PuterController {
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
+        // Pinned, unlike the chat/completions routes: the translators below
+        // read one provider's native Responses shape, so the preferred-route
+        // and unhealthy-route logic cannot be allowed to swap it out.
         const providerName =
             toStringOrEmpty(body.provider) || DEFAULTS.openaiResponses;
         if (providerName !== DEFAULTS.openaiResponses) {
@@ -993,6 +987,9 @@ export class PuterAIController extends PuterController {
                           body.compaction as ICompleteArguments['compaction'],
                   }
                 : {}),
+            // Pinned for the same reason as /openai/v1/responses: this route
+            // translates Anthropic's native shape and cannot take whatever
+            // the preferred healthy route happens to return.
             ...(body.provider
                 ? { provider: toStringOrEmpty(body.provider) }
                 : { provider: DEFAULTS.anthropic }),
@@ -1202,9 +1199,28 @@ export class PuterAIController extends PuterController {
 // -- Shared helpers --------------------------------------------------
 
 const DEFAULTS = {
+    openaiChat: 'openai-completion',
     openaiResponses: 'openai-responses',
     anthropic: 'claude',
 } as const;
+
+/** Test-only chat models, kept out of the public listings. */
+const HIDDEN_MODELS = ['costly', 'fake', 'abuse'];
+
+/**
+ * How the OpenAI-compat routes pin a provider. An explicit one is the caller's
+ * choice; a named model is left unpinned so the driver picks the preferred
+ * healthy route, as it does for puter.js callers. A request with no model has
+ * no route to prefer, so it stays pinned and keeps taking its default model
+ * from OpenAI rather than silently switching to another vendor's.
+ */
+const openaiCompatProvider = (
+    body: Record<string, unknown>,
+): { provider?: string } => {
+    if (body.provider) return { provider: toStringOrEmpty(body.provider) };
+    if (toStringOrEmpty(body.model)) return {};
+    return { provider: DEFAULTS.openaiChat };
+};
 
 const randomId = (): string => crypto.randomUUID().replace(/-/g, '');
 const generateId = (prefix: string): string => `${prefix}_${randomId()}`;

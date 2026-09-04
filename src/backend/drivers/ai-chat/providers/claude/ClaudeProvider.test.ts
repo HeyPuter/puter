@@ -44,24 +44,35 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { v4 as uuidv4 } from 'uuid';
+
+import type { Actor } from '../../../../core/actor.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
+import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
 
 // ── Anthropic SDK mock ──────────────────────────────────────────────
 
-const { messagesCreateMock, messagesStreamMock, anthropicCtor } = vi.hoisted(
-    () => ({
-        messagesCreateMock: vi.fn(),
-        messagesStreamMock: vi.fn(),
-        anthropicCtor: vi.fn(),
-    }),
-);
+const {
+    messagesCreateMock,
+    messagesStreamMock,
+    anthropicCtor,
+    filesUploadMock,
+    filesDeleteMock,
+} = vi.hoisted(() => ({
+    messagesCreateMock: vi.fn(),
+    messagesStreamMock: vi.fn(),
+    anthropicCtor: vi.fn(),
+    filesUploadMock: vi.fn(),
+    filesDeleteMock: vi.fn(),
+}));
 
 vi.mock('@anthropic-ai/sdk', () => {
     const Anthropic = vi.fn().mockImplementation(function (
@@ -76,14 +87,20 @@ vi.mock('@anthropic-ai/sdk', () => {
         // Beta files surface — only consulted when puter_path uploads run, so
         // tests that exercise text-only paths never hit these stubs.
         this.beta = {
-            files: { delete: vi.fn() },
+            files: { upload: filesUploadMock, delete: filesDeleteMock },
             messages: {
                 create: messagesCreateMock,
                 stream: messagesStreamMock,
             },
         };
     });
-    return { default: Anthropic };
+    return {
+        default: Anthropic,
+        toFile: async (data: unknown, filename: string) => ({
+            data,
+            filename,
+        }),
+    };
 });
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -136,6 +153,47 @@ const makeStreamLike = (events: unknown[], finalUsage?: unknown) => {
     };
 };
 
+/**
+ * A user with one real FS entry, for the `puter_path` upload branch. Only the
+ * Files API calls are stubbed; the read goes through the wired FSService.
+ */
+const makeUserWithFile = async () => {
+    const username = `clsp-${Math.random().toString(36).slice(2, 10)}`;
+    const created = await server.stores.user.create({
+        username,
+        uuid: uuidv4(),
+        password: null,
+        email: `${username}@test.local`,
+        free_storage: 100 * 1024 * 1024,
+        requires_email_confirmation: false,
+    });
+    await generateDefaultFsentries(
+        server.clients.db,
+        server.stores.user,
+        created,
+    );
+    const user = (await server.stores.user.getById(created.id))!;
+    const actor = {
+        user: {
+            id: user.id,
+            uuid: user.uuid,
+            username: user.username,
+            email: user.email ?? null,
+            email_confirmed: true,
+        } as Actor['user'],
+    };
+    const path = `/${username}/Documents/pic.png`;
+    await withTestActor(
+        () =>
+            server.services.fs.write(user.id, {
+                fileMetadata: { path, size: 4, contentType: 'image/png' },
+                fileContent: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            }),
+        actor,
+    );
+    return { actor, path };
+};
+
 const makeCapturingChatStream = () => {
     const chunks: string[] = [];
     const sink = new Writable({
@@ -160,6 +218,8 @@ beforeEach(() => {
     messagesCreateMock.mockReset();
     messagesStreamMock.mockReset();
     anthropicCtor.mockReset();
+    filesUploadMock.mockReset();
+    filesDeleteMock.mockReset();
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
@@ -904,6 +964,88 @@ describe('ClaudeProvider.complete streaming', () => {
                 }),
             ),
         ).rejects.toBe(refused);
+    });
+
+    it('deletes the uploaded files and hands back the puter_path when the stream is refused', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_stream_1' });
+        const refused = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([]),
+            withResponse: () => Promise.reject(refused),
+        });
+
+        const part: Record<string, unknown> = { puter_path: path };
+        await expect(
+            withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [{ role: 'user', content: [part] }],
+                        stream: true,
+                    }),
+                actor,
+            ),
+        ).rejects.toBe(refused);
+
+        expect(filesUploadMock).toHaveBeenCalledTimes(1);
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_stream_1', {
+            betas: [FILES_API_BETA],
+        });
+        // The driver reuses this object on the fallback route, which has no
+        // way to resolve a file we just deleted from our own account.
+        expect(part).toEqual({ puter_path: path });
+    });
+
+    it('surfaces a failure the event iterator swallowed instead of ending the stream clean', async () => {
+        const { provider } = makeProvider();
+        const dropped = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        // The SDK hands an error only to a reader already waiting on it; one
+        // that lands earlier leaves the iterator reporting a plain end of
+        // stream, so `errored` is the only thing left to go on.
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([
+                { type: 'message_start' },
+                {
+                    type: 'content_block_start',
+                    content_block: { type: 'text' },
+                },
+                {
+                    type: 'content_block_delta',
+                    delta: { type: 'text_delta', text: 'half an ans' },
+                },
+            ]),
+            errored: true,
+            finalMessage: () => Promise.reject(dropped),
+        });
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'say hi' }],
+                stream: true,
+            }),
+        );
+
+        const harness = makeCapturingChatStream();
+        await expect(
+            (
+                result as {
+                    init_chat_stream: (p: {
+                        chatStream: unknown;
+                    }) => Promise<void>;
+                }
+            ).init_chat_stream({ chatStream: harness.chatStream }),
+        ).rejects.toBe(dropped);
+
+        // A truncated response reported as a success would also have been
+        // billed for the tokens it did produce.
+        expect(recordSpy).not.toHaveBeenCalled();
     });
 
     it('streams text_delta events as text and meters usage from message_delta + finalMessage', async () => {
