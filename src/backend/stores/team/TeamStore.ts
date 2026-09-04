@@ -627,8 +627,16 @@ export class TeamStore extends PuterStore {
         const page = decodeCursor(opts.cursor, 'team audit cursor');
         const before = typeof page?.id === 'number' ? page.id : null;
 
+        // Unix seconds in SQL: the mysql driver reads a stored UTC datetime
+        // as local, which shifts every row away from the sign-ins.
+        const epoch = this.clients.db.case({
+            postgres: "EXTRACT(EPOCH FROM `created_at`)::bigint",
+            mysql: 'UNIX_TIMESTAMP(`created_at`)',
+            otherwise: "CAST(strftime('%s', `created_at`) AS INTEGER)",
+        });
         const rows = (await this.clients.db.read(
-            'SELECT `id`, `user_id_keep`, `actor_user_id`, `action`, `reason`, `created_at` ' +
+            'SELECT `id`, `user_id_keep`, `actor_user_id`, `action`, `reason`, ' +
+                `${epoch} AS \`created_at\` ` +
                 `FROM \`audit_team_membership\` WHERE ${where}` +
                 (before === null ? '' : ' AND `id` < ?') +
                 ' ORDER BY `id` DESC LIMIT ?',

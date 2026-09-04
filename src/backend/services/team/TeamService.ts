@@ -25,18 +25,29 @@ import {
     USERNAME_MAX_LENGTH,
     USERNAME_REGEX,
 } from '../../controllers/auth/AuthController.js';
+import type { EmailTemplateName } from '../../clients/email/templates.js';
 import type {
     EventMap,
     TeamBillingContext,
     TeamBillingEvent,
 } from '../../clients/event/types';
 import { HttpError } from '../../core/http/HttpError.js';
-import { checkHandle } from '../../stores/team/TeamStore.js';
+import {
+    AUDIT_PAGE_CAP,
+    AUDIT_PAGE_SIZE,
+    checkHandle,
+} from '../../stores/team/TeamStore.js';
 import type {
     TeamAuditRow,
     TeamMemberRow,
     TeamRow,
 } from '../../stores/team/TeamStore';
+import {
+    decodeCursor,
+    encodeCursor,
+    normalizeLimit,
+    type PageResult,
+} from '../../util/pagination.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import { cleanEmail } from '../../util/email.js';
 import {
@@ -66,6 +77,34 @@ const CAP_LOCK_TTL_SECONDS = 10;
  */
 export const AUDIT_RESET_PASSWORD = 'reset_member_password';
 export const AUDIT_ACTIVATE = 'activate';
+
+/** Not an audit row: synthesised from `sessions` for the member's own view. */
+export const SIGN_IN_ACTION = 'sign_in';
+
+/** One line of a member's activity, whether recorded or a sign-in. */
+export interface MemberActivityEntry {
+    action: string;
+    reason: string | null;
+    /** Unix seconds, so the two sources sort on one axis on every dialect. */
+    created_at: number;
+    username: string | null;
+    actor_username: string | null;
+    ip: string | null;
+    user_agent: string | null;
+}
+
+/** `sessions` stores unix seconds; audit rows a timestamp the driver shapes. */
+const epochSeconds = (value: unknown): number => {
+    if (value instanceof Date) return Math.floor(value.getTime() / 1000);
+    if (typeof value === 'number') return Math.floor(value);
+    const text = String(value ?? '');
+    // sqlite returns UTC 'YYYY-MM-DD HH:MM:SS', which Date.parse reads as local.
+    const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(text)
+        ? `${text.replace(' ', 'T')}Z`
+        : text;
+    const parsed = Date.parse(iso);
+    return Number.isNaN(parsed) ? 0 : Math.floor(parsed / 1000);
+};
 
 export class TeamService extends PuterService {
     // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
@@ -390,6 +429,14 @@ export class TeamService extends PuterService {
                     username: member.username,
                     held_bytes: held,
                 });
+
+                // The team notice covers the disabling, so a member is
+                // told once rather than twice about the same event.
+                await this.#notifyMember(
+                    member.user_id,
+                    'team_closed',
+                    team,
+                );
             }
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
@@ -424,16 +471,95 @@ export class TeamService extends PuterService {
         );
     }
 
-    /** The caller's own entries; the only reader who is not the actor. */
+    /**
+     * The caller's own entries, interleaved with sign-ins to their account. The
+     * only reader who is not the actor, and the only place a sign-in between an
+     * administrator's reset and the member's own password change becomes
+     * visible to the person it concerns.
+     */
     async listOwnAudit(
         teamUid: string,
         actorUserId: number,
         opts: { limit?: unknown; cursor?: string } = {},
-    ) {
+    ): Promise<PageResult<MemberActivityEntry>> {
         const team = await this.requireMembership(teamUid, actorUserId);
-        return this.#withUsernames(
-            await this.stores.team.listAuditForUser(team.id, actorUserId, opts),
+        const limit =
+            normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
+            AUDIT_PAGE_SIZE;
+        const cursor =
+            decodeCursor(opts.cursor, 'member activity cursor') ?? {};
+        const fromAudit = typeof cursor.a === 'number' ? cursor.a : undefined;
+        const fromSignIn = typeof cursor.s === 'number' ? cursor.s : null;
+
+        const audit = await this.stores.team.listAuditForUser(
+            team.id,
+            actorUserId,
+            {
+                limit,
+                cursor:
+                    fromAudit === undefined
+                        ? undefined
+                        : encodeCursor({ id: fromAudit }),
+            },
         );
+        // One past the limit, so a page that consumes no sign-in still knows
+        // whether any remain.
+        const signIns = await this.stores.session.listSignIns(actorUserId, {
+            limit: limit + 1,
+            beforeId: fromSignIn,
+        });
+
+        const named = await this.#withUsernames(audit);
+        const self =
+            (await this.stores.user.getById(actorUserId))?.username ?? null;
+        const merged = [
+            ...named.items.map((entry, i) => ({
+                entry,
+                stream: 'a' as const,
+                id: audit.items[i].id,
+            })),
+            ...signIns.slice(0, limit).map((row) => ({
+                entry: {
+                    action: SIGN_IN_ACTION,
+                    reason: null,
+                    created_at: epochSeconds(row.created_at),
+                    username: self,
+                    actor_username: null,
+                    ip: row.last_ip,
+                    user_agent: row.last_user_agent,
+                } as MemberActivityEntry,
+                stream: 's' as const,
+                id: row.id,
+            })),
+        ].sort(
+            (x, y) =>
+                y.entry.created_at - x.entry.created_at ||
+                x.stream.localeCompare(y.stream) ||
+                y.id - x.id,
+        );
+
+        const page = merged.slice(0, limit);
+        const more =
+            merged.length > limit || !!audit.cursor || signIns.length > limit;
+        // A stream that contributed nothing keeps its old position: everything
+        // it still holds is older than this page, so it resumes where it was.
+        const next = {
+            ...(page.some((row) => row.stream === 'a')
+                ? { a: page.findLast((row) => row.stream === 'a')!.id }
+                : fromAudit === undefined
+                  ? {}
+                  : { a: fromAudit }),
+            ...(page.some((row) => row.stream === 's')
+                ? { s: page.findLast((row) => row.stream === 's')!.id }
+                : fromSignIn === null
+                  ? {}
+                  : { s: fromSignIn }),
+        };
+
+        return {
+            items: page.map((row) => row.entry),
+            ...(more ? { cursor: encodeCursor(next) } : {}),
+        };
     }
 
     /** Resolves a team the caller owns, soft-deleted or not. */
@@ -455,7 +581,10 @@ export class TeamService extends PuterService {
     }
 
     /** Internal user ids never reach the wire, as `toClientTeam` does for `id`. */
-    async #withUsernames(page: { items: TeamAuditRow[]; cursor?: string }) {
+    async #withUsernames(page: {
+        items: TeamAuditRow[];
+        cursor?: string;
+    }): Promise<PageResult<MemberActivityEntry>> {
         const ids = new Set<number>();
         for (const row of page.items) {
             ids.add(row.user_id_keep);
@@ -466,12 +595,15 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map((row) => ({
+            items: page.items.map((row): MemberActivityEntry => ({
                 action: row.action,
                 reason: row.reason,
-                created_at: row.created_at,
+                created_at: epochSeconds(row.created_at),
                 username: name(row.user_id_keep),
                 actor_username: name(row.actor_user_id),
+                // Only a sign-in carries these; the shape stays uniform.
+                ip: null,
+                user_agent: null,
             })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
@@ -602,7 +734,7 @@ export class TeamService extends PuterService {
 
         // Returned once; forced change on first use is what bounds it.
         const temporaryPassword = await this.#issueTemporaryPassword(user.id);
-        await this.#notifyAccountCreated(user, team);
+        await this.#notifyUser(user, 'team_account_created', team);
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {
@@ -645,7 +777,7 @@ export class TeamService extends PuterService {
         });
         const temporaryPassword =
             await this.#issueTemporaryPassword(targetUserId);
-        await this.#notifyAccountCreated(user, team);
+        await this.#notifyUser(user, 'team_account_created', team);
         return { temporaryPassword };
     }
 
@@ -673,7 +805,7 @@ export class TeamService extends PuterService {
             await this.#issueTemporaryPassword(targetUserId);
         // 2FA is deliberately untouched: a reset alone is not takeover.
         await this.#dropSessions(targetUserId);
-        await this.#notifyPasswordReset(user, team);
+        await this.#notifyUser(user, 'team_password_reset', team);
         return { temporaryPassword };
     }
 
@@ -725,38 +857,43 @@ export class TeamService extends PuterService {
         return temporaryPassword;
     }
 
-    /** Carries no credential -- the administrator delivers that out of band. */
-    async #notifyPasswordReset(user: UserRow, team: TeamRow): Promise<void> {
-        if (!this.clients.email || !user.email) return;
+    /**
+     * A notice about something the team did to a member's account. It
+     * carries no credential, so delivery is best effort -- nothing the caller
+     * did depends on it arriving, and an address the administrator supplied may
+     * not even reach its holder.
+     */
+    async #notifyUser(
+        user: UserRow | null | undefined,
+        template: EmailTemplateName,
+        team: TeamRow,
+    ): Promise<void> {
+        if (!this.clients.email || !user?.email) return;
         try {
-            await this.clients.email.send(user.email, 'team_password_reset', {
+            const sent = await this.clients.email.send(user.email, template, {
                 username: user.username,
                 team_name: team.name ?? 'Your team',
             });
+            // `sendRaw` returns null with no transport rather than throwing.
+            if (sent === null) {
+                console.warn(`[team] no email transport for ${template}`);
+            }
         } catch (e) {
-            console.warn('[team-reset] notice failed:', e);
+            console.warn(`[team] ${template} notice failed:`, e);
         }
     }
 
-    /** A notice only -- it carries no credential, so delivery is best effort. */
-    async #notifyAccountCreated(user: UserRow, team: TeamRow): Promise<void> {
-        if (!this.clients.email || !user.email) return;
-        try {
-            const sent = await this.clients.email.send(
-                user.email,
-                'team_account_created',
-                {
-                    username: user.username,
-                    team_name: team.name ?? 'Your team',
-                },
-            );
-            // `sendRaw` returns null with no transport rather than throwing.
-            if (sent === null) {
-                console.warn('[team-provision] no email transport configured');
-            }
-        } catch (e) {
-            console.warn('[team-provision] notice failed:', e);
-        }
+    /** The same notice, for a caller holding only the member's id. */
+    async #notifyMember(
+        userId: number,
+        template: EmailTemplateName,
+        team: TeamRow,
+    ): Promise<void> {
+        await this.#notifyUser(
+            await this.stores.user.getById(userId),
+            template,
+            team,
+        );
     }
 
     // -- Disable and re-enable ---- the whole of offboarding ------------
@@ -799,6 +936,9 @@ export class TeamService extends PuterService {
             username: membership.username,
             held_bytes: held,
         });
+
+        // Their sessions are gone, so email is the only channel left.
+        await this.#notifyMember(targetUserId, 'team_account_disabled', team);
     }
 
     /** Nothing was destroyed, so the account returns as it was. */
