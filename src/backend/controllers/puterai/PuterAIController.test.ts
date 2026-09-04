@@ -360,7 +360,8 @@ describe('PuterAIController.openaiChatCompletions', () => {
             res,
         );
 
-        // Driver was given the user's messages and the default chat provider.
+        // Driver was given the user's messages and no provider pin, so it is
+        // free to pick the preferred healthy route for the model.
         expect(completeSpy).toHaveBeenCalledTimes(1);
         const completeArgs = completeSpy.mock.calls[0]![0];
         expect(completeArgs.model).toBe('gpt-test');
@@ -368,7 +369,7 @@ describe('PuterAIController.openaiChatCompletions', () => {
             { role: 'user', content: 'hi' },
         ]);
         expect(completeArgs.stream).toBe(false);
-        expect(completeArgs.provider).toBe('openai-completion');
+        expect(completeArgs.provider).toBeUndefined();
         // Wire routes translate shapes themselves; the driver is pinned
         // provider-native so the release-date cutoff can't change them.
         expect(completeArgs.normalize).toBe(false);
@@ -393,6 +394,53 @@ describe('PuterAIController.openaiChatCompletions', () => {
         // id is generated as `chatcmpl-<hex>`; just sanity-check the prefix.
         expect(typeof body.id).toBe('string');
         expect((body.id as string).startsWith('chatcmpl-')).toBe(true);
+    });
+
+    it('forwards an explicit provider as a pin instead of choosing one itself', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+            usage: { prompt_tokens: 4, completion_tokens: 2 },
+        });
+
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    provider: 'openai-completion',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+
+        const completeArgs = completeSpy.mock.calls[0]![0];
+        expect(completeArgs.provider).toBe('openai-completion');
+    });
+
+    it('still pins OpenAI when the caller names no model, so the default model does not move', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+            usage: { prompt_tokens: 4, completion_tokens: 2 },
+        });
+
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: { messages: [{ role: 'user', content: 'hi' }] },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+
+        // With no model there is no route to prefer — unpinned, this would
+        // take its default model from whichever provider the driver picks.
+        expect(completeSpy.mock.calls[0]![0].provider).toBe(
+            'openai-completion',
+        );
     });
 
     it('streams chat completion deltas as SSE chunks ending with [DONE]', async () => {
@@ -547,6 +595,59 @@ describe('PuterAIController.openaiCompletions', () => {
             finish_reason: 'stop',
         });
         expect((body.id as string).startsWith('cmpl-')).toBe(true);
+    });
+
+    it('leaves provider unset for a named model so the driver can route it', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'response' },
+            finish_reason: 'stop',
+        });
+        const { res } = makeRes();
+        await controller.openaiCompletions(
+            makeReq({
+                body: { model: 'gpt-test', prompt: 'hello' },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        expect(completeSpy.mock.calls[0]![0].provider).toBeUndefined();
+    });
+
+    it('forwards an explicit provider as a pin', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'response' },
+            finish_reason: 'stop',
+        });
+        const { res } = makeRes();
+        await controller.openaiCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    provider: 'openai-completion',
+                    prompt: 'hello',
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        expect(completeSpy.mock.calls[0]![0].provider).toBe(
+            'openai-completion',
+        );
+    });
+
+    it('still pins OpenAI when the caller names no model', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'response' },
+            finish_reason: 'stop',
+        });
+        const { res } = makeRes();
+        await controller.openaiCompletions(
+            makeReq({ body: { prompt: 'hello' }, actor: makeUserActor() }),
+            res,
+        );
+        expect(completeSpy.mock.calls[0]![0].provider).toBe(
+            'openai-completion',
+        );
     });
 });
 

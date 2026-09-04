@@ -329,13 +329,14 @@ export class ClaudeProvider implements IChatProvider {
         // Upload any `puter_path` parts to Anthropic's Files API and rewrite
         // them in-place to reference the returned `file_id`. Must happen
         // before sdkParams snapshots `messages`.
-        const { fileIds: uploadedFileIds } = await processPuterPathUploads(
-            this.anthropic,
-            messages,
-            this.#stores,
-            this.#fsService,
-            actor,
-        );
+        const { fileIds: uploadedFileIds, restore: restoreUploads } =
+            await processPuterPathUploads(
+                this.anthropic,
+                messages,
+                this.#stores,
+                this.#fsService,
+                actor,
+            );
         const usesBetaFiles = uploadedFileIds.length > 0;
         // The compaction beta is needed both to *request* compaction
         // (contextManagement) and to *accept a round-tripped* compaction block
@@ -403,14 +404,28 @@ export class ClaudeProvider implements IChatProvider {
         };
 
         if (stream) {
+            const completion = usesBeta
+                ? this.anthropic.beta.messages.stream(sdkParams)
+                : this.anthropic.messages.stream(sdkParams);
+            // Subscribed before the request is awaited: the SDK only queues
+            // events for iterators that already exist.
+            const events = completion[Symbol.asyncIterator]();
+
+            // The driver's fallback loop only sees what this method throws, so
+            // the upstream has to accept the request before a populator exists.
+            try {
+                await completion.withResponse();
+            } catch (e) {
+                await cleanupUploads();
+                restoreUploads();
+                throw e;
+            }
+
             const init_chat_stream = async ({
                 chatStream,
             }: {
                 chatStream: AIChatStream;
             }) => {
-                const completion = usesBeta
-                    ? this.anthropic.beta.messages.stream(sdkParams)
-                    : this.anthropic.messages.stream(sdkParams);
                 const usageSum: Record<string, number> = {};
 
                 let message, contentBlock;
@@ -425,7 +440,9 @@ export class ClaudeProvider implements IChatProvider {
                     buffer: string;
                 } | null = null;
                 let emittedCompaction = false;
-                for await (const event of completion) {
+                for await (const event of {
+                    [Symbol.asyncIterator]: () => events,
+                }) {
                     if (event.type === 'message_delta') {
                         const meteredData = this.#usageFormatterUtil(
                             (event?.usage ?? {}) as Usage | BetaUsage,
@@ -542,6 +559,11 @@ export class ClaudeProvider implements IChatProvider {
                         // signature_delta — ignored
                     }
                 }
+                // The SDK only rejects event readers that were already
+                // waiting, so a failure that landed before this loop started
+                // pulling ends it silently rather than throwing.
+                if (completion.errored) await completion.finalMessage();
+
                 const finalMessage = await completion
                     .finalMessage()
                     .catch((): null => null);
@@ -645,6 +667,9 @@ export class ClaudeProvider implements IChatProvider {
                       }
                     : {}),
             };
+        } catch (e) {
+            restoreUploads();
+            throw e;
         } finally {
             await cleanupUploads();
         }

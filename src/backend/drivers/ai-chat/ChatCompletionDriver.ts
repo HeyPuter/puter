@@ -1114,10 +1114,9 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        // Azure AI Foundry (OpenAI + xAI Grok). Registered before the regular
-        // OpenAI/xAI providers so that since its costs mirror theirs but
-        // Azure is preferred for us, it takes precedence in the per-model
-        // bucket
+        // Azure AI Foundry (OpenAI + xAI Grok). Its costs mirror the vendors'
+        // and it is preferred for us; `PREFERRED_PROVIDERS` in modelRouting
+        // puts it ahead of them in the per-model bucket.
         const azureOpenai = providers['azure-openai'];
         const azureOpenaiKey = readKey(azureOpenai);
         const azureOpenaiURL = azureOpenai?.apiURL as string | undefined;

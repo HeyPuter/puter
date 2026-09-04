@@ -102,20 +102,6 @@ export class TogetherAIProvider implements IChatProvider {
             }
         }
 
-        models.push({
-            id: 'model-fallback-test-1',
-            name: 'Model Fallback Test 1',
-            context: 1000,
-            costs_currency: 'usd-cents',
-            input_cost_key: 'input',
-            output_cost_key: 'output',
-            costs: {
-                tokens: 1_000_000,
-                prompt_tokens: 10,
-                completion_tokens: 10,
-            },
-            max_tokens: 1000,
-        });
         kv.set(this.#kvKey, models, { EX: 15 * 60 });
         return models;
     }
@@ -132,10 +118,6 @@ export class TogetherAIProvider implements IChatProvider {
         max_tokens,
         temperature,
     }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        if (model === 'model-fallback-test-1') {
-            throw new Error('Model Fallback Test 1');
-        }
-
         const actor = Context.get('actor');
         const models = await this.models();
         const modelLower = model.toLowerCase();

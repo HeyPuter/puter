@@ -202,9 +202,9 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('falls back to the provider default model when neither model nor provider is given (claude is the hard-coded default provider)', async () => {
-        // Without `claude` in providers config, the driver tries
-        // `claude` as the default provider but it isn't registered, so
+    it('falls back to the provider default model when neither model nor provider is given (azure-openai is the hard-coded default provider)', async () => {
+        // Without `azure-openai` in providers config, the driver tries
+        // `azure-openai` as the default provider but it isn't registered, so
         // `args.model` stays undefined and `#resolveModel` returns null
         // — surfaces as 400.
         await expect(

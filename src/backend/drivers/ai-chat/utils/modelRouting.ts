@@ -33,13 +33,25 @@ export const AGGREGATOR_PROVIDERS = new Set([
     'hoonify',
 ]);
 
-// Lower rank is served first. `openrouter` and `together-ai` sit at the very
-// bottom, in that order, behind the other resellers.
+/**
+ * Direct providers served ahead of every other direct provider, at any price.
+ * Azure AI Foundry fronts OpenAI and xAI models at mirrored prices, so naming
+ * it here keeps it first even if the two cost tables drift. The rank is
+ * unconditional, not scoped to the vendors it fronts: any other provider that
+ * ever publishes one of these model ids loses the bucket however cheaply it
+ * quotes.
+ */
+const PREFERRED_PROVIDERS = new Set(['azure-openai', 'azure-openai-responses']);
+
+// Lower rank is served first: preferred direct providers, then the other
+// direct vendors, then the resellers with `openrouter` and `together-ai` at
+// the very bottom, in that order.
 const providerRank = (provider?: string): number => {
-    if (provider === 'together-ai') return 3;
-    if (provider === 'openrouter') return 2;
-    if (provider && AGGREGATOR_PROVIDERS.has(provider)) return 1;
-    return 0;
+    if (provider === 'together-ai') return 4;
+    if (provider === 'openrouter') return 3;
+    if (provider && AGGREGATOR_PROVIDERS.has(provider)) return 2;
+    if (provider && PREFERRED_PROVIDERS.has(provider)) return 0;
+    return 1;
 };
 
 /**
@@ -85,11 +97,12 @@ export const isIdentityKey = (key: string): boolean =>
 /**
  * Orders the candidates that share a model bucket; the first one gets served.
  *
- * Direct vendors outrank resellers regardless of quoted price. Resellers
- * advertise a floor price across their upstream routes, so on price alone they
- * undercut the vendor's list price and capture traffic for models we hold a
- * direct integration for. Within a rank, cheapest input cost wins and ties
- * break by shorter id — usually the official name over a qualified one.
+ * Preferred direct providers outrank the other direct vendors, and direct
+ * vendors outrank resellers, regardless of quoted price. Resellers advertise a
+ * floor price across their upstream routes, so on price alone they undercut the
+ * vendor's list price and capture traffic for models we hold a direct
+ * integration for. Within a rank, cheapest input cost wins and ties break by
+ * shorter id — usually the official name over a qualified one.
  */
 export const compareModelPreference = (
     a: IChatModel,
