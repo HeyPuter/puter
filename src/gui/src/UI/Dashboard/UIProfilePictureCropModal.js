@@ -126,6 +126,9 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
         if ( slider ) {
             $slider.val(Math.round(scaleToSlider(state.scale, minScale()) * SLIDER_STEPS));
         }
+        // A 0..100 slider value means nothing read aloud; announce the magnification.
+        const zoomFactor = (state.scale / minScale()).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        $slider.attr('aria-valuetext', `${zoomFactor}×`);
     };
 
     const setSlider = (value) => {
