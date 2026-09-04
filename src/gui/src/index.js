@@ -58,6 +58,7 @@ window.gui = async (options) => {
     // window.disable_temp_users might be set somewhere else, so we need to check if it is already set and if not, use the value from the options
     window.disable_temp_users = window.disable_temp_users || (options.disable_temp_users ?? false);
     window.co_isolation_enabled = options.co_isolation_enabled;
+    window.teams_ui = options.teams_ui ?? false;
 
     // DEV: Load the initgui.js file if we are in development mode
     if ( !window.gui_env || window.gui_env === 'dev' ) {
