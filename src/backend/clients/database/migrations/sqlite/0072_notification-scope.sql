@@ -25,6 +25,15 @@
 --
 -- Rows whose user is already gone are dropped rather than carried over: the
 -- cascade this migration adds is what would have removed them.
+--
+-- Wrapped in one transaction: without it, a crash between the `DROP` and the
+-- `RENAME` below would lose the table outright rather than leave it
+-- unmigrated. `IF EXISTS`/`IF NOT EXISTS` guard a stale `notification_new`
+-- from a previous interrupted attempt.
+
+BEGIN;
+
+DROP TABLE IF EXISTS `notification_new`;
 
 CREATE TABLE `notification_new` (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,7 +57,7 @@ SELECT
 FROM `notification`
 WHERE `user_id` IN (SELECT `id` FROM `user`);
 
-DROP TABLE `notification`;
+DROP TABLE IF EXISTS `notification`;
 
 ALTER TABLE `notification_new` RENAME TO `notification`;
 
@@ -91,3 +100,5 @@ SET `audience` = 'developer',
 WHERE `type` = ''
   AND json_valid(`value`)
   AND json_extract(`value`, '$.source') = 'worker';
+
+COMMIT;

@@ -19,7 +19,7 @@
 -- sqlite/0080_kv-share-handles.sql for the column rationale.
 --
 -- Idempotent: `CREATE TABLE IF NOT EXISTS` with the indexes declared inline,
--- as mig_28. There is no per-file applied-state tracking, so a replay has to
+-- as mig_29. There is no per-file applied-state tracking, so a replay has to
 -- be a no-op.
 
 CREATE TABLE IF NOT EXISTS `kv_share_handles` (

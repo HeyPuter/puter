@@ -15,21 +15,17 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- `event_subscriptions.anchor_uid` was sized for a filesystem node uuid. A
--- key-value subscription anchors on an app instead, and an app uid is 40
--- characters. See mysql/mysql_mig_30.sql.
+-- `event_subscriptions` grew three hot queries with no index behind them:
+-- a handler's own rows, the expiry reaper and the suspended reaper. See
+-- sqlite/0081_event-subscriptions-indexes.sql for the query shapes.
 --
--- Guarded: an unconditional ALTER COLUMN TYPE takes an ACCESS EXCLUSIVE lock
--- on every replay, even widening to the same type. Skipped once the column is
--- already wide enough.
+-- Idempotent via IF NOT EXISTS.
 
-DO $$
-BEGIN
-    IF (
-        SELECT character_maximum_length FROM information_schema.columns
-        WHERE table_name = 'event_subscriptions' AND column_name = 'anchor_uid'
-    ) < 40 THEN
-        ALTER TABLE event_subscriptions
-            ALTER COLUMN anchor_uid TYPE VARCHAR(40);
-    END IF;
-END $$;
+CREATE INDEX IF NOT EXISTS idx_event_subscriptions_app_handler
+    ON event_subscriptions (app_uid, handler_name);
+
+CREATE INDEX IF NOT EXISTS idx_event_subscriptions_expires
+    ON event_subscriptions (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_event_subscriptions_suspended
+    ON event_subscriptions (suspended_at, id);
