@@ -31,8 +31,6 @@ import {
     zoomTo,
 } from './profilePictureCrop.js';
 
-const { html_encode } = window;
-
 /** Side of the square PNG stored in the user's profile. */
 const OUTPUT_SIZE = 150;
 /** Photos are shrunk to this before previewing: plenty for a 150px avatar, cheap to transform. */
@@ -73,11 +71,11 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
                     <button type="button" class="profile-crop-close" aria-label="${i18n('close')}" title="${i18n('close')}">${closeIcon}</button>
                 </div>
                 <div class="profile-crop-body">
-                    <div class="profile-crop-frame" tabindex="0" aria-label="${html_encode(i18n('drag_to_reposition'))}" aria-describedby="profile-crop-hint-${id}">
+                    <div class="profile-crop-frame" tabindex="0" aria-label="${i18n('drag_to_reposition')}" aria-describedby="profile-crop-hint-${id}">
                         <div class="profile-crop-mask" aria-hidden="true"></div>
                         <span class="profile-crop-spinner" aria-hidden="true"></span>
                     </div>
-                    <p class="profile-crop-hint" id="profile-crop-hint-${id}">${html_encode(hint)}</p>
+                    <p class="profile-crop-hint" id="profile-crop-hint-${id}">${hint}</p>
                     <div class="profile-crop-zoom-row">
                         <button type="button" class="profile-crop-zoom-btn profile-crop-zoom-out" aria-label="${i18n('zoom_out')}" title="${i18n('zoom_out')}" disabled>${zoomOutIcon}</button>
                         <input type="range" class="profile-crop-zoom" min="0" max="${SLIDER_STEPS}" step="1" value="0" aria-label="${i18n('zoom')}" disabled />
