@@ -11,6 +11,8 @@ Puter.js handles all the infrastructure for you, so you don't need to set up ser
 
 <div class="info"><strong>Need to share data across users?</strong> Each user's key-value store lives in their own account, so one user can't read another's data. To keep a single, centralized store that every user reads from and writes to, use a <a href="/Workers/">Serverless Worker</a> — its code can act on the worker owner's resources, giving all users one shared backend.</div>
 
+<div class="info"><strong>Key layout is the access boundary.</strong> To let another account watch part of your store instead of copying it, mint an <a href="/Events/">Events share handle</a> over a key prefix. A handle pins the prefix it was granted on, so reorganizing your keys breaks every handle already given out — grant on a stable synthetic segment such as <code>workspace:&lt;uuid&gt;:</code> rather than a semantic one like <code>q3-planning:</code>, which is the kind of name that gets renamed.</div>
+
 ## Features
 
 <div style="overflow:hidden; margin-bottom: 30px;">
