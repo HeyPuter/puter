@@ -154,7 +154,7 @@ describe('OpenAiChatProvider model catalog', () => {
         expect(provider.getDefaultModel()).toBe('gpt-5-nano');
     });
 
-    it('models() filters out responses_api_only entries', () => {
+    it('models() excludes Responses-only entries and includes dual-API entries', () => {
         const { provider } = makeProvider();
         const ids = provider.models().map((m) => m.id);
         const responsesOnly = OPEN_AI_MODELS.filter(
@@ -165,6 +165,7 @@ describe('OpenAiChatProvider model catalog', () => {
         }
         // gpt-5-nano is a Chat-Completions model, must be present.
         expect(ids).toContain('gpt-5-nano-2025-08-07');
+        expect(ids).toContain('gpt-6-astra');
     });
 
     it('list() flattens canonical ids and aliases', () => {
@@ -267,6 +268,26 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_completion_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
+    });
+
+    it('resolves the namespaced GPT-6 Astra alias', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'openai/gpt-6-astra',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].model).toBe('gpt-6-astra');
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            'openai:gpt-6-astra',
+            expect.any(Object),
+        );
     });
 
     it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {

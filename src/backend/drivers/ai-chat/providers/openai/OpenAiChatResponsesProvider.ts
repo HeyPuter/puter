@@ -74,7 +74,9 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         if (extra_params?.no_restrictions) {
             return OPEN_AI_MODELS;
         }
-        return OPEN_AI_MODELS.filter((e) => e.responses_api_only === true);
+        return OPEN_AI_MODELS.filter(
+            (e) => e.responses_api_only === true || e.responses_api === true,
+        );
     }
 
     list() {

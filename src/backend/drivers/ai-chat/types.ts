@@ -50,6 +50,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     modalities?: ModelModalities;
     open_weights?: boolean;
     tool_call?: boolean;
+    responses_api?: boolean;
+    responses_api_only?: boolean;
     knowledge?: string;
     release_date?: string;
 }
