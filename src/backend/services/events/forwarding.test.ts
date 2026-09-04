@@ -55,55 +55,63 @@ import type {
 } from './workerSeam.js';
 
 // -- The replicated table --------------------------------------------
+//
+// One item per (pair, region) now, not one item with a `regions` map field:
+// each region's own key is the only thing it ever writes, so there is
+// nothing for two regions to race over. `connectedAt` doubles as that item's
+// compare-and-set token — the same thing the row-wide `version` did before,
+// scoped to the one region a leave or a repair ever touches.
 
-interface StoredRow {
-    regions: Record<string, number>;
-    version: number;
+interface StoredItem {
+    connectedAt: number;
+    ttl: number;
 }
 
-let table: Map<string, StoredRow>;
+let table: Map<string, StoredItem>;
 let tableReads: number;
 let tableWrites: number;
 
 /**
  * The reserved-item path, as the key-value store exposes it. Stubbed at the
- * store boundary so both regions share one row; the real path against the real
- * table is covered by the presence integration suite.
+ * store boundary so both regions share one table; the real path against the
+ * real table is covered by the presence integration suite.
  */
 const kvStub = () => ({
-    getReservedItem: async (key: string) => {
+    queryReservedItems: async <T extends Record<string, unknown>>(
+        prefix: string,
+    ): Promise<T[]> => {
         tableReads++;
-        const row = table.get(key);
-        return row
-            ? { regions: { ...row.regions }, version: row.version }
-            : null;
+        const now = Date.now() / 1000;
+        const items: T[] = [];
+        for (const [key, item] of table.entries()) {
+            if (!key.startsWith(prefix)) continue;
+            if (item.ttl && item.ttl <= now) continue;
+            items.push({ key, connectedAt: item.connectedAt } as unknown as T);
+        }
+        return items;
     },
-    setReservedEntry: async (
+    putReservedItem: async (
         key: string,
-        _field: string,
-        entry: string,
-        value: unknown,
-    ) => {
+        attributes: Record<string, unknown>,
+    ): Promise<void> => {
         tableWrites++;
-        const row = table.get(key) ?? { regions: {}, version: 0 };
-        const next = {
-            regions: { ...row.regions, [entry]: value as number },
-            version: row.version + 1,
-        };
-        table.set(key, next);
-        return next.version;
+        table.set(key, {
+            connectedAt: Number(attributes.connectedAt),
+            ttl: Number(attributes.ttl),
+        });
     },
-    removeReservedEntry: async (
+    retireReservedItemIf: async (
         key: string,
-        _field: string,
-        entry: string,
-        expectedVersion: number,
-    ) => {
+        _condition: string,
+        conditionValues: Record<string, unknown>,
+    ): Promise<boolean> => {
         tableWrites++;
-        const row = table.get(key);
-        if (!row || row.version !== expectedVersion) return false;
-        const { [entry]: _gone, ...rest } = row.regions;
-        table.set(key, { regions: rest, version: row.version + 1 });
+        const item = table.get(key);
+        if (!item || item.connectedAt !== conditionValues[':expected'])
+            return false;
+        // 1, not 0: a falsy ttl reads as "no expiry" everywhere else here,
+        // the same convention the real store follows.
+        table.set(key, { ...item, ttl: 1 });
         return true;
     },
 });
@@ -352,8 +360,18 @@ const makeRegion = (
 
 // -- Helpers ----------------------------------------------------------
 
-const rowFor = (appUid: string = PRESENCE_NO_APP): StoredRow | null =>
-    table.get(presenceItemKey(`user-${userId}`, appUid)) ?? null;
+/** Reconstructs a pair's row from its per-region items, the way `read()` does. */
+const rowFor = (appUid: string = PRESENCE_NO_APP): { regions: Record<string, number> } => {
+    const prefix = presenceItemKey(`user-${userId}`, appUid, '');
+    const now = Date.now() / 1000;
+    const regions: Record<string, number> = {};
+    for (const [key, item] of table.entries()) {
+        if (!key.startsWith(prefix)) continue;
+        if (item.ttl && item.ttl <= now) continue;
+        regions[key.slice(prefix.length)] = item.connectedAt;
+    }
+    return { regions };
+};
 
 const register = async (
     region: Region,
@@ -558,6 +576,30 @@ describe('what a connection writes', () => {
 
         expect(tableWrites).toBe(0);
     });
+
+    it('a flapping client across two nodes in one region writes at most one join per real transition', async () => {
+        // Two independent service instances answering to the same region
+        // name and sharing the same Redis keyspace (same name + seq, exactly
+        // as `makeRegion` sets up two peers sharing one): a process-local
+        // `#leaveTimers` map cannot cancel a leave scheduled by the other
+        // process, which is why the region-shared pin — not that map — is
+        // what has to gate the join write.
+        const nodeA = makeRegion('east', ['west']);
+        const nodeB = makeRegion('east', ['west']);
+        makeRegion('west', ['east']);
+
+        tableWrites = 0;
+        // Connect on A, and flap to B before A's disconnect write would ever
+        // land — B has no idea A scheduled anything.
+        await nodeA.forward.noteConnect(actorFor());
+        await nodeA.forward.noteDisconnect(actorFor());
+        await nodeB.forward.noteConnect(actorFor());
+        await nodeB.forward.noteDisconnect(actorFor());
+        await nodeA.forward.noteConnect(actorFor());
+
+        expect(tableWrites).toBe(1);
+        expect(rowFor().regions).toEqual({ east: expect.any(Number) });
+    });
 });
 
 // -- Forwarding -------------------------------------------------------
@@ -728,27 +770,31 @@ describe('a row naming a region that holds nothing', () => {
         expect(tableWrites).toBe(1);
     });
 
-    it('loses harmlessly to a connect that landed while it was deciding', async () => {
+    it('re-joins once its pin is released — a dead node recovers on its next connect', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         await east.forward.noteConnect(actorFor());
+        const original = rowFor().regions.east;
+        // The socket goes without east ever reporting it — a node that died
+        // holding the join pin along with the row entry.
         east.rooms.clear();
         await east.presence.removeConnection(userId, PRESENCE_NO_APP);
         await register(west);
 
-        // West reads the row, and only then does east get a socket back.
-        await west.forward.regionsFor(userId, null);
-        east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
-        const fresh = rowFor()?.version;
-
+        // West's forward comes back `noSocket`, repairs the row, and — as a
+        // side effect of east answering that itself — releases east's pin.
         await dispatch(west);
         await posted(west);
-        await quiet(200);
+        await vi.waitFor(() => expect(rowFor().regions).toEqual({}));
 
-        // The stale repair is refused, so the reconnected region is still there.
-        expect(rowFor()?.regions).toEqual({ east: expect.any(Number) });
-        expect(rowFor()?.version).toBe(fresh);
+        // East reconnects for real. With the pin released this is a fresh
+        // join, not a skip: the pair is visible again without waiting for a
+        // disconnect/reconnect cycle of its own to notice.
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+
+        expect(rowFor().regions.east).toEqual(expect.any(Number));
+        expect(rowFor().regions.east).not.toBe(original);
     });
 
     it('is not repaired away while the region holding it is still inside its own disconnect window', async () => {
@@ -917,7 +963,7 @@ describe('a delivery owed to exactly one consumer', () => {
         // Neither candidate acked, so the leases lapse and the handler takes
         // what the sockets would not.
         for (let attempt = 0; attempt < 3; attempt++) {
-            jump(31_000);
+            jump(61_000);
             await west.events.sweepPending();
         }
 
@@ -995,5 +1041,123 @@ describe('presence moving in another region', () => {
 
         expect(await west.forward.regionsFor(userId, null)).toEqual(['east']);
         expect(tableReads).toBeGreaterThan(reads);
+    });
+});
+
+// -- Decommissioned regions --------------------------------------------
+
+describe('a row naming a region that is not a peer', () => {
+    it('never offers it as a candidate, and prunes it out of the table', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        await register(west);
+
+        // A region taken out of the peer list — decommissioned, or never one
+        // to begin with — whose item nothing ever cleaned up.
+        table.set(presenceItemKey(`user-${userId}`, PRESENCE_NO_APP, 'ghost'), {
+            connectedAt: Date.now(),
+            ttl: Math.floor(Date.now() / 1000) + 999,
+        });
+
+        expect(await west.forward.regionsFor(userId, null)).toEqual([]);
+        await vi.waitFor(() =>
+            expect(rowFor().regions.ghost).toBeUndefined(),
+        );
+    });
+
+    it('still offers a peer alongside a non-peer name in the same row', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        await register(west);
+
+        table.set(presenceItemKey(`user-${userId}`, PRESENCE_NO_APP, 'ghost'), {
+            connectedAt: Date.now() + 1, // sorts ahead of 'east' by recency
+            ttl: Math.floor(Date.now() / 1000) + 999,
+        });
+
+        expect(await west.forward.regionsFor(userId, null)).toEqual(['east']);
+    });
+});
+
+// -- Bounded concurrency on the inbound side ---------------------------
+
+describe('receiving a batch', () => {
+    it('emits deliveries in the order the batch carries them', async () => {
+        // A subscription's events reach its socket in the order they were
+        // emitted. Applying the batch concurrently would let every later
+        // event overtake one slow delivery on the way out.
+        const east = makeRegion('east', ['west']);
+
+        const delivered: string[] = [];
+        vi.spyOn(east.events, 'deliverForwarded').mockImplementation(
+            async (item: ForwardDelivery) => {
+                if (item.subId === 'first')
+                    await new Promise((resolve) => setTimeout(resolve, 50));
+                delivered.push(item.subId);
+            },
+        );
+
+        await east.forward.receive({
+            from: 'west',
+            items: ['first', 'second', 'third'].map((subId) => ({
+                kind: 'delivery' as const,
+                userId,
+                appUid: null,
+                subId,
+                event: {
+                    id: `e-${subId}`,
+                    subject: 'fs:/u7/Documents',
+                    op: 'write',
+                    uid: 'node-1',
+                    path: '/u7/Documents/notes.txt',
+                    self: true,
+                    seq: 0,
+                    ts: 1,
+                },
+            })),
+        });
+
+        expect(delivered).toEqual(['first', 'second', 'third']);
+    });
+
+    it('does not let one slow settle stall the rest of the batch', async () => {
+        const east = makeRegion('east', ['west']);
+
+        const settled: string[] = [];
+        vi.spyOn(east.events, 'settleRelayedAck').mockImplementation(
+            async (_holderUserId: number, subId: string) => {
+                if (subId === 'slow')
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                settled.push(subId);
+            },
+        );
+
+        const batch: ForwardBatch = {
+            from: 'west',
+            items: [
+                { kind: 'ack', userId, subId: 'slow', entryId: 'e-slow' },
+                ...Array.from({ length: 8 }, (_, i) => ({
+                    kind: 'ack' as const,
+                    userId,
+                    subId: `fast-${i}`,
+                    entryId: `e-${i}`,
+                })),
+            ],
+        };
+
+        const startedAt = Date.now();
+        await east.forward.receive(batch);
+        const elapsedMs = Date.now() - startedAt;
+
+        // Bounded by the one slow settle running alongside the rest, not by
+        // nine settles run one after another.
+        expect(elapsedMs).toBeLessThan(200 + 150);
+        expect(settled.filter((id) => id !== 'slow')).toHaveLength(8);
+        // The fast settles all finished while the slow one was still
+        // in flight, proving they ran concurrently rather than queued
+        // behind it.
+        expect(settled.at(-1)).toBe('slow');
     });
 });

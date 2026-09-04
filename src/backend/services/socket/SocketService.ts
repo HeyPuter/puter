@@ -31,6 +31,7 @@ import {
     acquireConcurrent,
     checkRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
+import { PRESENCE_NO_APP } from '../../stores/events/PresenceStore.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -558,8 +559,20 @@ export class SocketService extends PuterService {
 
         // A third of the window: two renewals may be missed (a paused timer, a
         // slow backend) before a live slot looks abandoned.
+        const appUid = actor.effectiveApp?.uid ?? PRESENCE_NO_APP;
         const renewTimer = setInterval(
-            () => void Promise.all(slots.map((s) => s.renew())),
+            () => {
+                void Promise.all(slots.map((s) => s.renew()));
+                // Presence bookkeeping lapses the same way a slot does if
+                // nothing refreshes it, and this is the only timer that runs
+                // for as long as a socket does. A no-op with no peers
+                // configured, which is where presence costs nothing at all.
+                void this.services.eventForward
+                    ?.touchPresence(userId, appUid)
+                    .catch((err: unknown) => {
+                        console.warn('[socket] presence touch failed', err);
+                    });
+            },
             Math.floor(CONCURRENT_SLOT_TTL_MS / 3),
         );
         renewTimer.unref?.();
