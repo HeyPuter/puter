@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
-    "@eslint/js": "^9.35.0",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.56.1",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
