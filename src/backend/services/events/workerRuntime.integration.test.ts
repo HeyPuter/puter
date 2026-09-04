@@ -124,6 +124,9 @@ const localWorkers = () => env.server.services.localworkerservice;
 const scriptName = async (): Promise<string> =>
     eventsWorkerScript(
         handlerSetHash(await env.server.stores.eventHandler.setForApp(appUid)),
+        // No `workers.internetExposedUrl` in this test's config, so the scope
+        // this backend binds is empty.
+        '',
     );
 
 /** Whether that script is up in the local worker backend. */
@@ -139,6 +142,33 @@ const readBody = async (req: http.IncomingMessage): Promise<string> => {
     for await (const chunk of req) chunks.push(chunk as Buffer);
     return Buffer.concat(chunks).toString('utf8');
 };
+
+/**
+ * A real `Host` header against the local-worker proxy. `fetch()` drops a
+ * `host` header it is handed (a forbidden header per the Fetch spec), so it
+ * cannot exercise hostname-based routing at all — this goes in under
+ * `http.request`, which does not filter it.
+ */
+const requestWithHost = (
+    host: string,
+    path: string,
+    body: unknown,
+): Promise<{ status: number }> =>
+    new Promise((resolve, reject) => {
+        const req = http.request(
+            new URL(path, env.apiOrigin),
+            {
+                method: 'POST',
+                headers: { host, 'content-type': 'application/json' },
+            },
+            (res) => {
+                res.resume();
+                res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+            },
+        );
+        req.on('error', reject);
+        req.end(JSON.stringify(body));
+    });
 
 const startSink = async (): Promise<string> => {
     sink = http.createServer((req, res) => {
@@ -539,17 +569,13 @@ describe('what can reach a deployed events worker', () => {
             expect(await isResident(script)).toBe(true);
 
             // The host an ordinary worker answers on resolves through the
-            // registry, and an events worker has no row in it.
-            const overHttp = await fetch(
-                new URL(EVENTS_INVOKE_PATH, env.apiOrigin),
-                {
-                    method: 'POST',
-                    headers: {
-                        host: `${script}.workers.puter.localhost`,
-                        'content-type': 'application/json',
-                    },
-                    body: JSON.stringify({ handler: 'ingest' }),
-                },
+            // local-worker proxy (`cfCallLocal`), and an events worker is
+            // deployed under its own registry key — never findable there,
+            // and it has no `subdomains` row for the proxy to fall back to.
+            const overHttp = await requestWithHost(
+                `${script}.workers.puter.localhost`,
+                EVENTS_INVOKE_PATH,
+                { handler: 'ingest' },
             );
             expect(overHttp.status).toBe(404);
 
@@ -626,6 +652,11 @@ describe('the deploy a dispatcher asks for', () => {
             expect(
                 (await rehydrate({ script: 'not-a-script', appUid })).status,
             ).toBe(400);
+            // Matches the edge dispatcher's own `appUid` validation.
+            expect(
+                (await rehydrate({ script: await scriptName(), appUid: 'nope' }))
+                    .status,
+            ).toBe(400);
 
             // Well-formed, but not what this app's set hashes to: nothing to
             // bring back, and no reason for the caller to retry.
@@ -635,6 +666,32 @@ describe('the deploy a dispatcher asks for', () => {
             });
             expect(stale.status).toBe(404);
             expect(stale.body).toEqual({ deployed: false, reason: 'stale' });
+        },
+    );
+
+    it(
+        'refuses with a retriable 502 once this app has deployed past the hourly cap',
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            const script = await scriptName();
+            const hour = new Date().toISOString().slice(0, 13);
+            await env.server.clients.redis.set(
+                `ev:deploys:{${appUid}}:${hour}`,
+                '9999',
+            );
+
+            try {
+                const throttled = await rehydrate({ script, appUid });
+                expect(throttled.status).toBe(502);
+                expect(throttled.body).toEqual({
+                    deployed: false,
+                    reason: 'throttled',
+                });
+            } finally {
+                await env.server.clients.redis.del(
+                    `ev:deploys:{${appUid}}:${hour}`,
+                );
+            }
         },
     );
 

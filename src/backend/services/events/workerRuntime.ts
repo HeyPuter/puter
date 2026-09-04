@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 /**
  * How an app's events worker is named and how it recognizes the platform.
@@ -33,11 +33,26 @@ import { createHmac } from 'node:crypto';
 export const EVENTS_WORKER_PREFIX = 'evw-';
 
 /**
- * The script a handler set deploys as. 128 bits of the set hash: long enough
- * that two sets never collide, short enough to leave room in a script name.
+ * What scopes a script name to one backend. Two backends can share a dispatch
+ * namespace and database (staging and production, say); folding this into the
+ * name is what keeps a script deployed by one from resolving as the other's.
+ * The same value `#cfDeploy` binds a script's `puter_endpoint` as, so a script
+ * is always scoped to the backend whose requests it would actually answer.
  */
-export const eventsWorkerScript = (setHash: string): string =>
-    `${EVENTS_WORKER_PREFIX}${setHash.slice(0, 32)}`;
+export const eventsWorkerScope = (config: {
+    workers?: { internetExposedUrl?: string };
+}): string => config.workers?.internetExposedUrl ?? '';
+
+/**
+ * The script a handler set deploys as, scoped to this backend. Truncated hash:
+ * long enough that two sets never collide, short enough to leave room in a
+ * script name.
+ */
+export const eventsWorkerScript = (setHash: string, scope: string): string =>
+    `${EVENTS_WORKER_PREFIX}${createHash('sha256')
+        .update(`${scope}\n${setHash}`, 'utf8')
+        .digest('hex')
+        .slice(0, 32)}`;
 
 /** Version prefix on a derived key, so a rotation is visible in a log line. */
 export const EVENTS_INVOKE_KEY_VERSION = 'k1';

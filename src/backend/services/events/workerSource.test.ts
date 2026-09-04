@@ -31,6 +31,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
+import { EVENTS_WORKER_SOURCE_MAX_BYTES } from '../../controllers/events/limits.js';
 import {
     hashContent,
     type EventHandler,
@@ -39,6 +40,7 @@ import { EVENTS_INVOKE_PATH } from '../../clients/events/EventsWorkerInvokerClie
 import {
     generateEventsWorkerSource,
     handlerSetHash,
+    EVENTS_GENERATED_SOURCE_MAX_BYTES,
     EVENTS_WORKER_MARKER,
 } from './workerSource.js';
 
@@ -353,5 +355,149 @@ describe('the generated worker inside its runtime', () => {
             (await invoke(worker, { body: delivery({ handler: 'bad' }) }))
                 .status,
         ).toBe(500);
+    });
+
+    it('catches a source that parses as `return (...)` but not as the emitted register call', async () => {
+        // Valid as `return (\n${source}\n);` but a SyntaxError once embedded
+        // as `__puterEvents.register(key, (\n${source}\n));` — the old check
+        // validated the wrong text and would have taken the whole script down.
+        const source = '1); globalThis.x = 2; (function(){}';
+        const worker = loadWorker([handler('good', SINK), handler('bad', source)]);
+
+        expect(worker.generated.broken).toEqual(['bad']);
+        expect(
+            (await invoke(worker, { body: delivery({ handler: 'good' }) }))
+                .status,
+        ).toBe(200);
+    });
+});
+
+describe('the handled marker', () => {
+    it('carries the handled header on every answer, success or failure', async () => {
+        const worker = loadWorker([
+            handler('ok', SINK),
+            handler('boom', 'async () => { throw new Error("x"); }'),
+        ]);
+
+        const ok = await invoke(worker, { body: delivery({ handler: 'ok' }) });
+        expect(ok.headers.get('x-puter-events-handled')).toBe('1');
+
+        const notFound = await invoke(worker, {
+            body: delivery({ handler: 'missing' }),
+        });
+        expect(notFound.headers.get('x-puter-events-handled')).toBe('1');
+
+        const threw = await invoke(worker, {
+            body: delivery({ handler: 'boom' }),
+        });
+        expect(threw.headers.get('x-puter-events-handled')).toBe('1');
+    });
+
+    it('names the runtime`s own failure with a machine-readable error code', async () => {
+        const worker = loadWorker([
+            handler('ok', SINK),
+            handler('flagged', `async () => {
+                const err = new Error('no');
+                err.terminal = true;
+                throw err;
+            }`),
+            handler('boom', 'async () => { throw new Error("x"); }'),
+            handler('bad', 'async ( => {'),
+        ]);
+
+        const cases: Array<[InvokeOptions, string]> = [
+            [{ key: 'wrong', body: delivery() }, 'bad-key'],
+            [{ rawBody: 'not json' }, 'bad-body'],
+            [{ body: delivery({ handler: 'bad' }) }, 'handler-broken'],
+            [{ body: delivery({ handler: 'missing' }) }, 'unknown-handler'],
+            [{ body: { handler: 'ok' } }, 'no-token'],
+            [{ body: delivery({ handler: 'boom' }) }, 'handler-threw'],
+            [{ body: delivery({ handler: 'flagged' }) }, 'handler-terminal'],
+        ];
+        for (const [options, code] of cases)
+            expect(
+                (await invoke(worker, options)).headers.get(
+                    'x-puter-events-error',
+                ),
+            ).toBe(code);
+    });
+
+    it('cannot be spoofed by handler code that replaces the global Response', async () => {
+        const worker = loadWorker([
+            handler(
+                'hijack',
+                `async () => {
+                    globalThis.Response = class {
+                        constructor() { this.status = 200; this.headers = new Map([['x-puter-events-handled', '0']]); }
+                    };
+                }`,
+            ),
+        ]);
+        const res = await invoke(worker, {
+            body: delivery({ handler: 'hijack' }),
+        });
+        // The runtime's own answer, built from the Response it captured
+        // before this handler ran — not the one the handler installed.
+        expect(res.headers.get('x-puter-events-handled')).toBe('1');
+    });
+});
+
+describe('generateEventsWorkerSource', () => {
+    it('falls back to marking every handler broken if the assembled file will not parse', () => {
+        const a = handler('a', SINK);
+        const b = handler('b', 'async () => {}');
+        const RealFunction = Function;
+        vi.stubGlobal(
+            'Function',
+            function (this: unknown, ...args: string[]) {
+                const body = args[args.length - 1] ?? '';
+                // Only the final whole-file compile is forced to fail — the
+                // per-handler checks (which never see the marker line) still
+                // run against the real constructor.
+                if (body.includes(EVENTS_WORKER_MARKER))
+                    throw new SyntaxError('forced');
+                return new RealFunction(...args);
+            },
+        );
+        try {
+            const generated = generateEventsWorkerSource([a, b]);
+            expect(generated.broken).toEqual(['a', 'b']);
+            expect(generated.source).not.toContain('__puterEvents.register');
+            expect(generated.source).toContain('markBroken("a")');
+            expect(generated.source).toContain('markBroken("b")');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('flags a set whose generated source exceeds the size cap, and not an ordinary one', () => {
+        expect(generateEventsWorkerSource([handler('a', SINK)]).tooLarge).toBe(
+            false,
+        );
+
+        const huge = handler(
+            'huge',
+            `async () => { /* ${'x'.repeat(EVENTS_GENERATED_SOURCE_MAX_BYTES)} */ }`,
+        );
+        expect(generateEventsWorkerSource([huge]).tooLarge).toBe(true);
+    });
+
+    it('still deploys a set published right at the handler-source cap', () => {
+        // The publish side caps the handlers' own bytes; the registration
+        // wrapper this generator adds is not the app's, so a set that was
+        // allowed to publish must not come out undeployable.
+        const shell = (pad: string) => `async () => { /*${pad}*/ }`;
+        const source = shell(
+            'x'.repeat(EVENTS_WORKER_SOURCE_MAX_BYTES - shell('').length),
+        );
+        expect(Buffer.byteLength(source, 'utf8')).toBe(
+            EVENTS_WORKER_SOURCE_MAX_BYTES,
+        );
+
+        const generated = generateEventsWorkerSource([
+            handler('at-cap', source),
+        ]);
+        expect(generated.broken).toEqual([]);
+        expect(generated.tooLarge).toBe(false);
     });
 });

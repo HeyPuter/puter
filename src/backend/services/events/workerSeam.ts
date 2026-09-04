@@ -23,13 +23,9 @@ import type { DeliverableEvent } from './registry.js';
 /**
  * Where a delivery leaves the event system for the app's own code.
  *
- * The seam is the boundary between "this delivery is owed to a handler" and
- * "something ran it": what runs a handler is one decision, and how many times a
- * `single` may be handed out is another.
- *
- * An invocation is not an ack. A `single` delivery stays leased until the
- * invoker reports the handler took it, which is what keeps a handler that never
- * ran from looking like one that succeeded.
+ * An invocation is not an ack: a `single` delivery stays leased until the
+ * invoker reports the handler took it, so a handler that never ran cannot look
+ * like one that succeeded.
  */
 
 /** One handler call, as the seam receives it. */
@@ -87,19 +83,26 @@ export type EventsWorkerAddresser = (
     appUid: string,
 ) => Promise<{ script: string; key: string } | null>;
 
+/** How often the same script's retriable failures are logged. */
+const WARN_INTERVAL_MS = 60_000;
+/** Distinct scripts one process tracks a last-warned time for. */
+const WARN_MAP_MAX_ENTRIES = 1000;
+
 /**
  * The invoker that actually calls an app's events worker: mint the
- * subscriber-scoped token, address the app's current handler set, hand the call
- * to the protocol client, and report what the handler said.
- *
- * A row with no app, no handler name, or no token that can be minted for it has
- * nothing to invoke, and says so rather than reporting a failure — there is no
- * handler to blame for a row that never named one.
+ * subscriber-scoped token, address the app's current set, and report what the
+ * handler said. A row with no app, no handler name, or no mintable token has
+ * nothing to invoke, and says so rather than reporting a failure.
  */
 export class EventsWorkerInvoker implements WorkerInvokerSeam {
     readonly #client: Pick<EventsWorkerInvokerClient, 'invoke'>;
     readonly #mintToken: SubscriberTokenMinter;
     readonly #address: EventsWorkerAddresser;
+    /**
+     * Script -> when it was last logged, so a failing script floods once a
+     * minute.
+     */
+    readonly #warned = new Map<string, number>();
 
     constructor(
         client: Pick<EventsWorkerInvokerClient, 'invoke'>,
@@ -135,7 +138,24 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
             event: invocation.event,
             ctx: parseContext(invocation.context),
         });
+        if (result.outcome === 'retriable' && result.error)
+            this.#warnRetriable(address.script, appUid, result.error);
         return result.outcome;
+    }
+
+    #warnRetriable(script: string, appUid: string, error: string): void {
+        const now = Date.now();
+        const last = this.#warned.get(script);
+        if (last !== undefined && now - last < WARN_INTERVAL_MS) return;
+        this.#warned.set(script, now);
+        if (this.#warned.size > WARN_MAP_MAX_ENTRIES) {
+            for (const [key, ts] of this.#warned)
+                if (now - ts >= WARN_INTERVAL_MS) this.#warned.delete(key);
+            // Nothing was stale enough to drop, so forget the window rather
+            // than let the map grow with the number of failing scripts.
+            if (this.#warned.size > WARN_MAP_MAX_ENTRIES) this.#warned.clear();
+        }
+        console.warn('[events] invoke failed', { appUid, script, error });
     }
 }
 

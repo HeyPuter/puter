@@ -20,39 +20,36 @@
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { puterClients } from '../../clients/index.js';
 import type { puterDrivers } from '../../drivers/index.js';
 import {
     INTERNAL_ADMISSION_BYPASS,
     INTERNAL_DEPLOY_TARGET,
 } from '../../drivers/workers/WorkerDriver.js';
 import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
-import { EVENTS_INVOKE_PATH } from '../../clients/events/EventsWorkerInvokerClient.js';
+import {
+    EVENTS_HANDLED_HEADER,
+    EVENTS_INVOKE_PATH,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { puterServices } from '../../services/index.js';
 import {
     eventsInvokeKey,
+    eventsWorkerScope,
     eventsWorkerScript,
 } from '../../services/events/workerRuntime.js';
 import { generateEventsWorkerSource } from '../../services/events/workerSource.js';
 import type { puterStores } from '../../stores/index.js';
 import type { IConfig, LayerInstances } from '../../types.js';
+import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
 
 /**
  * Deploys an app's events worker from its published handlers.
  *
- * Publishing writes rows and stops there. A handler set is deployed the first
- * time a delivery needs it and again whenever it is evicted, so the deploy is
- * never on a user's request path and first deploy and rehydration are the same
- * code path. In production the events dispatcher asks for one on a namespace
- * miss; locally there is no dispatcher, so the transport below asks directly.
- *
- * Scripts go into their own dispatch namespace under a name derived from the
- * handler set, carry no worker token, and get no `subdomains` row: an events
- * worker is not one of the owner's workers, is not addressable from the
- * internet, and cannot be listed, deleted or overwritten as if it were.
- *
- * Nothing here deletes anything: a republished set leaves the previous set's
- * script behind, and sweeping those by age is the namespace's own job. Deleting
- * one still in use is safe — the next delivery misses and deploys it again.
+ * Deployed the first time a delivery needs it and again on eviction — a publish
+ * only writes rows. Scripts carry no worker token and no `subdomains` row: not
+ * one of the owner's workers, not addressable from the internet, not listed or
+ * deleted as if it were. A republished set leaves the old script behind rather
+ * than deleting it; redeploying a still-live one is always safe.
  */
 
 /** Why a deploy could not happen, for the callers that answer differently. */
@@ -61,14 +58,22 @@ export type EventsDeployOutcome =
     | 'stale'
     | 'no-handlers'
     | 'no-owner'
+    | 'throttled'
     | 'failed';
 
 interface DeployLayers {
     config: IConfig;
+    clients: LayerInstances<typeof puterClients>;
     stores: LayerInstances<typeof puterStores>;
     services: LayerInstances<typeof puterServices>;
     drivers: LayerInstances<typeof puterDrivers>;
 }
+
+/**
+ * `ev:deploys:{<appUid>}:<hour>` bucket TTL — comfortably past the hour it
+ * counts.
+ */
+const DEPLOY_THROTTLE_TTL_SECONDS = 2 * 60 * 60;
 
 interface DeployResult {
     success?: boolean;
@@ -98,12 +103,13 @@ export class EventsWorkerDeployer {
      * delivery resolves the new script rather than this one being revived.
      */
     ensure(appUid: string, script: string): Promise<EventsDeployOutcome> {
-        const existing = this.#inFlight.get(script);
+        const key = `${appUid}|${script}`;
+        const existing = this.#inFlight.get(key);
         if (existing) return existing;
         const started = this.#deploy(appUid, script).finally(() =>
-            this.#inFlight.delete(script),
+            this.#inFlight.delete(key),
         );
-        this.#inFlight.set(script, started);
+        this.#inFlight.set(key, started);
         return started;
     }
 
@@ -120,12 +126,26 @@ export class EventsWorkerDeployer {
         // Two apps that published byte-identical sets share one script, which
         // is sound: the source is the same, and everything per-app arrives with
         // the invocation. Whoever deploys first owns it.
-        if (eventsWorkerScript(generated.setHash) !== script) return 'stale';
+        if (
+            eventsWorkerScript(
+                generated.setHash,
+                eventsWorkerScope(this.#layers.config),
+            ) !== script
+        )
+            return 'stale';
+        if (generated.tooLarge) {
+            console.error(
+                `[events] ${appUid}: generated events worker exceeds the size cap`,
+            );
+            return 'failed';
+        }
         if (generated.broken.length > 0)
             console.warn(
                 `[events] ${appUid}: handlers not runnable as published:`,
                 generated.broken.join(', '),
             );
+
+        if (await this.#tooManyDeploysThisHour(appUid)) return 'throttled';
 
         const owner = await this.#owner(appUid);
         if (!owner) return 'no-owner';
@@ -187,6 +207,20 @@ export class EventsWorkerDeployer {
             return 'failed';
         }
         return 'deployed';
+    }
+
+    /**
+     * Whether this app has already deployed `EVENTS_WORKER_DEPLOYS_PER_HOUR`
+     * times this hour. A flapping set (publish, remove, republish) provisions
+     * upstream on every miss, and this is the ceiling on that loop.
+     */
+    async #tooManyDeploysThisHour(appUid: string): Promise<boolean> {
+        const redis = this.#layers.clients.redis;
+        const hour = new Date().toISOString().slice(0, 13);
+        const key = `ev:deploys:{${appUid}}:${hour}`;
+        const count = await redis.incr(key);
+        if (count === 1) await redis.expire(key, DEPLOY_THROTTLE_TTL_SECONDS);
+        return count > EVENTS_WORKER_DEPLOYS_PER_HOUR;
     }
 
     /** The app owner, as an actor the deploy can run as. */
@@ -262,6 +296,7 @@ export class LocalEventsInvokeTransport {
 
     async send(call: EventsInvokeCall): Promise<{
         status: number | null;
+        handled?: boolean;
         error?: string;
     }> {
         const request = (): Request =>
@@ -279,7 +314,7 @@ export class LocalEventsInvokeTransport {
 
         try {
             const resident = await this.#dispatch(request(), call.timeoutMs);
-            if (resident !== null) return { status: resident };
+            if (resident !== null) return resident;
 
             const outcome = await this.#deployer.ensure(
                 call.appUid,
@@ -288,10 +323,10 @@ export class LocalEventsInvokeTransport {
             if (outcome !== 'deployed')
                 return { status: null, error: `deploy: ${outcome}` };
 
-            const status = await this.#dispatch(request(), call.timeoutMs);
-            if (status === null)
+            const retried = await this.#dispatch(request(), call.timeoutMs);
+            if (retried === null)
                 return { status: null, error: 'script not resident' };
-            return { status };
+            return retried;
         } catch (err) {
             return {
                 status: null,
@@ -307,14 +342,25 @@ export class LocalEventsInvokeTransport {
     async #dispatch(
         request: Request,
         timeoutMs: number,
-    ): Promise<number | null> {
-        const response = await Promise.race([
-            this.#services.localworkerservice.dispatchEventsWorker(request),
-            new Promise<'timeout'>((resolve) =>
-                setTimeout(() => resolve('timeout'), timeoutMs).unref(),
-            ),
-        ]);
-        if (response === 'timeout') throw new Error('invocation timed out');
-        return response === null ? null : response.status;
+    ): Promise<{ status: number; handled: boolean } | null> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<'timeout'>((resolve) => {
+            timer = setTimeout(() => resolve('timeout'), timeoutMs);
+            timer.unref();
+        });
+        try {
+            const response = await Promise.race([
+                this.#services.localworkerservice.dispatchEventsWorker(request),
+                timeout,
+            ]);
+            if (response === 'timeout') throw new Error('invocation timed out');
+            if (response === null) return null;
+            return {
+                status: response.status,
+                handled: response.headers.get(EVENTS_HANDLED_HEADER) === '1',
+            };
+        } finally {
+            clearTimeout(timer);
+        }
     }
 }

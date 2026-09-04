@@ -17,9 +17,19 @@ const WORKER_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const IDLE_SWEEP_INTERVAL_MS = 60 * 1000; // sweep cadence
 
 const activeWorkers = new Map<string, Miniflare>();
-// workerName -> last dispatch/deploy time (ms). Drives the idle sweep.
+// Registry key -> last dispatch/deploy time (ms). Drives the idle sweep.
 const lastAccess = new Map<string, number>();
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Events workers are deployed under this prefix on the same maps ordinary
+ * workers use, so `cfCallLocal` — which resolves a worker by hostname off the
+ * plain name, before it ever checks a subdomain row — can never find one, and a
+ * worker named the same as an events script cannot collide with it.
+ */
+const EVENTS_KEY_PREFIX = 'events:';
+const eventsKey = (workerName: string): string =>
+    `${EVENTS_KEY_PREFIX}${workerName}`;
 
 export class LocalWorkerService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -30,7 +40,39 @@ export class LocalWorkerService extends PuterService {
         code: string,
         extraBindings: Record<string, string> = {},
     ) {
-        await this.#disposeWorker(workerName);
+        return this.#deploy(
+            workerName,
+            workerName,
+            authorization,
+            code,
+            extraBindings,
+        );
+    }
+
+    /** Same deploy, keyed so it never resolves as an ordinary worker. */
+    async cfDeployLocalEvents(
+        workerName: string,
+        authorization: string | undefined,
+        code: string,
+        extraBindings: Record<string, string> = {},
+    ) {
+        return this.#deploy(
+            eventsKey(workerName),
+            workerName,
+            authorization,
+            code,
+            extraBindings,
+        );
+    }
+
+    async #deploy(
+        key: string,
+        workerName: string,
+        authorization: string | undefined,
+        code: string,
+        extraBindings: Record<string, string>,
+    ) {
+        await this.#disposeWorker(key);
         try {
             const mf = new Miniflare({
                 modules: false,
@@ -47,8 +89,8 @@ export class LocalWorkerService extends PuterService {
                 },
                 script: code,
             } as WorkerOptions);
-            activeWorkers.set(workerName, mf);
-            this.#touch(workerName);
+            activeWorkers.set(key, mf);
+            this.#touch(key);
             return {
                 success: true,
                 errors: [],
@@ -109,9 +151,10 @@ export class LocalWorkerService extends PuterService {
      */
     async dispatchEventsWorker(request: Request): Promise<Response | null> {
         const workerName = new URL(request.url).host.split('.')[0];
-        const mf = activeWorkers.get(workerName);
+        const key = eventsKey(workerName);
+        const mf = activeWorkers.get(key);
         if (!mf) return null;
-        this.#touch(workerName);
+        this.#touch(key);
         const hasBody = request.body != null;
         return (await mf.dispatchFetch(request.url, {
             method: request.method,

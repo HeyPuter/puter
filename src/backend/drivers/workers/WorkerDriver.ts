@@ -144,7 +144,10 @@ const PREAMBLE_FILES: Record<WorkerRuntime, string> = {
 let preambleError = false;
 let preambleVersion: string | null = null;
 
-const loadPreamble = (file: string): LoadedPreamble | null => {
+const loadPreamble = (
+    file: string,
+    captureVersion: boolean,
+): LoadedPreamble | null => {
     try {
         // Five levels up from `dist/src/backend/drivers/workers` (compiled
         // runtime); four when running from `src/backend/drivers/workers`
@@ -157,9 +160,13 @@ const loadPreamble = (file: string): LoadedPreamble | null => {
         console.log('reading: ' + preamblePath);
         const source = readFileSync(preamblePath, 'utf-8');
 
-        const versionMatch =
-            /^var __PUTER_PREAMBLE_VERSION__\s*=\s*"([^"]+)"/.exec(source);
-        if (versionMatch) preambleVersion = versionMatch[1];
+        // Only the router preamble's version is tracked — it is the one every
+        // ordinary worker carries, and reported via `currentPreambleVersion()`.
+        if (captureVersion) {
+            const versionMatch =
+                /^var __PUTER_PREAMBLE_VERSION__\s*=\s*"([^"]+)"/.exec(source);
+            if (versionMatch) preambleVersion = versionMatch[1];
+        }
 
         return { source, lineCount: source.split('\n').length - 1 };
     } catch {
@@ -172,7 +179,7 @@ const loadPreamble = (file: string): LoadedPreamble | null => {
 
 const preambles: Partial<Record<WorkerRuntime, LoadedPreamble>> = {};
 for (const [runtime, file] of Object.entries(PREAMBLE_FILES)) {
-    const loaded = loadPreamble(file);
+    const loaded = loadPreamble(file, runtime === 'router');
     if (loaded) preambles[runtime as WorkerRuntime] = loaded;
     // Only the ordinary runtime is a boot requirement: an install with a stale
     // build should refuse to start rather than serve workers without puter.js,
@@ -285,9 +292,19 @@ export class WorkerDriver extends PuterDriver {
             if (cfg.namespace) {
                 this.#cfBaseUrl += `/dispatch/namespaces/${cfg.namespace}`;
             }
-            if (preambleError) {
+            // Missing the events preamble is the same boot failure as the
+            // router one, but only when events workers are actually
+            // configured to deploy — an install that has never turned that on
+            // must not refuse to start over a runtime nothing uses.
+            const missingEvents =
+                this.config.events?.workerRuntime === true && !preambles.events;
+            if (preambleError || missingEvents) {
+                const missing = [
+                    preambleError ? 'router' : null,
+                    missingEvents ? 'events' : null,
+                ].filter((name): name is string => name !== null);
                 throw new Error(
-                    '[workers] preamble not build but workers configured to be enabled. Halting start',
+                    `[workers] preamble(s) not built for: ${missing.join(', ')} — workers configured to be enabled. Halting start`,
                 );
             }
         } else if (cfg.localServer) {
@@ -695,6 +712,17 @@ export class WorkerDriver extends PuterDriver {
     ): Promise<Record<string, unknown>> {
         const secrets = Object.entries(target?.secrets ?? {});
         if (USE_LOCAL_WORKERD) {
+            // Events workers get their own registry key so they can never
+            // resolve on the public local-worker host or collide with an
+            // ordinary worker's name — see `cfCallLocal`.
+            if (target?.runtime === 'events') {
+                return this.services.localworkerservice.cfDeployLocalEvents(
+                    workerName,
+                    authorization,
+                    code,
+                    Object.fromEntries(secrets),
+                );
+            }
             return this.services.localworkerservice.cfDeployLocal(
                 workerName,
                 authorization,
@@ -746,6 +774,9 @@ export class WorkerDriver extends PuterDriver {
                 method: 'PUT',
                 headers: { Authorization: `Bearer ${cfg.XAUTHKEY}` },
                 body: form,
+                // A hung deploy backend must never pin `#inFlight` forever —
+                // this is the ceiling on how long that can hold a script name.
+                signal: AbortSignal.timeout(30_000),
             },
         );
         const json = (await res.json()) as {

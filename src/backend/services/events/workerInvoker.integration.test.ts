@@ -82,6 +82,8 @@ let stub: http.Server;
 let calls: StubCall[];
 /** What the stub answers with, or `hang` for a handler that never does. */
 let answer: number | 'hang' = 200;
+/** Whether the stub's answer carries the handled header, as a real one would. */
+let answerHandled = true;
 
 const events = () => env.server.services.events;
 const pending = () => env.server.stores.pendingDelivery;
@@ -108,7 +110,13 @@ const startStub = async (): Promise<string> => {
                 body: JSON.parse(raw || '{}') as StubCall['body'],
             });
             if (answer === 'hang') return;
-            res.writeHead(answer).end();
+            // Stands in for the dispatcher forwarding a genuine answer from
+            // the script, so it carries the marker a real one would — unless
+            // a test is specifically simulating something that never reached one.
+            res.writeHead(
+                answer,
+                answerHandled ? { 'x-puter-events-handled': '1' } : {},
+            ).end();
         });
     });
     await new Promise<void>((resolve) =>
@@ -250,6 +258,7 @@ beforeEach(async () => {
     vi.useRealTimers();
     calls = [];
     answer = 200;
+    answerHandled = true;
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     events().invalidateUser(userId);
     await env.server.stores.eventSubscription.markRegionCold(userId);
@@ -298,6 +307,8 @@ describe('the call an owed delivery makes', () => {
             handlerSetHash(
                 await env.server.stores.eventHandler.setForApp(appUid),
             ),
+            // No `workers.internetExposedUrl` in this test's config.
+            '',
         );
         expect(headers.script).toBe(script);
         expect(headers.key).toBe(eventsInvokeKey(INTERNAL_SECRET, script));
@@ -406,6 +417,22 @@ describe('what each answer does to the delivery', () => {
         await expect(
             env.server.clients.redis.get(`ev:qf:{${subId}}`),
         ).resolves.toBe('1');
+    });
+
+    it('holds a 4xx with no handled marker for retry rather than dropping it', async () => {
+        // Nothing said this reached the script — an edge 404, a WAF — so it
+        // must not read as the handler's own refusal.
+        answer = 404;
+        answerHandled = false;
+        const subId = await subscribe();
+
+        await touch('unmarked.txt');
+        await invoked(1);
+
+        await vi.waitFor(async () =>
+            expect(await heldForMs(subId)).toBeGreaterThan(0),
+        );
+        expect(await pending().depth(subId)).toBe(1);
     });
 
     it('holds one it could not answer, for longer each time', async () => {
@@ -538,6 +565,31 @@ describe('with no events worker to address', () => {
                 name: HANDLER,
                 source: SOURCE,
             });
+        }
+    });
+
+    it('drops the deploy for a suspended owner rather than addressing it', async () => {
+        const subId = await subscribe();
+        await env.server.clients.db.write(
+            'UPDATE user SET suspended = 1 WHERE id = ?',
+            [userId],
+        );
+        await env.server.stores.user.invalidateById(userId);
+
+        try {
+            await touch('suspended-owner.txt');
+            await vi.waitFor(async () =>
+                expect(await heldForMs(subId)).toBeGreaterThan(0),
+            );
+            expect(await pending().depth(subId)).toBe(1);
+            // A suspended owner is nobody to address: nothing was called.
+            expect(calls).toEqual([]);
+        } finally {
+            await env.server.clients.db.write(
+                'UPDATE user SET suspended = 0 WHERE id = ?',
+                [userId],
+            );
+            await env.server.stores.user.invalidateById(userId);
         }
     });
 });
