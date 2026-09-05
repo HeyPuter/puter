@@ -41,9 +41,9 @@ describe('TeamService', () => {
 
     const freeHandle = () => `ws-${Math.random().toString(36).slice(2, 10)}`;
 
-    /** A workspace with the owner admitted and one provisioned member. */
-    const makeWorkspace = async () => {
-        const team = await service.createWorkspace(owner.id, {
+    /** A team with the owner admitted and one provisioned member. */
+    const makeTeam = async () => {
+        const team = await service.createTeam(owner.id, {
             name: 'Acme',
             handle: freeHandle(),
         });
@@ -67,7 +67,8 @@ describe('TeamService', () => {
     };
 
     beforeAll(async () => {
-        server = await setupTestServer();
+        // The policy and resolver are gated on the same flag as the routes.
+        server = await setupTestServer({ teams_enabled: true } as never);
         service = server.services.team;
         owner = await makeUser();
         ownerUsername = (await server.stores.user.getById(owner.id))!.username;
@@ -77,10 +78,10 @@ describe('TeamService', () => {
         await server?.shutdown();
     });
 
-    // -- creating a workspace -----------------------------------------
+    // -- creating a team -----------------------------------------
 
-    it('creates a workspace and admits its creator as the workspace owner', async () => {
-        const team = await service.createWorkspace(owner.id, {
+    it('creates a team and admits its creator as the team owner', async () => {
+        const team = await service.createTeam(owner.id, {
             name: 'Acme Design',
             handle: freeHandle(),
         });
@@ -95,12 +96,12 @@ describe('TeamService', () => {
     });
 
     it('holds the owner invariant that no dialect can express', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         await expect(service.checkOwnerInvariant(team.uid)).resolves.toBe(true);
     });
 
     it('breaks the invariant if a second account is admitted as the payer', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const other = await makeUser();
         await server.stores.team.addMember(team.uid, other.id, {
             orgOwned: false,
@@ -112,15 +113,15 @@ describe('TeamService', () => {
 
     // -- authority ----------------------------------------------------
 
-    it('refuses a member who is not the workspace owner', async () => {
-        const { team, member } = await makeWorkspace();
+    it('refuses a member who is not the team owner', async () => {
+        const { team, member } = await makeTeam();
         await expect(
             service.requireOwner(team.uid, member.id),
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
     it('gives a stranger 404 rather than 403, so it is not an oracle', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const stranger = await makeUser();
         await expect(
             service.requireMembership(team.uid, stranger.id),
@@ -130,8 +131,8 @@ describe('TeamService', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it('refuses the workspace owner as the target of a member route', async () => {
-        const { team } = await makeWorkspace();
+    it('refuses the team owner as the target of a member route', async () => {
+        const { team } = await makeTeam();
         await expect(
             service.requireOrgAccount(team.uid, owner.id),
         ).rejects.toMatchObject({ statusCode: 404 });
@@ -140,7 +141,7 @@ describe('TeamService', () => {
     // -- disable and re-enable ----------------------------------------
 
     it('sets the column the request gate actually reads', async () => {
-        const { team, member } = await makeWorkspace();
+        const { team, member } = await makeTeam();
 
         await service.disableMember(team.uid, owner.id, member.id);
 
@@ -148,11 +149,11 @@ describe('TeamService', () => {
         // `userProtected` rejects on `suspended`; the others gate nothing.
         expect(Boolean(row.suspended)).toBe(true);
         expect(row.suspended_at).toBeGreaterThan(0);
-        expect(row.suspended_reason).toBe('disabled_by_workspace');
+        expect(row.suspended_reason).toBe('disabled_by_team');
     });
 
     it('drops the disabled account\'s sessions', async () => {
-        const { team, member } = await makeWorkspace();
+        const { team, member } = await makeTeam();
         await server.clients.db.write(
             'INSERT INTO `sessions` (`uuid`, `user_id`) VALUES (?, ?)',
             [uuidv4(), member.id],
@@ -175,7 +176,7 @@ describe('TeamService', () => {
     });
 
     it('restores the account exactly as it was on re-enable', async () => {
-        const { team, member } = await makeWorkspace();
+        const { team, member } = await makeTeam();
         await service.disableMember(team.uid, owner.id, member.id);
 
         await service.enableMember(team.uid, owner.id, member.id);
@@ -187,7 +188,7 @@ describe('TeamService', () => {
     });
 
     it('leaves the disabled account\'s files alone', async () => {
-        const { team, member } = await makeWorkspace();
+        const { team, member } = await makeTeam();
         await server.clients.db.write(
             'INSERT INTO `fsentries` (`uuid`, `name`, `user_id`, `modified`) VALUES (?, ?, ?, ?)',
             [uuidv4(), 'kept.txt', member.id, 0],
@@ -202,8 +203,8 @@ describe('TeamService', () => {
         expect(Number(rows[0].n)).toBe(1);
     });
 
-    it('refuses to disable the workspace owner', async () => {
-        const { team } = await makeWorkspace();
+    it('refuses to disable the team owner', async () => {
+        const { team } = await makeTeam();
         await expect(
             service.disableMember(team.uid, owner.id, owner.id),
         ).rejects.toMatchObject({ statusCode: 404 });
@@ -212,7 +213,7 @@ describe('TeamService', () => {
     });
 
     it('refuses a disable ordered by someone who is not the owner', async () => {
-        const { team, member } = await makeWorkspace();
+        const { team, member } = await makeTeam();
         const other = await makeUser();
         await server.stores.team.addMember(team.uid, other.id, {
             orgOwned: true,
@@ -224,16 +225,16 @@ describe('TeamService', () => {
         expect(Boolean((await suspensionOf(member.id)).suspended)).toBe(false);
     });
 
-    it('refuses to disable a member of another workspace', async () => {
-        const a = await makeWorkspace();
-        const b = await makeWorkspace();
+    it('refuses to disable a member of another team', async () => {
+        const a = await makeTeam();
+        const b = await makeTeam();
 
         await expect(
             service.disableMember(a.team.uid, owner.id, b.member.id),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
-    it('refuses to lift a suspension the workspace did not impose', async () => {
-        const { team, member } = await makeWorkspace();
+    it('refuses to lift a suspension the team did not impose', async () => {
+        const { team, member } = await makeTeam();
         // What a platform abuse suspension looks like.
         await server.stores.user.update(member.id, {
             suspended: 1,
@@ -251,7 +252,7 @@ describe('TeamService', () => {
     });
 
     it('lifts its own suspension normally', async () => {
-        const { team, member } = await makeWorkspace();
+        const { team, member } = await makeTeam();
         await service.disableMember(team.uid, owner.id, member.id);
 
         await service.enableMember(team.uid, owner.id, member.id);
@@ -261,8 +262,8 @@ describe('TeamService', () => {
 
     // -- provisioning -------------------------------------------------
 
-    it('creates an account the workspace owns, pending a password change', async () => {
-        const { team } = await makeWorkspace();
+    it('creates an account the team owns, pending a password change', async () => {
+        const { team } = await makeTeam();
         const username = `prov_${Math.random().toString(36).slice(2, 9)}`;
 
         const result = await service.provisionAccount(team.uid, owner.id, {
@@ -282,7 +283,7 @@ describe('TeamService', () => {
     });
 
     it('gives the new account its default filesystem tree', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const username = `tree_${Math.random().toString(36).slice(2, 9)}`;
 
         const result = await service.provisionAccount(team.uid, owner.id, {
@@ -295,7 +296,7 @@ describe('TeamService', () => {
     });
 
     it('returns a temporary password the admin delivers out of band', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const username = `link_${Math.random().toString(36).slice(2, 9)}`;
 
         const result = await service.provisionAccount(team.uid, owner.id, {
@@ -311,7 +312,7 @@ describe('TeamService', () => {
     });
 
     it('writes nothing when the username is taken', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const taken = await makeUser();
         const before = await server.stores.team.listMembers(team.uid);
 
@@ -322,7 +323,7 @@ describe('TeamService', () => {
             }),
         ).rejects.toMatchObject({ statusCode: 409 });
 
-        // Checked before any row is written, so the workspace is untouched.
+        // Checked before any row is written, so the team is untouched.
         const after = await server.stores.team.listMembers(team.uid);
         expect(after.items).toHaveLength(before.items.length);
     });
@@ -340,8 +341,8 @@ describe('TeamService', () => {
         }
     });
 
-    it('refuses provisioning by anyone but the workspace owner', async () => {
-        const { team, member } = await makeWorkspace();
+    it('refuses provisioning by anyone but the team owner', async () => {
+        const { team, member } = await makeTeam();
         await expect(
             service.provisionAccount(team.uid, member.id, {
                 username: `nope_${Math.random().toString(36).slice(2, 9)}`,
@@ -351,7 +352,7 @@ describe('TeamService', () => {
     });
 
     it('re-issues a different credential each time', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const username = `again_${Math.random().toString(36).slice(2, 9)}`;
         const result = await service.provisionAccount(team.uid, owner.id, {
             username,
@@ -366,7 +367,7 @@ describe('TeamService', () => {
     });
 
     it('refuses to re-issue once the member has chosen a password', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const username = `done_${Math.random().toString(36).slice(2, 9)}`;
         const result = await service.provisionAccount(team.uid, owner.id, {
             username,
@@ -382,7 +383,7 @@ describe('TeamService', () => {
         ).rejects.toMatchObject({ statusCode: 409 });
     });
     it('refuses an email that already belongs to an account', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const existing = await makeUser();
         const row = await server.stores.user.getById(existing.id);
 
@@ -395,7 +396,7 @@ describe('TeamService', () => {
     });
 
     it('refuses a username signup itself would reject', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         for (const username of ['has-hyphen', 'x'.repeat(46), 'admin']) {
             await expect(
                 service.provisionAccount(team.uid, owner.id, {
@@ -407,7 +408,7 @@ describe('TeamService', () => {
     });
 
     it('refuses an invalid email', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         await expect(
             service.provisionAccount(team.uid, owner.id, {
                 username: `bad_${Math.random().toString(36).slice(2, 9)}`,
@@ -424,7 +425,7 @@ describe('TeamService', () => {
         }
     });
     it('generates a different credential for every account', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const seen = new Set<string>();
         for (let i = 0; i < 3; i++) {
             const u = `gen_${Math.random().toString(36).slice(2, 9)}`;
@@ -439,7 +440,7 @@ describe('TeamService', () => {
     });
 
     it('survives having no email transport, since the notice carries nothing', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const u = `noem_${Math.random().toString(36).slice(2, 9)}`;
 
         // The credential is returned, so delivery failing loses nothing.
@@ -452,7 +453,7 @@ describe('TeamService', () => {
     // -- audit --------------------------------------------------------
 
     it('records provisioning, disabling and enabling as they happen', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const username = `aud_${Math.random().toString(36).slice(2, 9)}`;
         const created = await service.provisionAccount(team.uid, owner.id, {
             username,
@@ -475,7 +476,7 @@ describe('TeamService', () => {
     });
 
     it('shows a member only their own entries', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         const a = `one_${Math.random().toString(36).slice(2, 9)}`;
         const b = `two_${Math.random().toString(36).slice(2, 9)}`;
         const first = await service.provisionAccount(team.uid, owner.id, {
@@ -496,47 +497,47 @@ describe('TeamService', () => {
     });
 
     it('keeps the audit from a member who is not the owner', async () => {
-        const { team, member } = await makeWorkspace();
+        const { team, member } = await makeTeam();
         await expect(
             service.listAudit(team.uid, member.id),
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('records a workspace deletion and survives the soft delete', async () => {
-        const { team } = await makeWorkspace();
-        await service.deleteWorkspace(team.uid, owner.id);
+    it('records a team deletion and survives the soft delete', async () => {
+        const { team } = await makeTeam();
+        await service.deleteTeam(team.uid, owner.id);
 
         // Gone from reads, but its owner can still read what happened.
         await expect(server.stores.team.getByUid(team.uid)).resolves.toBeNull();
         const { items: entries } = await service.listAudit(team.uid, owner.id);
         expect(entries.map((e) => e.action)).toContain('delete_team');
     });
-    it('disables the accounts it created when the workspace is deleted', async () => {
-        const { team } = await makeWorkspace();
+    it('disables the accounts it created when the team is deleted', async () => {
+        const { team } = await makeTeam();
         const u = `del_${Math.random().toString(36).slice(2, 9)}`;
         const provisioned = await service.provisionAccount(team.uid, owner.id, {
             username: u,
             email: `${u}@test.local`,
         });
 
-        await service.deleteWorkspace(team.uid, owner.id);
+        await service.deleteTeam(team.uid, owner.id);
 
-        // Otherwise they keep working, unreachable through a deleted workspace.
+        // Otherwise they keep working, unreachable through a deleted team.
         const row = await suspensionOf(provisioned.userId);
         expect(Boolean(row.suspended)).toBe(true);
-        expect(row.suspended_reason).toBe('disabled_by_workspace');
+        expect(row.suspended_reason).toBe('disabled_by_team');
     });
 
-    it('leaves the workspace owner alone when its workspace is deleted', async () => {
-        const { team } = await makeWorkspace();
-        await service.deleteWorkspace(team.uid, owner.id);
+    it('leaves the team owner alone when its team is deleted', async () => {
+        const { team } = await makeTeam();
+        await service.deleteTeam(team.uid, owner.id);
 
-        // org_owned = 0, so it pays for itself and is not the workspace's to close.
+        // org_owned = 0, so it pays for itself and is not the team's to close.
         expect(Boolean((await suspensionOf(owner.id)).suspended)).toBe(false);
     });
 
     it('pages the audit rather than truncating it', async () => {
-        const { team } = await makeWorkspace();
+        const { team } = await makeTeam();
         for (let i = 0; i < 2; i++) {
             const u = `pg_${Math.random().toString(36).slice(2, 9)}`;
             await service.provisionAccount(team.uid, owner.id, {
@@ -553,4 +554,5 @@ describe('TeamService', () => {
         const second = await service.listAudit(team.uid, owner.id, { limit: 1 });
         expect(second.items).toHaveLength(1);
     });
+
 });
