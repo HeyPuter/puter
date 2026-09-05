@@ -41,7 +41,7 @@
     ]
   },
   "dependencies": {
-    "@prelude.so/js-sdk": "0.12.0",
+    "@prelude.so/js-sdk": "0.12.1",
     "@thumbmarkjs/thumbmarkjs": "1.9.1"
   }
 }
