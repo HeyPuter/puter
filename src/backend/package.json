@@ -52,7 +52,7 @@
     "lorem-ipsum": "^2.0.8",
     "mime-types": "^2.1.35",
     "murmurhash": "^2.0.1",
-    "mysql2": "^3.22.6",
+    "mysql2": "^3.23.1",
     "nodemailer": "^9.0.6",
     "openai": "^6.34.0",
     "otpauth": "^9.2.4",
