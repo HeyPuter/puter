@@ -74,7 +74,7 @@
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/mime-types": "^2.1.4",
-    "@types/node": "^24.0.0",
+    "@types/node": "^24.13.3",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.6.1",
     "@types/validator": "^13.15.10",
