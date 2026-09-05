@@ -203,7 +203,10 @@ import {
     type SubjectOp,
 } from './subjects.js';
 import { backlogPolicyFor, isResumable } from './suspension.js';
-import type { EventsInvokeTransport } from '../../clients/events/EventsWorkerInvokerClient.js';
+import type {
+    EventsInvokeTransport,
+    WorkerMissHandler,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
     EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
@@ -4500,6 +4503,14 @@ export class EventsService extends PuterService {
      */
     useWorkerTransport(transport: EventsInvokeTransport): void {
         this.clients.eventsWorkerInvoker.setTransport(transport);
+    }
+
+    /**
+     * Let this backend deploy a script the dispatcher reports missing, instead
+     * of waiting on the rehydrate callback to reach it.
+     */
+    useWorkerMissHandler(handler: WorkerMissHandler): void {
+        this.clients.eventsWorkerInvoker.setMissHandler(handler);
     }
 
     /**

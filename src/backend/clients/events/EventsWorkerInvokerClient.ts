@@ -40,6 +40,9 @@ import { PuterClient } from '../types.js';
  *
  * The delivery token rides in the body, not a header, so nothing between here
  * and the isolate can treat it as its own authorization.
+ *
+ * On a miss, a handler set here may deploy the script itself and retry once
+ * with `x-puter-events-deployed: 1`, skipping the dispatcher's own callback.
  */
 
 /** The one route an events worker answers. */
@@ -64,6 +67,31 @@ export const EVENTS_HANDLED_HEADER = 'x-puter-events-handled';
 
 /** Machine-readable reason on the runtime's own failure answers. */
 export const EVENTS_ERROR_HEADER = 'x-puter-events-error';
+
+/**
+ * Set on the retry after this backend deploys a missing script itself, so the
+ * dispatcher skips its own deploy-on-miss callback and negative cache and goes
+ * straight to retrying the namespace.
+ */
+export const EVENTS_DEPLOYED_HEADER = 'x-puter-events-deployed';
+
+/**
+ * Dispatch-error reasons this backend can resolve itself by deploying, rather
+ * than wait on the rehydrate callback finding a backend behind the dispatcher's
+ * own hostname.
+ */
+const SELF_DEPLOYABLE_MISS_REASONS = new Set([
+    'missing',
+    'deploy-failed',
+    'deploy-timeout',
+    'deploy-error',
+]);
+
+/** What a self-deploy attempt did, and to which app/script it applies. */
+export type WorkerMissHandler = (
+    appUid: string,
+    script: string,
+) => Promise<'deployed' | string>;
 
 /** How long a handler has to answer before the attempt is abandoned. */
 export const EVENTS_INVOKE_TIMEOUT_MS = 30_000;
@@ -99,6 +127,8 @@ export interface EventsInvokeCall {
     /** Serialized `{ handler, event, ctx, token }`. */
     body: string;
     timeoutMs: number;
+    /** Set on the retry after this backend deployed the script itself. */
+    deployed?: boolean;
 }
 
 /**
@@ -115,6 +145,8 @@ export interface EventsInvokeTransport {
         status: number | null;
         handled?: boolean;
         error?: string;
+        /** Set only by the dispatcher transport, naming its own failure. */
+        dispatchReason?: string;
     }>;
 }
 
@@ -145,10 +177,22 @@ export class EventsWorkerInvokerClient extends PuterClient {
     /** Set only where invocations do not leave the process — local development. */
     #transport: EventsInvokeTransport | null = null;
     #dispatcher: DispatcherInvokeTransport | null = null;
+    /** Lets this backend resolve a dispatcher miss instead of waiting on it. */
+    #missHandler: WorkerMissHandler | null = null;
 
     /** Replaces the dispatcher with an in-process runtime. */
     setTransport(transport: EventsInvokeTransport): void {
         this.#transport = transport;
+    }
+
+    /**
+     * Deploys a script the dispatcher reports missing, in place of the
+     * rehydrate callback — for the case where that callback lands on a backend
+     * other than this one. Set once; `invoke()` calls it at most once per
+     * delivery and never loops.
+     */
+    setMissHandler(handler: WorkerMissHandler): void {
+        this.#missHandler = handler;
     }
 
     override onServerShutdown(): void {
@@ -161,7 +205,7 @@ export class EventsWorkerInvokerClient extends PuterClient {
         if (!transport)
             return { outcome: 'retriable', status: null, error: NO_TRANSPORT };
 
-        const { status, handled, error } = await transport.send({
+        const call: EventsInvokeCall = {
             script: request.script,
             appUid: request.appUid,
             key: request.key,
@@ -172,8 +216,29 @@ export class EventsWorkerInvokerClient extends PuterClient {
                 token: request.token,
             }),
             timeoutMs: this.#timeoutMs(),
-        });
+        };
 
+        let result = await transport.send(call);
+        if (
+            result.status === null &&
+            this.#missHandler &&
+            result.dispatchReason &&
+            SELF_DEPLOYABLE_MISS_REASONS.has(result.dispatchReason)
+        ) {
+            const outcome = await this.#missHandler(
+                request.appUid,
+                request.script,
+            );
+            if (outcome !== 'deployed')
+                return {
+                    outcome: 'retriable',
+                    status: null,
+                    error: `deploy: ${outcome}`,
+                };
+            result = await transport.send({ ...call, deployed: true });
+        }
+
+        const { status, handled, error } = result;
         if (status === null)
             return { outcome: 'retriable', status: null, error };
 
@@ -241,6 +306,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
         status: number | null;
         handled?: boolean;
         error?: string;
+        dispatchReason?: string;
     }> {
         try {
             // `new URL(path, base)` resolves an absolute path against the
@@ -254,6 +320,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                     'x-puter-events-script': call.script,
                     'x-puter-events-app': call.appUid,
                     'x-puter-events-key': call.key,
+                    ...(call.deployed ? { [EVENTS_DEPLOYED_HEADER]: '1' } : {}),
                 },
                 body: call.body,
                 signal: AbortSignal.timeout(call.timeoutMs),
@@ -272,6 +339,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                 return {
                     status: null,
                     error: `dispatcher: ${dispatchError} (${response.status})`,
+                    dispatchReason: dispatchError,
                 };
 
             const handled = response.headers.get(EVENTS_HANDLED_HEADER) === '1';

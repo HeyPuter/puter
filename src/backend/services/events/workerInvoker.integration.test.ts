@@ -68,7 +68,7 @@ const SOURCE =
 interface StubCall {
     method: string;
     path: string;
-    headers: Record<string, string | undefined>;
+    headers: Record<string, string | undefined> & { deployed?: string };
     body: {
         handler?: string;
         token?: string;
@@ -89,6 +89,8 @@ let calls: StubCall[];
 let answer: number | 'hang' = 200;
 /** Whether the stub's answer carries the handled header, as a real one would. */
 let answerHandled = true;
+/** Whether the stub reports the script missing until it sees the deployed header. */
+let dispatchMissing = false;
 
 const events = () => env.server.services.events;
 const pending = () => env.server.stores.pendingDelivery;
@@ -103,6 +105,9 @@ const readBody = async (req: http.IncomingMessage): Promise<string> => {
 const startStub = async (): Promise<string> => {
     stub = http.createServer((req, res) => {
         void readBody(req).then((raw) => {
+            const deployed = req.headers['x-puter-events-deployed'] as
+                | string
+                | undefined;
             calls.push({
                 method: req.method ?? '',
                 path: req.url ?? '',
@@ -111,10 +116,17 @@ const startStub = async (): Promise<string> => {
                     script: req.headers['x-puter-events-script'] as string,
                     app: req.headers['x-puter-events-app'] as string,
                     key: req.headers['x-puter-events-key'] as string,
+                    deployed,
                 },
                 body: JSON.parse(raw || '{}') as StubCall['body'],
             });
             if (answer === 'hang') return;
+            // Stands in for the events dispatcher reporting a namespace miss
+            // until the deploy-on-miss retry carries the deployed header.
+            if (dispatchMissing && deployed !== '1') {
+                res.writeHead(404, { 'x-puter-events-dispatch': 'missing' }).end();
+                return;
+            }
             // Stands in for the dispatcher forwarding a genuine answer from
             // the script, so it carries the marker a real one would — unless
             // a test is specifically simulating something that never reached one.
@@ -264,6 +276,10 @@ beforeAll(async () => {
             invokeTimeoutMs: INVOKE_TIMEOUT_MS,
             dispatcherUrl,
             internalSecret: INTERNAL_SECRET,
+            // Only reached by the deploy-on-miss test below, whose
+            // `drivers.workers.create` is stubbed — a real deploy target
+            // never sees this.
+            workerNamespace: 'ev-test-ns',
         },
         // Seeded accounts carry no email, which the plan machinery reads as a
         // temporary account — and a temporary account holds no durable rows.
@@ -317,6 +333,7 @@ beforeEach(async () => {
     calls = [];
     answer = 200;
     answerHandled = true;
+    dispatchMissing = false;
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     events().invalidateUser(userId);
     await env.server.stores.eventSubscription.markRegionCold(userId);
@@ -818,5 +835,32 @@ describe("what withdrawing an app's standing does to its worker session", () => 
         await expect(
             env.server.services.auth.authenticate(freshToken),
         ).resolves.toMatchObject({ actor: expect.anything() });
+    });
+});
+
+describe('deploying on a dispatcher miss', () => {
+    it('deploys the app`s own script itself and settles once the dispatcher sees it', async () => {
+        dispatchMissing = true;
+        // Standing in for the real deploy target (Cloudflare or a local
+        // worker runtime) — this test pins the retry protocol, not the
+        // deploy mechanics, which `workerDeploy.test.ts` already covers.
+        const createSpy = vi
+            .spyOn(env.server.drivers.workers, 'create')
+            .mockResolvedValue({ success: true, errors: [] });
+
+        try {
+            const subId = await subscribe();
+            await touch('deploy-on-miss.txt');
+            await invoked(2);
+
+            expect(createSpy).toHaveBeenCalledTimes(1);
+            expect(calls[0].headers.deployed).toBeUndefined();
+            expect(calls[1].headers.deployed).toBe('1');
+            await vi.waitFor(async () =>
+                expect(await pending().depth(subId)).toBe(0),
+            );
+        } finally {
+            createSpy.mockRestore();
+        }
     });
 });
