@@ -33,8 +33,6 @@ import {
     appDataPermission,
     appDataSharingAllowed,
 } from '../permission/appDataScopes.js';
-import { PermissionUtil } from '../permission/permissionUtil.js';
-import { isKvToken, kvHandleFromSubject } from './subjects.js';
 
 /**
  * Who may subscribe to an anchor, who may still be delivered from it, and which
@@ -231,32 +229,6 @@ export const backgroundConsentRequired = (): HttpError =>
         'Background delivery needs this app’s `events:background` permission',
         { legacyCode: 'events_background_consent_required' },
     );
-
-/**
- * The grant a delivery's token carries: exactly the one its subscribe check
- * passed under, so the token can reach what the subscription watches and
- * nothing else. The issuer-subset check refuses anything wider.
- *
- * A row on the app's own key-value namespace has no grant behind it — the app
- * has always been able to read its own data — so its token carries none and
- * stands only for who the delivery is for.
- */
-export const subscriptionTokenPermissions = (row: {
-    token: string;
-    subject: string;
-    anchorUid: string;
-    appUid: string | null;
-    permission: SubscriptionPermission;
-}): string[] => {
-    if (!isKvToken(row.token))
-        return [PermissionUtil.join('fs', row.anchorUid, row.permission)];
-    // A row on a shared region carries none: the grant string names the
-    // owner's app uid and absolute prefix, and the worker needs neither —
-    // `event.subject` already gives it everything it may address.
-    if (kvHandleFromSubject(row.subject) !== null) return [];
-    if (row.appUid === null || row.appUid === row.anchorUid) return [];
-    return [appDataPermission(row.anchorUid, 'kv', CROSS_APP_KV_CLASS)];
-};
 
 // -- Cross-user KV -----------------------------------------------------
 

@@ -23,7 +23,7 @@ await puter.events.handlers.remove('indexDocument', { appUid });
 
 A handler is serialized with `Function.prototype.toString()` and run later, somewhere else. A closed-over variable is not discouraged — it is **unrepresentable**, because nothing around the function survives the trip.
 
-So every identifier a handler names must be one of: a parameter, something the handler itself declares, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` is **not** one of them: a handler running in the events worker has no ambient SDK, and reaches the account through its `user` binding instead. The SDK checks this before the request and rejects with `events_handler_free_variable`, naming the identifier:
+So every identifier a handler names must be one of: a parameter, something the handler itself declares, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` is **not** one of them: a handler running in the events worker has no ambient SDK, and reaches the account through its `user` binding instead — the same authority your app has for that user in a tab, not a narrower one. The SDK checks this before the request and rejects with `events_handler_free_variable`, naming the identifier:
 
 ```js
 const endpoint = 'https://example.com/ingest';

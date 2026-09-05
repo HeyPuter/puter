@@ -37,6 +37,8 @@ await puter.perms.request(['events:background']);
 
 The user can take it back wherever they manage an app's access; every worker-target subscription that app holds for them is then suspended with `permission_revoked`, and re-granting does not bring one back — subscribe again. A subscription that only wants deliveries while your app is open needs no consent at all: pass `targets: ['socket']`.
 
+A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does.
+
 ## Where the handler runs, and what it is handed
 
 The handler runs **in this client while it is connected**, and in the app's events worker when it is not. It is the same body either way, called with:
@@ -45,13 +47,13 @@ The handler runs **in this client while it is connected**, and in the app's even
 | --- | --- |
 | `event` | The projected event, or a gap marker. |
 | `ctx` | The frozen `context` this subscription was created with. |
-| `user` | A `puter` bound to the account holding the subscription — the ambient one in a client. |
+| `user` | A `puter` bound to the account holding the subscription, acting through your app the same way it does in a tab — the ambient one in a client. |
 | `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, the environment's `fetch` otherwise. |
 | `ack` | On a `single` subscription only — see below. |
 
 Passing `handler` as a **function** is what registers it to run here; a source string or `{ file }` is sent as a hash only, and nothing runs client-side. Either way the hash must match what is published under `handlerName`.
 
-Those five bindings are the whole environment. In the events worker there is no ambient `puter` and no identity of your own to act as — a delivery says whose it is, and `user` is it — so a handler that names `puter` or `me` is refused when you publish it rather than failing on its first delivery.
+Those five bindings are the whole environment. In the events worker there is no ambient `puter` and no identity of your own to act as — a delivery says whose it is, and `user` is it — so a handler that names `puter` or `me` is refused when you publish it rather than failing on its first delivery. That identity carries your app's own reach for that user — its KV, its AppData, whatever else they have granted it — the same as any session your app runs while they have a tab open.
 
 ### Acknowledging a `single` delivery
 

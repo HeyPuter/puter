@@ -275,6 +275,16 @@ export class Puter {
     quiet = false;
 
     /**
+     * @internal
+     * Whether a module holding a live connection (today, FileSystem's
+     * cache-invalidation socket) may open one. Seeded off
+     * `puter_socket_enabled` so an embedder can opt out before this instance
+     * exists — e.g. the events worker runtime, which builds one client per
+     * delivery and never wants it parked in a delivery-room socket.
+     */
+    socketEnabled = globalThis.puter_socket_enabled !== false;
+
+    /**
      * Puter.js Modules
      *
      * These are the modules you see on docs.puter.com; for example:
@@ -806,7 +816,9 @@ export class Puter {
 
         // Don't record an app open when running inside the Puter GUI, or
         // when running as a Puter app (i.e. within an iframe in the GUI).
-        if (this.env === 'gui' || this.env === 'app') {
+        // Same call opted out of by `socketEnabled: false` — that flag means
+        // this client is a disposable per-invocation one, not a real visit.
+        if (this.env === 'gui' || this.env === 'app' || !this.socketEnabled) {
             return;
         }
 
@@ -858,7 +870,9 @@ export class Puter {
      * isn't assigned until the constructor returns.
      */
     async cacheWhoami_() {
-        if (!this.authToken) return null;
+        // Same opt-out as `/rao`: a disposable per-invocation client has no
+        // use for a cached user and shouldn't pay for the request.
+        if (!this.authToken || !this.socketEnabled) return null;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,

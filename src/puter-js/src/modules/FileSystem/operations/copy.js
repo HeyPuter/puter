@@ -26,8 +26,9 @@ const copy = defineOperation({
         return {
             endpoint: '/copy',
             body: {
-                original_client_socket_id: this.socket.id,
-                socket_id: this.socket.id,
+                // No socket at all for a client that opted out (`puter.socketEnabled`).
+                original_client_socket_id: this.socket?.id,
+                socket_id: this.socket?.id,
                 source: getAbsolutePathForApp(options.source),
                 destination: getAbsolutePathForApp(options.destination),
                 overwrite: options.overwrite,

@@ -22,7 +22,6 @@ import { describe, expect, it } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
-import { subscriptionTokenPermissions } from './authorization.js';
 import {
     assertBoundedManageGrant,
     assertShareableAppUid,
@@ -37,7 +36,7 @@ import {
     normalizeKeyPrefix,
     relativeToKvShareRoot,
 } from './kvShares.js';
-import { isKvHandleId, kvAnchorToken, kvHandleFromSubject } from './subjects.js';
+import { isKvHandleId, kvHandleFromSubject } from './subjects.js';
 
 const OWNER = '2a1b0c9d-0000-4000-8000-000000000001';
 const OTHER = '2a1b0c9d-0000-4000-8000-000000000002';
@@ -281,37 +280,6 @@ describe('handle ids', () => {
         expect(kvHandleFromSubject(`kv:${handle}:messages:*`)).toBe(handle);
         expect(kvHandleFromSubject(`kv:${APP}:messages:*`)).toBeNull();
         expect(kvHandleFromSubject(`fs:${handle}:write`)).toBeNull();
-    });
-});
-
-describe('the delivery token for a handle row', () => {
-    it('carries nothing, since the grant string names the owner`s namespace', () => {
-        // Previously returned `[row.permission]`, which put `kv-share:<owner>:
-        // <appUid>:<prefix>` — the owner's app uid and absolute prefix — into a
-        // token an events worker can decode.
-        const handle = mintKvHandleId();
-        const permission = kvSharePermission(OWNER, APP, 'workspace:abc:');
-        expect(
-            subscriptionTokenPermissions({
-                token: kvAnchorToken(OWNER, APP, 'workspace:abc:'),
-                subject: `kv:${handle}:*`,
-                anchorUid: 'workspace:abc:',
-                appUid: APP,
-                permission,
-            }),
-        ).toEqual([]);
-    });
-
-    it('still carries the cross-app grant for a row on an app`s own namespace', () => {
-        expect(
-            subscriptionTokenPermissions({
-                token: kvAnchorToken(OWNER, APP, 'cart:'),
-                subject: `kv:${APP}:*`,
-                anchorUid: OTHER,
-                appUid: APP,
-                permission: 'read',
-            }),
-        ).not.toEqual([]);
     });
 });
 

@@ -27,7 +27,9 @@
  * `fetch(ctx.sink, …)` — because that is what a delivered token's environment
  * can always do. The handler also reports the token it ran as and what the
  * isolate left lying around, so the suite can pin, from inside the worker, that
- * a handler is the subscriber and nothing more.
+ * a handler acts with the app's own authority for the subscriber — reaching
+ * its AppData and KV like any other app session — and not the account's own,
+ * or anything the app itself was never granted.
  */
 
 import http from 'node:http';
@@ -48,10 +50,15 @@ import {
 } from '../../controllers/events/limits.js';
 import { EVENTS_INVOKE_PATH } from '../../clients/events/EventsWorkerInvokerClient.js';
 import { runWithContext } from '../../core/context.js';
+import { appSocketRoom, SocketService } from '../socket/SocketService.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
-import { eventsInvokeKey, eventsWorkerScript } from './workerRuntime.js';
+import {
+    EVENTS_WORKER_SESSION_NAME,
+    eventsInvokeKey,
+    eventsWorkerScript,
+} from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
 
 const BOOT_TIMEOUT_MS = 180_000;
@@ -69,6 +76,12 @@ interface SinkPost {
     ambient?: Record<string, string>;
     /** What `user.fs.stat(event.path)` answered, or the error it raised. */
     stat?: { name?: string; error?: string };
+    /** Whether a write into the app's own AppData went through, and as what. */
+    appDataWrite?: { ok: boolean; name?: string; error?: string };
+    /** Whether a `user.kv.set` + `user.kv.get` round-trip agreed. */
+    kv?: { roundTrip: boolean };
+    /** What stat-ing a path outside the app's grants answered. */
+    outsideStat?: { name?: string; error?: string };
 }
 
 const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
@@ -80,6 +93,33 @@ const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
               (err) => ({ error: String(err && err.code || err) }),
           )
         : undefined;
+
+    // Opt-in probes, only run when a test asks for them via ctx — so every
+    // other delivery in this suite pays for none of this.
+    let appDataWrite;
+    if (ctx.appDataFile) {
+        appDataWrite = await user.fs
+            .write(ctx.appDataFile, 'written from the handler', {
+                createMissingParents: true,
+            })
+            .then(
+                (entry) => ({ ok: true, name: entry.name }),
+                (err) => ({ ok: false, error: String(err && err.code || err) }),
+            );
+    }
+    let kv;
+    if (ctx.kvKey) {
+        await user.kv.set(ctx.kvKey, ctx.kvValue);
+        kv = { roundTrip: (await user.kv.get(ctx.kvKey)) === ctx.kvValue };
+    }
+    let outsideStat;
+    if (ctx.outsidePath) {
+        outsideStat = await user.fs.stat(ctx.outsidePath).then(
+            (entry) => ({ name: entry.name }),
+            (err) => ({ error: String(err && err.code || err) }),
+        );
+    }
+
     await fetch(ctx.sink, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -88,6 +128,9 @@ const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
             path: event.path,
             label: ctx.label,
             stat,
+            appDataWrite,
+            kv,
+            outsideStat,
             token: user.authToken,
             ambient: {
                 me: typeof me,
@@ -116,6 +159,8 @@ let sinkPosts: SinkPost[];
 let workerCreates: number;
 
 const events = () => env.server.services.events;
+const socketService = () =>
+    env.server.services.socket as unknown as SocketService;
 const pending = () => env.server.stores.pendingDelivery;
 const durable = () => env.server.stores.durableSubscription;
 const localWorkers = () => env.server.services.localworkerservice;
@@ -244,6 +289,27 @@ const subscribe = async (
         delivery: 'single',
         handlerName,
         targets: ['worker'],
+        ...(context ? { context } : {}),
+    });
+    expect(response.status).toBe(200);
+    return String(response.body.subId);
+};
+
+/**
+ * Like `subscribe`, but with no `targets` override — the default
+ * (`['socket', 'worker']`) rather than the `['worker']` the rest of this suite
+ * pins. Only this leaves `socket` in play, which is what a background
+ * delivery's own client (wrongly) showing up in the app's delivery room would
+ * actually steer onto.
+ */
+const subscribeWithSocketTarget = async (
+    handlerName: string,
+    context?: object,
+): Promise<string> => {
+    const response = await api('POST', '/events/subscribe', {
+        subject: `fs:${anchor}`,
+        delivery: 'single',
+        handlerName,
         ...(context ? { context } : {}),
     });
     expect(response.status).toBe(200);
@@ -433,10 +499,27 @@ describe('single delivery through the real worker', () => {
     );
 
     it(
-        'hands the handler the subscriber, scoped to the grant and no further',
+        'hands the handler the app`s own authority for the subscriber, not a grant of its own',
         { timeout: TEST_TIMEOUT_MS },
         async () => {
-            await subscribe('ingest', { sink: sinkUrl, label: 'scope' });
+            // Owned by the subscriber, but never shared with the app in any
+            // way — what a background handler must still not reach.
+            const outsideDir = `/${env.users.user.username}/evw-e2e-private`;
+            const outsidePath = `${outsideDir}/secret.txt`;
+            await env.server.services.fs.mkdir(userId, {
+                path: outsideDir,
+                createMissingParents: true,
+            });
+            await env.server.services.fs.touch(userId, { path: outsidePath });
+
+            await subscribe('ingest', {
+                sink: sinkUrl,
+                label: 'scope',
+                appDataFile: 'events-worker-note.txt',
+                kvKey: 'events-worker-key',
+                kvValue: 'events-worker-value',
+                outsidePath,
+            });
             await touch('scoped.txt');
             await delivered();
 
@@ -450,25 +533,51 @@ describe('single delivery through the real worker', () => {
             );
             expect(actor!.user?.id).toBe(userId);
             expect(actor!.effectiveApp?.uid).toBe(appUid);
+            // A worker session — the same shape a deployed worker's own token
+            // carries — not a one-off access token minted for this delivery.
+            expect(actor!.session?.kind).toBe('worker');
 
-            const permission = env.server.services.permission;
-            await expect(
-                permission.check(actor!, `fs:${anchorUid}:list`),
-            ).resolves.toBe(true);
-            // The account owns the folder outright; the delivery does not.
-            await expect(
-                permission.check(actor!, `fs:${anchorUid}:write`),
-            ).resolves.toBe(false);
-
-            const decoded = env.server.services.token.verify(
-                'auth',
-                token!,
-            ) as { exp: number; iat: number };
-            expect(decoded.exp - decoded.iat).toBe(5 * 60);
-
-            // And that token gets through the API: the read routes admit it,
-            // and the ACL lets it see what the subscription could list.
+            // The subscription's own grant still reads.
             expect(sinkPosts[0].stat).toEqual({ name: 'scoped.txt' });
+            // The app's own AppData is reachable — the same reach it has from
+            // a tab — regardless of what the subscription was ever made on.
+            expect(sinkPosts[0].appDataWrite).toEqual({
+                ok: true,
+                name: 'events-worker-note.txt',
+            });
+            // Same story for the app's own key-value namespace.
+            expect(sinkPosts[0].kv).toEqual({ roundTrip: true });
+            // But full app authority is still not the account's own: a file
+            // the app was never granted stays out of reach.
+            expect(sinkPosts[0].outsideStat).toEqual({
+                error: 'subject_does_not_exist',
+            });
+
+            // No hard expiry: this is a session, revoked like any other
+            // worker session rather than aged out on a timer.
+            const decoded = env.server.services.token.verify('auth', token!) as {
+                exp?: number;
+            };
+            expect(decoded.exp).toBeUndefined();
+
+            // A second delivery for the same (user, app) reuses the same
+            // session row rather than minting a new one each time.
+            await touch('scoped-again.txt');
+            await delivered(2);
+            const secondToken = sinkPosts[1].token;
+            const second = (
+                await env.server.services.auth.authenticate(secondToken!)
+            ).actor!;
+            expect(second.session?.uid).toBe(actor!.session?.uid);
+
+            const workerSessions = (
+                await env.server.stores.session.getByUserId(userId)
+            ).filter(
+                (row: { kind?: string; meta?: { worker_name?: string } }) =>
+                    row.kind === 'worker' &&
+                    row.meta?.worker_name === EVENTS_WORKER_SESSION_NAME,
+            );
+            expect(workerSessions).toHaveLength(1);
         },
     );
 
@@ -553,6 +662,37 @@ describe('single delivery through the real worker', () => {
             expect(held).toBeGreaterThan(0);
             expect(await pending().depth(subId)).toBe(1);
             expect(sinkPosts).toHaveLength(0);
+        },
+    );
+});
+
+describe('the client a handler runs as', () => {
+    it(
+        'never joins the app`s delivery room, so a later single delivery is not steered onto it',
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            const room = appSocketRoom(userId, appUid);
+            // `subscribeWithSocketTarget` leaves `socket` a live option for
+            // this delivery — the ordinary `subscribe()` helper pins
+            // `targets: ['worker']` specifically to avoid exercising this.
+            await subscribeWithSocketTarget('ingest', { sink: sinkUrl });
+
+            await touch('first.txt');
+            await delivered(1);
+            // The handler's own client opened no socket in the room its
+            // delivery would be preferred on.
+            expect(socketService().has({ room })).toBe(false);
+
+            // If the first delivery had left one, this one would waste up to
+            // two lease lapses on it (`SINGLE_SOCKET_ATTEMPTS`) before falling
+            // back to the worker — many seconds at this suite's lease length.
+            // Landing well under that proves it went straight to the worker.
+            const startedSecond = Date.now();
+            await touch('second.txt');
+            await delivered(2);
+            expect(Date.now() - startedSecond).toBeLessThan(5_000);
+
+            expect(socketService().has({ room })).toBe(false);
         },
     );
 });

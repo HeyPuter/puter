@@ -319,7 +319,7 @@ describe('the call an owed delivery makes', () => {
         expect(headers.key).not.toContain(INTERNAL_SECRET);
     });
 
-    it('carries a token that is the subscriber, the app, and nothing wider', async () => {
+    it('carries a token that acts as the app does for the subscriber, not a grant of its own', async () => {
         await subscribe();
 
         await touch('token.txt');
@@ -331,28 +331,37 @@ describe('the call an owed delivery makes', () => {
         const { actor } = await env.server.services.auth.authenticate(token!);
         expect(actor!.user?.id).toBe(userId);
         expect(actor!.effectiveApp?.uid).toBe(appUid);
+        // A worker session, the same shape `puter.workers.*` gets — not an
+        // access token minted with a one-off set of permissions.
+        expect(actor!.session?.kind).toBe('worker');
 
         const permission = env.server.services.permission;
         await expect(
             permission.check(actor!, `fs:${anchorUid}:list`),
         ).resolves.toBe(true);
-        // The subscription was made under `list`, so the token stops there —
-        // even though the account it acts for owns the folder outright.
+        // The app was never granted write on the anchor, so this is still
+        // false — but for the ordinary reason (no such grant), not because
+        // the token is capped at whatever mode the subscription was made
+        // under.
         await expect(
             permission.check(actor!, `fs:${anchorUid}:write`),
         ).resolves.toBe(false);
+        // The app's `events:background` grant has nothing to do with this
+        // subscription's own anchor, and the token still carries it: it is
+        // the app's whole standing for this user, not a slice of it.
+        await expect(
+            permission.check(actor!, EVENTS_BACKGROUND_PERMISSION),
+        ).resolves.toBe(true);
 
+        // No hard expiry: revocable through the session row, like any other
+        // worker session, rather than aged out on a timer.
         const decoded = env.server.services.token.verify('auth', token!) as {
-            exp: number;
-            iat: number;
+            exp?: number;
         };
-        expect(decoded.exp - decoded.iat).toBe(5 * 60);
+        expect(decoded.exp).toBeUndefined();
     });
 
-    it('mints no extra grant for a row on the app`s own kv namespace', async () => {
-        // The app already holds `fs:${anchorUid}:list` at the account level
-        // (see `beforeAll`) — proof, below, that a kv delivery's token cannot
-        // spend a grant the app holds for a different reason entirely.
+    it('mints the same app identity for a row on the app`s own kv namespace', async () => {
         await subscribeKv('widget');
 
         const actor = (await env.server.services.auth.authenticate(appToken))
@@ -363,25 +372,66 @@ describe('the call an owed delivery makes', () => {
         await invoked(1);
 
         const token = calls[0].body.token!;
-        const decoded = env.server.services.token.verify('auth', token) as {
-            token_uid: string;
-        };
-        const rows = await env.server.clients.db.read(
-            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-            [decoded.token_uid],
-        );
-        // Own-namespace kv has no grant behind it: nothing was minted at all.
-        expect(rows).toEqual([]);
-
         const tokenActor = (await env.server.services.auth.authenticate(token))
             .actor!;
         expect(tokenActor.effectiveApp?.uid).toBe(appUid);
+        // Not scoped to the kv row that triggered this delivery: the same
+        // app identity also reaches the anchor an unrelated fs subscription
+        // was made under.
         await expect(
             env.server.services.permission.check(
                 tokenActor,
                 `fs:${anchorUid}:list`,
             ),
-        ).resolves.toBe(false);
+        ).resolves.toBe(true);
+    });
+
+    it('mints nothing once the background consent is gone', async () => {
+        const subId = await subscribe();
+        const { actor } = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+
+        try {
+            await env.server.services.permission.revokeUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+            // The revocation settle takes the row out of service on its own,
+            // but it is a best-effort listener — put the row back so what is
+            // under test is the delivery path with the consent already gone.
+            await vi.waitFor(async () =>
+                expect(
+                    (await durable().getBySubId(subId))?.suspendedAt,
+                ).not.toBeNull(),
+            );
+            await env.server.clients.db.write(
+                'UPDATE `event_subscriptions` SET `suspended_at` = NULL, ' +
+                    '`suspended_reason` = NULL WHERE `sub_id` = ?',
+                [subId],
+            );
+            events().invalidateUser(userId);
+            await env.server.stores.eventSubscription.markRegionCold(userId);
+            await durable().warmRegion(userId);
+
+            await touch('revoked.txt');
+            await vi.waitFor(async () =>
+                expect(await pending().depth(subId)).toBe(1),
+            );
+            await events().sweepPending();
+
+            // Deferred rather than run: nothing was invoked, and the delivery
+            // is still owed rather than dropped.
+            expect(calls).toEqual([]);
+            expect(await pending().depth(subId)).toBe(1);
+        } finally {
+            await env.server.services.permission.grantUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+        }
     });
 
     it('settles the delivery when the handler takes it', async () => {

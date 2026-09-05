@@ -134,7 +134,6 @@ import {
     nodeDescriptor,
     resolveGrantActor,
     rowInActorScope,
-    subscriptionTokenPermissions,
     SUBSCRIBE_MODE,
     unknownKvShareHandle,
     type CrossAppKvDeps,
@@ -206,6 +205,7 @@ import {
 import { backlogPolicyFor, isResumable } from './suspension.js';
 import type { EventsInvokeTransport } from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
+    EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
     eventsWorkerScope,
     eventsWorkerScript,
@@ -610,13 +610,6 @@ const PENDING_SWEEP_SUBSCRIPTIONS = 100;
  * inline would otherwise drain a whole backlog inside one ack.
  */
 const PENDING_DRAIN_BATCH = 25;
-
-/**
- * How long the token an invocation carries is good for. Long enough for a
- * handler doing real work with the account's own data, short enough that a copy
- * of it is worth nothing by the time anyone finds it.
- */
-const DELIVERY_TOKEN_TTL = '5m';
 
 // -- Metering ---------------------------------------------------------
 
@@ -4406,40 +4399,55 @@ export class EventsService extends PuterService {
             handlerName: row.handlerName ?? null,
             event,
             context: row.context ?? null,
-            permissions: subscriptionTokenPermissions(row),
         };
     }
 
     /**
-     * The token one invocation carries: the subscriber's own identity, the app
-     * whose handler runs, and exactly the grant the subscription was made
-     * under. Short-lived, because it leaves the platform — a handler that needs
-     * longer than the delivery it was given is asking for standing access the
-     * subscription never granted.
+     * The token one invocation carries: the subscriber acting through the
+     * subscribing app, the same authority that app has for this user in a tab —
+     * not a token scoped to whatever grant the subscription was made under. It
+     * can read what the app can read, and reaches the app's own KV and AppData
+     * like any other app session would. What authorizes running that with
+     * nobody present is the `events:background` consent the row needed to
+     * target a worker at all, checked at subscribe time and re-run on every
+     * delivery.
      *
-     * Null when the identity cannot be rebuilt (the holder or the app is gone),
-     * which is not a handler failure: there is nothing to invoke.
+     * The session behind the token is one row per (user, app), reused across
+     * every delivery — the same idempotent worker session `puter.workers.*`
+     * uses — so it appears once in the user's sessions list and is revocable
+     * there like any other.
+     *
+     * Null when the identity cannot be rebuilt (the holder or the app is gone)
+     * or the consent is no longer there, which is not a handler failure: there
+     * is nothing to invoke.
      */
     async #mintSubscriberToken(
         invocation: WorkerInvocation,
     ): Promise<string | null> {
+        const { appUid } = invocation;
+        if (!appUid) return null;
+
         const actor = await resolveGrantActor(
             {
                 holderUserId: invocation.holderUserId,
-                appUid: invocation.appUid,
+                appUid,
                 permission: SUBSCRIBE_MODE,
             },
             this.#aclDeps(),
         );
         if (!actor) return null;
 
+        // Asked again here: nothing else on the delivery path reads it, the
+        // settle that ends a revoked row is best-effort, and what is minted is
+        // the app's whole standing for this holder. The permission cache
+        // answers it, so only a grant change costs a lookup.
+        if (!(await this.#hasBackgroundConsent(actor))) return null;
+
         try {
-            return await this.services.auth.createAccessToken(
+            return await this.services.auth.createWorkerAppToken(
                 actor,
-                invocation.permissions.map(
-                    (permission) => [permission] as [string],
-                ),
-                { expiresIn: DELIVERY_TOKEN_TTL },
+                appUid,
+                EVENTS_WORKER_SESSION_NAME,
             );
         } catch (err) {
             console.warn(
