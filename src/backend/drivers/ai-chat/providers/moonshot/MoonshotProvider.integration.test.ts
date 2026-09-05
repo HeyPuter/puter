@@ -20,7 +20,7 @@
 /**
  * Integration test for the Moonshot provider.
  *
- * Uses `moonshot-v1-8k` (the cheapest 8K-context variant). Skipped
+ * Uses `kimi-k2.6` (the cheapest current Kimi model). Skipped
  * when `PUTER_TEST_AI_MOONSHOT_API_KEY` is unset.
  */
 
@@ -39,7 +39,7 @@ const ENV_VAR = 'PUTER_TEST_AI_MOONSHOT_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'MoonshotProvider (integration)',
     () => {
-        it('returns a non-empty completion from moonshot-v1-8k', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns a non-empty completion from kimi-k2.6', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new MoonshotProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -47,7 +47,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'moonshot-v1-8k',
+                    model: 'kimi-k2.6',
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],
