@@ -607,6 +607,11 @@ describe('ai.txt2img driver payloads', () => {
         expect(img.src).toBe('data:image/png;base64,QUJD');
         expect(img.toString()).toBe('data:image/png;base64,QUJD');
     });
+
+    it('txt2img rejects without a prompt', async () => {
+        await expect(ai.txt2img({})).rejects.toMatchObject({ code: 'prompt_required' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
 });
 
 describe('ai.txt2vid driver payloads', () => {
