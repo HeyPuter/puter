@@ -22,6 +22,8 @@
 // in-modal sheets instead of UIAlert windows, so nothing here depends on the
 // window system and there is no cross-window z-index juggling.
 
+import { fetchAllEventsWorkers, eventsWorkerLabel } from '../helpers/eventsWorkers.js';
+
 // Hand-rolled UA → {browser, os} extractor. Covers Chrome/Edge/Firefox/
 // Safari/Opera + Windows/macOS/iOS/Android/Linux. The backend already
 // has `ua-parser-js`; pulling it into the GUI bundle just for this
@@ -763,16 +765,160 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     w_body_list.classList.add('session-manager-list-body');
     w_body.appendChild(w_body_list);
 
+    // =====================================================================
+    // Events workers section — apps that publish background event handlers.
+    // Hidden entirely on older SDKs that have no `puter.events.workers`.
+    // =====================================================================
+    const workersClient = puter.events?.workers;
+    const hasWorkersApi =
+        !!workersClient &&
+        typeof workersClient.list === 'function' &&
+        typeof workersClient.destroy === 'function';
+
+    let cachedWorkers = [];
+    let w_workers_list = null;
+
+    const handlerCountLabel = (count) => {
+        const n = Number(count) || 0;
+        return n === 1
+            ? i18n('events_workers_handler_count_one', [], false)
+            : i18n('events_workers_handler_count_other', [String(n)], false);
+    };
+
+    const WorkerWidget = ({ worker }) => {
+        const el = document.createElement('div');
+        el.classList.add('session-widget');
+        el.dataset.appUid = worker.appUid;
+
+        const el_row = document.createElement('div');
+        el_row.classList.add('session-widget-row');
+        el.appendChild(el_row);
+
+        const el_icon = document.createElement('div');
+        el_icon.classList.add('session-widget-icon');
+        el_icon.innerHTML = ICONS.worker;
+        el_row.appendChild(el_icon);
+
+        const el_main = document.createElement('div');
+        el_main.classList.add('session-widget-main');
+
+        const el_titleline = document.createElement('div');
+        el_titleline.classList.add('session-widget-titleline');
+        const el_title = document.createElement('div');
+        el_title.classList.add('session-widget-title');
+        el_title.textContent = eventsWorkerLabel(worker) || worker.appUid;
+        el_titleline.appendChild(el_title);
+        el_main.appendChild(el_titleline);
+
+        const el_meta = buildMetaLine([{ text: handlerCountLabel(worker.handlerCount) }]);
+        if ( el_meta ) el_main.appendChild(el_meta);
+
+        el_row.appendChild(el_main);
+
+        const el_actions = document.createElement('div');
+        el_actions.classList.add('session-widget-actions');
+
+        const el_btn_destroy = document.createElement('button');
+        el_btn_destroy.type = 'button';
+        el_btn_destroy.classList.add('session-widget-revoke');
+        el_btn_destroy.innerHTML = `${ICONS.trash}<span>${i18n('events_workers_destroy')}</span>`;
+        el_btn_destroy.title = i18n('events_workers_destroy');
+        el_btn_destroy.addEventListener('click', async () => {
+            try {
+                const ok = await confirmDialog({
+                    message: i18n('confirm_events_worker_destroy'),
+                    confirmLabel: i18n('events_workers_destroy'),
+                    danger: true,
+                });
+                if ( ! ok ) return;
+
+                await workersClient.destroy(worker.appUid);
+                reload_workers();
+            } catch ( e ) {
+                // SDK rejections are plain { message, code } objects, not Errors.
+                alertDialog({ message: e?.message ?? String(e) });
+            }
+        });
+        el_actions.appendChild(el_btn_destroy);
+        el_row.appendChild(el_actions);
+
+        return {
+            appendTo (parent) {
+                parent.appendChild(el);
+                return this;
+            },
+        };
+    };
+
+    const render_workers = () => {
+        if ( ! w_workers_list ) return;
+        w_workers_list.replaceChildren();
+        if ( cachedWorkers.length === 0 ) {
+            const el_empty = document.createElement('div');
+            el_empty.classList.add('session-manager-count');
+            el_empty.textContent = i18n('events_workers_none');
+            w_workers_list.appendChild(el_empty);
+            return;
+        }
+        for ( const worker of cachedWorkers ) {
+            WorkerWidget({ worker }).appendTo(w_workers_list);
+        }
+    };
+
+    const reload_workers = async () => {
+        if ( ! hasWorkersApi ) return;
+        try {
+            cachedWorkers = await fetchAllEventsWorkers(workersClient);
+        } catch {
+            // Network flake — keep whatever's currently rendered.
+            return;
+        }
+        render_workers();
+    };
+
+    if ( hasWorkersApi ) {
+        const el_workers_section = document.createElement('div');
+        el_workers_section.classList.add('session-manager-workers-section');
+
+        const el_workers_head = document.createElement('div');
+        el_workers_head.classList.add('session-manager-workers-head');
+
+        const el_workers_title = document.createElement('h3');
+        el_workers_title.classList.add('session-manager-workers-title');
+        el_workers_title.textContent = i18n('events_workers');
+        el_workers_head.appendChild(el_workers_title);
+
+        const el_workers_desc = document.createElement('p');
+        el_workers_desc.classList.add('session-manager-workers-description');
+        el_workers_desc.textContent = i18n('events_workers_description');
+        el_workers_head.appendChild(el_workers_desc);
+
+        el_workers_section.appendChild(el_workers_head);
+
+        w_workers_list = document.createElement('div');
+        w_workers_list.classList.add('session-manager-workers-list');
+        el_workers_section.appendChild(w_workers_list);
+
+        w_body.appendChild(el_workers_section);
+    }
+
     reload_sessions();
+    reload_workers();
 
     // Two-tier refresh:
     //   - focus → re-fetch immediately (cheapest signal that something
     //     in the user's other tabs might have changed sessions).
     //   - 60s fallback interval so a long-lived but unfocused modal
     //     still eventually sees revocations propagate.
-    onFocus = () => reload_sessions();
+    onFocus = () => {
+        reload_sessions();
+        reload_workers();
+    };
     window.addEventListener('focus', onFocus);
-    interval = setInterval(reload_sessions, 60_000);
+    interval = setInterval(() => {
+        reload_sessions();
+        reload_workers();
+    }, 60_000);
 };
 
 export default UIWindowManageSessions;

@@ -18,19 +18,29 @@
  */
 
 /**
- * The call that leaves the platform, against a stub standing in for an app's
- * events worker.
+ * The call that leaves the platform, against a stub standing in for the events
+ * dispatcher.
  *
- * The worker runtime is not built yet, so what is pinned here is everything on
- * this side of the wire: the body, the token it carries and what that token is
- * allowed to do, and what each answer does to the delivery — settled, dropped,
- * or held for longer each time until the subscription stops.
+ * What is pinned here is everything on this side of the wire: the internal
+ * headers that get an invocation past the dispatcher, the body, the token it
+ * carries and what that token is allowed to do, and what each answer does to
+ * the delivery — settled, dropped, or held for longer each time until the
+ * subscription stops. The runtime on the far side is exercised in
+ * `workerRuntime.integration.test.ts`.
  */
 
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import {
     EVENTS_CONSECUTIVE_FAILURES,
     deliveryBackoffMs,
@@ -39,19 +49,24 @@ import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
+import { eventsInvokeKey, eventsWorkerScript } from './workerRuntime.js';
+import { handlerSetHash } from './workerSource.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 /** Short enough that a hung handler is a test case rather than a stall. */
 const INVOKE_TIMEOUT_MS = 300;
 const HANDLER = 'ingestUpload';
-const SOURCE = 'async ({ event, ctx }) => { console.log(event.path, ctx.label); }';
+const INTERNAL_SECRET = 'events-internal-secret';
+const SOURCE =
+    'async ({ event, ctx }) => { console.log(event.path, ctx.label); }';
 
 interface StubCall {
     method: string;
     path: string;
-    auth: string | undefined;
+    headers: Record<string, string | undefined>;
     body: {
         handler?: string;
+        token?: string;
         event?: Record<string, unknown>;
         ctx?: Record<string, unknown>;
     };
@@ -67,6 +82,8 @@ let stub: http.Server;
 let calls: StubCall[];
 /** What the stub answers with, or `hang` for a handler that never does. */
 let answer: number | 'hang' = 200;
+/** Whether the stub's answer carries the handled header, as a real one would. */
+let answerHandled = true;
 
 const events = () => env.server.services.events;
 const pending = () => env.server.stores.pendingDelivery;
@@ -84,11 +101,22 @@ const startStub = async (): Promise<string> => {
             calls.push({
                 method: req.method ?? '',
                 path: req.url ?? '',
-                auth: req.headers['puter-auth'] as string | undefined,
+                headers: {
+                    auth: req.headers['x-puter-internal-auth'] as string,
+                    script: req.headers['x-puter-events-script'] as string,
+                    app: req.headers['x-puter-events-app'] as string,
+                    key: req.headers['x-puter-events-key'] as string,
+                },
                 body: JSON.parse(raw || '{}') as StubCall['body'],
             });
             if (answer === 'hang') return;
-            res.writeHead(answer).end();
+            // Stands in for the dispatcher forwarding a genuine answer from
+            // the script, so it carries the marker a real one would — unless
+            // a test is specifically simulating something that never reached one.
+            res.writeHead(
+                answer,
+                answerHandled ? { 'x-puter-events-handled': '1' } : {},
+            ).end();
         });
     });
     await new Promise<void>((resolve) =>
@@ -166,8 +194,19 @@ const heldForMs = async (subId: string): Promise<number> => {
 };
 
 beforeAll(async () => {
+    // Started first: the dispatcher's address is config, so it has to be known
+    // before the server boots.
+    calls = [];
+    const dispatcherUrl = await startStub();
+
     env = await setupPuterTestEnv({
-        events: { enabled: true, invokeTimeoutMs: INVOKE_TIMEOUT_MS },
+        events: {
+            enabled: true,
+            workerRuntime: true,
+            invokeTimeoutMs: INVOKE_TIMEOUT_MS,
+            dispatcherUrl,
+            internalSecret: INTERNAL_SECRET,
+        },
         // Seeded accounts carry no email, which the plan machinery reads as a
         // temporary account — and a temporary account holds no durable rows.
         unlimitedMetering: true,
@@ -208,12 +247,6 @@ beforeAll(async () => {
         name: HANDLER,
         source: SOURCE,
     });
-
-    calls = [];
-    const origin = await startStub();
-    env.server.clients.eventsWorkerInvoker.setResolver({
-        resolveInvokeUrl: () => Promise.resolve(origin),
-    });
 }, BOOT_TIMEOUT_MS);
 
 afterAll(async () => {
@@ -225,10 +258,8 @@ beforeEach(async () => {
     vi.useRealTimers();
     calls = [];
     answer = 200;
-    await env.server.clients.db.write(
-        'DELETE FROM `event_subscriptions`',
-        [],
-    );
+    answerHandled = true;
+    await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     events().invalidateUser(userId);
     await env.server.stores.eventSubscription.markRegionCold(userId);
     await durable().warmRegion(userId);
@@ -243,7 +274,7 @@ describe('the call an owed delivery makes', () => {
 
         const call = calls[0];
         expect(call.method).toBe('POST');
-        expect(call.path).toBe('/__events/invoke');
+        expect(call.path).toBe('/invoke');
         expect(call.body.handler).toBe(HANDLER);
         expect(call.body.ctx).toEqual({ label: 'ingest' });
         expect(Object.keys(call.body.event ?? {}).sort()).toEqual([
@@ -262,13 +293,37 @@ describe('the call an owed delivery makes', () => {
         });
     });
 
+    it('gets past the dispatcher with the internal secret and a derived key', async () => {
+        await subscribe();
+
+        await touch('headers.txt');
+        await invoked(1);
+
+        const { headers } = calls[0];
+        expect(headers.auth).toBe(INTERNAL_SECRET);
+        expect(headers.app).toBe(appUid);
+
+        const script = eventsWorkerScript(
+            handlerSetHash(
+                await env.server.stores.eventHandler.setForApp(appUid),
+            ),
+            // No `workers.internetExposedUrl` in this test's config.
+            '',
+        );
+        expect(headers.script).toBe(script);
+        expect(headers.key).toBe(eventsInvokeKey(INTERNAL_SECRET, script));
+        // Derived per script, so what reaches a worker is never the secret
+        // that reaches the dispatcher.
+        expect(headers.key).not.toContain(INTERNAL_SECRET);
+    });
+
     it('carries a token that is the subscriber, the app, and nothing wider', async () => {
         await subscribe();
 
         await touch('token.txt');
         await invoked(1);
 
-        const token = calls[0].auth;
+        const token = calls[0].body.token;
         expect(typeof token).toBe('string');
 
         const { actor } = await env.server.services.auth.authenticate(token!);
@@ -305,7 +360,7 @@ describe('the call an owed delivery makes', () => {
         );
         await invoked(1);
 
-        const token = calls[0].auth!;
+        const token = calls[0].body.token!;
         const decoded = env.server.services.token.verify('auth', token) as {
             token_uid: string;
         };
@@ -316,9 +371,8 @@ describe('the call an owed delivery makes', () => {
         // Own-namespace kv has no grant behind it: nothing was minted at all.
         expect(rows).toEqual([]);
 
-        const tokenActor = (
-            await env.server.services.auth.authenticate(token)
-        ).actor!;
+        const tokenActor = (await env.server.services.auth.authenticate(token))
+            .actor!;
         expect(tokenActor.effectiveApp?.uid).toBe(appUid);
         await expect(
             env.server.services.permission.check(
@@ -365,6 +419,22 @@ describe('what each answer does to the delivery', () => {
         ).resolves.toBe('1');
     });
 
+    it('holds a 4xx with no handled marker for retry rather than dropping it', async () => {
+        // Nothing said this reached the script — an edge 404, a WAF — so it
+        // must not read as the handler's own refusal.
+        answer = 404;
+        answerHandled = false;
+        const subId = await subscribe();
+
+        await touch('unmarked.txt');
+        await invoked(1);
+
+        await vi.waitFor(async () =>
+            expect(await heldForMs(subId)).toBeGreaterThan(0),
+        );
+        expect(await pending().depth(subId)).toBe(1);
+    });
+
     it('holds one it could not answer, for longer each time', async () => {
         answer = 500;
         const subId = await subscribe();
@@ -373,7 +443,11 @@ describe('what each answer does to the delivery', () => {
         await invoked(1);
 
         const waits: number[] = [];
-        for (let attempt = 1; attempt < EVENTS_CONSECUTIVE_FAILURES; attempt++) {
+        for (
+            let attempt = 1;
+            attempt < EVENTS_CONSECUTIVE_FAILURES;
+            attempt++
+        ) {
             await vi.waitFor(async () =>
                 expect(await heldForMs(subId)).toBeGreaterThan(0),
             );
@@ -388,7 +462,9 @@ describe('what each answer does to the delivery', () => {
             await invoked(attempt + 1);
         }
 
-        expect(waits.map((wait) => Math.round(wait / 1000))).toEqual([2, 4, 8, 16]);
+        expect(waits.map((wait) => Math.round(wait / 1000))).toEqual([
+            2, 4, 8, 16,
+        ]);
 
         // The fifth failure in a row is the one that stops it.
         await vi.waitFor(async () =>
@@ -405,7 +481,11 @@ describe('what each answer does to the delivery', () => {
         const subId = await subscribe();
 
         await touch('notified.txt');
-        for (let attempt = 1; attempt < EVENTS_CONSECUTIVE_FAILURES; attempt++) {
+        for (
+            let attempt = 1;
+            attempt < EVENTS_CONSECUTIVE_FAILURES;
+            attempt++
+        ) {
             await invoked(attempt);
             jump(deliveryBackoffMs(attempt) + 50);
             await events().sweepPending();
@@ -453,10 +533,10 @@ describe('what each answer does to the delivery', () => {
 
 describe('with no events worker to address', () => {
     it('counts the same as a handler that could not answer', async () => {
-        env.server.clients.eventsWorkerInvoker.setResolver({
-            resolveInvokeUrl: () => Promise.resolve(null),
-        });
         const subId = await subscribe();
+        // Unpublished after the fact: the app's set now hashes to nothing, so
+        // there is no script to name and nowhere to send the delivery.
+        await env.server.stores.eventHandler.remove(appUid, HANDLER);
 
         try {
             await touch('unresolved.txt');
@@ -480,10 +560,36 @@ describe('with no events worker to address', () => {
             // Nothing was ever called: there was nowhere to call.
             expect(calls).toEqual([]);
         } finally {
-            const origin = `http://127.0.0.1:${(stub.address() as AddressInfo).port}`;
-            env.server.clients.eventsWorkerInvoker.setResolver({
-                resolveInvokeUrl: () => Promise.resolve(origin),
+            await env.server.stores.eventHandler.publish({
+                appUid,
+                name: HANDLER,
+                source: SOURCE,
             });
+        }
+    });
+
+    it('drops the deploy for a suspended owner rather than addressing it', async () => {
+        const subId = await subscribe();
+        await env.server.clients.db.write(
+            'UPDATE user SET suspended = 1 WHERE id = ?',
+            [userId],
+        );
+        await env.server.stores.user.invalidateById(userId);
+
+        try {
+            await touch('suspended-owner.txt');
+            await vi.waitFor(async () =>
+                expect(await heldForMs(subId)).toBeGreaterThan(0),
+            );
+            expect(await pending().depth(subId)).toBe(1);
+            // A suspended owner is nobody to address: nothing was called.
+            expect(calls).toEqual([]);
+        } finally {
+            await env.server.clients.db.write(
+                'UPDATE user SET suspended = 0 WHERE id = ?',
+                [userId],
+            );
+            await env.server.stores.user.invalidateById(userId);
         }
     });
 });

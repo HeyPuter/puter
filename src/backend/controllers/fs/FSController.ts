@@ -973,9 +973,14 @@ export class FSController extends PuterController {
 
     // -- Read-side routes ------------------------------------------------
 
+    // The read-side routes admit scoped access tokens: `#assertAccess` runs the
+    // ACL against the token's grant intersected with its issuer's, so a token
+    // reaches exactly what it was minted for. A background events handler
+    // acts through one — its `user` is scoped to the subscription's grant.
     @Post('/stat', {
         subdomain: 'api',
         requireVerified: true,
+        allowAccessToken: true,
         rateLimit: FS_STAT_LIMIT,
     })
     async statEntry(req: Request, res: Response) {
@@ -1107,6 +1112,7 @@ export class FSController extends PuterController {
     @Get('/readdir', {
         subdomain: 'api',
         requireVerified: true,
+        allowAccessToken: true,
         rateLimit: FS_READDIR_LIMIT,
     })
     async readdirEntriesViaGet(req: Request, res: Response) {
@@ -1116,6 +1122,7 @@ export class FSController extends PuterController {
     @Post('/readdir', {
         subdomain: 'api',
         requireVerified: true,
+        allowAccessToken: true,
         rateLimit: FS_READDIR_LIMIT,
     })
     async readdirEntries(req: Request, res: Response) {
@@ -1353,6 +1360,7 @@ export class FSController extends PuterController {
         subdomain: 'api',
         requireVerified: true,
         requireCredits: true,
+        allowAccessToken: true,
         rateLimit: FS_READ_LIMIT,
         concurrent: FS_READ_CONCURRENT,
     })

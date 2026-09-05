@@ -1,6 +1,7 @@
 import { PuterModule } from '../../lib/PuterModule.js';
 import { EventChannel } from './lib/channel.js';
 import { EventHandlers } from './lib/handlers.js';
+import { EventsWorkers } from './lib/workers.js';
 import { fetch } from './fetch.js';
 import { list } from './list.js';
 import { onLocal } from './onLocal.js';
@@ -21,6 +22,9 @@ import { unsubscribe } from './unsubscribe.js';
  *
  * `fetch()` is the other half: what happened while nothing was listening, read
  * from the subject's own store a page at a time.
+ *
+ * A published handler set stands up an **events worker** per app —
+ * `puter.events.workers` is where an owner sees and destroys them.
  *
  * Method implementations live in the sibling files as `this`-context functions
  * whose JSDoc is the source of truth for the public signatures — `types/` is
@@ -48,6 +52,9 @@ export class EventsModule extends PuterModule {
 
         /** The named functions this app has deployed. */
         this.handlers = new EventHandlers(this);
+
+        /** The events worker a published handler set implies. */
+        this.workers = new EventsWorkers(this);
 
         const methods = /** @type {Record<string, (...args: unknown[]) => unknown>} */ (
             /** @type {unknown} */ (this)

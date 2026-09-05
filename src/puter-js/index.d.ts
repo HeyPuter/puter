@@ -94,12 +94,16 @@ export type {
 
 // -- puter.events --
 export type {
+    DestroyedEventsWorker,
     EventAnchor,
     EventDelivery,
     EventFetchOptions,
     EventFetchPage,
     EventGapMarker,
     EventHandler,
+    EventsWorkerPage,
+    EventsWorkerSummary,
+    EventsWorkersListOptions,
     HandlerOptions,
     HandlerPublication,
     HandlerSummary,
@@ -113,6 +117,7 @@ export type {
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
 export type { EventHandlers } from './types/modules/events/lib/handlers.js';
+export type { EventsWorkers } from './types/modules/events/lib/workers.js';
 
 // -- puter.fs --
 export type {

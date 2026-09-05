@@ -67,16 +67,24 @@ export const HANDLER_GLOBALS = new Set([
     'crypto', 'Crypto', 'SubtleCrypto', 'performance', 'WebSocket',
     'Event', 'EventTarget', 'CustomEvent', 'MessageChannel', 'MessagePort',
     'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
-    // The SDK the worker runs inside.
-    'puter',
 ]);
+
+/**
+ * Names an events worker deliberately does not provide, and what to use
+ * instead. A handler runs with no ambient SDK: there is no account it belongs
+ * to until a delivery says whose it is.
+ */
+const NO_AMBIENT_SDK = new Set(['puter', 'me', 'my', 'myself']);
 
 /** Raised for the identifier that could not be resolved, naming it. */
 const freeVariable = (name) =>
     new PuterJSError(
-        `Handler refers to \`${name}\`, which is not a parameter, a local, or a known global. ` +
-            'A handler is serialized and run elsewhere, so it cannot close over anything — ' +
-            'pass the value in `context` and read it from `ctx`.',
+        NO_AMBIENT_SDK.has(name)
+            ? `Handler refers to \`${name}\`, and a handler has no ambient SDK: ` +
+                  'it runs as whoever the delivery belongs to. Use the `user` binding.'
+            : `Handler refers to \`${name}\`, which is not a parameter, a local, or a known global. ` +
+                  'A handler is serialized and run elsewhere, so it cannot close over anything — ' +
+                  'pass the value in `context` and read it from `ctx`.',
         'events_handler_free_variable',
     );
 

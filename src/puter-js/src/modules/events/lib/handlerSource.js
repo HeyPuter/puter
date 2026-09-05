@@ -57,6 +57,31 @@ export const hashSource = async (source) => {
         .join('');
 };
 
+// A method defined with shorthand syntax (`ingest({ event }) { … }` in an
+// object literal or a class) stringifies without the `function` keyword, and
+// so is not an expression: the worker would bake it as a broken stub. Every
+// other form — `function`, `async function`, arrows, `class` — already is one.
+const METHOD_SHORTHAND = /^(async\s+)?(\*\s*)?([A-Za-z_$][\w$]*|\[[^\]]*\])\s*\(/;
+const NOT_SHORTHAND = /^(async\s+)?(function\b|class\b|\()/;
+
+/**
+ * A function's source as something that parses on its own. Shorthand methods
+ * get the keyword they stringified without; anything else is returned as is.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export const asExpression = (source) => {
+    const trimmed = source.trim();
+    if ( NOT_SHORTHAND.test(trimmed) || ! METHOD_SHORTHAND.test(trimmed) ) return source;
+    const isAsync = /^async\s+/.test(trimmed);
+    const rest = trimmed.replace(/^async\s+/, '');
+    // A getter, setter or computed name cannot be turned into a plain function
+    // by hand — leave it for the server-side check to refuse.
+    if ( /^(get|set)\s+[A-Za-z_$[]/.test(rest) || rest.startsWith('[') ) return source;
+    return `${isAsync ? 'async ' : ''}function ${rest}`;
+};
+
 /**
  * The source of a handler given as a function or a source string. A
  * `{ file }` form is read separately, because reading is asynchronous and
@@ -66,7 +91,8 @@ export const hashSource = async (source) => {
  * @returns {string | null} `null` when the handler is a `{ file }` reference.
  */
 export const sourceOf = (handler) => {
-    if ( typeof handler === 'function' ) return Function.prototype.toString.call(handler);
+    if ( typeof handler === 'function' )
+        return asExpression(Function.prototype.toString.call(handler));
     if ( typeof handler === 'string' ) {
         if ( handler.trim().length === 0 )
             throw invalidHandler('A handler source string may not be empty');

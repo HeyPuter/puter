@@ -175,6 +175,23 @@ export const EVENTS_HANDLERS_PER_APP = 100;
 export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
 
 /**
+ * Longest an app's generated events worker may be, all handlers combined. Above
+ * this a publish is refused with `events_worker_too_large` before it lands, and
+ * a set that got here some other way fails its deploy instead of shipping a
+ * script too big for the runtime to load.
+ */
+export const EVENTS_WORKER_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Deploys one app's events worker may trigger per hour.
+ *
+ * A deploy provisions upstream, so a set that flaps — publish, remove,
+ * republish — must not turn into an unbounded provisioning loop. Rehydration (a
+ * namespace miss) counts the same as a publish-triggered deploy.
+ */
+export const EVENTS_WORKER_DEPLOYS_PER_HOUR = 30;
+
+/**
  * Handlers one `publishAll` may carry. A build step publishes its whole set in
  * one call, and the set is capped by what an app may hold anyway.
  */
@@ -210,6 +227,12 @@ export const EVENTS_HANDLER_LIST_LIMIT = userWindow(
     'events:handlers:list',
     120,
 );
+
+/**
+ * Events worker listings per minute, per user. Same shape as the handler
+ * listing.
+ */
+export const EVENTS_WORKER_LIST_LIMIT = userWindow('events:workers:list', 120);
 
 // -- Dispatch fan-out ------------------------------------------------
 

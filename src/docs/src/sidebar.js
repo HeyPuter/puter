@@ -462,6 +462,14 @@ let sidebar = [
                 source: '/Events/handlers.md',
                 path: '/Events/handlers',
             },
+            {
+                title: '<code>workers</code>',
+                page_title: '<code>puter.events.workers</code>',
+                title_tag: 'puter.events.workers',
+                icon: '/assets/img/function.svg',
+                source: '/Events/workers.md',
+                path: '/Events/workers',
+            },
         ],
     },
     {

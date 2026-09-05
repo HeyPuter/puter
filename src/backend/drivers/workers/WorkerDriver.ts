@@ -89,6 +89,25 @@ export interface InternalDeployTarget {
     /** Grouping to deploy into, in place of the configured default. */
     namespace?: string;
     /**
+     * Which runtime to prepend. The default `router` one gives user code
+     * `router` and a `me` built from the worker's own token; `events` gives it
+     * neither and answers one platform route.
+     */
+    runtime?: WorkerRuntime;
+    /**
+     * Source to deploy, in place of reading `filePath` out of the caller's FS.
+     * For callers whose source is generated rather than stored, so there is no
+     * file to keep in step with what is deployed.
+     */
+    source?: string;
+    /**
+     * Deploy without a worker token. The script gets no `puter_auth` binding
+     * and so nothing to act as on its own behalf.
+     */
+    omitOwnerToken?: true;
+    /** Extra secret bindings for the deployed script. */
+    secrets?: Record<string, string>;
+    /**
      * Labels stored alongside the script. A name derived from a hash cannot be
      * read backwards, so labels are the only way to enumerate afterwards which
      * scripts belong to what.
@@ -105,41 +124,67 @@ let USE_LOCAL_WORKERD = false;
 
 // -- Preamble --------------------------------------------------------
 //
-// The preamble is a webpack-built JS bundle that provides puter.js to
-// worker code. It's baked into the source sent to Cloudflare Workers.
-// If the file hasn't been built, workers run without puter.js access.
+// A preamble is a built JS bundle providing puter.js and the runtime user code
+// runs inside. It's baked into the source sent to Cloudflare Workers. One per
+// runtime, built by `src/worker`; without the file, that runtime cannot deploy.
 
-let preamble = '';
+export type WorkerRuntime = 'router' | 'events';
+
+interface LoadedPreamble {
+    source: string;
+    /** Lines of preamble, so a stack trace can be reported against user code. */
+    lineCount: number;
+}
+
+const PREAMBLE_FILES: Record<WorkerRuntime, string> = {
+    router: 'workerPreamble.js',
+    events: 'eventsWorkerPreamble.js',
+};
+
 let preambleError = false;
-let preambleLineCount = 0;
 let preambleVersion: string | null = null;
-try {
-    // Five levels up from `dist/src/backend/drivers/workers` (compiled
-    // runtime); four when running from `src/backend/drivers/workers`
-    // directly (vitest transforms the TS sources in place).
-    const preamblePath = [
-        path.join(
-            __dirname,
-            '../../../../../src/worker/dist/workerPreamble.js',
-        ),
-        path.join(__dirname, '../../../../src/worker/dist/workerPreamble.js'),
-    ].find((candidate) => existsSync(candidate));
-    if (!preamblePath) throw new Error('workerPreamble.js not found');
-    console.log('reading: ' + preamblePath);
-    preamble = readFileSync(preamblePath, 'utf-8');
-    preambleLineCount = preamble.split('\n').length - 1;
 
-    const versionMatch = /^var __PUTER_PREAMBLE_VERSION__\s*=\s*"([^"]+)"/.exec(
-        preamble,
-    );
-    if (versionMatch) {
-        preambleVersion = versionMatch[1];
+const loadPreamble = (
+    file: string,
+    captureVersion: boolean,
+): LoadedPreamble | null => {
+    try {
+        // Five levels up from `dist/src/backend/drivers/workers` (compiled
+        // runtime); four when running from `src/backend/drivers/workers`
+        // directly (vitest transforms the TS sources in place).
+        const preamblePath = [
+            path.join(__dirname, `../../../../../src/worker/dist/${file}`),
+            path.join(__dirname, `../../../../src/worker/dist/${file}`),
+        ].find((candidate) => existsSync(candidate));
+        if (!preamblePath) throw new Error(`${file} not found`);
+        console.log('reading: ' + preamblePath);
+        const source = readFileSync(preamblePath, 'utf-8');
+
+        // Only the router preamble's version is tracked — it is the one every
+        // ordinary worker carries, and reported via `currentPreambleVersion()`.
+        if (captureVersion) {
+            const versionMatch =
+                /^var __PUTER_PREAMBLE_VERSION__\s*=\s*"([^"]+)"/.exec(source);
+            if (versionMatch) preambleVersion = versionMatch[1];
+        }
+
+        return { source, lineCount: source.split('\n').length - 1 };
+    } catch {
+        console.warn(
+            `[workers] preamble ${file} not built — workers using that runtime will not deploy.`,
+        );
+        return null;
     }
-} catch {
-    console.warn(
-        '[workers] preamble not built — workers will not have puter.js injected.',
-    );
-    preambleError = true;
+};
+
+const preambles: Partial<Record<WorkerRuntime, LoadedPreamble>> = {};
+for (const [runtime, file] of Object.entries(PREAMBLE_FILES)) {
+    const loaded = loadPreamble(file, runtime === 'router');
+    if (loaded) preambles[runtime as WorkerRuntime] = loaded;
+    // Only the ordinary runtime is a boot requirement: an install with a stale
+    // build should refuse to start rather than serve workers without puter.js,
+    // but it should not refuse to start over a runtime nothing has deployed.
+    else if (runtime === 'router') preambleError = true;
 }
 
 /**
@@ -148,8 +193,8 @@ try {
  * the same `preamble + sourceCode` script when it lazily re-deploys a worker
  * into Miniflare after a server restart.
  */
-export function getWorkerPreamble(): string {
-    return preamble;
+export function getWorkerPreamble(runtime: WorkerRuntime = 'router'): string {
+    return preambles[runtime]?.source ?? '';
 }
 
 /**
@@ -247,9 +292,19 @@ export class WorkerDriver extends PuterDriver {
             if (cfg.namespace) {
                 this.#cfBaseUrl += `/dispatch/namespaces/${cfg.namespace}`;
             }
-            if (preambleError) {
+            // Missing the events preamble is the same boot failure as the
+            // router one, but only when events workers are actually
+            // configured to deploy — an install that has never turned that on
+            // must not refuse to start over a runtime nothing uses.
+            const missingEvents =
+                this.config.events?.workerRuntime === true && !preambles.events;
+            if (preambleError || missingEvents) {
+                const missing = [
+                    preambleError ? 'router' : null,
+                    missingEvents ? 'events' : null,
+                ].filter((name): name is string => name !== null);
                 throw new Error(
-                    '[workers] preamble not build but workers configured to be enabled. Halting start',
+                    `[workers] preamble(s) not built for: ${missing.join(', ')} — workers configured to be enabled. Halting start`,
                 );
             }
         } else if (cfg.localServer) {
@@ -281,7 +336,9 @@ export class WorkerDriver extends PuterDriver {
             throw new HttpError(400, 'Missing `workerName`', {
                 legacyCode: 'bad_request',
             });
-        if (!filePath)
+        // A deploy target may carry its source instead, in which case there
+        // is no file to name.
+        if (!filePath && deployTarget?.source === undefined)
             throw new HttpError(400, 'Missing `filePath`', {
                 legacyCode: 'bad_request',
             });
@@ -344,16 +401,17 @@ export class WorkerDriver extends PuterDriver {
         // `kind='app'` session for the same (user, app); the long expiry
         // (WORKER_WINDOW_SECONDS) means the worker doesn't have to re-mint
         // on a clock cadence.
-        let authorization = undefined;
+        let authorization: string | undefined = undefined;
         const appOwnerId = boundApp?.id;
-        if (boundApp) {
+        const omitOwnerToken = deployTarget?.omitOwnerToken === true;
+        if (boundApp && !omitOwnerToken) {
             authorization = await this.services.auth.createWorkerAppToken(
                 actor,
                 boundApp.uid,
                 workerName,
             );
         }
-        if (!authorization) {
+        if (!authorization && !omitOwnerToken) {
             // Fall back to a user-scoped worker token (no app binding).
             // Same kind='worker' row + long expiry as the app-scoped
             // branch above; (user, worker_name) is the unique key.
@@ -370,15 +428,23 @@ export class WorkerDriver extends PuterDriver {
         }
 
         // Read source file. loadFileInput runs the read-ACL check internally
-        // before pulling bytes from S3.
-        const loaded = await loadFileInput(
-            { fsEntry: this.stores.fsEntry, s3Object: this.stores.s3Object },
-            this.services.fs,
-            actor,
-            filePath,
-            { maxBytes: MAX_SOURCE_SIZE },
-        );
-        const sourceCode = loaded.buffer.toString('utf-8');
+        // before pulling bytes from S3. Generated source skips all of it:
+        // there is no file, so there is nothing to authorize a read of.
+        const loaded =
+            deployTarget?.source === undefined
+                ? await loadFileInput(
+                      {
+                          fsEntry: this.stores.fsEntry,
+                          s3Object: this.stores.s3Object,
+                      },
+                      this.services.fs,
+                      actor,
+                      filePath,
+                      { maxBytes: MAX_SOURCE_SIZE },
+                  )
+                : null;
+        const sourceCode =
+            deployTarget?.source ?? loaded!.buffer.toString('utf-8');
 
         // Create subdomain entry
         if (deployTarget) {
@@ -391,7 +457,7 @@ export class WorkerDriver extends PuterDriver {
             const updated = await this.stores.subdomain.update(
                 String(existingSub.uuid),
                 {
-                    root_dir_id: loaded.fsEntry?.sqlId ?? null,
+                    root_dir_id: loaded?.fsEntry?.sqlId ?? null,
                     preamble_version: preambleVersion,
                 },
                 { userId: actor.user.id },
@@ -402,7 +468,7 @@ export class WorkerDriver extends PuterDriver {
                 });
             }
         } else {
-            if (!loaded.fsEntry?.sqlId)
+            if (!loaded?.fsEntry?.sqlId)
                 throw new HttpError(400, `Invalid file recieved!`, {
                     legacyCode: 'bad_request',
                 });
@@ -415,7 +481,7 @@ export class WorkerDriver extends PuterDriver {
                 await this.stores.subdomain.create({
                     userId: actor.user.id!,
                     subdomain: subdomainName,
-                    rootDirId: loaded.fsEntry?.sqlId,
+                    rootDirId: loaded.fsEntry.sqlId,
                     appOwner: appOwnerId,
                     preambleVersion,
                 });
@@ -437,8 +503,9 @@ export class WorkerDriver extends PuterDriver {
         }
 
         // AppData is keyed by the app the worker authenticates as, so the
-        // directory has to follow the binding rather than the caller.
-        if (boundApp) {
+        // directory has to follow the binding rather than the caller. Nothing
+        // to hold when the source did not come from a file.
+        if (boundApp && loaded) {
             await this.services.fs.mkdir(actor.user.id!, {
                 path: `/${actor.user.username}/AppData/${boundApp.uid}`,
                 createMissingParents: true,
@@ -446,10 +513,18 @@ export class WorkerDriver extends PuterDriver {
         }
 
         // Deploy to Cloudflare
+        const runtime = deployTarget?.runtime ?? 'router';
+        const runtimePreamble = preambles[runtime];
+        if (!runtimePreamble)
+            throw new HttpError(
+                503,
+                `Worker runtime '${runtime}' is not built`,
+                { legacyCode: 'response_timeout' },
+            );
         const cfResult = await this.#cfDeploy(
             deployTarget?.scriptName ?? workerName,
             authorization,
-            preamble + sourceCode,
+            runtimePreamble.source + sourceCode,
             deployTarget,
         );
         return cfResult;
@@ -631,15 +706,28 @@ export class WorkerDriver extends PuterDriver {
 
     async #cfDeploy(
         workerName: string,
-        authorization: string,
+        authorization: string | undefined,
         code: string,
         target?: InternalDeployTarget,
     ): Promise<Record<string, unknown>> {
+        const secrets = Object.entries(target?.secrets ?? {});
         if (USE_LOCAL_WORKERD) {
+            // Events workers get their own registry key so they can never
+            // resolve on the public local-worker host or collide with an
+            // ordinary worker's name — see `cfCallLocal`.
+            if (target?.runtime === 'events') {
+                return this.services.localworkerservice.cfDeployLocalEvents(
+                    workerName,
+                    authorization,
+                    code,
+                    Object.fromEntries(secrets),
+                );
+            }
             return this.services.localworkerservice.cfDeployLocal(
                 workerName,
                 authorization,
                 code,
+                Object.fromEntries(secrets),
             );
         }
         const cfg = this.#workerConfig();
@@ -649,11 +737,22 @@ export class WorkerDriver extends PuterDriver {
             compatibility_date: '2025-07-15',
             ...(target?.tags ? { tags: target.tags } : {}),
             bindings: [
-                {
+                // A script deployed without a token gets no binding at all,
+                // rather than an empty one for its code to find.
+                ...(authorization === undefined
+                    ? []
+                    : [
+                          {
+                              type: 'secret_text',
+                              name: 'puter_auth',
+                              text: authorization,
+                          },
+                      ]),
+                ...secrets.map(([name, text]) => ({
                     type: 'secret_text',
-                    name: 'puter_auth',
-                    text: authorization,
-                },
+                    name,
+                    text,
+                })),
                 {
                     type: 'plain_text',
                     name: 'puter_endpoint',
@@ -675,6 +774,9 @@ export class WorkerDriver extends PuterDriver {
                 method: 'PUT',
                 headers: { Authorization: `Bearer ${cfg.XAUTHKEY}` },
                 body: form,
+                // A hung deploy backend must never pin `#inFlight` forever —
+                // this is the ceiling on how long that can hold a script name.
+                signal: AbortSignal.timeout(30_000),
             },
         );
         const json = (await res.json()) as {
@@ -701,7 +803,9 @@ export class WorkerDriver extends PuterDriver {
                     const [before, after] = line.split('at worker.js:');
                     const positions = after.split(':');
                     positions[0] = String(
-                        Number(positions[0]) - preambleLineCount,
+                        Number(positions[0]) -
+                            (preambles[target?.runtime ?? 'router']
+                                ?.lineCount ?? 0),
                     );
                     return `${before}at worker.js:${positions.join(':')}`;
                 }
@@ -752,7 +856,10 @@ export class WorkerDriver extends PuterDriver {
         const invalid =
             !WORKER_NAME_REGEX.test(target.scriptName) ||
             (target.namespace !== undefined &&
-                !WORKER_NAME_REGEX.test(target.namespace));
+                !WORKER_NAME_REGEX.test(target.namespace)) ||
+            Object.keys(target.secrets ?? {}).some(
+                (name) => !WORKER_NAME_REGEX.test(name),
+            );
         if (invalid) {
             throw new HttpError(500, 'Invalid internal deploy target', {
                 legacyCode: 'internal_error',
@@ -1043,7 +1150,7 @@ export class WorkerDriver extends PuterDriver {
                 const cfResult = (await this.#cfDeploy(
                     workerName,
                     authorization,
-                    preamble + sourceCode,
+                    getWorkerPreamble() + sourceCode,
                 )) as { success?: boolean; errors?: unknown[]; url?: string };
 
                 if (cfResult.success && row.uuid) {

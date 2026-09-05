@@ -23,7 +23,7 @@ await puter.events.handlers.remove('indexDocument', { appUid });
 
 A handler is serialized with `Function.prototype.toString()` and run later, somewhere else. A closed-over variable is not discouraged — it is **unrepresentable**, because nothing around the function survives the trip.
 
-So every identifier a handler names must be one of: a parameter, something the handler itself declares, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. The SDK checks this before the request and rejects with `events_handler_free_variable`, naming the identifier:
+So every identifier a handler names must be one of: a parameter, something the handler itself declares, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` is **not** one of them: a handler running in the events worker has no ambient SDK, and reaches the account through its `user` binding instead. The SDK checks this before the request and rejects with `events_handler_free_variable`, naming the identifier:
 
 ```js
 const endpoint = 'https://example.com/ingest';
@@ -100,6 +100,8 @@ Resolves to `{ name, removed, suspended }`.
 
 Renaming is publish-new plus remove-old, and subscriptions do **not** follow — that is a re-subscribe, deliberately: silently repointing someone's subscription at different code is exactly what consent is protecting against.
 
+**An app's first published handler stands up an events worker for it.** See [`puter.events.workers`](/Events/workers/) to list and destroy them — the last handler removed here takes it down the same way.
+
 ### What a suspension does to the backlog
 
 A suspended subscription stops being delivered to and stops being metered — so it cannot go on holding a full backlog for free. On suspension its undelivered deliveries are trimmed to **100** and given a deadline: **24 hours** for `handler_not_found` and `failures`, **1 hour** for `no_credit`. Past the deadline they are dropped and one `gap` marker with `reason: 'suspended_backlog_expired'` takes their place, so a resumed subscription learns there were events rather than reading the silence as "nothing changed". A subscription suspended by `permission_revoked` has its backlog **purged at once** and never resumes.
@@ -117,6 +119,7 @@ All four methods reject with `{ message, code }`:
 | `events_handler_app_required` | An account session did not name an app. |
 | `events_handler_forbidden` | The caller does not own the app — and an app that is not there answers the same way. |
 | `events_handler_too_large` | The serialized handler is over 64 KB. |
+| `events_worker_too_large` | The app's handlers would exceed 5 MB of source combined. |
 | `events_handler_source_invalid` | The handler source is empty. |
 | `events_handler_limit` | The app already has the maximum number of published handlers. |
 | `too_many_requests` | Over the handler publish/remove budget. |

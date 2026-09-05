@@ -144,14 +144,16 @@ export class LegacyFSController extends PuterController {
         // draw from the same per-user budget as their v2 counterparts rather
         // than handing a caller a second allowance for the same operation.
         const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
-        router.post(
-            '/stat',
-            { ...apiOptions, rateLimit: FS_STAT_LIMIT },
-            this.stat,
-        );
+        // Read-side routes admit scoped access tokens: the ACL check each
+        // handler runs already intersects a token's grant with its issuer's,
+        // so the token reaches exactly what it was minted for. That is what a
+        // background events handler acts through — its `user` is a token
+        // scoped to the subscription's grant.
+        const reads = { ...apiOptions, allowAccessToken: true } as RouteOptions;
+        router.post('/stat', { ...reads, rateLimit: FS_STAT_LIMIT }, this.stat);
         router.post(
             '/readdir',
-            { ...apiOptions, rateLimit: FS_READDIR_LIMIT },
+            { ...reads, rateLimit: FS_READDIR_LIMIT },
             this.readdir,
         );
         router.post('/mkdir', mutate, this.mkdir);
@@ -173,6 +175,7 @@ export class LegacyFSController extends PuterController {
             '/read',
             {
                 ...spends,
+                allowAccessToken: true,
                 rateLimit: FS_READ_LIMIT,
                 concurrent: FS_READ_CONCURRENT,
             },
