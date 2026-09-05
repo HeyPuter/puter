@@ -1,6 +1,6 @@
 import * as utils from '../../lib/utils.js';
 import { isObject, parseOptConfigThenCallbacks } from './lib/args.js';
-import { assertKeySize } from './lib/validate.js';
+import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 
 /** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 
@@ -12,6 +12,7 @@ const getDriverCall = (puter, args) =>
         puter,
         readonly: true,
         preprocess: (driverArgs) => {
+            assertKeyPresent(driverArgs.key);
             assertKeySize(driverArgs.key);
             return driverArgs;
         },
