@@ -232,6 +232,11 @@ describe('kv.get driver payloads', () => {
         await expect(kv.get('k'.repeat(1025))).rejects.toMatchObject({ code: 'key_too_large' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
+
+    it('rejects an undefined key without a request', async () => {
+        await expect(kv.get(undefined)).rejects.toMatchObject({ code: 'key_undefined' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
 });
 
 describe('kv.get GUI boot cache', () => {
@@ -477,6 +482,12 @@ describe('kv.expire / kv.expireAt driver payloads', () => {
         await expect(kv.expireAt(bigKey, 1)).rejects.toMatchObject({ code: 'key_too_large' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
+
+    it('both reject an undefined key without a request', async () => {
+        await expect(kv.expire(undefined, 60)).rejects.toMatchObject({ code: 'key_undefined' });
+        await expect(kv.expireAt(undefined, 1)).rejects.toMatchObject({ code: 'key_undefined' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
 });
 
 describe('kv.del driver payloads', () => {
@@ -499,6 +510,11 @@ describe('kv.del driver payloads', () => {
 
     it('rejects an oversized key without a request', async () => {
         await expect(kv.del('k'.repeat(1025))).rejects.toMatchObject({ code: 'key_too_large' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('rejects an undefined key without a request', async () => {
+        await expect(kv.del(undefined)).rejects.toMatchObject({ code: 'key_undefined' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
 });
