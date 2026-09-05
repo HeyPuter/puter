@@ -166,9 +166,12 @@ const appActorFor = (appUid: string, id = userId): Actor =>
  */
 let denied: Map<string, 'hidden' | 'forbidden'>;
 
+/** Holders a grant was revoked from, regardless of which node they ask about. */
+let deniedHolders: Set<number>;
+
 const aclService = () => ({
-    check: async (_actor: Actor, resource: { path: string }) =>
-        !denied.has(resource.path),
+    check: async (actor: Actor, resource: { path: string }) =>
+        !denied.has(resource.path) && !deniedHolders.has(actor.user?.id ?? -1),
     getSafeAclError: async (_actor: Actor, resource: { path: string }) =>
         denied.get(resource.path) === 'forbidden'
             ? { status: 403, message: 'Forbidden', fields: { code: 'forbidden' } }
@@ -439,6 +442,7 @@ beforeEach(() => {
     commands = [];
     entries = new Map();
     denied = new Map();
+    deniedHolders = new Set();
     apps = new Map();
     grants = new Set();
     handles = new Map();
@@ -1194,6 +1198,34 @@ describe('coalescing', () => {
         expect(metered).toHaveLength(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
     });
 
+    it('coalesces repeated gap markers into one per window', async () => {
+        vi.useFakeTimers();
+        const { documents } = seedTree();
+        await seedSubscriptions(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT + 1, {
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+
+        // Three separate over-cap writes in the same window — coalesced,
+        // this is one marker per subscription, not one per event.
+        for (let i = 0; i < 3; i++) {
+            const file = register(
+                entry({
+                    uid: `over-${seq}-${i}`,
+                    path: `${documents.path}/n${i}.txt`,
+                }),
+            );
+            await dispatch(file);
+        }
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.filter((s) => s.envelope.event.op === 'gap')).toHaveLength(
+            1,
+        );
+    });
+
     it('stops delivering to a holder with nothing left to spend', async () => {
         const { documents, file } = seedTree();
         await subscribe(`fs:${documents.uid}`);
@@ -1261,6 +1293,45 @@ describe('limits', () => {
                 .map((s) => s.envelope.subId),
         );
         expect([...gapped].some((id) => written.has(id))).toBe(false);
+    });
+
+    it('never gaps a row whose grant was revoked', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const revokedHolder = userId + 500;
+        const count = EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT + 5;
+
+        for (let i = 0; i < count; i++)
+            await store.add({
+                subId: `revoked-${seq}-${i}`,
+                socketId: `socket-${seq}-${i}`,
+                // Last in, so it lands among the ones the cap cuts rather
+                // than among the ones actually delivered.
+                holderUserId: i === count - 1 ? revokedHolder : userId,
+                ownerUserId: userId,
+                subject: 'fs:seeded',
+                token: `f#${documents.uid}`,
+                anchorUid: documents.uid,
+                anchorPath: documents.path,
+                match: null,
+                op: null,
+                appUid: null,
+                permission: 'list',
+            });
+        deniedHolders.add(revokedHolder);
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const gappedSubIds = new Set(
+            sent
+                .filter((s) => s.envelope.event.op === 'gap')
+                .map((s) => s.envelope.subId),
+        );
+        // Cut for the cap, same as its neighbors — but the re-check refuses
+        // it, so no marker goes to a holder the revocation already covers.
+        expect(gappedSubIds).toHaveLength(4);
+        expect(gappedSubIds.has(`revoked-${seq}-${count - 1}`)).toBe(false);
     });
 
     it('stops evaluating filters at the cap and says there was more', async () => {

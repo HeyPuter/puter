@@ -433,6 +433,11 @@ describe('persistent delivery routing', () => {
         expect(seen[0].event.path).toBe('/user/a/one.txt');
         expect(seen[0].ctx).toEqual({ label: 'ingest' });
         expect(Object.isFrozen(seen[0].ctx)).toBe(true);
+        // A broadcast has no `ack`, but still runs with the worker's `user`
+        // and `fetch` — the same environment every consumer gets.
+        expect(seen[0].user).toBe(events.puter);
+        expect(typeof seen[0].fetch).toBe('function');
+        expect(seen[0].ack).toBeUndefined();
         // Nothing to acknowledge: everyone connected gets a copy of this one.
         expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
     });

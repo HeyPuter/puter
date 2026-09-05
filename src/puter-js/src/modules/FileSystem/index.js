@@ -80,8 +80,10 @@ export class PuterJSFileSystemModule extends PuterModule {
     constructor (puter) {
         super(puter);
         this.cacheUpdateTimer = null;
-        // Connect socket.
-        this.initializeSocket();
+        // Connect socket, unless this client opted out (see `puter.socketEnabled`).
+        if (puter.socketEnabled) {
+            this.initializeSocket();
+        }
         puter.onAuthStateChanged(() => this.onAuthStateChanged());
     }
 
@@ -207,7 +209,9 @@ export class PuterJSFileSystemModule extends PuterModule {
             this.startCacheUpdateTimer();
         }
 
-        this.initializeSocket();
+        if ( this.puter.socketEnabled ) {
+            this.initializeSocket();
+        }
     }
 
     /**

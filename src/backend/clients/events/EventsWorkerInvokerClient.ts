@@ -82,7 +82,7 @@ export interface WorkerInvokeRequest {
     script: string;
     appUid: string;
     handler: string;
-    /** Subscriber-scoped access token the handler runs as. */
+    /** The subscriber's app session token. */
     token: string;
     /** Value the script compares against its own invoke-key binding. */
     key: string;

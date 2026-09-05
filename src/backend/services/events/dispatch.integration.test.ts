@@ -216,3 +216,122 @@ describe('unsubscribing and disconnecting', () => {
         ).resolves.toEqual([]);
     });
 });
+
+describe('a moved or renamed anchor', () => {
+    it('keeps delivering to a glob subscription after the anchor is renamed', async () => {
+        const folder = `/${username}/watch-rename-anchor`;
+        await fs().mkdir(userId, { path: folder, createMissingParents: true });
+        const anchor = await env.server.stores.fsEntry.getEntryByPath(folder);
+        await subscribeTo(`fs:${folder}/*.txt`);
+
+        const renamed = await fs().rename(userId, anchor!, 'renamed-anchor');
+        const made = `${renamed.path}/note.txt`;
+        await fs().touch(userId, { path: made });
+        await settle((d) => pathOf(d) === made);
+
+        expect(deliveredUnder(renamed.path)).toHaveLength(1);
+    });
+
+    it('keeps delivering to a glob subscription after the anchor is moved', async () => {
+        const src = `/${username}/watch-move-anchor-src`;
+        const dstParent = `/${username}/watch-move-anchor-dst`;
+        await fs().mkdir(userId, { path: src, createMissingParents: true });
+        await fs().mkdir(userId, {
+            path: dstParent,
+            createMissingParents: true,
+        });
+        const anchor = await env.server.stores.fsEntry.getEntryByPath(src);
+        const destinationParent =
+            await env.server.stores.fsEntry.getEntryByPath(dstParent);
+        await subscribeTo(`fs:${src}/*.txt`);
+
+        const moved = await fs().move(userId, {
+            source: anchor!,
+            destinationParent: destinationParent!,
+        });
+        const made = `${moved.path}/note.txt`;
+        await fs().touch(userId, { path: made });
+        await settle((d) => pathOf(d) === made);
+
+        expect(deliveredUnder(moved.path)).toHaveLength(1);
+    });
+});
+
+describe('a move out of a watched folder', () => {
+    it('tells the folder a node left, not only the one it landed in', async () => {
+        const from = `/${username}/watch-move-out-from`;
+        const to = `/${username}/watch-move-out-to`;
+        await fs().mkdir(userId, { path: from, createMissingParents: true });
+        await fs().mkdir(userId, { path: to, createMissingParents: true });
+        await subscribeTo(`fs:${from}`);
+
+        const file = await fs().touch(userId, {
+            path: `${from}/leaving.txt`,
+        });
+        await settle((d) => pathOf(d) === `${from}/leaving.txt`);
+
+        const destinationParent =
+            await env.server.stores.fsEntry.getEntryByPath(to);
+        const moved = await fs().move(userId, {
+            source: file,
+            destinationParent: destinationParent!,
+        });
+
+        const leftFrom = (d: DeliveryEnvelope) =>
+            d.event.op === 'move' &&
+            (d.event as { from?: string }).from === file.path;
+        await settle(leftFrom);
+
+        expect(delivered.find(leftFrom)?.event).toMatchObject({
+            path: moved.path,
+            from: file.path,
+        });
+    });
+
+    it('tells a filtered subscription on the folder too', async () => {
+        const from = `/${username}/watch-move-out-glob-from`;
+        const to = `/${username}/watch-move-out-glob-to`;
+        await fs().mkdir(userId, { path: from, createMissingParents: true });
+        await fs().mkdir(userId, { path: to, createMissingParents: true });
+        const sub = await subscribeTo(`fs:${from}/*.txt`);
+
+        const file = await fs().touch(userId, { path: `${from}/note.txt` });
+        await settle((d) => pathOf(d) === `${from}/note.txt`);
+
+        const destinationParent =
+            await env.server.stores.fsEntry.getEntryByPath(to);
+        await fs().move(userId, {
+            source: file,
+            destinationParent: destinationParent!,
+        });
+
+        // The glob is written against the folder the node left, so the new
+        // path can never satisfy it — the old one is the only scope that can.
+        const leftFrom = (d: DeliveryEnvelope) =>
+            d.subId === sub.subId &&
+            (d.event as { from?: string }).from === file.path;
+        await settle(leftFrom);
+    });
+
+    it('does not tell the folder it landed in where it came from', async () => {
+        const from = `/${username}/watch-move-in-unwatched`;
+        const to = `/${username}/watch-move-in-to`;
+        await fs().mkdir(userId, { path: from, createMissingParents: true });
+        await fs().mkdir(userId, { path: to, createMissingParents: true });
+        const sub = await subscribeTo(`fs:${to}`);
+
+        const file = await fs().touch(userId, { path: `${from}/arriving.txt` });
+        const destinationParent =
+            await env.server.stores.fsEntry.getEntryByPath(to);
+        const moved = await fs().move(userId, {
+            source: file,
+            destinationParent: destinationParent!,
+        });
+
+        const arrived = (d: DeliveryEnvelope) =>
+            d.subId === sub.subId && pathOf(d) === moved.path;
+        await settle(arrived);
+
+        expect(delivered.find(arrived)?.event).not.toHaveProperty('from');
+    });
+});

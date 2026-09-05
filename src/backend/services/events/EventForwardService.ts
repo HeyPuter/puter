@@ -22,6 +22,7 @@ import {
     PRESENCE_NO_APP,
     type PresenceRow,
 } from '../../stores/events/PresenceStore.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import {
     appSocketRoom,
     type SocketSpecifier,
@@ -29,7 +30,9 @@ import {
 import { PuterService } from '../types.js';
 import {
     FORWARD_MAX_QUEUED,
+    FORWARD_MAX_QUEUED_BYTES,
     PeerForwardQueue,
+    type ForwardAck,
     type ForwardBatch,
     type ForwardDelivery,
     type ForwardItem,
@@ -119,6 +122,11 @@ export class EventForwardService extends PuterService {
 
     /** Deliveries held for one peer before the oldest are shed with markers. */
     static MAX_QUEUED = FORWARD_MAX_QUEUED;
+    /** Bytes held for one peer before the oldest are shed with markers. */
+    static MAX_QUEUED_BYTES = FORWARD_MAX_QUEUED_BYTES;
+
+    /** Concurrency `receive()` settles a peer's relayed acks under. */
+    static RECEIVE_CONCURRENCY = 16;
 
     override onServerStart(): void {
         this.clients.event.on(
@@ -165,7 +173,9 @@ export class EventForwardService extends PuterService {
 
     /**
      * One more connection for the pair. Only the one that crosses zero in this
-     * region writes: every reconnect after it is a counter increment.
+     * region writes: every reconnect after it is a counter increment. Crossing
+     * zero says a transition happened on this node; the region-shared pin is
+     * what says whether a sibling node already wrote it in.
      */
     async noteConnect(actor: Actor): Promise<void> {
         if (!this.active) return;
@@ -173,8 +183,8 @@ export class EventForwardService extends PuterService {
         if (!pair) return;
 
         // A reconnect inside the window cancels the write the disconnect owed
-        // — and owes none of its own, because this region never left the row.
-        // A reload, a flaky network and a rolling deploy all land here.
+        // — and owes none of its own when the row still holds this region. A
+        // reload, a flaky network and a rolling deploy all land here.
         const pending = this.#leaveTimers.get(pair.key);
         if (pending) {
             clearTimeout(pending);
@@ -185,7 +195,14 @@ export class EventForwardService extends PuterService {
             pair.userId,
             pair.appUid,
         );
-        if (count !== 1 || pending) return;
+        if (count !== 1) return;
+        if (
+            !(await this.stores.presence.acquireJoinPin(
+                pair.userId,
+                pair.appUid,
+            ))
+        )
+            return;
         await this.stores.presence.join(
             pair.userUuid,
             pair.appUid,
@@ -235,14 +252,60 @@ export class EventForwardService extends PuterService {
         )
             return;
         const row = await this.stores.presence.read(pair.userUuid, pair.appUid);
-        if (!(this.region in row.regions)) return;
-        await this.stores.presence.leave(
+        const connectedAt = row.regions[this.region];
+        if (connectedAt === undefined) {
+            // Already gone — a repair likely got there first. Release the pin
+            // regardless, so a reconnect that lost its own join race while
+            // this was still deciding is not left permanently unpinned.
+            await this.stores.presence.releaseJoinPin(pair.userId, pair.appUid);
+            return;
+        }
+        const left = await this.stores.presence.leave(
             pair.userUuid,
             pair.appUid,
             this.region,
-            row.version,
+            connectedAt,
         );
+        if (!left) return; // a fresher join already replaced this one
+
+        await this.stores.presence.releaseJoinPin(pair.userId, pair.appUid);
+        // A connect that lost the join-pin race while this leave was still in
+        // flight has nothing written for it now that the pin is free. Close
+        // that gap immediately instead of waiting for the pair's next
+        // transition, which for a long-lived tab may never come.
+        if (
+            await this.stores.presence.holdsConnection(pair.userId, pair.appUid)
+        ) {
+            if (
+                await this.stores.presence.acquireJoinPin(
+                    pair.userId,
+                    pair.appUid,
+                )
+            )
+                await this.stores.presence.join(
+                    pair.userUuid,
+                    pair.appUid,
+                    this.region,
+                );
+        }
         await this.#bump(pair.userId);
+    }
+
+    /**
+     * Renew this region's item for a socket that has stayed connected without a
+     * transition. `touchConnection` gates its own write behind a region-shared
+     * claim, so calling it on every renewal only ever costs a Redis command; a
+     * table write happens for whichever caller wins the claim, at most once per
+     * pair per region per refresh window.
+     */
+    async touchPresence(userId: number, appUid: string): Promise<void> {
+        if (!this.active) return;
+        const userUuid = await this.#uuidOf(userId);
+        if (!userUuid) return;
+        await this.stores.presence.touchConnection(userId, appUid, {
+            userUuid,
+            region: this.region,
+        });
     }
 
     // -- Forwarding --------------------------------------------------
@@ -308,7 +371,11 @@ export class EventForwardService extends PuterService {
 
     /**
      * Regions other than this one holding a socket for the pair, read through
-     * the generation-keyed cache.
+     * the generation-keyed cache and narrowed to regions this deployment can
+     * still address. An unaddressable name would otherwise sit at the head of
+     * the recency-sorted row forever: nothing can reach it, so nothing ever
+     * answers `noSocket`, and lazy repair never fires. A fresh table read
+     * prunes any it finds, through the same conditional delete `#repair` uses.
      */
     async regionsFor(
         holderUserId: number,
@@ -316,7 +383,7 @@ export class EventForwardService extends PuterService {
     ): Promise<string[]> {
         const app = presenceApp(appUid);
         const cached = this.#cache.read(holderUserId, app);
-        if (cached) return remoteRegions(cached, this.region);
+        if (cached) return this.#addressableRegions(cached);
 
         const userUuid = await this.#uuidOf(holderUserId);
         if (!userUuid) return [];
@@ -330,7 +397,18 @@ export class EventForwardService extends PuterService {
             return [];
         }
         this.#cache.write(holderUserId, app, epoch, row);
-        return remoteRegions(row, this.region);
+
+        for (const region of Object.keys(row.regions))
+            if (region !== this.region && !this.isPeer(region))
+                void this.#repair(region, holderUserId, appUid);
+
+        return this.#addressableRegions(row);
+    }
+
+    #addressableRegions(row: PresenceRow): string[] {
+        return remoteRegions(row, this.region).filter((region) =>
+            this.isPeer(region),
+        );
     }
 
     // -- Inbound -----------------------------------------------------
@@ -340,30 +418,74 @@ export class EventForwardService extends PuterService {
      * acks settle where the lease actually lives, which is here. The reply
      * names the pairs this region holds nothing for — the only signal that lets
      * the sender edit the row.
+     *
+     * Deliveries keep the batch's order, so a subscription's events reach its
+     * socket as emitted; settles are each a row read, a queue write and a
+     * drain, so they run under a concurrency bound instead.
      */
     async receive(batch: ForwardBatch): Promise<ForwardReply> {
-        const noSocket: Array<{ userId: number; appUid: string | null }> = [];
-        const checked = new Set<string>();
+        const items = batch.items ?? [];
 
-        for (const item of batch.items ?? []) {
-            if (item.kind === 'ack') {
-                await this.services.events
-                    .settleRelayedAck(item.userId, item.subId, item.entryId)
-                    .catch((err: unknown) => {
-                        console.warn('[events] relayed ack failed', err);
-                    });
-                continue;
-            }
+        for (const item of items) {
             if (item.kind !== 'delivery') continue;
-
-            await this.services.events.deliverForwarded(item);
-
-            const key = `${item.userId}|${presenceApp(item.appUid)}`;
-            if (checked.has(key)) continue;
-            checked.add(key);
-            if (!(await this.#holdsSocket(item)))
-                noSocket.push({ userId: item.userId, appUid: item.appUid });
+            try {
+                await this.services.events.deliverForwarded(item);
+            } catch (err) {
+                console.warn('[events] forwarded delivery failed', err);
+            }
         }
+
+        const acks = items.filter(
+            (item): item is ForwardAck => item.kind === 'ack',
+        );
+        const settled = await runWithConcurrencyLimitSettled(
+            acks,
+            EventForwardService.RECEIVE_CONCURRENCY,
+            (ack) =>
+                this.services.events.settleRelayedAck(
+                    ack.userId,
+                    ack.subId,
+                    ack.entryId,
+                ),
+        );
+        for (const outcome of settled)
+            if (outcome.status === 'rejected')
+                console.warn('[events] relayed ack failed', outcome.reason);
+
+        // One `#holdsSocket` check per (user, app) pair in the batch, not per
+        // item — a busy subscription can carry many deliveries for the same
+        // pair in one window.
+        const pairs = new Map<
+            string,
+            { userId: number; appUid: string | null }
+        >();
+        for (const item of items)
+            if (item.kind === 'delivery') {
+                const key = `${item.userId}|${presenceApp(item.appUid)}`;
+                if (!pairs.has(key))
+                    pairs.set(key, {
+                        userId: item.userId,
+                        appUid: item.appUid,
+                    });
+            }
+
+        const candidates = [...pairs.values()];
+        const checks = await runWithConcurrencyLimitSettled(
+            candidates,
+            EventForwardService.RECEIVE_CONCURRENCY,
+            (pair) => this.#holdsSocket(pair),
+        );
+        const noSocket: Array<{ userId: number; appUid: string | null }> = [];
+        candidates.forEach((pair, i) => {
+            const outcome = checks[i];
+            if (outcome.status === 'fulfilled' && !outcome.value)
+                noSocket.push(pair);
+            else if (outcome.status === 'rejected')
+                console.warn(
+                    '[events] holdsSocket check failed',
+                    outcome.reason,
+                );
+        });
 
         return noSocket.length > 0 ? { noSocket } : {};
     }
@@ -371,20 +493,28 @@ export class EventForwardService extends PuterService {
     /**
      * Whether this region has anywhere to put deliveries for the pair. The
      * per-region connection counter is the honest answer: the socket registry
-     * on one node says nothing about the others.
+     * on one node says nothing about the others. A `false` tells the emitting
+     * region to repair its row, so it also releases this region's join pin — or
+     * the next connect here would skip writing itself back in.
      */
-    async #holdsSocket(item: ForwardDelivery): Promise<boolean> {
-        if (this.services.socket.has(forwardTarget(item.userId, item.appUid)))
+    async #holdsSocket(pair: {
+        userId: number;
+        appUid: string | null;
+    }): Promise<boolean> {
+        if (this.services.socket.has(forwardTarget(pair.userId, pair.appUid)))
             return true;
+        const app = presenceApp(pair.appUid);
         // Still in the row on purpose: a pair inside its disconnect window is
         // one this region expects back, and has not written itself out for.
-        if (this.#leaveTimers.has(`${item.userId}|${presenceApp(item.appUid)}`))
-            return true;
+        if (this.#leaveTimers.has(`${pair.userId}|${app}`)) return true;
         try {
-            return await this.stores.presence.holdsConnection(
-                item.userId,
-                presenceApp(item.appUid),
+            const holds = await this.stores.presence.holdsConnection(
+                pair.userId,
+                app,
             );
+            if (!holds)
+                await this.stores.presence.releaseJoinPin(pair.userId, app);
+            return holds;
         } catch {
             // Unable to tell is not "definitely not": a repair has to be
             // affirmative, so this reports a socket rather than inviting one.
@@ -416,6 +546,7 @@ export class EventForwardService extends PuterService {
     #queueFor(): PeerForwardQueue {
         this.#queue ??= new PeerForwardQueue({
             maxQueued: EventForwardService.MAX_QUEUED,
+            maxQueuedBytes: EventForwardService.MAX_QUEUED_BYTES,
             send: (peerId, items) => this.#ship(peerId, items),
             onOverflow: (peerId, dropped) => this.#overflowed(peerId, dropped),
         });
@@ -438,10 +569,11 @@ export class EventForwardService extends PuterService {
     }
 
     /**
-     * Take a region out of a row it is no longer in, on the strength of that
-     * region saying so. Conditional on the version that was read: a connect
-     * racing this repair bumps it, and the repair loses harmlessly rather than
-     * blackholing a socket that just arrived.
+     * Take a region out of a row it is no longer addressable in — either it
+     * answered `noSocket` for itself, or a fresh read found a name that is not
+     * a peer at all. Conditional on the `connectedAt` that was read: a connect
+     * racing this repair writes a fresh one, and the repair loses harmlessly
+     * rather than blackholing a socket that just arrived.
      */
     async #repair(
         region: string,
@@ -454,14 +586,15 @@ export class EventForwardService extends PuterService {
         const userUuid = await this.#uuidOf(userId);
         if (!userUuid) return;
         const row = this.#cache.read(userId, app);
-        if (!row || !(region in row.regions)) return;
+        const connectedAt = row?.regions[region];
+        if (connectedAt === undefined) return;
 
         try {
             const applied = await this.stores.presence.leave(
                 userUuid,
                 app,
                 region,
-                row.version,
+                connectedAt,
             );
             if (!applied) return;
             this.#cache.forget(userId, app, region);

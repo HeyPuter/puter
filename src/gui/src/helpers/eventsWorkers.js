@@ -21,27 +21,40 @@
  * Page through `puter.events.workers.list({ limit, cursor })` until the
  * server stops handing back a cursor, returning every item collected.
  *
- * `maxPages` only guards against a cursor that never terminates.
+ * `maxPages` only guards against a cursor that never terminates. `deployable`
+ * comes off the first page: a server with events disabled or the worker
+ * runtime unconfigured answers it `false` (or rejects the call outright,
+ * reported as `failed`) rather than ever handing back a worker — the caller
+ * uses this to tell "off" apart from "genuinely empty".
  *
- * @param {{ list?: (opts: { limit: number, cursor?: string }) => Promise<{ items: object[], cursor?: string }> }} [workersClient]
+ * @param {{ list?: (opts: { limit: number, cursor?: string }) => Promise<{ items: object[], cursor?: string, deployable?: boolean }> }} [workersClient]
  * @param {object} [opts]
  * @param {number} [opts.limit]
  * @param {number} [opts.maxPages]
- * @returns {Promise<object[]>}
+ * @returns {Promise<{ items: object[], deployable: boolean, failed: boolean }>}
  */
 export const fetchAllEventsWorkers = async (workersClient, { limit = 100, maxPages = 50 } = {}) => {
-    if ( !workersClient || typeof workersClient.list !== 'function' ) return [];
+    if ( !workersClient || typeof workersClient.list !== 'function' ) {
+        return { items: [], deployable: false, failed: true };
+    }
 
     const items = [];
     let cursor;
+    let deployable = false;
     for ( let page = 0; page < maxPages; page++ ) {
-        const resp = await workersClient.list({ limit, cursor });
+        let resp;
+        try {
+            resp = await workersClient.list({ limit, cursor });
+        } catch {
+            return { items, deployable, failed: page === 0 };
+        }
+        if ( page === 0 ) deployable = resp?.deployable === true;
         const pageItems = Array.isArray(resp?.items) ? resp.items : [];
         items.push(...pageItems);
         cursor = resp?.cursor;
         if ( !cursor || pageItems.length === 0 ) break;
     }
-    return items;
+    return { items, deployable, failed: false };
 };
 
 /**

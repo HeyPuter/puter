@@ -29,12 +29,13 @@ const origXHR = globalThis.XMLHttpRequest;
 const origPuter = globalThis.puter;
 const origLocalStorage = globalThis.localStorage;
 
-const makeModule = (env = 'gui') => {
+const makeModule = (env = 'gui', socketEnabled = true) => {
     const puter = {
         env,
         authToken: 'token',
         APIOrigin: 'https://api.test',
         appID: undefined,
+        socketEnabled,
         onAuthStateChanged: vi.fn(),
         _cache: { flushall: vi.fn(), del: vi.fn(), get: vi.fn(), set: vi.fn() },
     };
@@ -128,5 +129,14 @@ describe('auth state', () => {
         const previousSocket = fs.socket;
         notify();
         expect(fs.socket).not.toBe(previousSocket);
+    });
+
+    it('never opens a socket when the client opted out', () => {
+        const fs = makeModule('web', false);
+
+        expect(fs.socket).toBeUndefined();
+        const notify = fs.puter.onAuthStateChanged.mock.calls[0][0];
+        notify();
+        expect(fs.socket).toBeUndefined();
     });
 });

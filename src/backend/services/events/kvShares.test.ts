@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import { describe, expect, it } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -173,10 +174,35 @@ describe('granted namespaces', () => {
         expect((thrown as HttpError).statusCode).toBe(400);
     });
 
+    it('takes both shapes a real app uid comes in', () => {
+        // Minted (`app-<uuidv4>`) and derived from an origin (`app-<uuidv5>`)
+        // — 40 characters either way, which is the column exactly.
+        const minted = `app-${uuidv4()}`;
+        expect(assertShareableAppUid(minted)).toBe(minted);
+        expect(minted).toHaveLength(40);
+    });
+
     it('refuses a handle, which shares the slot but is not a namespace', () => {
         expect(() => assertShareableAppUid(mintKvHandleId())).toThrow(
             HttpError,
         );
+    });
+
+    it('refuses anything else short enough to fit the column', () => {
+        // The slot ends up in a subject and in a permission string, so a
+        // namespace carrying a delimiter of either grammar is refused before
+        // it can be composed into one.
+        for (const uid of [
+            'os-globals',
+            'workspace:abc',
+            'app',
+            'app-',
+            'app-a:b',
+            'app-a#b',
+            'v1:someone:app-x',
+            '',
+        ])
+            expect(() => assertShareableAppUid(uid)).toThrow(HttpError);
     });
 });
 

@@ -139,16 +139,12 @@ export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
 
-/** Optimistic-concurrency counter every reserved-item write moves. */
-const RESERVED_VERSION_ATTR = 'version';
-
 /**
  * Whether a write was refused because the condition it carried no longer held.
  * The compare-and-set answer, not a failure: the caller re-reads and decides.
  */
 const isConditionRefused = (err: unknown): boolean =>
     (err as { name?: string })?.name === 'ConditionalCheckFailedException';
-const RESERVED_VERSION_BUMP = '#v = if_not_exists(#v, :zero) + :one';
 const MAX_VALUE_BYTES = 399 * 1024;
 // A number anywhere inside a value is bounded too, to the IEEE-754 safe
 // integer range — past that it cannot round-trip, so it is clamped to the
@@ -821,98 +817,121 @@ export class SystemKVStore extends PuterStore {
     }
 
     /**
-     * Set one entry of a reserved item's map field and advance the item's
-     * version. Unconditional and safe to race: the expression names only its
-     * own entry, so two writers adding different ones keep both. Returns the
-     * version the item now carries.
+     * Reserved items whose key starts with `prefix`, in the system namespace.
+     * One page only: today's one caller (presence) is bounded by
+     * deployed-region count. Expired rows are excluded the same way `list`
+     * excludes them, so a caller never sees one the table's own sweep has not
+     * reclaimed yet.
      */
-    async setReservedEntry(
-        key: string,
-        field: string,
-        entry: string,
-        value: unknown,
-    ): Promise<number> {
-        assertKey(key);
-        assertSafeValueKeys({ [field]: { [entry]: value } });
-
-        // Two shapes because a nested path cannot be set on a map that is not
-        // there yet: the common one first, the seed only when it is missing.
-        const nested = () =>
-            this.#bumpReserved(
-                key,
-                `SET #f.#e = :value, ${RESERVED_VERSION_BUMP}`,
-                { ':value': value },
-                { '#f': field, '#e': entry },
-                'attribute_exists(#f)',
-            );
-
-        const applied = await nested();
-        if (applied !== null) return applied;
-
-        const seeded = await this.#bumpReserved(
-            key,
-            `SET #f = :seed, ${RESERVED_VERSION_BUMP}`,
-            { ':seed': { [entry]: value } },
-            { '#f': field },
-            'attribute_not_exists(#f)',
+    async queryReservedItems<T extends Record<string, unknown>>(
+        prefix: string,
+    ): Promise<T[]> {
+        const now = Date.now() / 1000;
+        const response = await this.clients.dynamo.query(
+            this.tableName,
+            { namespace: SYSTEM_NAMESPACE },
+            0,
+            undefined,
+            '',
+            false,
+            { beginsWith: { key: 'key', value: prefix } },
         );
-        if (seeded !== null) return seeded;
-
-        // Another writer seeded the field between the two attempts.
-        return (await nested()) ?? 0;
+        return ((response.Items ?? []) as T[]).filter(
+            (item) => !item.ttl || (item.ttl as number) > now,
+        );
     }
 
     /**
-     * Drop one entry of a reserved item's map field, only while the item still
-     * carries `expectedVersion`. False means it has moved on since it was read
-     * — the compare-and-set answer, not a failure.
+     * Unconditional put of one whole reserved item. Safe without a condition
+     * only because every caller's key already names the one writer allowed to
+     * touch it (presence's key carries the writing region), so there is no
+     * concurrent writer to race.
      */
-    async removeReservedEntry(
+    async putReservedItem(
         key: string,
-        field: string,
-        entry: string,
-        expectedVersion: number,
+        attributes: Record<string, unknown>,
+    ): Promise<void> {
+        assertKey(key);
+        // Identity last: an attribute named `key` or `namespace` must not be
+        // able to redirect the write at some other item.
+        await this.clients.dynamo.put(this.tableName, {
+            ...attributes,
+            namespace: SYSTEM_NAMESPACE,
+            key,
+        });
+    }
+
+    /**
+     * Unconditional update of one reserved item, creating it when missing:
+     * `set` attributes are written outright, `setIfAbsent` ones only where the
+     * item does not already carry them (a retired but unswept row keeps its
+     * value). Same trust model as `putReservedItem` — callers gate the write.
+     */
+    async refreshReservedItem(
+        key: string,
+        set: Record<string, unknown>,
+        setIfAbsent: Record<string, unknown> = {},
+    ): Promise<void> {
+        assertKey(key);
+        const names: Record<string, string> = {};
+        const values: Record<string, unknown> = {};
+        const setParts: string[] = [];
+        let idx = 0;
+        for (const [attr, value] of Object.entries(set)) {
+            const nameToken = `#r${idx}`;
+            const valueToken = `:r${idx}`;
+            names[nameToken] = attr;
+            values[valueToken] = value;
+            setParts.push(`${nameToken} = ${valueToken}`);
+            idx++;
+        }
+        for (const [attr, value] of Object.entries(setIfAbsent)) {
+            const nameToken = `#r${idx}`;
+            const valueToken = `:r${idx}`;
+            names[nameToken] = attr;
+            values[valueToken] = value;
+            setParts.push(
+                `${nameToken} = if_not_exists(${nameToken}, ${valueToken})`,
+            );
+            idx++;
+        }
+        if (setParts.length === 0) return;
+
+        await this.clients.dynamo.update(
+            this.tableName,
+            { namespace: SYSTEM_NAMESPACE, key },
+            `SET ${setParts.join(', ')}`,
+            values,
+            names,
+        );
+    }
+
+    /**
+     * Expire one reserved item, conditional on an attribute the caller read
+     * still holding. False means the condition lost the race (or the item never
+     * existed) — an answer, not an error. Readers treat an expired `ttl` as
+     * absent and the table's own sweep reclaims the row; the sentinel is `1`
+     * because a falsy `ttl` reads as "no expiry".
+     */
+    async retireReservedItemIf(
+        key: string,
+        condition: string,
+        conditionValues: Record<string, unknown>,
+        conditionNames: Record<string, string> = {},
     ): Promise<boolean> {
         assertKey(key);
-        const applied = await this.#bumpReserved(
-            key,
-            `SET ${RESERVED_VERSION_BUMP} REMOVE #f.#e`,
-            {},
-            { '#f': field, '#e': entry },
-            '#v = :expected',
-            { ':expected': expectedVersion },
-        );
-        return applied !== null;
-    }
-
-    /**
-     * One version-advancing update of a reserved item. `null` when the
-     * condition refused it, which is an answer rather than an error.
-     */
-    async #bumpReserved(
-        key: string,
-        expression: string,
-        values: Record<string, unknown>,
-        names: Record<string, string>,
-        condition: string,
-        conditionValues: Record<string, unknown> = {},
-    ): Promise<number | null> {
         try {
-            const response = await this.clients.dynamo.update(
+            await this.clients.dynamo.update(
                 this.tableName,
                 { namespace: SYSTEM_NAMESPACE, key },
-                expression,
-                { ...values, ...conditionValues, ':zero': 0, ':one': 1 },
-                { ...names, '#v': RESERVED_VERSION_ATTR },
+                'SET #ttl = :expired',
+                { ...conditionValues, ':expired': 1 },
+                { ...conditionNames, '#ttl': 'ttl' },
                 { condition },
             );
-            return Number(
-                (response.Attributes as Record<string, unknown> | undefined)?.[
-                    RESERVED_VERSION_ATTR
-                ] ?? 0,
-            );
+            return true;
         } catch (err) {
-            if (isConditionRefused(err)) return null;
+            if (isConditionRefused(err)) return false;
             throw err;
         }
     }

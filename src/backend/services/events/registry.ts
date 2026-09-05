@@ -62,6 +62,8 @@ export interface ProjectedFsEvent extends ProjectedEventBase {
     op: FsOp;
     uid: string;
     path: string;
+    /** Present only on a `move` a subscribed folder lost the node from. */
+    from?: string;
 }
 
 /**
@@ -141,6 +143,16 @@ export interface FsEventContext extends EventContextBase {
     entry: FSEntry;
     /** Existing ancestors of `entry`, deepest first. */
     ancestors: ReadonlyArray<{ uid: string; path: string }>;
+    /**
+     * Present only for a move: where `entry` lived before it. A folder in this
+     * chain lost the node, and its subscribers hear about that only if this
+     * rides along — `entry` and `ancestors` alone name where the node is now,
+     * never where it left.
+     */
+    movedFrom?: {
+        path: string;
+        ancestors: ReadonlyArray<{ uid: string; path: string }>;
+    };
 }
 
 /**
@@ -257,10 +269,16 @@ export interface UnpublishedInternalEvent {
 // -- FS projections ---------------------------------------------------
 
 // Dispatch walks up, so a folder subscription is stored under that folder's
-// uid alone and a deep write still matches.
+// uid alone and a deep write still matches. A move also walks up the chain it
+// left, or the folder it left would never see the node go.
 const fsTokens = (event: FsEventContext): string[] => [
-    fsAnchorToken(event.entry.uid),
-    ...event.ancestors.map((ancestor) => fsAnchorToken(ancestor.uid)),
+    ...new Set([
+        fsAnchorToken(event.entry.uid),
+        ...event.ancestors.map((ancestor) => fsAnchorToken(ancestor.uid)),
+        ...(event.movedFrom?.ancestors.map((ancestor) =>
+            fsAnchorToken(ancestor.uid),
+        ) ?? []),
+    ]),
 ];
 
 const fsMatchOn = (event: FsEventContext): string => event.entry.path;
@@ -276,6 +294,7 @@ const fsProject =
         op,
         uid: delivery.entry.uid,
         path: delivery.entry.path,
+        ...(delivery.movedFrom ? { from: delivery.movedFrom.path } : {}),
         self: delivery.self,
         ts: delivery.ts,
         seq: delivery.seq,

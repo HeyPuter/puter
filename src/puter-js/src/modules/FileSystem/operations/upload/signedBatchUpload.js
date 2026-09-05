@@ -234,8 +234,8 @@ export async function performSignedBatchUpload (ctx) {
                     guiMetadata: {
                         operationId: operationId,
                         itemUploadId: requestItem.itemUploadId,
-                        socketId: this.socket.id,
-                        originalClientSocketId: this.socket.id,
+                        socketId: this.socket?.id,
+                        originalClientSocketId: this.socket?.id,
                     },
                 };
             }
@@ -264,8 +264,8 @@ export async function performSignedBatchUpload (ctx) {
                 guiMetadata: {
                     operationId: operationId,
                     itemUploadId: requestItem.itemUploadId,
-                    socketId: this.socket.id,
-                    originalClientSocketId: this.socket.id,
+                    socketId: this.socket?.id,
+                    originalClientSocketId: this.socket?.id,
                 },
             };
         });
@@ -426,8 +426,8 @@ export async function performSignedBatchUpload (ctx) {
                         guiMetadata: {
                             operationId: operationId,
                             itemUploadId: requestItem.itemUploadId,
-                            socketId: this.socket.id,
-                            originalClientSocketId: this.socket.id,
+                            socketId: this.socket?.id,
+                            originalClientSocketId: this.socket?.id,
                         },
                     },
                 };
@@ -458,8 +458,8 @@ export async function performSignedBatchUpload (ctx) {
                     guiMetadata: {
                         operationId: operationId,
                         itemUploadId: requestItem.itemUploadId,
-                        socketId: this.socket.id,
-                        originalClientSocketId: this.socket.id,
+                        socketId: this.socket?.id,
+                        originalClientSocketId: this.socket?.id,
                     },
                 },
             };

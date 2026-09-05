@@ -18,6 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { EVENTS_INVOKE_TIMEOUT_MS } from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
     EVENTS_FAILURE_COUNTER_TTL_MS,
     EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION,
@@ -49,10 +50,13 @@ import { PuterStore } from '../types.js';
  *     ev:ql:{<subId>}   ZSET  entryId -> lease expiry; membership means in flight
  *     ev:qf:{<subId>}   STR   handler failures in a row, expiring on its own
  *
- * And two the region shares:
+ * Plus `ev:qt:{<subId>}`, only while a suspension holds the backlog down.
+ *
+ * And the region shares:
  *
  *     ev:qx             ZSET  subId -> oldest pending delivery, for the sweeper
  *     ev:qc             STR   how many deliveries the region is holding
+ *     ev:qxr            STR   claim key throttling the region-wide reconcile
  *
  * `ev:qx` is why nothing here ever scans the keyspace: the sweeper reads its
  * head to find the subscriptions that are behind, and a scan is exactly what
@@ -80,15 +84,6 @@ const failureKey = (subId: string): string => `ev:qf:{${subId}}`;
 const INDEX_KEY = 'ev:qx';
 const COUNTER_KEY = 'ev:qc';
 
-// -- Lease ------------------------------------------------------------
-
-/**
- * How long a consumer has to settle a delivery before someone else may take it.
- * Long enough for a handler doing real work, short enough that a tab that
- * closed mid-delivery does not hold the queue.
- */
-export const PENDING_LEASE_TTL_MS = 30_000;
-
 /** Subscriptions one region-ceiling shed may take deliveries from. */
 const REGION_SHED_SUBSCRIPTIONS = 32;
 
@@ -100,6 +95,19 @@ const COMMAND_BATCH = 500;
 
 /** Queues the reconciler measures at once, one command each. */
 const RECONCILE_CONCURRENCY = 50;
+
+/** Claim key that lets one reconcile pass stand for the whole region. */
+const RECONCILE_CLAIM_KEY = 'ev:qxr';
+
+/** How often the region counter is recomputed, region-wide. */
+export const RECONCILE_INTERVAL_SECONDS = 60;
+
+/**
+ * Most index members one reconcile pass scans. A region already this wide is
+ * not what the sweeper's per-subscription reads were sized for, and the counter
+ * is better left alone than written from a partial scan.
+ */
+export const RECONCILE_SCAN_CAP = 5_000;
 
 /**
  * Backstop for keys nothing indexes any more: a claim refreshes it, so a
@@ -138,12 +146,12 @@ return { 'claimed', head[1], raw }
 /**
  * The oldest pending score, or '-1' after deleting a drained subscription's
  * keys. Checking and deleting in one step is what keeps a concurrent append
- * from being wiped between the two. KEYS: entries, pending, lease.
+ * from being wiped between the two. KEYS: entries, pending, lease, hold.
  */
 const REINDEX_SCRIPT = `
 local head = redis.call('ZRANGE', KEYS[2], 0, 0, 'WITHSCORES')
 if #head == 0 then
-    redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+    redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4])
     return '-1'
 end
 return head[2]
@@ -162,6 +170,7 @@ interface PendingScripts {
         entries: string,
         pending: string,
         lease: string,
+        hold: string,
     ): Promise<string>;
 }
 
@@ -173,6 +182,8 @@ export interface ClaimedDelivery {
     event: DeliverableEvent;
     /** Socket attempts already spent, which is what decides the next one. */
     socketAttempts: number;
+    /** Remote candidates already spent, which is what indexes the next one. */
+    remoteAttempts: number;
 }
 
 /** What one failed handler attempt left behind. */
@@ -199,6 +210,8 @@ export interface PendingHead {
 interface StoredEntry {
     event: DeliverableEvent;
     socketAttempts: number;
+    /** Remote candidates spent; absent on entries written before this field. */
+    remoteAttempts?: number;
     /** Handler attempts spent, which is what the retry wait is derived from. */
     handlerAttempts?: number;
     /** Set once this entry has been charged for, however many attempts follow. */
@@ -254,11 +267,26 @@ export class PendingDeliveryStore extends PuterStore {
                 lua: CLAIM_SCRIPT,
             });
             this.clients.redis.defineCommand('pendingReindex', {
-                numberOfKeys: 3,
+                numberOfKeys: 4,
                 lua: REINDEX_SCRIPT,
             });
         }
         return this.clients.redis as unknown as PendingScripts;
+    }
+
+    /**
+     * Long enough for a handler doing real work — twice the invoke timeout the
+     * invoker resolves the same way, so a slow but successful run is never
+     * re-invoked mid-flight — and short enough that a tab that closed
+     * mid-delivery does not hold the queue.
+     */
+    #leaseTtlMs(): number {
+        const configured = this.config.events?.invokeTimeoutMs;
+        const invokeTimeoutMs =
+            typeof configured === 'number' && configured > 0
+                ? configured
+                : EVENTS_INVOKE_TIMEOUT_MS;
+        return invokeTimeoutMs * 2;
     }
 
     // -- Writes ------------------------------------------------------
@@ -299,7 +327,7 @@ export class PendingDeliveryStore extends PuterStore {
             pendingKey(subId),
             leaseKey(subId),
             String(now),
-            String(now + (options.leaseMs ?? PENDING_LEASE_TTL_MS)),
+            String(now + (options.leaseMs ?? this.#leaseTtlMs())),
             String(PENDING_BACKLOG_TTL_SECONDS),
         );
         if (status === 'inflight') return null;
@@ -331,12 +359,15 @@ export class PendingDeliveryStore extends PuterStore {
             entryId,
             event: entry.event,
             socketAttempts: entry.socketAttempts,
+            remoteAttempts: entry.remoteAttempts ?? 0,
         };
     }
 
     /**
      * Send a subscription to the back of the sweeper's line, holdings
-     * untouched.
+     * untouched. What a blocked claim (already in flight) has to do too — a
+     * subscription in retry backoff must not keep answering `null` at the head
+     * of `ev:qx` and starving everything behind it.
      */
     async defer(subId: string): Promise<void> {
         await this.clients.redis.zadd(INDEX_KEY, 'XX', Date.now(), subId);
@@ -356,6 +387,44 @@ export class PendingDeliveryStore extends PuterStore {
             JSON.stringify({ ...entry, socketAttempts }),
         );
         return socketAttempts;
+    }
+
+    /**
+     * Count one remote candidate spent. Separate from `socketAttempts`, which a
+     * local attempt also spends — this is what indexes the next presence
+     * candidate, so a local attempt that stops being possible cannot shift it.
+     */
+    async recordRemoteAttempt(subId: string, entryId: string): Promise<number> {
+        const entry = parseEntry(
+            await this.clients.redis.hget(entriesKey(subId), entryId),
+        );
+        if (!entry) return 0;
+
+        const remoteAttempts = (entry.remoteAttempts ?? 0) + 1;
+        await this.clients.redis.hset(
+            entriesKey(subId),
+            entryId,
+            JSON.stringify({ ...entry, remoteAttempts }),
+        );
+        return remoteAttempts;
+    }
+
+    /**
+     * Give a delivery a fresh socket budget. For a row with no worker to fall
+     * back to, a socket that disappeared mid-attempt would otherwise spend the
+     * whole budget on nobody and wedge the entry forever once it reappears.
+     */
+    async resetSocketAttempts(subId: string, entryId: string): Promise<void> {
+        const entry = parseEntry(
+            await this.clients.redis.hget(entriesKey(subId), entryId),
+        );
+        if (!entry) return;
+
+        await this.clients.redis.hset(
+            entriesKey(subId),
+            entryId,
+            JSON.stringify({ ...entry, socketAttempts: 0, remoteAttempts: 0 }),
+        );
     }
 
     /**
@@ -497,7 +566,15 @@ export class PendingDeliveryStore extends PuterStore {
         cap: number,
         ttlMs: number,
     ): Promise<PendingShed | null> {
-        await this.clients.redis.set(holdKey(subId), Date.now() + ttlMs);
+        // Backstopped like the rest of a backlog's keys: the deadline itself
+        // is still the sweeper's to enforce, but a hold nothing ever releases
+        // (a purge that raced this write) must not sit in Redis forever.
+        await this.clients.redis.set(
+            holdKey(subId),
+            Date.now() + ttlMs,
+            'EX',
+            PENDING_BACKLOG_TTL_SECONDS,
+        );
 
         const held = await this.depth(subId);
         const over = held - Math.max(0, Math.floor(cap));
@@ -580,11 +657,27 @@ export class PendingDeliveryStore extends PuterStore {
      * (a settle's decrement, a shed's decrement-then-append), so a crash
      * between the two drifts it in either direction — silently undercounting
      * lets the ceiling never trip, silently overcounting trips it forever.
-     * Cheap in the steady state the index is sized for: one read per
-     * subscription that actually has a backlog, never the keyspace.
+     * Claimed region-wide with `SET NX`, so one node per interval does the scan
+     * and the rest report the counter as it stands.
      */
     async reconcileRegionDepth(): Promise<number> {
-        const subIds = await this.clients.redis.zrange(INDEX_KEY, 0, -1);
+        const claimed = await this.clients.redis.set(
+            RECONCILE_CLAIM_KEY,
+            '1',
+            'EX',
+            RECONCILE_INTERVAL_SECONDS,
+            'NX',
+        );
+        if (claimed !== 'OK') return this.regionDepth();
+
+        const subIds = await this.clients.redis.zrange(
+            INDEX_KEY,
+            0,
+            RECONCILE_SCAN_CAP - 1,
+        );
+        // A capped scan undercounts by construction; writing it would report
+        // the region as far quieter than it actually is, so measure nothing.
+        if (subIds.length >= RECONCILE_SCAN_CAP) return this.regionDepth();
 
         let total = 0;
         // One command per subscription: the queues hash to different slots,
@@ -616,7 +709,7 @@ export class PendingDeliveryStore extends PuterStore {
     /**
      * Add one delivery without asking whether there is room for it.
      *
-     * The index write goes in the same pipeline as the entry it describes —
+     * The index write is its own command, ahead of the entry's own pipeline —
      * `NX` so it never disturbs an existing (older) score — rather than waiting
      * for the follow-up `#reindex` below. A subscription's first pending entry
      * would otherwise be fully written and claimable, yet invisible to the
@@ -743,6 +836,7 @@ export class PendingDeliveryStore extends PuterStore {
             entriesKey(subId),
             pendingKey(subId),
             leaseKey(subId),
+            holdKey(subId),
         );
         if (oldest !== '-1') {
             await this.clients.redis.zadd(

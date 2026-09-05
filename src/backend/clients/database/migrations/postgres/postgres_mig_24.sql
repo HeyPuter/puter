@@ -40,8 +40,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_kv_share_handles_handle
 CREATE INDEX IF NOT EXISTS idx_kv_share_handles_owner
     ON kv_share_handles (owner_user_id, id);
 
+-- A cascading delete has to find the child rows, and postgres does not index
+-- FK columns for you.
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_grantee_fk
+    ON kv_share_handles (grantee_user_id);
+
 -- A subscription made through a handle stores the grant string it was
 -- authorized under rather than an access mode, and a grant string carries a
 -- user uuid, an app uid and a key prefix.
-ALTER TABLE event_subscriptions
-    ALTER COLUMN permission TYPE VARCHAR(1024);
+--
+-- Guarded: an unconditional ALTER COLUMN TYPE takes an ACCESS EXCLUSIVE lock
+-- on every replay, even widening to the same type. Skipped once the column is
+-- already wide enough.
+DO $$
+BEGIN
+    IF (
+        SELECT character_maximum_length FROM information_schema.columns
+        WHERE table_name = 'event_subscriptions' AND column_name = 'permission'
+    ) < 1024 THEN
+        ALTER TABLE event_subscriptions
+            ALTER COLUMN permission TYPE VARCHAR(1024);
+    END IF;
+END $$;

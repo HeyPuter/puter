@@ -157,8 +157,11 @@ export function performLegacyBatchUpload (ctx) {
     mkdirRequests.reverse();
 
     fd.append('operation_id', operationId);
-    fd.append('socket_id', this.socket.id);
-    fd.append('original_client_socket_id', this.socket.id);
+    // No socket at all for a client that opted out (`puter.socketEnabled`).
+    if ( this.socket ) {
+        fd.append('socket_id', this.socket.id);
+        fd.append('original_client_socket_id', this.socket.id);
+    }
 
     // Append mkdir operations to upload request
     for ( let i = 0; i < mkdirRequests.length; i++ ) {
@@ -226,8 +229,9 @@ export function performLegacyBatchUpload (ctx) {
         }
     };
 
-    // Handle upload progress events from server
-    this.socket.on('upload.progress', progressHandler);
+    // Handle upload progress events from server. Nothing to subscribe to
+    // without a socket — cloud-upload progress just never advances.
+    this.socket?.on('upload.progress', progressHandler);
 
     // keeps track of the amount of data uploaded to the server
     let previousChunkUploaded = null;
@@ -283,7 +287,7 @@ export function performLegacyBatchUpload (ctx) {
     // handler; every terminal outcome of the request goes through this.
     const stopProgressTracking = () => {
         clearInterval(cloudProgressCheckInterval);
-        this.socket.off('upload.progress', progressHandler);
+        this.socket?.off('upload.progress', progressHandler);
     };
 
     // -----------------------------------------------

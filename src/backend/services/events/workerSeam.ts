@@ -39,12 +39,6 @@ export interface WorkerInvocation {
     event: DeliverableEvent;
     /** The subscription's stored context, delivered to the handler as `ctx`. */
     context: string | null;
-    /**
-     * The grant the subscription was made under, and the whole of what its
-     * token may carry. Resolved with the row so the invoker needs no lookup of
-     * its own.
-     */
-    permissions: string[];
 }
 
 /**
@@ -69,7 +63,12 @@ export interface WorkerInvokerSeam {
     invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;
 }
 
-/** Mints the token one invocation carries, scoped to the subscriber. */
+/**
+ * Mints the token one invocation carries: the subscriber's own app-under-user
+ * identity, the same one the app acts with for this user in a tab. Not a
+ * grant-scoped token — the `events:background` consent is what authorizes
+ * running the app's code with nobody present, not a narrower credential.
+ */
 export type SubscriberTokenMinter = (
     invocation: WorkerInvocation,
 ) => Promise<string | null>;
@@ -89,10 +88,10 @@ const WARN_INTERVAL_MS = 60_000;
 const WARN_MAP_MAX_ENTRIES = 1000;
 
 /**
- * The invoker that actually calls an app's events worker: mint the
- * subscriber-scoped token, address the app's current set, and report what the
- * handler said. A row with no app, no handler name, or no mintable token has
- * nothing to invoke, and says so rather than reporting a failure.
+ * The invoker that actually calls an app's events worker: mint the subscriber's
+ * token, address the app's current set, and report what the handler said. A row
+ * with no app, no handler name, or no mintable token has nothing to invoke, and
+ * says so rather than reporting a failure.
  */
 export class EventsWorkerInvoker implements WorkerInvokerSeam {
     readonly #client: Pick<EventsWorkerInvokerClient, 'invoke'>;

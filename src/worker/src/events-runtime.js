@@ -60,6 +60,34 @@
 
     const apiOrigin = globalThis.puter_endpoint || 'https://api.puter.com';
 
+    // Deliveries arriving on the same token reuse one client rather than
+    // rebuilding puter.js each time. Keyed on the token itself so a client is
+    // only ever handed back to the identity it was built for — the JWT carries
+    // an `iat`, so this hits within a burst rather than across a quiet gap.
+    // Bounded and insertion-ordered: a hit is re-inserted to mark it
+    // most-recently-used, and the oldest entry is dropped once it is full.
+    const MAX_CLIENTS = 32;
+    const clientsByToken = new Map();
+
+    const clientForToken = (token) => {
+        const cached = clientsByToken.get(token);
+        if (cached) {
+            clientsByToken.delete(token);
+            clientsByToken.set(token, cached);
+            return cached;
+        }
+        const client = init_puter_portable(token, apiOrigin, 'userPuter', {
+            // No delivery room, no presence, no per-invocation socket: this
+            // client only ever makes plain API calls on the handler's behalf.
+            socket: false,
+        });
+        clientsByToken.set(token, client);
+        if (clientsByToken.size > MAX_CLIENTS) {
+            clientsByToken.delete(clientsByToken.keys().next().value);
+        }
+        return client;
+    };
+
     /**
      * Every answer is provably this runtime's own — built from the `Response`
      * captured before handler code ran — and carries the handled header.
@@ -152,7 +180,7 @@
             await run({
                 event: body.event,
                 ctx,
-                user: init_puter_portable(token, apiOrigin, 'userPuter'),
+                user: clientForToken(token),
                 fetch: globalThis.fetch.bind(globalThis),
                 ack,
             });

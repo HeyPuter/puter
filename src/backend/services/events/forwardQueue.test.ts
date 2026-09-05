@@ -141,6 +141,31 @@ describe('the addressed peer queue', () => {
         ).toEqual(['a', 'b']);
     });
 
+    it('sheds by held bytes as well as by count', async () => {
+        // A down peer holding items under the count cap could still hold
+        // unbounded memory if nothing else capped how large those items were
+        // allowed to be — the byte bound is the other half of "shed on
+        // overflow", independent of `maxQueued`.
+        const size = JSON.stringify(delivery('x')).length;
+        const { queue, overflowed } = makeQueue({
+            maxQueued: 100, // never trips on its own here
+            maxQueuedBytes: size * 2 + 1, // room for two items, not three
+            flushMs: 60_000,
+        });
+
+        queue.push('east', delivery('a'));
+        queue.push('east', delivery('b'));
+        queue.push('east', delivery('c'));
+
+        expect(overflowed).toHaveLength(1);
+        expect(overflowed[0].peerId).toBe('east');
+        expect(
+            overflowed[0].dropped.map((item) =>
+                item.kind === 'delivery' ? item.subId : item.kind,
+            ),
+        ).toEqual(['a']);
+    });
+
     it('does not lose the rest of a window to one failed send', async () => {
         const failures: string[] = [];
         const { queue, sent } = makeQueue({

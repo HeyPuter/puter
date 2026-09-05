@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 76;
+const CURRENT_SCHEMA_VERSION = 77;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -124,6 +124,22 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
             'idx_group_handle',
             'idx_group_owner',
             'idx_jct_user_group_group',
+        ]);
+    });
+
+    it('applies the event_subscriptions indexes from 0081', async () => {
+        const indexes = (await client.read(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?)",
+            [
+                'idx_event_subscriptions_app_handler',
+                'idx_event_subscriptions_expires',
+                'idx_event_subscriptions_suspended',
+            ],
+        )) as { name: string }[];
+        expect(indexes.map((r) => r.name).sort()).toEqual([
+            'idx_event_subscriptions_app_handler',
+            'idx_event_subscriptions_expires',
+            'idx_event_subscriptions_suspended',
         ]);
     });
 

@@ -33,6 +33,17 @@ import { createHash, createHmac } from 'node:crypto';
 export const EVENTS_WORKER_PREFIX = 'evw-';
 
 /**
+ * The worker session name a delivery's token is minted under. One session row
+ * per (user, app) is reused across every delivery to that app's handlers, so it
+ * shows up once in the user's sessions list and is revoked the same way any
+ * worker session is.
+ */
+// Contains `:`, which WORKER_NAME_REGEX forbids a user-created worker name
+// from having — so this session can never collide with an ordinary
+// `puter.workers.*` session under the same (user, app_uid) key.
+export const EVENTS_WORKER_SESSION_NAME = 'events:handlers';
+
+/**
  * What scopes a script name to one backend. Two backends can share a dispatch
  * namespace and database (staging and production, say); folding this into the
  * name is what keeps a script deployed by one from resolving as the other's.

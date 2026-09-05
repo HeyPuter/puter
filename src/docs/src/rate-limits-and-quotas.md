@@ -170,18 +170,21 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 
 | Limit                                        | All accounts |
 | -------------------------------------------- | ------------ |
+| Subject length                               | 4,096 characters |
 | Subscriptions per connection                 | 50           |
 | `subscribe` / `unsubscribe` calls per minute | 60           |
 | Subscription listings per minute             | 120          |
+| Subscription listing page size               | 200          |
 | Key-value share-handle calls per minute      | 60           |
 | Live key-value share handles per account     | 200          |
+| Key-value share-handle listing page size     | 200          |
 | Missed-event fetches per minute              | 120          |
 | Events per fetch page                        | 200          |
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
 | Broadcast deliveries per minute, per subscription | 600     |
 | `single` deliveries per minute, per subscription | 120      |
-| Handler invocations per minute, per app      | 60           |
+| Handler invocations per minute, per (account, app) | 60     |
 | Acknowledgements per minute                  | 600          |
 | Undelivered deliveries per subscription      | 10,000       |
 | Undelivered deliveries per *suspended* subscription | 100   |
@@ -196,8 +199,9 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Handler publish / remove calls per minute    | 60           |
 | Handler listings per minute                  | 120          |
 | Events worker listings per minute            | 120          |
+| Events worker listing page size              | 200          |
 
-`fetch()` reads a page of what a subject recorded rather than a delivery, so it is budgeted with the listings: a page defaults to 50 events and is capped at 200, and a client catching up walks pages until one comes back with no cursor. Only `notif:` has a store to read — the notification mailbox, kept for 14 days — and any other subject family is refused with `fetch_unsupported_subject`.
+`fetch()` reads a page of what a subject recorded rather than a delivery, so it is budgeted with the listings: a page defaults to 50 events and is capped at 200, and a client catching up walks pages until one comes back with no cursor. Only `notif:` has a store to read — the notification mailbox, kept for as long as the deployment's retention window (deployment-configured, no fixed number here) — and any other subject family is refused with `fetch_unsupported_subject`.
 
 Subscriptions come in two kinds. A **session** subscription lives with the connection that made it: it is dropped when the connection closes, and a reconnecting client subscribes again. A **durable** subscription outlives every connection — it is created over the API, listed and revoked from the account, and keeps delivering until you remove it or it expires.
 
@@ -228,11 +232,11 @@ A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of
 
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 
-The three per-event ceilings do not fail your call — they truncate the delivery and send a `gap` marker in its place, an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed".
+The two per-event ceilings — matched subscriptions and filter evaluations — do not fail your call: they truncate the delivery and send a `gap` marker in its place, with `reason: 'matched_subscription_limit'` or `reason: 'filter_evaluation_limit'` respectively — an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed".
 
-A **background delivery** — one that runs your app's handler with nobody there — takes the user's consent, the per-app permission `events:background`, and a subscription targeting `worker` without it is refused with `events_background_consent_required`. A handler has **30 seconds** to answer each invocation. Answering `2xx` takes the delivery; `4xx` refuses it, and it is dropped with a `gap` marker carrying `reason: 'handler_rejected'` rather than sent again to the same answer; `5xx`, `429` and a timeout are all "not now", and the delivery is held **2 seconds** before the next attempt, doubling each time up to **5 minutes**. **Five failures in a row** — refusals included — suspend the subscription with `failures`, hold what it is owed under the suspended-backlog rules above, and notify the app's developer. Publishing a handler is all the deployment there is: the app's events worker is brought up the first time a delivery needs it, and again if it has been idle long enough to be evicted, so the first background delivery after a publish pays a short cold start. Nothing else can invoke it — it answers one platform route, and only the platform can reach it.
+A **background delivery** — one that runs your app's handler with nobody there — takes the user's consent, the per-app permission `events:background`, and a subscription targeting `worker` without it is refused with `events_background_consent_required`. The handler runs as your app's own session for that user — the same reach it has from a tab, not a credential cut down to this one subscription's grant — and that session is what the consent authorizes running unattended; it shows up in the user's sessions list as a worker session, and revoking it there stops every background delivery for your app the same way withdrawing the permission does. A handler has **30 seconds** to answer each invocation. Answering `2xx` takes the delivery; `4xx` refuses it, and it is dropped with a `gap` marker carrying `reason: 'handler_rejected'` rather than sent again to the same answer; `5xx`, `429` and a timeout are all "not now", and the delivery is held **2 seconds** before the next attempt, doubling each time up to **5 minutes**. **Five failures in a row** — refusals included — suspend the subscription with `failures`, hold what it is owed under the suspended-backlog rules above, and notify the app's developer. Publishing a handler is all the deployment there is: the app's events worker is brought up the first time a delivery needs it, and again if it has been idle long enough to be evicted, so the first background delivery after a publish pays a short cold start. Nothing else can invoke it — it answers one platform route, and only the platform can reach it.
 
-A `single` subscription is delivered to exactly one consumer, which has **30 seconds** to acknowledge each delivery before it is offered again — twice to a connected client, then to the subscription's handler. Until it is acknowledged it is held for you, so a consumer that is away is a backlog that grows: **10,000** undelivered deliveries per subscription, after which the oldest are dropped and one `gap` marker with `reason: 'backlog_overflow'` takes their place. Each region also holds at most **1,000,000** undelivered deliveries across every subscription it serves, and sheds the oldest first — with the same marker — before it reaches that. A redelivery after a missed acknowledgement is normal and expected: deliveries are at-least-once, `event.id` is stable across them, and a handler that runs twice on the same id should do nothing the second time.
+A `single` subscription is delivered to exactly one consumer, which has **60 seconds** — twice the handler invocation timeout, so a slow but successful handler is never re-invoked mid-run — to acknowledge each delivery before it is offered again, twice to a connected client and then to the subscription's handler. Until it is acknowledged it is held for you, so a consumer that is away is a backlog that grows: **10,000** undelivered deliveries per subscription, after which the oldest are dropped and one `gap` marker with `reason: 'backlog_overflow'` takes their place. Each region also holds at most **1,000,000** undelivered deliveries across every subscription it serves, and sheds the oldest first — with the same marker — before it reaches that. A redelivery after a missed acknowledgement is normal and expected: deliveries are at-least-once, `event.id` is stable across them, and a handler that runs twice on the same id should do nothing the second time.
 
 Both per-minute delivery budgets are spent per subscription and answered with a `gap` marker carrying `reason: 'delivery_rate_limit'` rather than an error. The handler budget is different: a delivery that arrives when its app has spent the minute's invocations is **not** failed and does not count as a handler failure — it stays owed and goes out on a later attempt.
 

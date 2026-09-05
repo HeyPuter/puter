@@ -31,6 +31,11 @@ import {
     notificationRowScope,
     ownedAppUids,
 } from '../../services/notification/notificationAudience.js';
+import {
+    NOTIFICATION_VALUE_MAX_BYTES,
+    resolveNotificationWrite,
+    type NotificationTypeName,
+} from '../../services/notification/notificationTypes.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
@@ -126,12 +131,59 @@ export class NotificationDriver extends PuterDriver {
         }
         const actor = this.#requireUserActor();
 
-        const value = object.value ?? {};
-        const created = await this.stores.notification.create({
-            userId: actor.user.id,
+        const value = (object.value ?? {}) as Record<string, unknown>;
+        const type = value.type;
+        if (typeof type !== 'string' || type === '') {
+            throw new HttpError(400, 'Missing or invalid `value.type`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (
+            Buffer.byteLength(JSON.stringify(value), 'utf8') >
+            NOTIFICATION_VALUE_MAX_BYTES
+        ) {
+            throw new HttpError(
+                400,
+                `\`value\` may not exceed ${NOTIFICATION_VALUE_MAX_BYTES} bytes`,
+                { legacyCode: 'notification_value_too_large' },
+            );
+        }
+
+        const appUid = (object.appUid ?? null) as string | null;
+        // The registry rejects with a plain Error — unregistered, or a type
+        // wrong for the audience it names. Both are caller input, so neither
+        // is a server fault.
+        let registered;
+        try {
+            registered = resolveNotificationWrite(type, appUid);
+        } catch (err) {
+            throw new HttpError(400, (err as Error).message, {
+                legacyCode: 'bad_request',
+                cause: err,
+            });
+        }
+        // Narrowed by the registry lookup above: `registered` names one of its
+        // own entries, so its `type` is one of the names it was resolved from.
+        const registeredType = registered.type as NotificationTypeName;
+
+        // Silent: a driver `create` has never pushed to the live socket, only
+        // ever written the row — moving through the registry does not change
+        // that.
+        const uid = await this.services.notification.notify(
+            [actor.user.id],
             value,
-        });
-        return this.#toClient(created);
+            { type: registeredType, appUid, silent: true },
+        );
+        if (!uid) {
+            throw new HttpError(500, 'Notification could not be created', {
+                legacyCode: 'internal_error',
+            });
+        }
+        return this.#toClient(
+            await this.stores.notification.getByUid(uid, {
+                userId: actor.user.id,
+            }),
+        );
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
@@ -212,9 +264,11 @@ export class NotificationDriver extends PuterDriver {
     /** Mark a notification as acknowledged (user dismissed it), same surface. */
     async mark_acknowledged(args: Record<string, unknown>): Promise<unknown> {
         const { actor, uid, markable } = await this.#resolveMark(args);
+        // Through the service, not the store directly, so other tabs get
+        // `notif.ack` the same as a mark through `/notif/mark-ack` does.
         const ok =
             markable &&
-            (await this.stores.notification.markAcknowledged(
+            (await this.services.notification.markAcknowledged(
                 uid,
                 actor.user.id,
             ));

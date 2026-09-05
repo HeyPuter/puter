@@ -95,6 +95,46 @@ const recorded = (): Array<{ path?: string; label?: unknown }> =>
         label?: unknown;
     }>;
 
+/**
+ * A broadcast handler, reporting whether it was handed the same environment a
+ * `single` handler gets — `user` and `fetch` are not conditioned on an `ack`
+ * existing, so every consumer of a broadcast delivery gets them too.
+ */
+const BROADCAST_ENV_HANDLER = async ({
+    event,
+    ctx,
+    user,
+    fetch,
+}: {
+    event: { path?: string };
+    ctx: Record<string, unknown>;
+    user: unknown;
+    fetch: unknown;
+}) => {
+    const seen = ((globalThis as Record<string, unknown>).puterEventsBroadcastEnv ??
+        []) as unknown[];
+    seen.push({
+        path: event.path,
+        label: ctx.label,
+        hasUser: user !== undefined && user !== null,
+        hasFetch: typeof fetch === 'function',
+    });
+    (globalThis as Record<string, unknown>).puterEventsBroadcastEnv = seen;
+};
+
+const recordedBroadcastEnv = (): Array<{
+    path?: string;
+    label?: unknown;
+    hasUser?: boolean;
+    hasFetch?: boolean;
+}> =>
+    ((globalThis as Record<string, unknown>).puterEventsBroadcastEnv ?? []) as Array<{
+        path?: string;
+        label?: unknown;
+        hasUser?: boolean;
+        hasFetch?: boolean;
+    }>;
+
 /** Run as the app rather than as the account, then put the session back. */
 const asApp = async <T>(
     t: TestContext,
@@ -128,8 +168,10 @@ const asApp = async <T>(
 
 /** One notification in this account's own mailbox, written through the driver. */
 const postNotification = async (t: TestContext, title: string): Promise<void> => {
+    // `share.received` is a registered, account-audience, unscoped type —
+    // this helper only cares that some notification lands in the mailbox.
     await t.puter.drivers.call('puter-notifications', 'es:notification', 'create', {
-        object: { value: { title } },
+        object: { value: { type: 'share.received', title } },
     });
 };
 
@@ -596,6 +638,45 @@ export default suite('events', {
                     settled,
                     'the first delivery was acknowledged, so the next was handed over',
                 );
+            } finally {
+                await sub.off!();
+                await live.off();
+            }
+        });
+    },
+
+    'hands a broadcast persistent handler `user` and `fetch` too': async (t) => {
+        const dir = await makeDir(t, 'events-broadcast-env');
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestBroadcastEnv', BROADCAST_ENV_HANDLER, {
+            appUid,
+        });
+        await t.puter.perms.grantApp(appUid, `fs:${dir}:write`);
+        await t.puter.perms.grantApp(appUid, 'events:background');
+
+        const before = recordedBroadcastEnv().length;
+        await asApp(t, appUid, async () => {
+            const live = await open(t, `fs:${dir}`, () => {});
+            if (! live) return;
+
+            // Default delivery: `broadcast`, not `single` — nobody owes an
+            // `ack`, but the environment is the same either way.
+            const sub = await t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                handlerName: 'ingestBroadcastEnv',
+                handler: BROADCAST_ENV_HANDLER,
+                context: { label: 'broadcast-env' },
+            });
+            try {
+                await t.puter.fs.write(`${dir}/first.txt`, 'one');
+                await waitFor(
+                    () => recordedBroadcastEnv().length > before,
+                    DELIVERY_TIMEOUT_MS,
+                );
+                const first = recordedBroadcastEnv()[before];
+                t.assert.ok(first, 'the broadcast handler ran in this client');
+                t.assert.equal(first?.hasUser, true, 'a broadcast handler is handed `user`');
+                t.assert.equal(first?.hasFetch, true, 'a broadcast handler is handed `fetch`');
             } finally {
                 await sub.off!();
                 await live.off();

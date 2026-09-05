@@ -259,6 +259,45 @@ describe('revoking a handle', () => {
         ).rejects.toMatchObject({ legacyCode: 'subject_does_not_exist' });
     });
 
+    it('retires a narrower handle to the same grantee that the subtree just took with it', async () => {
+        await clearRows();
+        const countLive = () =>
+            env.server.stores.kvShareHandle.countLiveForOwner(owner.id);
+        const before = await countLive();
+
+        const { handle } = await mint();
+        const deeper = await mint(`${PREFIX}messages:`);
+        expect(await countLive()).toBe(before + 2);
+
+        await events().revokeKvHandle(owner.actor, handle);
+
+        // The deeper handle's grant died with the subtree revoke above (proven
+        // by the sibling case), so its row reading live would disagree with
+        // reality — both in the listing and in the slot it appears to hold.
+        const page = await events().listKvHandles(owner.actor, {
+            limit: 100,
+        });
+        const deeperRow = page.items.find((one) => one.handle === deeper.handle);
+        expect(deeperRow?.revokedAt).toBeTypeOf('number');
+        expect(await countLive()).toBe(before);
+    });
+
+    it('never retires a sibling the revoked grant did not cover', async () => {
+        await clearRows();
+        const { handle } = await mint();
+        const sibling = await mint('workspace:other:');
+
+        await events().revokeKvHandle(owner.actor, handle);
+
+        const page = await events().listKvHandles(owner.actor, {
+            limit: 100,
+        });
+        const siblingRow = page.items.find(
+            (one) => one.handle === sibling.handle,
+        );
+        expect(siblingRow?.revokedAt).toBeNull();
+    });
+
     it('lets a fresh handle over the same region work, and leaves the old one dead', async () => {
         await clearRows();
         const first = await mint();

@@ -19,7 +19,11 @@
 
 import { describe, expect, it } from 'vitest';
 import type { PresenceRow } from '../../stores/events/PresenceStore.js';
-import { PresenceCache, remoteRegions } from './presenceCache.js';
+import {
+    PRESENCE_CACHE_MAX_AGE_MS,
+    PresenceCache,
+    remoteRegions,
+} from './presenceCache.js';
 
 /**
  * What the cache promises: an answer survives until presence moves, and one
@@ -27,9 +31,8 @@ import { PresenceCache, remoteRegions } from './presenceCache.js';
  * proportional to session churn instead of to how busy a subscription is.
  */
 
-const row = (regions: Record<string, number>, version = 1): PresenceRow => ({
+const row = (regions: Record<string, number>): PresenceRow => ({
     regions,
-    version,
 });
 
 describe('the presence cache', () => {
@@ -44,15 +47,34 @@ describe('the presence cache', () => {
         expect(cache.read(7, 'app-a')).toBeNull();
     });
 
-    it('has no expiry — a settled row is never re-read on its own', () => {
+    it('does not expire on a clock within the age bound — a settled row is not re-read on its own', () => {
         const cache = new PresenceCache();
         cache.write(7, 'app-a', cache.generationOf(7), row({ west: 10 }));
 
-        const later = Date.now() + 60 * 60 * 1000;
+        const later = Date.now() + PRESENCE_CACHE_MAX_AGE_MS - 1;
         const realNow = Date.now;
         Date.now = () => later;
         try {
             expect(cache.read(7, 'app-a')).not.toBeNull();
+        } finally {
+            Date.now = realNow;
+        }
+    });
+
+    it('reports a miss past the age bound, even with a matching epoch', () => {
+        // A peer that read before this region's own bump had replicated to it
+        // caches the pre-transition row under the epoch the next transition
+        // also uses — an epoch match alone cannot catch that. The age bound
+        // is what does: past it, a matching epoch is no longer trusted on its
+        // own, and the caller goes back to the table.
+        const cache = new PresenceCache();
+        cache.write(7, 'app-a', cache.generationOf(7), row({ west: 10 }));
+
+        const later = Date.now() + PRESENCE_CACHE_MAX_AGE_MS + 1;
+        const realNow = Date.now;
+        Date.now = () => later;
+        try {
+            expect(cache.read(7, 'app-a')).toBeNull();
         } finally {
             Date.now = realNow;
         }
@@ -151,6 +173,22 @@ describe('the presence cache', () => {
         expect(cache.size).toBe(2);
         expect(cache.read(2, 'a')).toBeNull();
         expect(cache.read(1, 'a')).not.toBeNull();
+    });
+
+    it('caps the user-generation map independently of the entry cap', () => {
+        // Nothing bounded this before: `bump()` inserts a user on every
+        // transition and every repair, including a peer's, and never evicted
+        // one — an unbounded map keyed by every user this region has ever
+        // heard about, not by how many pairs it actually caches.
+        const cache = new PresenceCache(1_000, 2);
+        cache.bump(1);
+        cache.bump(2);
+        cache.bump(1); // touched again, so 2 is now the oldest
+        cache.bump(3); // evicts 2, not 1
+
+        expect(cache.generationOf(2)).toBe(0);
+        expect(cache.generationOf(1)).toBeGreaterThan(0);
+        expect(cache.generationOf(3)).toBeGreaterThan(0);
     });
 });
 

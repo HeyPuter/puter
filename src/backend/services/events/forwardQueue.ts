@@ -94,11 +94,18 @@ export const FORWARD_MAX_BYTES = 256 * 1024;
 /** Items held for one peer before the oldest are shed with markers. */
 export const FORWARD_MAX_QUEUED = 5_000;
 
+/**
+ * Bytes held for one peer before the oldest are shed with markers. The count
+ * bound alone leaves memory unbounded, since nothing caps an item's own size.
+ */
+export const FORWARD_MAX_QUEUED_BYTES = 32 * 1024 * 1024;
+
 export interface ForwardQueueOptions {
     flushMs?: number;
     maxItems?: number;
     maxBytes?: number;
     maxQueued?: number;
+    maxQueuedBytes?: number;
     /** Ships one batch. Rejection is a lost batch, not a retry. */
     send: (peerId: string, items: ForwardItem[]) => Promise<void>;
     /**
@@ -133,6 +140,7 @@ export class PeerForwardQueue {
             maxItems: options.maxItems ?? FORWARD_MAX_ITEMS,
             maxBytes: options.maxBytes ?? FORWARD_MAX_BYTES,
             maxQueued: options.maxQueued ?? FORWARD_MAX_QUEUED,
+            maxQueuedBytes: options.maxQueuedBytes ?? FORWARD_MAX_QUEUED_BYTES,
             send: options.send,
             onOverflow: options.onOverflow,
         };
@@ -145,9 +153,17 @@ export class PeerForwardQueue {
         queue.items.push(item);
         queue.bytes += sizeOf(item);
 
-        const { maxQueued, maxItems, maxBytes, flushMs } = this.#options;
-        if (queue.items.length > maxQueued) {
-            const dropped = shed(queue, queue.items.length - maxQueued);
+        const { maxQueued, maxQueuedBytes, maxItems, maxBytes, flushMs } =
+            this.#options;
+        // Independent bounds: either can trip with the other well under.
+        let dropped: ForwardItem[] = [];
+        if (queue.items.length > maxQueued)
+            dropped = dropped.concat(
+                shed(queue, queue.items.length - maxQueued),
+            );
+        if (queue.bytes > maxQueuedBytes)
+            dropped = dropped.concat(shedBytes(queue, maxQueuedBytes));
+        if (dropped.length > 0) {
             // Appended here, past the bound check: a replacement sent back
             // through `push` would trip the bound it just made room under and
             // shed the next item, and so on down the whole queue.
@@ -265,5 +281,31 @@ const shed = (queue: PeerQueue, count: number): ForwardItem[] => {
         dropped.push(queue.items.shift() as ForwardItem);
     for (const item of dropped) queue.bytes -= sizeOf(item);
     if (queue.bytes < 0) queue.bytes = 0;
+    return dropped;
+};
+
+/**
+ * `shed`'s priority order — oldest first, deliveries before markers — bounded
+ * by held bytes instead of item count.
+ */
+const shedBytes = (queue: PeerQueue, maxBytesHeld: number): ForwardItem[] => {
+    const dropped: ForwardItem[] = [];
+    let remaining = queue.bytes;
+    for (let i = 0; i < queue.items.length && remaining > maxBytesHeld; ) {
+        if (isGapMarker(queue.items[i])) {
+            i++;
+            continue;
+        }
+        remaining -= sizeOf(queue.items[i]);
+        dropped.push(queue.items[i]);
+        queue.items.splice(i, 1);
+    }
+    // Nothing but markers left to give: the oldest of those go too.
+    while (remaining > maxBytesHeld && queue.items.length > 0) {
+        const item = queue.items.shift() as ForwardItem;
+        remaining -= sizeOf(item);
+        dropped.push(item);
+    }
+    queue.bytes = Math.max(0, remaining);
     return dropped;
 };

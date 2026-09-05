@@ -42,6 +42,7 @@ import {
     type SubscriptionQuota,
 } from '../../controllers/events/limits.js';
 import {
+    assertResolvedActor,
     isAccessTokenActor,
     makeActor,
     userRelatedActor,
@@ -57,7 +58,10 @@ import {
     HANDLER_SETTLE_BATCH,
     isSuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
-import type { KvShareHandleListOptions } from '../../stores/events/KvShareHandleStore.js';
+import type {
+    KvShareHandle,
+    KvShareHandleListOptions,
+} from '../../stores/events/KvShareHandleStore.js';
 import {
     HANDLER_NAME_MAX_LENGTH,
     hashContent,
@@ -130,7 +134,6 @@ import {
     nodeDescriptor,
     resolveGrantActor,
     rowInActorScope,
-    subscriptionTokenPermissions,
     SUBSCRIBE_MODE,
     unknownKvShareHandle,
     type CrossAppKvDeps,
@@ -202,6 +205,7 @@ import {
 import { backlogPolicyFor, isResumable } from './suspension.js';
 import type { EventsInvokeTransport } from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
+    EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
     eventsWorkerScope,
     eventsWorkerScript,
@@ -531,6 +535,11 @@ export interface FsDispatchOptions {
     ancestors?: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
     /** Who performed the write, for the `self` flag. */
     actingUserId?: number;
+    /** Present only for a move: where the entry lived before it, lazily. */
+    movedFrom?: {
+        path: string;
+        ancestors: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
+    };
 }
 
 /** One persisted notification, as the bus reports it. */
@@ -601,13 +610,6 @@ const PENDING_SWEEP_SUBSCRIPTIONS = 100;
  * inline would otherwise drain a whole backlog inside one ack.
  */
 const PENDING_DRAIN_BATCH = 25;
-
-/**
- * How long the token an invocation carries is good for. Long enough for a
- * handler doing real work with the account's own data, short enough that a copy
- * of it is worth nothing by the time anyone finds it.
- */
-const DELIVERY_TOKEN_TTL = '5m';
 
 // -- Metering ---------------------------------------------------------
 
@@ -798,14 +800,25 @@ const errorAck = (err: unknown): VerbAck<never> => {
     };
 };
 
-const toView = (sub: DispatchSubscription): SubscriptionView => ({
-    subId: sub.subId,
-    subject: sub.subject,
-    anchor: { uid: sub.anchorUid, path: sub.anchorPath },
-    match: sub.match,
-    op: sub.op,
-    targets: sub.targets ?? SESSION_TARGETS,
-});
+/**
+ * A share-handle row's real anchor is the owner's namespace and the absolute
+ * granted prefix — neither of which its holder was ever told. The handle is the
+ * only anchor its holder may see, mirroring `#asRowAddressesIt`.
+ */
+const toView = (sub: DispatchSubscription): SubscriptionView => {
+    const handle = kvHandleFromSubject(sub.subject);
+    return {
+        subId: sub.subId,
+        subject: sub.subject,
+        anchor:
+            handle !== null
+                ? { uid: handle, path: '' }
+                : { uid: sub.anchorUid, path: sub.anchorPath },
+        match: sub.match,
+        op: sub.op,
+        targets: sub.targets ?? SESSION_TARGETS,
+    };
+};
 
 /**
  * The context as a listing may describe it: which keys it sets, and a hash of
@@ -890,6 +903,79 @@ const deliverable = (row: DispatchSubscription): boolean => {
 
 const isSingle = (row: DispatchSubscription): boolean =>
     row.durable === true && row.delivery === 'single';
+
+/**
+ * `row.anchorPath` is the anchor's path at subscribe time, not now — a rename
+ * or move leaves it stale, and matching against it would silently drop every
+ * event past the move. The live path is the entry's own when the event is on
+ * the anchor, and otherwise the one the ancestor walk carries. The fallback is
+ * for the chains that walk does not cover: a non-fs context (kv, notif), which
+ * ignores this value, and the chain a move left, which `leftAnchorPath` has.
+ */
+const liveAnchorPath = (
+    row: DispatchSubscription,
+    context: EventContextBase,
+): string => {
+    const fs = context as Partial<FsEventContext>;
+    if (!fs.entry) return row.anchorPath;
+    if (fs.entry.uid === row.anchorUid) return fs.entry.path;
+    return (
+        fs.ancestors?.find((ancestor) => ancestor.uid === row.anchorUid)
+            ?.path ?? row.anchorPath
+    );
+};
+
+/**
+ * Where this row's anchor sat in the chain a move left, or `null` when the row
+ * was not watching that side. Only a move has one.
+ */
+const leftAnchorPath = (
+    row: DispatchSubscription,
+    context: EventContextBase,
+): string | null => {
+    const fs = context as Partial<FsEventContext>;
+    return (
+        fs.movedFrom?.ancestors.find(
+            (ancestor) => ancestor.uid === row.anchorUid,
+        )?.path ?? null
+    );
+};
+
+/**
+ * The (anchor path, event path) pairs a row's filter is tested against. A move
+ * is two: where the node is now, and — for a row anchored on the chain it left
+ * — where it was, which is the only scope a filter on the source folder can
+ * match a departure in.
+ */
+const matchScopesFor = (
+    row: DispatchSubscription,
+    context: EventContextBase,
+    matchOn: string,
+): Array<[string, string]> => {
+    const scopes: Array<[string, string]> = [
+        [liveAnchorPath(row, context), matchOn],
+    ];
+    const left = leftAnchorPath(row, context);
+    const from = (context as Partial<FsEventContext>).movedFrom?.path;
+    if (left !== null && from !== undefined) scopes.push([left, from]);
+    return scopes;
+};
+
+/**
+ * Whether this row was watching where a moved node came from — anchored on the
+ * node itself, or somewhere in the chain it left. A row that only watches the
+ * destination was never shown the source, so it is not told the old path.
+ */
+const sawItLeave = (
+    row: DispatchSubscription,
+    context: EventContextBase,
+): boolean => {
+    const fs = context as Partial<FsEventContext>;
+    if (!fs.movedFrom) return false;
+    return (
+        fs.entry?.uid === row.anchorUid || leftAnchorPath(row, context) !== null
+    );
+};
 
 /** Who one row's deliveries are billed to, and at which rate. */
 const meterFor = (row: DispatchSubscription): DeliveryMeter => ({
@@ -1328,6 +1414,10 @@ export class EventsService extends PuterService {
         if (!this.enabled) throw disabled();
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
+        // An unresolved `effectiveApp` must not be read as "no app" — it
+        // means the actor skipped `makeActor` and something upstream is
+        // broken.
+        assertResolvedActor(actor);
 
         await this.#spendCallBudget(holderUserId);
 
@@ -1929,7 +2019,6 @@ export class EventsService extends PuterService {
         // The budget is the user's, so an app spends its user's slots rather
         // than a machine-rate allowance of its own.
         await this.#spendHandleBudget(owner.id);
-        await this.#assertHandleCeiling(owner.id);
 
         const keyPrefix = assertShareablePrefix(request?.prefix);
         const appUid = this.#mintNamespace(app, request);
@@ -1938,7 +2027,24 @@ export class EventsService extends PuterService {
         const permission = assertShareablePermission(
             kvSharePermission(owner.uuid, appUid, keyPrefix),
         );
+        // Before the idempotent answer below, or an app that lost its
+        // delegation could read back a handle it may no longer hand out.
         if (app) await this.#assertKvShareDelegated(actor, permission);
+
+        // The same region minted again for the same grantee is the same
+        // capability, not a second one — handing back what already exists is
+        // what keeps two handles from ever sharing one permission row. The
+        // ceiling counts slots, and this takes none, so it is not asked.
+        const existing = await this.stores.kvShareHandle.findLive({
+            ownerUserId: owner.id,
+            granteeUserId: grantee.id,
+            appUid,
+            keyPrefix,
+        });
+        if (existing)
+            return { handle: existing.handle, prefix: existing.keyPrefix };
+
+        await this.#assertHandleCeiling(owner.id);
 
         // The user behind the app, so the authority checked is theirs and the
         // issuer recorded is them. Which app acted is carried separately: it
@@ -2057,7 +2163,38 @@ export class EventsService extends PuterService {
 
         const revoked = await this.stores.kvShareHandle.retire(named, owner.id);
         if (!revoked?.revokedAt) throw unknownKvShareHandle(named);
+
+        // A narrower handle to the same grantee shares this one's permission
+        // row whenever its region nests under it, and the subtree revoke
+        // above just withdrew that row — so its grant is already gone even
+        // though its own row still reads live.
+        await this.#retireCoveredHandles(revoked);
+
         return { handle: revoked.handle, revokedAt: revoked.revokedAt };
+    }
+
+    /**
+     * Every other live handle to this grantee that the just-withdrawn grant
+     * covered.
+     */
+    async #retireCoveredHandles(revoked: KvShareHandle): Promise<void> {
+        const siblings =
+            await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
+                revoked.ownerUserId,
+                revoked.granteeUserId,
+            );
+        await Promise.all(
+            siblings
+                .filter((row) =>
+                    kvShareGrantCovers(revoked.permission, row.permission),
+                )
+                .map((row) =>
+                    this.stores.kvShareHandle.retire(
+                        row.handle,
+                        revoked.ownerUserId,
+                    ),
+                ),
+        );
     }
 
     /**
@@ -2127,8 +2264,9 @@ export class EventsService extends PuterService {
 
     /**
      * Whether this account may hold out another share handle. Retired ones do
-     * not count: the row stays as the record of what was shared, not as a
-     * slot.
+     * not count: the row stays as the record of what was shared, not as a slot.
+     * Check-then-act: two mints racing past it can both proceed, which the mint
+     * budget bounds well enough for an abuse backstop.
      */
     async #assertHandleCeiling(userId: number): Promise<void> {
         const live = await this.stores.kvShareHandle.countLiveForOwner(userId);
@@ -2398,10 +2536,17 @@ export class EventsService extends PuterService {
                     // the settle's own purge goes now, not at a deadline.
                     if (row.suspendedReason === 'permission_revoked')
                         await this.stores.pendingDelivery.purge(subId);
-                    else await this.stores.pendingDelivery.expireHold(subId);
+                    // A hold not past its deadline yet must not pin the head
+                    // against every other backlog in the region.
+                    else if (
+                        (await this.stores.pendingDelivery.expireHold(
+                            subId,
+                        )) === 0
+                    )
+                        await this.stores.pendingDelivery.defer(subId);
                     continue;
                 }
-                attempted += await this.#drain(row);
+                attempted += await this.#drain(row, { deferWhenBusy: true });
             } catch (err) {
                 console.warn('[events] pending sweep failed', subId, err);
             }
@@ -2746,9 +2891,12 @@ export class EventsService extends PuterService {
                 { legacyCode: 'invalid_subject' },
             );
 
-        const anchor = await resolveFsAnchor(parsed, this.#anchorDeps(), {
-            username: actor.user?.username,
-        });
+        const anchor = await resolveFsAnchor(
+            parsed,
+            this.#anchorDeps(),
+            { username: actor.user?.username },
+            rawSubject,
+        );
 
         // The resolver answers where a subscription keys, not whose it is, so
         // the owner comes from the anchor node itself — and that is the
@@ -2999,10 +3147,17 @@ export class EventsService extends PuterService {
         if (!(await this.#userHasAny(ownerUserId))) return;
 
         const ancestors = options.ancestors ? await options.ancestors() : [];
+        const movedFrom = options.movedFrom
+            ? {
+                  path: options.movedFrom.path,
+                  ancestors: await options.movedFrom.ancestors(),
+              }
+            : undefined;
         const context: FsEventContext = {
             key,
             entry,
             ancestors,
+            movedFrom,
             id: randomUUID(),
             ts: Date.now(),
         };
@@ -3216,7 +3371,7 @@ export class EventsService extends PuterService {
 
         const evaluated = evaluateWithCap(
             rows,
-            (row) => this.#passes(row, subject, op, matchOn),
+            (row) => this.#passes(row, subject, op, matchOn, context),
             FILTER_EVALUATIONS_PER_EVENT,
         );
 
@@ -3230,12 +3385,23 @@ export class EventsService extends PuterService {
                 row,
                 subject.project({
                     ...context,
+                    // A row watching only where the node landed was never
+                    // shown where it came from, so it is not handed that path.
+                    ...(sawItLeave(row, context)
+                        ? {}
+                        : { movedFrom: undefined }),
+                    // An unknown actor is never "self" — defaulting true would
+                    // tell a holder an event they didn't cause was their own.
                     self:
-                        actingUserId === undefined ||
+                        actingUserId !== undefined &&
                         actingUserId === row.holderUserId,
                     seq: seq++,
                 }),
             );
+            // A stale or mis-scoped share-handle row: nothing resolves under
+            // its grant, so nothing is delivered rather than the owner's
+            // namespace and absolute key going out in its place.
+            if (event === null) continue;
 
             // A `single` is owed rather than sent: it is queued, and never
             // coalesced or broadcast — collapsing two of them would drop one
@@ -3271,8 +3437,10 @@ export class EventsService extends PuterService {
         ].slice(0, EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
         if (missed.length === 0) return;
 
+        // Same re-check the delivery path applies: a row a revoked grant
+        // would have refused must not learn it lost an event either.
         this.#gap(
-            missed,
+            await authorize(missed),
             subject,
             context,
             evaluated.stoppedEarly
@@ -3286,11 +3454,15 @@ export class EventsService extends PuterService {
      * share-handle row differs: the projection names the owner's namespace and
      * an absolute key, neither of which its holder can address or was told
      * about, so both are re-based on the handle. Every other row is untouched.
+     *
+     * `null` when the key does not resolve under the grant — a stale or
+     * mis-scoped row, never delivered rather than sent with the owner's
+     * namespace and absolute key exposed.
      */
     #asRowAddressesIt<P extends ProjectedEvent>(
         row: DispatchSubscription,
         event: P,
-    ): P {
+    ): P | null {
         // Asked of every delivery, so the families that can never answer are
         // turned away on a token comparison rather than a subject parse.
         if (!isKvToken(row.token)) return event;
@@ -3301,7 +3473,7 @@ export class EventsService extends PuterService {
             row.permission,
             (event as ProjectedKvEvent).key,
         );
-        if (key === null) return event;
+        if (key === null) return null;
         return { ...event, subject: `kv:${handle}:${key}`, key };
     }
 
@@ -3311,13 +3483,18 @@ export class EventsService extends PuterService {
         subject: MatchSpec,
         op: SubjectOp,
         matchOn: string,
+        context: EventContextBase,
     ): boolean {
         if (row.op !== null && row.op !== op) return false;
         if (!row.match) return true;
 
-        const scoped = subject.matchScope(row.anchorPath, matchOn);
-        if (scoped === null) return false;
-        return this.#matcherFor(row, subject.matchSeparator).test(scoped);
+        const matcher = this.#matcherFor(row, subject.matchSeparator);
+        return matchScopesFor(row, context, matchOn).some(
+            ([anchorPath, target]) => {
+                const scoped = subject.matchScope(anchorPath, target);
+                return scoped !== null && matcher.test(scoped);
+            },
+        );
     }
 
     /**
@@ -3539,10 +3716,10 @@ export class EventsService extends PuterService {
                 ts: context.ts,
             };
             // A marker is a delivery, so it takes the same route its
-            // subscription's events would: queued for a `single`, sent for the
-            // rest. It is never rate limited and never metered — it exists to
-            // say something was lost, and charging for that would bill the
-            // holder for the loss.
+            // subscription's events would: queued for a `single`, coalesced
+            // and rate limited for the rest — a burst that opens many gaps in
+            // one window still surfaces one marker per subscription. It is
+            // never billed: charging for a loss would bill the holder for it.
             if (isSingle(row)) {
                 void this.#owe(row, marker);
                 continue;
@@ -3550,7 +3727,7 @@ export class EventsService extends PuterService {
             // A marker rides the socket; a row with none has nowhere to hear
             // it, and sending nothing must not count as a delivery.
             if (!targetsOf(row).includes('socket')) continue;
-            void this.#send({
+            this.#coalesce().push(coalesceKey(row.subId, marker.subject), {
                 target: deliveryTarget(row),
                 socket: targetsOf(row).includes('socket'),
                 remote: row.socketId === undefined,
@@ -3735,11 +3912,17 @@ export class EventsService extends PuterService {
      */
     async #carryForward(
         row: DispatchSubscription,
+        anchorPath: string,
         ancestors: ReadonlyArray<{ uid: string; path: string }>,
     ): Promise<void> {
         let current = row;
+        let currentAnchorPath = anchorPath;
         for (let hop = 0; hop <= ancestors.length; hop++) {
-            const next = await this.#nextAnchor(current, ancestors);
+            const next = await this.#nextAnchor(
+                current,
+                currentAnchorPath,
+                ancestors,
+            );
             // Climbing must not land a row where its holder could never have
             // subscribed: the re-check would deny every delivery, but the row
             // would still hold an anchor slot and a filter evaluation there.
@@ -3758,6 +3941,7 @@ export class EventsService extends PuterService {
                 match: next.match,
                 ownerUserId: next.ownerUserId,
             };
+            currentAnchorPath = next.anchorPath;
         }
     }
 
@@ -3782,7 +3966,14 @@ export class EventsService extends PuterService {
 
         for (const row of onAnchor) {
             try {
-                if (row.match) await this.#carryForward(row, context.ancestors);
+                // The removed node's live path, not `row.anchorPath` — a
+                // rename or move before this delete left that stale.
+                if (row.match)
+                    await this.#carryForward(
+                        row,
+                        context.entry.path,
+                        context.ancestors,
+                    );
                 else await this.#endSubscription(row, 'anchor_deleted');
             } catch (err) {
                 console.warn(
@@ -3807,10 +3998,11 @@ export class EventsService extends PuterService {
      */
     async #nextAnchor(
         row: DispatchSubscription,
+        anchorPath: string,
         ancestors: ReadonlyArray<{ uid: string; path: string }>,
     ): Promise<ReanchorInput | null> {
         for (const survivor of ancestors) {
-            const climbed = relativeTo(survivor.path, row.anchorPath);
+            const climbed = relativeTo(survivor.path, anchorPath);
             if (climbed === null) continue;
 
             const match = climbed
@@ -3984,11 +4176,23 @@ export class EventsService extends PuterService {
      * takes a lease and holds it. Stops after a batch so one consumer that
      * settles inline cannot drain a whole backlog inside one call.
      */
-    async #drain(row: DispatchSubscription): Promise<number> {
+    async #drain(
+        row: DispatchSubscription,
+        // Only the sweeper defers: it alone reads the pending index in score
+        // order, so only it may rewrite a score without starving what is behind.
+        opts?: { deferWhenBusy?: boolean },
+    ): Promise<number> {
         let handed = 0;
         for (let pass = 0; pass < PENDING_DRAIN_BATCH; pass++) {
             const claimed = await this.stores.pendingDelivery.claim(row.subId);
-            if (!claimed) return handed;
+            if (!claimed) {
+                // Already in flight (or briefly nothing to claim): move on in
+                // the sweeper's line rather than pin the head against every
+                // other backlog behind it.
+                if (opts?.deferWhenBusy)
+                    await this.stores.pendingDelivery.defer(row.subId);
+                return handed;
+            }
             handed++;
             // Anything still holding the lease is the next consumer's answer to
             // give, so this pass is over.
@@ -4016,6 +4220,24 @@ export class EventsService extends PuterService {
 
         const targets = targetsOf(row);
         const target = deliveryTarget(row);
+        const hasWorkerFallback = targets.includes('worker');
+
+        // A row with no worker to fall back to has nothing left to try once
+        // its socket budget is spent. Without this, a socket that disappeared
+        // mid-attempt would spend that whole budget on nobody and wedge the
+        // entry forever even after it reappears.
+        if (
+            !hasWorkerFallback &&
+            claimed.socketAttempts >= SINGLE_SOCKET_ATTEMPTS &&
+            targets.includes('socket') &&
+            this.services.socket.has(target)
+        ) {
+            await this.stores.pendingDelivery.resetSocketAttempts(
+                row.subId,
+                claimed.entryId,
+            );
+            claimed = { ...claimed, socketAttempts: 0, remoteAttempts: 0 };
+        }
 
         // Candidates in order: this region's own connection, then the regions
         // presence names, most recently connected first. The attempt counter
@@ -4029,7 +4251,7 @@ export class EventsService extends PuterService {
                 ? await this.services.eventForward.candidateRegion(
                       row.holderUserId,
                       row.appUid,
-                      claimed.socketAttempts - (here ? 1 : 0),
+                      claimed.remoteAttempts,
                   )
                 : null;
 
@@ -4038,6 +4260,11 @@ export class EventsService extends PuterService {
                 row.subId,
                 claimed.entryId,
             );
+            if (region)
+                await this.stores.pendingDelivery.recordRemoteAttempt(
+                    row.subId,
+                    claimed.entryId,
+                );
             const envelope: DeliveryEnvelope = {
                 subId: row.subId,
                 event: claimed.event,
@@ -4068,7 +4295,7 @@ export class EventsService extends PuterService {
         }
 
         // Nowhere to put it yet: the lease is what paces the next attempt.
-        if (!targets.includes('worker')) return false;
+        if (!hasWorkerFallback) return false;
 
         const invocation = this.#workerInvocation(row, claimed.event);
         if (!invocation) return false;
@@ -4079,12 +4306,15 @@ export class EventsService extends PuterService {
         const outcome = await this.#invokeHandler(invocation);
         if (outcome === null) return false;
 
-        this.#delivered(
-            { subId: row.subId, event: claimed.event },
-            meter,
-            await this.#firstAttempt(row.subId, claimed),
-        );
+        // Only a settled outcome is a delivery: billing and reporting it
+        // ahead of that would charge for an attempt that failed, is still
+        // retrying, or was discarded outright.
         if (outcome === 'settled') {
+            this.#delivered(
+                { subId: row.subId, event: claimed.event },
+                meter,
+                await this.#firstAttempt(row.subId, claimed),
+            );
             await this.stores.pendingDelivery.clearFailures(row.subId);
             await this.stores.pendingDelivery.settle(
                 row.subId,
@@ -4169,40 +4399,55 @@ export class EventsService extends PuterService {
             handlerName: row.handlerName ?? null,
             event,
             context: row.context ?? null,
-            permissions: subscriptionTokenPermissions(row),
         };
     }
 
     /**
-     * The token one invocation carries: the subscriber's own identity, the app
-     * whose handler runs, and exactly the grant the subscription was made
-     * under. Short-lived, because it leaves the platform — a handler that needs
-     * longer than the delivery it was given is asking for standing access the
-     * subscription never granted.
+     * The token one invocation carries: the subscriber acting through the
+     * subscribing app, the same authority that app has for this user in a tab —
+     * not a token scoped to whatever grant the subscription was made under. It
+     * can read what the app can read, and reaches the app's own KV and AppData
+     * like any other app session would. What authorizes running that with
+     * nobody present is the `events:background` consent the row needed to
+     * target a worker at all, checked at subscribe time and re-run on every
+     * delivery.
      *
-     * Null when the identity cannot be rebuilt (the holder or the app is gone),
-     * which is not a handler failure: there is nothing to invoke.
+     * The session behind the token is one row per (user, app), reused across
+     * every delivery — the same idempotent worker session `puter.workers.*`
+     * uses — so it appears once in the user's sessions list and is revocable
+     * there like any other.
+     *
+     * Null when the identity cannot be rebuilt (the holder or the app is gone)
+     * or the consent is no longer there, which is not a handler failure: there
+     * is nothing to invoke.
      */
     async #mintSubscriberToken(
         invocation: WorkerInvocation,
     ): Promise<string | null> {
+        const { appUid } = invocation;
+        if (!appUid) return null;
+
         const actor = await resolveGrantActor(
             {
                 holderUserId: invocation.holderUserId,
-                appUid: invocation.appUid,
+                appUid,
                 permission: SUBSCRIBE_MODE,
             },
             this.#aclDeps(),
         );
         if (!actor) return null;
 
+        // Asked again here: nothing else on the delivery path reads it, the
+        // settle that ends a revoked row is best-effort, and what is minted is
+        // the app's whole standing for this holder. The permission cache
+        // answers it, so only a grant change costs a lookup.
+        if (!(await this.#hasBackgroundConsent(actor))) return null;
+
         try {
-            return await this.services.auth.createAccessToken(
+            return await this.services.auth.createWorkerAppToken(
                 actor,
-                invocation.permissions.map(
-                    (permission) => [permission] as [string],
-                ),
-                { expiresIn: DELIVERY_TOKEN_TTL },
+                appUid,
+                EVENTS_WORKER_SESSION_NAME,
             );
         } catch (err) {
             console.warn(
@@ -4399,9 +4644,12 @@ export class EventsService extends PuterService {
             // retried, which is why the docs ask handlers to be idempotent
             // rather than promising them each event exactly once. It counts
             // toward nothing either — a row whose socket copies are arriving
-            // must not be stopped by a handler nobody is waiting on.
+            // must not be stopped by a handler nobody is waiting on. Only a
+            // settled outcome counts as delivered — a failed or still-retrying
+            // run must not bill or report a broadcast that never landed.
             try {
-                invoked = (await this.#invokeHandler(delivery.worker)) !== null;
+                invoked =
+                    (await this.#invokeHandler(delivery.worker)) === 'settled';
             } catch (err) {
                 console.warn('[events] handler invocation failed', err);
             }

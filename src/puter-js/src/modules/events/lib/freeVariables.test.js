@@ -181,6 +181,55 @@ describe('known accept-biased misses (documented, not fixed)', () => {
     });
 });
 
+describe('an arrow inside a declaration initializer binds its own params', () => {
+    it('accepts a callback param the declaration used to swallow before it was ever scanned', () => {
+        expect(() =>
+            scan('({ event }) => { const ids = event.items.map(x => x.id); return ids; }'),
+        ).not.toThrow();
+    });
+
+    it('accepts a param bound through a nested function expression, not just an arrow', () => {
+        expect(() =>
+            scan('({ event }) => { const ids = event.items.map(function (x) { return x.id; }); return ids; }'),
+        ).not.toThrow();
+    });
+
+    it('blames the closure in a default value, not the parameter that carries it', () => {
+        const error = rejects('({ event }) => { const f = (a = SECRET) => a; return f(event.seq); }');
+        expect(error.message).toContain('`SECRET`');
+        expect(error.message).not.toContain('`a`');
+    });
+
+    it('still binds every comma-separated declarator once the initializer is scanned separately', () => {
+        const { bound } = scan('({ event }) => { const a = 1, b = event.seq, c = x => x; return a + b + c(1); }');
+        expect(bound.has('a')).toBe(true);
+        expect(bound.has('b')).toBe(true);
+        expect(bound.has('c')).toBe(true);
+    });
+});
+
+describe('a `,` inside a call argument list is not a pattern separator', () => {
+    it('rejects a closure passed as a second argument to a declaration initializer', () => {
+        const error = rejects('({ event }) => { const u = new URL(event.path, SECRET); return u.href; }');
+        expect(error.code).toBe('events_handler_free_variable');
+        expect(error.message).toContain('`SECRET`');
+    });
+
+    it('accepts the same shape when every argument is a bound reference', () => {
+        expect(() =>
+            scan('({ ctx }) => { const u = new URL(ctx.path, ctx.base); return u.href; }'),
+        ).not.toThrow();
+    });
+});
+
+describe('a destructuring default no longer blocks the keys after it (regression)', () => {
+    it('binds a key that follows a default value in the same pattern', () => {
+        expect(() =>
+            scan('({ ctx }) => { const { retries = 3, url, other } = ctx; return url + other + retries; }'),
+        ).not.toThrow();
+    });
+});
+
 describe('what the scan reports back', () => {
     it('lists what the source binds and what it reads', () => {
         const { bound, references } = scan('({ event, ctx }) => { const n = ctx.n; return event.seq + n; }');

@@ -84,6 +84,14 @@ interface MeteredLine {
 let socketConnected = true;
 /** What the handler seam reports back, which is what settles a lease or not. */
 let workerOutcome: WorkerInvocationOutcome = 'deferred';
+/** Stand-in for presence: which remote region, if any, answers one attempt. */
+let candidateRegionImpl: (
+    holderUserId: number,
+    appUid: string | null,
+    attempt: number,
+) => Promise<string | null> = async () => null;
+/** The attempt index each `candidateRegion` call carried, in order. */
+let candidateRegionCalls: number[] = [];
 
 const entry = (over: Partial<FSEntry> = {}): FSEntry =>
     ({
@@ -175,6 +183,8 @@ beforeEach(async () => {
     userId = 7000 + seq;
     socketConnected = true;
     workerOutcome = 'deferred';
+    candidateRegionImpl = async () => null;
+    candidateRegionCalls = [];
     sent = [];
     delivered = [];
     invoked = [];
@@ -186,7 +196,7 @@ beforeEach(async () => {
     hasCredits = true;
 
     redis = new MockRedis.Cluster(['redis://localhost:7001']);
-    await redis.del('ev:qx', 'ev:qc');
+    await redis.del('ev:qx', 'ev:qc', 'ev:qxr');
 
     subscriptions = new EventSubscriptionStore(
         {} as IConfig,
@@ -255,7 +265,14 @@ beforeEach(async () => {
                 isPeer: () => false,
                 noteConnect: async () => undefined,
                 noteDisconnect: async () => undefined,
-                candidateRegion: async () => null,
+                candidateRegion: async (
+                    holderUserId: number,
+                    appUid: string | null,
+                    attempt: number,
+                ) => {
+                    candidateRegionCalls.push(attempt);
+                    return candidateRegionImpl(holderUserId, appUid, attempt);
+                },
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
@@ -388,13 +405,14 @@ describe('a delivery owed to exactly one consumer', () => {
 
         // First lease lapses with no ack: a second socket attempt, which is
         // what a reconnected client is worth.
-        jump(31_000);
+        jump(61_000);
         await service.sweepPending();
         expect(sent).toHaveLength(2);
         expect(invoked).toEqual([]);
 
         // Second lapses too. Sockets are spent, so the handler takes it.
-        jump(31_000);
+        workerOutcome = 'settled';
+        jump(61_000);
         await service.sweepPending();
         expect(sent).toHaveLength(2);
         expect(invoked).toHaveLength(1);
@@ -414,25 +432,100 @@ describe('a delivery owed to exactly one consumer', () => {
         await dispatch();
 
         expect(invoked).toHaveLength(1);
-        expect(metered).toHaveLength(1);
+        // Unreachable so far: nothing settled, so nothing is billed yet.
+        expect(metered).toEqual([]);
 
         // The handler keeps failing to settle it: every retry is the same
-        // owed event, so none of these further attempts bills again.
+        // owed event, so none of these further attempts bills anything.
         for (let i = 0; i < 4; i++) {
-            jump(31_000);
+            jump(61_000);
             await service.sweepPending();
         }
         expect(invoked).toHaveLength(5);
-        expect(metered).toHaveLength(1);
+        expect(metered).toEqual([]);
 
-        // It finally lands. Still one bill for the one event delivered.
+        // It finally lands. One bill for the one event actually delivered.
         workerOutcome = 'settled';
-        jump(31_000);
+        jump(61_000);
         await service.sweepPending();
 
         expect(invoked).toHaveLength(6);
         expect(metered).toHaveLength(1);
         await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('does not bill or report a retriable or terminal handler outcome', async () => {
+        socketConnected = false;
+        workerOutcome = 'retriable';
+        const row = await register({ targets: ['worker'] });
+
+        await dispatch();
+
+        expect(invoked).toHaveLength(1);
+        expect(metered).toEqual([]);
+        expect(delivered).toEqual([]);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+
+        workerOutcome = 'terminal';
+        jump(deliveryBackoffMs(1) + 1);
+        await service.sweepPending();
+
+        // Discarded with a gap marker rather than delivered — still no bill.
+        expect(metered).toEqual([]);
+        expect(delivered).toEqual([]);
+    });
+
+    it('resumes a socket-only account row once its client reconnects, rather than wedging forever', async () => {
+        const row = await register({ appUid: null, targets: ['socket'] });
+        await dispatch();
+        expect(sent).toHaveLength(1);
+
+        // A second attempt while still connected spends the whole budget —
+        // there is no worker to fall back to on this row.
+        jump(61_000);
+        await service.sweepPending();
+        expect(sent).toHaveLength(2);
+
+        // Gone by the next attempt: with the budget spent and nothing else to
+        // try, this used to stay wedged even once the client came back.
+        socketConnected = false;
+        jump(61_000);
+        await service.sweepPending();
+        expect(sent).toHaveLength(2);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+
+        socketConnected = true;
+        jump(61_000);
+        await service.sweepPending();
+        expect(sent).toHaveLength(3);
+
+        await service.ackDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[2].ackId,
+        });
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('does not skip a remote candidate when the local socket disappears between attempts', async () => {
+        const regions = ['east', 'west'];
+        candidateRegionImpl = async (_holderUserId, _appUid, attempt) =>
+            regions[attempt] ?? null;
+        await register({ targets: ['socket', 'worker'] });
+
+        await dispatch();
+        // The local socket takes the first attempt; no remote candidate is
+        // spent on a first attempt that had somewhere to go.
+        expect(sent).toHaveLength(1);
+        expect(candidateRegionCalls).toEqual([]);
+
+        // The local socket is gone by the next attempt.
+        socketConnected = false;
+        jump(61_000);
+        await service.sweepPending();
+
+        // The first remote candidate, not the second — nothing was actually
+        // spent on a remote region before this.
+        expect(candidateRegionCalls).toEqual([0]);
     });
 
     it('goes straight to the handler when nothing is connected', async () => {
@@ -542,6 +635,7 @@ describe('a delivery everyone connected gets', () => {
     });
 
     it('runs the handler once per delivery, not once per transport', async () => {
+        workerOutcome = 'settled';
         await register({ delivery: 'broadcast', targets: ['worker'] });
 
         await dispatch();
@@ -643,6 +737,79 @@ describe('keeping the region counter honest', () => {
     });
 });
 
+describe('the sweeper does not let one stuck backlog starve another', () => {
+    it('still sweeps a fresh delivery behind 100+ blocked subscriptions', async () => {
+        workerOutcome = 'settled';
+        const rawEvent = (id: string) => ({
+            id,
+            subject: 'fs:/nowhere',
+            op: 'write' as const,
+            uid: id,
+            path: `/nowhere/${id}`,
+            self: true,
+            ts: Date.now(),
+            seq: 0,
+        });
+
+        for (let i = 0; i < 100; i++) {
+            const row = await register({
+                subId: `blocked-${i}`,
+                targets: ['worker'],
+            });
+            await pending.enqueue(row.subId, rawEvent(`blocked-${i}`));
+            // Already in flight for the whole pass — a subscription in retry
+            // backoff answers `claim()` the same way.
+            await pending.claim(row.subId, { leaseMs: 10 * 60_000 });
+        }
+
+        const fresh = await register({ subId: 'fresh', targets: ['worker'] });
+        await pending.enqueue(fresh.subId, rawEvent('fresh'));
+
+        // One pass only ever reaches the 100 blocked subscriptions ahead of
+        // it in the index; the second is what proves they no longer pin the
+        // head against everything behind them.
+        await service.sweepPending();
+        await service.sweepPending();
+
+        await expect(pending.depth(fresh.subId)).resolves.toBe(0);
+        expect(invoked.some((call) => call.subId === fresh.subId)).toBe(true);
+    });
+});
+
+describe('the sweep order a busy subscription holds', () => {
+    it('is untouched by a publish, and only moved by a sweep pass', async () => {
+        workerOutcome = 'deferred';
+        const row = await register({ targets: ['worker'] });
+
+        await dispatch(entry({ uid: `file-a-${seq}` }));
+        // Held in flight: the worker never settled it, so the lease stands.
+        expect(invoked).toHaveLength(1);
+
+        const heldAt = await redis.zscore('ev:qx', row.subId);
+        expect(heldAt).not.toBeNull();
+
+        jump(1_000);
+        await dispatch(entry({ uid: `file-b-${seq}` }));
+
+        // Publishing to a busy subscription must not push it later in the
+        // sweep order — only the sweeper may send a busy entry to the back of
+        // its own line. Not an equality: an append re-points the index at the
+        // oldest delivery still owed, which is the entry already in flight, so
+        // the score may come back *earlier* than the claim left it. That can
+        // only bring the sweep forward, never starve anything behind it.
+        const afterPublish = await redis.zscore('ev:qx', row.subId);
+        expect(Number(afterPublish)).toBeLessThanOrEqual(Number(heldAt));
+
+        jump(1_000);
+        await service.sweepPending();
+
+        // A sweep pass over that same busy subscription is what may move it,
+        // and it moves it back — behind everything else already waiting.
+        const afterSweep = await redis.zscore('ev:qx', row.subId);
+        expect(Number(afterSweep)).toBeGreaterThan(Number(afterPublish));
+    });
+});
+
 describe('what a delivery costs its holder', () => {
     it('bills a `single` at its own rate, to the account whose row it is', async () => {
         const appUid = `app-${seq}`;
@@ -664,6 +831,7 @@ describe('what a delivery costs its holder', () => {
 
     it('bills a handler run once, and only when one actually ran', async () => {
         socketConnected = false;
+        workerOutcome = 'settled';
         await register();
 
         await dispatch();

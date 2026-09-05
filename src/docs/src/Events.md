@@ -113,7 +113,9 @@ The handle is the whole of what the holder learns: not whose data it is, not whe
 
 A prefix names a region, so it is taken as written: `*` and `?` are refused (`invalid_kv_share_prefix`), and so is an empty key segment — `workspace::abc:` is not read as `workspace:abc:`. Only the trailing delimiter is optional.
 
-An app can mint on its user's behalf, but only inside its own namespace and only where the user has said it may: the consent is `manage:kv-share:<userUuid>:<appId>:<prefix>` — the prefix contributing its segments, so `workspace:abc:` ends the string as `…:workspace:abc` — requested with [`puter.perms.request()`](/Perms/request/). It has to name a region — a request over the whole namespace is refused with `invalid_kv_share_prefix`, since that describes no bounded access — and minting outside the region it was given, or outside the app's own namespace, is refused with `events_kv_handle_not_delegated` and `events_kv_handle_outside_namespace`.
+An app can mint on its user's behalf, but only inside its own namespace and only where the user has said it may: the consent is `manage:kv-share:<userUuid>:<appId>:<prefix>` — the prefix contributing its segments, so `workspace:abc:` ends the string as `…:workspace:abc` — requested with [`puter.perms.request()`](/Perms/request/). It has to name a region — a request over the whole namespace is refused with `invalid_kv_share_prefix`, since that describes no bounded access — and minting outside the region it was given, or outside the app's own namespace, is refused with `events_kv_handle_not_delegated` and `events_kv_handle_outside_namespace`. An app that mints a handle still cannot list or revoke it — `GET`/`DELETE /events/kv-handles` only ever answer an account session, and an app calling either is refused with `events_kv_handle_owner_only`.
+
+A key under a handle is relative to the region it was granted on, so anything that reads as an attempt to leave it — a bare handle naming no key, or a key trying to walk out with `..` — is refused with `invalid_kv_handle_key` rather than composed into a path outside the grant.
 
 ### Watching something that does not exist yet
 
@@ -143,6 +145,7 @@ The handler is called with `{ event }`. A filesystem change carries:
 | `op` | String | `add`, `write`, `move`, or `remove`. |
 | `uid` | String | The uid of the node that changed. |
 | `path` | String | The path of the node that changed. |
+| `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that side — a subscription on the destination folder alone is not told where the node came from. |
 | `self` | Boolean | `true` when the change was made by the account holding the subscription. Check it to ignore your own writes. |
 | `ts` | Number | When it happened, in milliseconds since the epoch. |
 | `seq` | Number | Position within one dispatch, for changes that fan out to several subscriptions. |

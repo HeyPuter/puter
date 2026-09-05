@@ -23,7 +23,7 @@ await puter.events.handlers.remove('indexDocument', { appUid });
 
 A handler is serialized with `Function.prototype.toString()` and run later, somewhere else. A closed-over variable is not discouraged — it is **unrepresentable**, because nothing around the function survives the trip.
 
-So every identifier a handler names must be one of: a parameter, something the handler itself declares, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` is **not** one of them: a handler running in the events worker has no ambient SDK, and reaches the account through its `user` binding instead. The SDK checks this before the request and rejects with `events_handler_free_variable`, naming the identifier:
+So every identifier a handler names must be one of: a parameter, something the handler itself declares, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` is **not** one of them: a handler running in the events worker has no ambient SDK, and reaches the account through its `user` binding instead — the same authority your app has for that user in a tab, not a narrower one. The SDK checks this before the request and rejects with `events_handler_free_variable`, naming the identifier:
 
 ```js
 const endpoint = 'https://example.com/ingest';
@@ -102,6 +102,23 @@ Renaming is publish-new plus remove-old, and subscriptions do **not** follow —
 
 **An app's first published handler stands up an events worker for it.** See [`puter.events.workers`](/Events/workers/) to list and destroy them — the last handler removed here takes it down the same way.
 
+### Refusing a delivery outright
+
+A handler running in the events worker normally has two outcomes: return (or resolve) and the delivery is taken, or throw and it is retried later. Sometimes neither is right — the delivery is malformed in a way retrying never fixes. Throw an error with `terminal: true`, or a `code` of `'events_terminal'`, and it is refused instead of retried: the invocation answers a `4xx` rather than the usual `5xx`, and the delivery is dropped with a `gap` marker carrying `reason: 'handler_rejected'` rather than sent again to the same handler.
+
+```js
+await puter.events.handlers.publish('ingestUpload', async ({ event }) => {
+    if (! event.path.endsWith('.json')) {
+        const err = new Error(`cannot ingest ${event.path}`);
+        err.terminal = true;
+        throw err;
+    }
+    // ...
+}, { appUid });
+```
+
+See [`onPersistent()`](/Events/onPersistent/) for the full `2xx`/`4xx`/`5xx` mapping this feeds into.
+
 ### What a suspension does to the backlog
 
 A suspended subscription stops being delivered to and stops being metered — so it cannot go on holding a full backlog for free. On suspension its undelivered deliveries are trimmed to **100** and given a deadline: **24 hours** for `handler_not_found` and `failures`, **1 hour** for `no_credit`. Past the deadline they are dropped and one `gap` marker with `reason: 'suspended_backlog_expired'` takes their place, so a resumed subscription learns there were events rather than reading the silence as "nothing changed". A subscription suspended by `permission_revoked` has its backlog **purged at once** and never resumes.
@@ -124,6 +141,7 @@ All four methods reject with `{ message, code }`:
 | `events_handler_limit` | The app already has the maximum number of published handlers. |
 | `too_many_requests` | Over the handler publish/remove budget. |
 | `events_disabled` | Events are not enabled on this server. |
+| `events_failed` | The server answered with something the SDK could not make sense of. |
 
 ## Examples
 

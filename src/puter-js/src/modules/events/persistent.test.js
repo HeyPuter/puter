@@ -142,6 +142,15 @@ describe('onPersistent', () => {
         expect(bodyOf().handlerHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
+    it('refuses a `single` delivery with no handlerName to match it against', async () => {
+        const error = await rejects(() =>
+            makeModule().onPersistent({ subject: SUBJECT, delivery: 'single' }),
+        );
+
+        expect(error.code).toBe('events_handler_required');
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
     it('refuses a subject that is not a non-empty string', async () => {
         for ( const subject of [undefined, null, '', '  ', 42] ) {
             const error = await rejects(() =>
@@ -259,6 +268,14 @@ describe('unsubscribe', () => {
         const error = await rejects(() => makeModule().unsubscribe(''));
         expect(error.code).toBe('subscription_does_not_exist');
         expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('stops routing deliveries here as well as ending the subscription', async () => {
+        const module = makeModule();
+
+        await module.unsubscribe('app-1#a');
+
+        expect(module.channel.deregistered).toEqual(['app-1#a']);
     });
 });
 

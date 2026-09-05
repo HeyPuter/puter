@@ -119,6 +119,9 @@ export const KV_TOKEN_PREFIX_MAX_BYTES = 160;
 
 const GLOB_CHARS = /[*?]/;
 
+/** C0 control characters — never legitimate in a stored FS path. */
+const CONTROL_CHARS = /[\x00-\x1f]/;
+
 /** What splits a KV key into the segments a token can anchor between. */
 export const KV_KEY_SEPARATOR = ':';
 
@@ -268,10 +271,14 @@ const capPrefix = (prefix: string): string => {
         segments[segments.length - 1] === '' ? segments.slice(0, -1) : segments;
 
     const capped = body.slice(0, KV_TOKEN_SEGMENT_CAP);
+    // Measured with the trailing delimiter the trimmed path below appends —
+    // otherwise the stored prefix lands one byte past the cap.
     while (
         capped.length > 0 &&
-        Buffer.byteLength(capped.join(KV_KEY_SEPARATOR), 'utf8') >
-            KV_TOKEN_PREFIX_MAX_BYTES
+        Buffer.byteLength(
+            `${capped.join(KV_KEY_SEPARATOR)}${KV_KEY_SEPARATOR}`,
+            'utf8',
+        ) > KV_TOKEN_PREFIX_MAX_BYTES
     )
         capped.pop();
 
@@ -286,6 +293,7 @@ const parseFsSubject = (subject: string, parts: string[]): ParsedSubject => {
 
     const ref = parts[1];
     if (!ref) throw invalidSubject(subject);
+    if (CONTROL_CHARS.test(ref)) throw invalidSubject(subject);
 
     let op: FsOp | null = null;
     if (parts.length === 3) {
@@ -298,9 +306,13 @@ const parseFsSubject = (subject: string, parts: string[]): ParsedSubject => {
     }
 
     // Path-shaped or a uid, decided by the leading character — the same
-    // dispatch the legacy FS selectors use.
+    // dispatch the legacy FS selectors use. A slash anywhere, or padding
+    // whitespace, means this was meant as a path even though it does not
+    // start with `/` or `~` — never fall through and read it as an opaque
+    // uid.
     if (!ref.startsWith('/') && !ref.startsWith('~')) {
-        if (GLOB_CHARS.test(ref)) throw invalidSubject(subject);
+        if (GLOB_CHARS.test(ref) || ref.includes('/') || ref.trim() !== ref)
+            throw invalidSubject(subject);
         return {
             family: 'fs',
             anchorRef: { kind: 'fsUid', uid: ref },
