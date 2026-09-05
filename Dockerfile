@@ -14,7 +14,7 @@
 # config.default.json, so partial overrides work. Absent file = defaults.
 
 # ---- Build stage ----
-FROM node:24-slim AS build
+FROM node:26-slim AS build
 
 WORKDIR /opt/puter
 
@@ -59,7 +59,7 @@ RUN set -e; \
     wait $pjs_pid
 
 # ---- Runtime stage (slim — no build tools) ----
-FROM node:24-slim
+FROM node:26-slim
 
 WORKDIR /opt/puter
 
