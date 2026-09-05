@@ -1,28 +1,42 @@
 name: Puter.js API Tests
 
-# Runs on puter.js SDK changes — the suites live in src/puter-js/tests,
-# so test changes are covered by the same glob — plus the pieces the
-# runners depend on: the worker preamble, the in-memory test env in
-# testUtil, and the backend vitest config the API-tests config extends.
-# Backend and extension changes run backend-tests.yaml instead.
+# Always triggers so it can be a required PR check; the `changes` job below
+# decides whether puter.js-relevant paths actually changed (the suites live
+# in src/puter-js/tests, so test-only changes are covered by the same glob,
+# plus the pieces the runners depend on: the worker preamble, the in-memory
+# test env in testUtil, and the backend vitest config the API-tests config
+# extends), and every other job is skipped — not absent — when they didn't,
+# which still satisfies a required check. Backend and extension changes run
+# backend-tests.yaml instead.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - 'src/puter-js/**'
-      - 'src/worker/**'
-      - 'src/backend/testUtil.ts'
-      - 'src/backend/vitest.config.ts'
-      - 'tools/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/puterjs-tests.yaml'
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      puterjs: ${{ steps.filter.outputs.puterjs }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            puterjs:
+              - 'src/puter-js/**'
+              - 'src/worker/**'
+              - 'src/backend/testUtil.ts'
+              - 'src/backend/vitest.config.ts'
+              - 'tools/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/puterjs-tests.yaml'
+
   # The JSDoc in src/puter-js/src is the source of truth for the SDK's public
   # types. The declarations shipped to npm are generated from it at build time
   # and never committed, so what needs guarding is the JSDoc itself: this
@@ -32,6 +46,8 @@ jobs:
   # Its own job rather than a step in `test`: that one builds bundles and
   # installs a browser, and this needs neither.
   types:
+    needs: changes
+    if: needs.changes.outputs.puterjs == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -51,6 +67,8 @@ jobs:
         run: npm run check:puterjs:types
 
   test:
+    needs: changes
+    if: needs.changes.outputs.puterjs == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -84,6 +102,12 @@ jobs:
   # backend-tests.yaml. This run uses the istanbul-instrumented bundle
   # (the `test` job above keeps exercising the production build).
   coverage:
+    needs: changes
+    if: needs.changes.outputs.puterjs == 'true'
+    # Overrides the default matrix naming, which would otherwise bake the
+    # base/head branch name (matrix.ref) into the check name — making it a
+    # different string on every PR and impossible to pin as a required check.
+    name: coverage (${{ matrix.artifact }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -131,8 +155,8 @@ jobs:
           if-no-files-found: ignore
 
   report-coverage:
-    needs: coverage
-    if: always()
+    needs: [changes, coverage]
+    if: always() && needs.changes.outputs.puterjs == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
