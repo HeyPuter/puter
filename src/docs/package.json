@@ -14,7 +14,7 @@
   "author": "",
   "license": "ISC",
   "optionalDependencies": {
-    "@esbuild/linux-x64": "0.25.11"
+    "@esbuild/linux-x64": "0.25.12"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
