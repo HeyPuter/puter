@@ -286,7 +286,7 @@ const PERMISSION_CHECK_TIMEOUT_MS = 2000;
  * An interface for interacting with another app. Returned by the UI methods
  * that launch or connect to one; it cannot be constructed directly.
  *
- * - `postMessage(message)` sends a message to the target app.
+ * - `postMessage(message, transfer)` sends a message to the target app.
  * - `on('message', handler)` listens for messages from it.
  * - `on('close', handler)` fires when it closes.
  *
@@ -389,14 +389,47 @@ export class AppConnection extends EventListener {
     }
 
     /**
+     * @overload
+     * @param {unknown} message
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {unknown} message
+     * @param {Transferable[]} transfer
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {unknown} message
+     * @param {{ transfer?: Transferable[] }} options
+     * @returns {void}
+     */
+    /**
      * Sends a message to the target app. Does nothing — beyond a console
      * warning — if the target isn't using the SDK, or the connection has
      * already closed.
      *
+     * Objects listed in `transfer` move to the target app instead of being
+     * copied, and become unusable here. Each one must also appear somewhere
+     * inside `message`, which is where the target app reads it from.
+     *
      * @param {unknown} message
+     * @param {Transferable[] | { transfer?: Transferable[] }} [transferOrOptions]
      * @returns {void}
      */
-    postMessage (message) {
+    postMessage (message, transferOrOptions) {
+        const transfer = Array.isArray(transferOrOptions)
+            ? transferOrOptions
+            : (transferOrOptions?.transfer ?? []);
+
+        if ( ! Array.isArray(transfer) ) {
+            throw {
+                message: 'transfer must be an array of transferable objects',
+                code: 'invalid_transfer_list',
+            };
+        }
+
         if ( ! this.#isOpen ) {
             console.warn('Trying to post message on a closed AppConnection');
             return;
@@ -416,7 +449,10 @@ export class AppConnection extends EventListener {
             // on the other side where the expected origin for the app is known.
             targetAppOrigin: '*',
             contents: message,
-        }, this.#puterOrigin);
+            // In the body as well as the transfer list: Puter relays this
+            // message onward, and needs to know what to keep transferring.
+            transfer,
+        }, this.#puterOrigin, transfer);
     }
 
     /**
