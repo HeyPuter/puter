@@ -101,9 +101,14 @@ jobs:
   # SDK coverage on both refs, reported as a PR comment — same shape as
   # backend-tests.yaml. This run uses the istanbul-instrumented bundle
   # (the `test` job above keeps exercising the production build).
+  # `needs.changes` gates the steps below, not this job, on purpose: a
+  # job-level `if` on a matrix job skips the whole job as one unexpanded
+  # check ("coverage (${{ matrix.artifact }})", literally, since there's no
+  # matrix context to fill it in) instead of two real per-artifact checks —
+  # confusing to read, and unusable if this ever gets pinned as a required
+  # check. Letting the matrix always expand keeps the check names stable.
   coverage:
     needs: changes
-    if: needs.changes.outputs.puterjs == 'true'
     # Overrides the default matrix naming, which would otherwise bake the
     # base/head branch name (matrix.ref) into the check name — making it a
     # different string on every PR and impossible to pin as a required check.
@@ -120,33 +125,38 @@ jobs:
 
     steps:
       - name: Checkout ${{ matrix.ref }}
+        if: needs.changes.outputs.puterjs == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ matrix.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Set up Node.js
+        if: needs.changes.outputs.puterjs == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
+        if: needs.changes.outputs.puterjs == 'true'
         run: npm ci
 
       - name: Install Playwright chromium
+        if: needs.changes.outputs.puterjs == 'true'
         run: npx playwright install --with-deps chromium
 
       # The base leg is best-effort — it only enriches the PR comment with
       # a comparison, and the base ref may predate the coverage script.
       - name: Run puter.js API tests with coverage
+        if: needs.changes.outputs.puterjs == 'true'
         continue-on-error: ${{ matrix.artifact == 'base' }}
         run: npm run test:puterjs:coverage
         env:
           CI: 'true'
 
       - name: Upload coverage artifact
-        if: always()
+        if: needs.changes.outputs.puterjs == 'true' && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: puterjs-coverage-${{ matrix.artifact }}

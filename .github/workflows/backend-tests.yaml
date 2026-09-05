@@ -65,9 +65,15 @@ jobs:
       - name: Type check (new errors only)
         run: npm run typecheck
 
+  # `needs.changes` gates the steps below, not this job, on purpose: a
+  # job-level `if` on a matrix job skips the whole job as one unexpanded
+  # check ("test (${{ matrix.artifact }})", literally, since there's no
+  # matrix context to fill it in) instead of the two real per-artifact
+  # checks a required rule pins to ("test (base)" / "test (pr)") — so the
+  # required check never gets reported and the PR blocks forever. Letting
+  # the matrix always expand keeps the check names stable either way.
   test:
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
     # Overrides the default matrix naming, which would otherwise bake the
     # base/head branch name (matrix.ref) into the check name — making it a
     # different string on every PR and impossible to pin as a required check.
@@ -84,27 +90,31 @@ jobs:
 
     steps:
       - name: Checkout ${{ matrix.ref }}
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ matrix.ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Set up Node.js
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
+        if: needs.changes.outputs.backend == 'true'
         run: npm ci
 
       - name: Run backend tests with coverage
+        if: needs.changes.outputs.backend == 'true'
         run: npm run test:backend -- --coverage
         env:
           CI: 'true'
 
       - name: Upload coverage artifact
-        if: always()
+        if: needs.changes.outputs.backend == 'true' && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage-${{ matrix.artifact }}
