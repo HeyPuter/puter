@@ -2,9 +2,11 @@ name: Backend Tests
 
 # Always triggers so it can be a required PR check; the `changes` job below
 # decides whether backend/extension paths actually changed (test-only changes
-# match the same globs, since tests are co-located with the code), and every
-# other job is skipped — not absent — when they didn't, which still satisfies
-# a required check. puter.js SDK changes are covered by puterjs-tests.yaml.
+# match the same globs, since tests are co-located with the code). The jobs
+# pinned as required status checks always run and report — they gate their
+# individual steps on `changes` rather than skipping the job — so a PR that
+# touches nothing here still gets a green check instead of waiting on one
+# that never arrives. puter.js SDK changes are covered by puterjs-tests.yaml.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -45,24 +47,32 @@ jobs:
   #
   # Its own job rather than a step in `test`: that one runs a base/PR matrix for
   # coverage comparison, and the check only needs the PR ref, once.
+  #
+  # Gated per-step rather than with a job-level `if`, so the check always
+  # reports a real success instead of a skip. Required status checks are
+  # pinned to this job's name, and a check that reports nothing (or reports
+  # something a rule can't match) leaves the PR waiting on it forever.
   typecheck:
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Node.js
+        if: needs.changes.outputs.backend == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
+        if: needs.changes.outputs.backend == 'true'
         run: npm ci
 
       - name: Type check (new errors only)
+        if: needs.changes.outputs.backend == 'true'
         run: npm run typecheck
 
   # `needs.changes` gates the steps below, not this job, on purpose: a

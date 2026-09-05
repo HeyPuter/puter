@@ -5,8 +5,10 @@ name: Puter.js API Tests
 # in src/puter-js/tests, so test-only changes are covered by the same glob,
 # plus the pieces the runners depend on: the worker preamble, the in-memory
 # test env in testUtil, and the backend vitest config the API-tests config
-# extends), and every other job is skipped — not absent — when they didn't,
-# which still satisfies a required check. Backend and extension changes run
+# extends). The jobs pinned as required status checks always run and report —
+# they gate their individual steps on `changes` rather than skipping the job —
+# so a PR that touches nothing here still gets a green check instead of
+# waiting on one that never arrives. Backend and extension changes run
 # backend-tests.yaml instead.
 on:
   pull_request:
@@ -45,55 +47,69 @@ jobs:
   #
   # Its own job rather than a step in `test`: that one builds bundles and
   # installs a browser, and this needs neither.
+  #
+  # Gated per-step rather than with a job-level `if`, so the check always
+  # reports a real success instead of a skip. Required status checks are
+  # pinned to this job's name, and a check that reports nothing (or reports
+  # something a rule can't match) leaves the PR waiting on it forever.
   types:
     needs: changes
-    if: needs.changes.outputs.puterjs == 'true'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
+        if: needs.changes.outputs.puterjs == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Node.js
+        if: needs.changes.outputs.puterjs == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
+        if: needs.changes.outputs.puterjs == 'true'
         run: npm ci
 
       - name: Check the puter.js JSDoc produces declarations that type-check
+        if: needs.changes.outputs.puterjs == 'true'
         run: npm run check:puterjs:types
 
+  # Gated per-step, for the same reason as `types` above.
   test:
     needs: changes
-    if: needs.changes.outputs.puterjs == 'true'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
+        if: needs.changes.outputs.puterjs == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Node.js
+        if: needs.changes.outputs.puterjs == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
+        if: needs.changes.outputs.puterjs == 'true'
         run: npm ci
 
       # The runners exercise the built artifacts: the SDK bundle
       # (src/puter-js/dist) for node + browser, and the worker preamble
       # (src/worker/dist) for workerd.
       - name: Build puter.js SDK and worker preamble
+        if: needs.changes.outputs.puterjs == 'true'
         run: npm run build:workerLib
 
       - name: Install Playwright chromium
+        if: needs.changes.outputs.puterjs == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Run puter.js API tests (node, browser, workerd)
+        if: needs.changes.outputs.puterjs == 'true'
         run: npm run test:puterjs
         env:
           CI: 'true'
