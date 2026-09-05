@@ -63,7 +63,7 @@ export const parseCounterArgs = (keyOrOptions, amountOrMap, optConfig) => {
     }
     return {
         key: keyOrOptions,
-        pathAndAmountMap: !amountOrMap ? { '': 1 } : typeof amountOrMap === 'number' ? { '': amountOrMap } : amountOrMap,
+        pathAndAmountMap: amountOrMap === undefined || amountOrMap === null ? { '': 1 } : typeof amountOrMap === 'number' ? { '': amountOrMap } : amountOrMap,
         optConfig,
     };
 };
