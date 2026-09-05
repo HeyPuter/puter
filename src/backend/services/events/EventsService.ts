@@ -3759,6 +3759,19 @@ export class EventsService extends PuterService {
     async settleRevokedGrant(revocation: RevokedGrant): Promise<number> {
         if (!this.enabled) return 0;
 
+        // A copied-out worker token must stop working the moment the consent
+        // that let it be minted is gone — not just the rows using it.
+        if (
+            revocation.appUid &&
+            (revocation.permission === null ||
+                revocation.permission === EVENTS_BACKGROUND_PERMISSION)
+        ) {
+            await this.#revokeWorkerSession(
+                revocation.holderUserId,
+                revocation.appUid,
+            );
+        }
+
         const held = await this.stores.durableSubscription.listActiveForHolder(
             revocation.holderUserId,
             revocation.appUid,
@@ -3773,6 +3786,27 @@ export class EventsService extends PuterService {
         const suspended = await this.#suspend(settling, 'permission_revoked');
         await this.#notifyEnded(suspended, 'permission_revoked');
         return suspended.length;
+    }
+
+    /**
+     * Revoke the reused `events:handlers` worker session for (holder, app), if
+     * one was ever minted. Best-effort: a lookup or revoke failure must not
+     * fail the settle that triggered it.
+     */
+    async #revokeWorkerSession(userId: number, appUid: string): Promise<void> {
+        try {
+            const row = await this.stores.session.getWorker(userId, {
+                appUid,
+                workerName: EVENTS_WORKER_SESSION_NAME,
+            });
+            if (row) await this.services.auth.revokeSession(row.uuid);
+        } catch (err) {
+            console.warn(
+                '[events] could not revoke worker session',
+                appUid,
+                err,
+            );
+        }
     }
 
     /**

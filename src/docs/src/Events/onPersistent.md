@@ -37,7 +37,7 @@ await puter.perms.request(['events:background']);
 
 The user can take it back wherever they manage an app's access; every worker-target subscription that app holds for them is then suspended with `permission_revoked`, and re-granting does not bring one back — subscribe again. A subscription that only wants deliveries while your app is open needs no consent at all: pass `targets: ['socket']`.
 
-A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does.
+A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does. Withdrawing `events:background` or uninstalling the app revokes that session in turn, so a copied-out token stops working too.
 
 ## Where the handler runs, and what it is handed
 
