@@ -401,7 +401,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'password_required',
             });
         }
-        if (password.length < (this.config.min_pass_length || 6)) {
+        if (password.length < (this.config.min_pass_length ?? 6)) {
             throw new HttpError(400, 'Invalid password.', {
                 legacyCode: 'bad_request',
             });
@@ -782,7 +782,7 @@ export class AuthController extends PuterController {
                 throw new HttpError(400, 'password must be a string.', {
                     legacyCode: 'bad_request',
                 });
-            const minLen = this.config.min_pass_length || 6;
+            const minLen = this.config.min_pass_length ?? 6;
             if (body.password.length < minLen) {
                 throw new HttpError(
                     400,
@@ -2375,7 +2375,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'token_missing' as never,
             });
         }
-        const minLen = this.config.min_pass_length || 6;
+        const minLen = this.config.min_pass_length ?? 6;
         if (password.length < minLen) {
             throw new HttpError(
                 400,
@@ -2473,7 +2473,7 @@ export class AuthController extends PuterController {
             throw new HttpError(400, 'Missing `new_pass`.', {
                 legacyCode: 'bad_request',
             });
-        const minLen = this.config.min_pass_length || 6;
+        const minLen = this.config.min_pass_length ?? 6;
         if (new_pass.length < minLen) {
             throw new HttpError(
                 400,
@@ -2841,7 +2841,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'password_required',
             });
         }
-        const minLen = this.config.min_pass_length || 6;
+        const minLen = this.config.min_pass_length ?? 6;
         if (password.length < minLen) {
             throw new HttpError(
                 400,
