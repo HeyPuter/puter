@@ -20,7 +20,7 @@
     "@fontsource/inter": "^5.2.8",
     "esbuild": "0.25.11",
     "fs-extra": "^11.2.0",
-    "highlight.js": "^11.11.1",
+    "highlight.js": "^11.11.2",
     "html-entities": "^2.3.3",
     "jquery": "^4.0.0",
     "js-yaml": "^4.1.0",
