@@ -510,27 +510,14 @@ export class SessionStore extends PuterStore {
      */
     async getOrCreateWorker(userId, opts = {}) {
         if (!userId || !opts.workerName) return null;
+
+        const existing = await this.getWorker(userId, opts);
+        if (existing) return existing;
+
         const appUid = opts.appUid ?? null;
         const workerName = String(opts.workerName);
-
         const cacheKey = this.#cacheKeyWorker(userId, appUid, workerName);
         const now = nowSeconds();
-
-        const cached = await this.#readCacheKey(cacheKey);
-        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
-            return cached;
-        }
-
-        const existing = await this.#selectWorkerRow(
-            userId,
-            appUid,
-            workerName,
-        );
-        if (existing) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
-            return existing;
-        }
 
         const created = await this.#insertSession(
             userId,
@@ -559,6 +546,36 @@ export class SessionStore extends PuterStore {
         await this.#writeCacheKey(cacheKey, row);
         this.#writeCache(row).catch(() => {});
         return row;
+    }
+
+    /**
+     * Read-only counterpart to `getOrCreateWorker` — looks up the (user, app,
+     * worker_name) session row without creating one. `null` when no such
+     * session exists.
+     */
+    async getWorker(userId, opts = {}) {
+        if (!userId || !opts.workerName) return null;
+        const appUid = opts.appUid ?? null;
+        const workerName = String(opts.workerName);
+
+        const cacheKey = this.#cacheKeyWorker(userId, appUid, workerName);
+        const now = nowSeconds();
+
+        const cached = await this.#readCacheKey(cacheKey);
+        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
+            return cached;
+        }
+
+        const existing = await this.#selectWorkerRow(
+            userId,
+            appUid,
+            workerName,
+        );
+        if (existing) {
+            await this.#writeCacheKey(cacheKey, existing);
+            this.#writeCache(existing).catch(() => {});
+        }
+        return existing;
     }
 
     /**

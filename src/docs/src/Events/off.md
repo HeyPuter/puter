@@ -1,7 +1,7 @@
 ---
 title: subscription.off()
 description: End a subscription created with puter.events.onLocal().
-platforms: [websites, apps, nodejs, workers]
+platforms: [websites, apps, nodejs]
 ---
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>

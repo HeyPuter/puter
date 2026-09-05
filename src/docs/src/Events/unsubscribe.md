@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Ends a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/). It stops matching immediately and everything it was still owed goes with it — a backlog held for a subscription nobody can consume is memory, and the paths it names are ones its holder just stopped asking about.
+Ends a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/). It stops matching immediately, and any backlog it was still owed is dropped with it.
 
 For a session subscription made with [`puter.events.onLocal()`](/Events/onLocal/), use [`subscription.off()`](/Events/off/) instead.
 

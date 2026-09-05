@@ -20,8 +20,8 @@ puter.events.onPersistent(options)
 #### `options` (Object) (required)
 
 - `subject` (String) (required): What to watch — the same grammar `onLocal()` takes, e.g. `fs:~/Documents` or `fs:~/inbox/*.json:add`.
-- `delivery` (String): `'broadcast'` (default) delivers to everything listening. `'single'` delivers each event to exactly one consumer, which must acknowledge it, and requires `handlerName`.
-- `targets` (Array): Transports deliveries may take — any of `'socket'`, `'worker'`, `'push'`. Defaults to `['socket', 'worker']` for a subscription an app made, `['socket']` for one an account session made naming no app. A `single` subscription may not target `'push'`; a subscription with no app may not target `'worker'` — there is exactly one events worker per app, and no app means no worker to invoke.
+- `delivery` (String): The [delivery class](/Events/#delivery-class). `'broadcast'` (default) delivers to everything listening. `'single'` delivers each event to exactly one consumer, which must acknowledge it, and requires `handlerName`.
+- `targets` (Array): Transports deliveries may take — any of `'socket'`, `'worker'`, `'push'`. Defaults to `['socket', 'worker']` for a subscription an app made, `['socket']` for one an account session made naming no app. A subscription with no app may not target `'worker'` — there is exactly one [events worker](/Events/#events-worker) per app, and no app means no worker to invoke. `'push'` is reserved for a future device-notification transport: it is accepted (except on a `single` subscription, which may not target it) but nothing delivers through it yet.
 - `handlerName` (String): The published handler this subscription binds to. Required for `single`.
 - `handler` (Function | String | Object): The handler source this subscription was written against. Sent as a **hash**, never as source: the subscription binds only if that hash matches what is published under `handlerName`, which is why `handlerName` is required alongside it. Accepts a function, a source string, or `{ file: '~/AppData/…/handler.js' }`.
 - `context` (Object): Values the handler needs, delivered to it as a frozen `ctx`. **Capped at 4 KB serialized** — see below.
@@ -29,15 +29,15 @@ puter.events.onPersistent(options)
 
 ## Background delivery takes the user's consent
 
-A persistent subscription can run your handler when nobody is there — a different thing from delivering to a page the user has open — so it takes its own per-app permission, **`events:background`**. Subscribing with `worker` among its `targets` without it fails with `events_background_consent_required`, and `['socket', 'worker']` is the default for a subscription an app creates. Ask for it the way you ask for anything else:
+Running your handler when nobody is there is a different thing from delivering to a page the user has open, so it takes its own per-app permission, **`events:background`**. `['socket', 'worker']` is the default `targets` for a subscription an app creates; subscribing with `worker` among them without the permission fails with `events_background_consent_required`. Request it like any other permission:
 
 ```js
 await puter.perms.request(['events:background']);
 ```
 
-The user can take it back wherever they manage an app's access; every worker-target subscription that app holds for them is then suspended with `permission_revoked`, and re-granting does not bring one back — subscribe again. A subscription that only wants deliveries while your app is open needs no consent at all: pass `targets: ['socket']`.
+The user can revoke it wherever they manage an app's access. Doing so suspends every worker-target subscription that app holds for them with `permission_revoked`; re-granting the permission does not resume them, so subscribe again. A subscription that only wants deliveries while your app is open needs no consent at all: pass `targets: ['socket']`.
 
-A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does.
+A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does. Withdrawing `events:background` or uninstalling the app revokes that session in turn, so a copied-out token stops working too.
 
 ## Where the handler runs, and what it is handed
 
@@ -53,7 +53,7 @@ The handler runs **in this client while it is connected**, and in the app's even
 
 Passing `handler` as a **function** is what registers it to run here; a source string or `{ file }` is sent as a hash only, and nothing runs client-side. Either way the hash must match what is published under `handlerName`.
 
-Those five bindings are the whole environment. In the events worker there is no ambient `puter` and no identity of your own to act as — a delivery says whose it is, and `user` is it — so a handler that names `puter` or `me` is refused when you publish it rather than failing on its first delivery. That identity carries your app's own reach for that user — its KV, its AppData, whatever else they have granted it — the same as any session your app runs while they have a tab open.
+Those five bindings are the whole environment. The events worker has no ambient `puter` and no identity of your own to act as — a handler that names `puter` or `me` is refused when you publish it, rather than failing on its first delivery. `user` is that identity instead: it carries your app's own reach for that account — its KV, its AppData, whatever else the user has granted it — the same as any session your app runs while they have a tab open.
 
 ### Acknowledging a `single` delivery
 
@@ -65,11 +65,11 @@ A `single` delivery is owed to exactly one consumer, so it stays owed until it i
 
 In the events worker the same three outcomes are the response status: `2xx` takes the delivery, `4xx` refuses it (it is dropped with a `gap` marker carrying `reason: 'handler_rejected'`), and `5xx`, `429` or no answer within 30 seconds means "not now" — the delivery is retried after 2 seconds, doubling to at most 5 minutes. **Five failures in a row, refusals included, suspend the subscription** with `failures`; the developer is notified and republishing the handler puts it back in service.
 
-A handler that throws normally lands on the retriable side (`5xx`) — the failure might be transient. To refuse a delivery outright instead — a malformed event, say, where retrying changes nothing — throw an error with `terminal: true`, or a `code` of `'events_terminal'`; the worker maps that to a `4xx`, the same `handler_rejected` gap a plain refusal gets. This only matters in the events worker: thrown here, in the client, it just reaches whatever caught the promise.
+A handler that throws normally lands on the retriable side (`5xx`), since the failure might be transient. To refuse a delivery outright instead — a malformed event, say, where retrying changes nothing — throw an error with `terminal: true`, or a `code` of `'events_terminal'`. The worker maps that to a `4xx`, the same `handler_rejected` gap a plain refusal gets. This only matters in the events worker: thrown in the client, it just reaches whatever caught the promise.
 
 ## `context` is evaluated once, and capped at 4 KB
 
-A handler is deployed, not called: it is serialized and run later, somewhere else, so it cannot close over anything. `context` is how values reach it — and it is evaluated **at this call**, serialized, and never re-evaluated. `ctx.endpoint` is whatever `process.env.INGEST_URL` was when you subscribed, forever, until you subscribe again.
+A handler cannot close over anything (see [`puter.events.handlers`](/Events/handlers/)), so `context` is how values reach it. It is evaluated **at this call**, serialized, and never re-evaluated. `ctx.endpoint` is whatever `process.env.INGEST_URL` was when you subscribed, forever, until you subscribe again.
 
 ```js
 await puter.events.onPersistent({
@@ -109,7 +109,7 @@ The promise rejects with `{ message, code }`:
 | `events_background_consent_required` | The subscription targets `worker` and the user has not granted this app `events:background`. |
 | `events_context_too_large` | The serialized `context` is over 4 KB. |
 | `events_context_invalid` | `context` is not JSON-serializable. |
-| `invalid_targets` | A target outside `socket`/`worker`/`push`, `push` on a `single` subscription, or `worker` on a subscription with no app. |
+| `invalid_targets` | A target outside `socket`/`worker`/`push`, `push` on a `single` subscription (which may not target it), or `worker` on a subscription with no app. |
 | `invalid_expires_at` | `expiresAt` is not a future time. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
 | `events_subscription_limit` | This account already holds the maximum number of persistent subscriptions. |

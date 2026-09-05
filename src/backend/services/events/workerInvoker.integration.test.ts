@@ -45,11 +45,16 @@ import {
     EVENTS_CONSECUTIVE_FAILURES,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
+import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
-import { eventsInvokeKey, eventsWorkerScript } from './workerRuntime.js';
+import {
+    EVENTS_WORKER_SESSION_NAME,
+    eventsInvokeKey,
+    eventsWorkerScript,
+} from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -125,12 +130,12 @@ const startStub = async (): Promise<string> => {
     return `http://127.0.0.1:${(stub.address() as AddressInfo).port}`;
 };
 
-const subscribe = async (): Promise<string> => {
+const subscribe = async (token: string = appToken): Promise<string> => {
     const response = await fetch(new URL('/events/subscribe', env.apiOrigin), {
         method: 'POST',
         headers: {
             'content-type': 'application/json',
-            authorization: `Bearer ${appToken}`,
+            authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
             subject: `fs:${anchor}`,
@@ -143,6 +148,59 @@ const subscribe = async (): Promise<string> => {
     const body = (await response.json()) as { subId: string };
     expect(response.status).toBe(200);
     return body.subId;
+};
+
+/**
+ * A second app, isolated from the shared fixture, for tests that revoke or
+ * uninstall — so they don't take the rest of the suite's app down with them.
+ */
+const makeWorkerApp = async (): Promise<{
+    appUid: string;
+    appToken: string;
+    actor: Actor;
+}> => {
+    const uid = `app-${uuidv4()}`;
+    await env.server.clients.db.write(
+        'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+        [uid, uid, uid, `https://${uid}.example/`, userId],
+    );
+    const { actor } = await env.server.services.auth.authenticate(
+        env.users.user.token,
+    );
+    await env.server.services.permission.grantUserAppPermission(
+        actor!,
+        uid,
+        `fs:${anchorUid}:list`,
+    );
+    await env.server.services.permission.grantUserAppPermission(
+        actor!,
+        uid,
+        EVENTS_BACKGROUND_PERMISSION,
+    );
+    const token = await env.server.services.auth.getUserAppToken(actor!, uid);
+    await env.server.stores.eventHandler.publish({
+        appUid: uid,
+        name: HANDLER,
+        source: SOURCE,
+    });
+    return { appUid: uid, appToken: token, actor: actor! };
+};
+
+/** The reused `events:handlers` worker session for (userId, appUid), if any. */
+const workerSessionFor = async (forAppUid: string) => {
+    const rows = await env.server.stores.session.getByUserId(userId, {
+        includeRevoked: true,
+    });
+    return rows.find(
+        (row: {
+            kind: string;
+            app_uid: string;
+            meta?: { worker_name?: string };
+        }) =>
+            row.kind === 'worker' &&
+            row.app_uid === forAppUid &&
+            row.meta?.worker_name === EVENTS_WORKER_SESSION_NAME,
+    );
 };
 
 /** A durable KV subscription on the app's own namespace, targeting the worker. */
@@ -643,5 +701,122 @@ describe('with no events worker to address', () => {
             );
             await env.server.stores.user.invalidateById(userId);
         }
+    });
+});
+
+describe("what withdrawing an app's standing does to its worker session", () => {
+    it('revokes the session once background consent is withdrawn', async () => {
+        const app = await makeWorkerApp();
+        await subscribe(app.appToken);
+        await touch('consent-revoked.txt');
+        await invoked(1);
+        const token = calls[0].body.token!;
+        expect((await workerSessionFor(app.appUid))?.revoked_at).toBeNull();
+
+        await env.server.services.permission.revokeUserAppPermission(
+            app.actor,
+            app.appUid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+
+        await vi.waitFor(async () =>
+            expect(
+                (await workerSessionFor(app.appUid))?.revoked_at,
+            ).not.toBeNull(),
+        );
+        await expect(
+            env.server.services.auth.authenticate(token),
+        ).resolves.toMatchObject({
+            reauth: { reason: 'session_revoked' },
+        });
+    });
+
+    it('revokes the session when the app is uninstalled wholesale', async () => {
+        const app = await makeWorkerApp();
+        await subscribe(app.appToken);
+        await touch('uninstalled.txt');
+        await invoked(1);
+        const token = calls[0].body.token!;
+        expect((await workerSessionFor(app.appUid))?.revoked_at).toBeNull();
+
+        await env.server.services.permission.revokeUserAppAll(
+            app.actor,
+            app.appUid,
+        );
+
+        await vi.waitFor(async () =>
+            expect(
+                (await workerSessionFor(app.appUid))?.revoked_at,
+            ).not.toBeNull(),
+        );
+        await expect(
+            env.server.services.auth.authenticate(token),
+        ).resolves.toMatchObject({
+            reauth: { reason: 'session_revoked' },
+        });
+    });
+
+    it('leaves the session alone when an unrelated grant is revoked', async () => {
+        const app = await makeWorkerApp();
+        await subscribe(app.appToken);
+        await touch('unrelated-grant.txt');
+        await invoked(1);
+        const token = calls[0].body.token!;
+
+        await env.server.services.permission.revokeUserAppPermission(
+            app.actor,
+            app.appUid,
+            `fs:${anchorUid}:list`,
+        );
+        // Best-effort and async — nothing to wait *for* on the "stays alive"
+        // side, so give the listener a beat before asserting the negative.
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        expect((await workerSessionFor(app.appUid))?.revoked_at).toBeNull();
+        await expect(
+            env.server.services.auth.authenticate(token),
+        ).resolves.toMatchObject({ actor: expect.anything() });
+    });
+
+    it('mints a fresh session on the next delivery after a re-grant', async () => {
+        const app = await makeWorkerApp();
+        await subscribe(app.appToken);
+        await touch('regrant-before.txt');
+        await invoked(1);
+        const staleToken = calls[0].body.token!;
+        const staleRow = await workerSessionFor(app.appUid);
+
+        await env.server.services.permission.revokeUserAppPermission(
+            app.actor,
+            app.appUid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+        await vi.waitFor(async () =>
+            expect(
+                (await workerSessionFor(app.appUid))?.revoked_at,
+            ).not.toBeNull(),
+        );
+
+        await env.server.services.permission.grantUserAppPermission(
+            app.actor,
+            app.appUid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+
+        // The withdrawn consent settled the durable row along with the
+        // session, so a fresh subscribe is needed to get another delivery.
+        calls.length = 0;
+        await subscribe(app.appToken);
+        await touch('regrant-after.txt');
+        await invoked(1);
+
+        const freshToken = calls[0].body.token!;
+        expect(freshToken).not.toBe(staleToken);
+        const freshRow = await workerSessionFor(app.appUid);
+        expect(freshRow?.uuid).not.toBe(staleRow?.uuid);
+        expect(freshRow?.revoked_at).toBeNull();
+        await expect(
+            env.server.services.auth.authenticate(freshToken),
+        ).resolves.toMatchObject({ actor: expect.anything() });
     });
 });

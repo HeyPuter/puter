@@ -1,12 +1,14 @@
 ---
 title: puter.events.onLocal()
 description: Subscribe to changes on a file, directory, or key-value key for as long as this client is connected.
-platforms: [websites, apps, nodejs, workers]
+platforms: [websites, apps, nodejs]
 ---
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
 Subscribes to a subject and calls `handler` every time something matching it changes. The subscription belongs to this client's connection: nothing is stored, nothing runs while the page is closed, and it ends when the connection does. See [Events](/Events/) for the subject grammar and the event shape.
+
+Not for a Puter worker: a worker invocation is short-lived, so a subscription here only lasts as long as that one invocation. To react to changes from a worker, use [`onPersistent()`](/Events/onPersistent/) with a `worker` target and a published handler.
 
 ## Syntax
 ```js
@@ -36,9 +38,8 @@ Called with a single `{ event }` object per delivery. `event.op === 'gap'` means
 A `Promise` that resolves, once the server has confirmed the subscription, to a subscription object:
 
 - `subId` (String | null): The server's id for the subscription. It changes whenever the connection is rebuilt, so don't store anything against it.
-- `subject` (String): The subject you subscribed with.
-- `subject` is returned fully qualified: a `kv:` subject you wrote in the two-segment form comes back as `kv:<appId>:<key>`.
-- `anchor` (Object): `{ uid, path }` of the node the subscription is keyed to — the nearest existing ancestor when the subject named something that does not exist yet. For a `kv:` subject, `uid` is the app whose store is being watched and `path` is the key prefix it is anchored at; for one made through a share handle, `uid` is the handle and `path` is empty. The path is the one the anchor had when you subscribed — a later rename or move does not update it.
+- `subject` (String): The subject you subscribed with, returned fully qualified — a `kv:` subject you wrote in the two-segment form comes back as `kv:<appId>:<key>`.
+- `anchor` (Object): The subscription's [anchor](/Events/#anchor), as `{ uid, path }`. For a `kv:` subject, `uid` is the app whose store is being watched and `path` is the key prefix it is anchored at; for one made through a share handle, `uid` is the handle and `path` is empty. The path is the one the anchor had when you subscribed — a later rename or move does not update it.
 - `match` (String | null): The pattern events under the anchor are matched against, if the subject had one.
 - `op` (String | null): The single operation this subscription is limited to, or `null` for all of them.
 - `off` (Function): Ends the subscription — see [`subscription.off()`](/Events/off/).

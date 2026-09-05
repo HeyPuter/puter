@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-An **events worker** is what runs an app's published [handlers](/Events/handlers/) — one stands up the first time an app publishes a handler, and comes down when the last one is removed. It is a per-app artifact, not a per-handler one: an app with five published handlers still has exactly one events worker behind them.
+An [events worker](/Events/#events-worker) runs an app's published [handlers](/Events/handlers/). It is a per-app artifact, not a per-handler one: an app with five published handlers still has exactly one events worker behind them.
 
 A hosted Puter deployment may bill an events worker as a standing monthly cost, one charge per app that has one — publishing handlers you no longer use keeps that meter running even if nothing ever delivers to them. This surface is where an app owner sees what it is running and stops paying for one it does not need.
 
