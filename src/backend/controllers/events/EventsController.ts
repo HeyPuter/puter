@@ -388,12 +388,22 @@ export class EventsController extends PuterController {
      * Local development has no events dispatcher, so invocations are handed
      * straight to the local worker runtime — including the deploy-on-miss the
      * dispatcher would otherwise ask for over the rehydrate route above.
+     *
+     * Elsewhere, this backend already knows the app and script a miss names, so
+     * it deploys the script itself rather than count on the rehydrate callback
+     * landing on a backend behind the dispatcher's own hostname.
      */
     override onServerStart(): void {
         const deployer = this.#eventsWorkerDeployer();
-        if (!deployer.enabled || !this.config.workers?.localServer) return;
-        this.services.events.useWorkerTransport(
-            new LocalEventsInvokeTransport(this.services, deployer),
+        if (!deployer.enabled) return;
+        if (this.config.workers?.localServer) {
+            this.services.events.useWorkerTransport(
+                new LocalEventsInvokeTransport(this.services, deployer),
+            );
+            return;
+        }
+        this.services.events.useWorkerMissHandler((appUid, script) =>
+            deployer.ensure(appUid, script),
         );
     }
 
