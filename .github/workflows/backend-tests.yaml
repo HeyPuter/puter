@@ -1,28 +1,39 @@
 name: Backend Tests
 
-# Runs on backend and extension changes. Tests are co-located with the
-# code (src/backend/**/*.test.ts, extensions/**/*.test.ts), so test-only
-# changes match the same globs. puter.js SDK changes are covered by
-# puterjs-tests.yaml instead.
+# Always triggers so it can be a required PR check; the `changes` job below
+# decides whether backend/extension paths actually changed (test-only changes
+# match the same globs, since tests are co-located with the code), and every
+# other job is skipped — not absent — when they didn't, which still satisfies
+# a required check. puter.js SDK changes are covered by puterjs-tests.yaml.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - 'src/backend/**'
-      - 'extensions/**'
-      - 'tools/**'
-      - 'package.json'
-      - 'package-lock.json'
-      # The type-check job below reads these.
-      - 'tsconfig.json'
-      - 'tsconfig.build.json'
-      - '.github/workflows/backend-tests.yaml'
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/backend/**'
+              - 'extensions/**'
+              - 'tools/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.json'
+              - 'tsconfig.build.json'
+              - '.github/workflows/backend-tests.yaml'
+
   # `tsconfig.build.json` builds with `noCheck: true`, so nothing else in CI
   # runs the type checker and a missing export compiles to `undefined`,
   # surfacing only when the call is finally reached at runtime. This diffs
@@ -35,6 +46,8 @@ jobs:
   # Its own job rather than a step in `test`: that one runs a base/PR matrix for
   # coverage comparison, and the check only needs the PR ref, once.
   typecheck:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -53,6 +66,12 @@ jobs:
         run: npm run typecheck
 
   test:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    # Overrides the default matrix naming, which would otherwise bake the
+    # base/head branch name (matrix.ref) into the check name — making it a
+    # different string on every PR and impossible to pin as a required check.
+    name: test (${{ matrix.artifact }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -93,8 +112,8 @@ jobs:
           retention-days: 14
 
   report-coverage:
-    needs: test
-    if: always()
+    needs: [changes, test]
+    if: always() && needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
