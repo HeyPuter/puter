@@ -9,7 +9,7 @@ jobs:
   update-release-pr:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - name: Setup Git
         run: |
           git config user.name github-actions
@@ -20,7 +20,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           branch: release
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.find-pr.outputs.number == ''
         with:
           ref: release
