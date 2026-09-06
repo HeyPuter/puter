@@ -4,7 +4,9 @@ import * as utils from '../lib/utils.js';
 /**
  * One attachment: either inline base64 `content`, or a Puter FS reference
  * (`path`/`uid`) read server-side with the caller's — falling back to the
- * authorizing worker's — file permissions.
+ * authorizing worker's — file permissions. FS references are streamed from
+ * storage and never travel through the request, so prefer them for anything
+ * larger than a few hundred kilobytes.
  *
  * @typedef {Object} EmailAttachment
  * @property {string} [filename] Required with `content`; defaults to the file's name for FS refs.
@@ -15,7 +17,7 @@ import * as utils from '../lib/utils.js';
  */
 
 /**
- * The options form of `send()`.
+ * The options form of `sendTransactional()`.
  *
  * @typedef {Object} EmailSendOptions
  * @property {string | string[]} to Recipient address(es).
@@ -32,7 +34,7 @@ import * as utils from '../lib/utils.js';
  */
 
 /**
- * What one `send()` resolves to.
+ * What one `sendTransactional()` resolves to.
  *
  * @typedef {Object} EmailSendResult
  * @property {string | null} messageId First transport message id reported for this send, when available.
@@ -43,67 +45,98 @@ import * as utils from '../lib/utils.js';
  */
 
 /**
- * Restricted outbound email (the `puter-email` driver interface).
+ * The call shapes shared by `sendTransactional()` and its legacy alias.
+ *
+ * @typedef {{
+ *   (to: string | string[], subject: string, body: string): Promise<EmailSendResult>,
+ *   (options: EmailSendOptions): Promise<EmailSendResult>,
+ * }} EmailSendMethod
+ */
+
+/**
+ * `body` is positional-call sugar for `text`.
+ *
+ * @param {Record<string, unknown>} args
+ * @returns {Record<string, unknown>}
+ */
+const preprocessSendArgs = (args) => {
+    if (
+        args.body !== undefined &&
+        args.text === undefined &&
+        args.html === undefined
+    ) {
+        args.text = args.body;
+    }
+    delete args.body;
+    return args;
+};
+
+/**
+ * Transactional email from your app (the `puter-email` driver interface).
  *
  * Every send must be authorized by a worker: either the worker calls
- * directly (`me.puter.email.send(...)`), or a user calls with their own
- * token and passes the worker's token as `emailAccessToken` — the caller is
- * the one billed and rate-limited. In a worker handler:
+ * directly (`me.puter.email.sendTransactional(...)`), or a user calls with
+ * their own token and passes the worker's token as `emailAccessToken` — the
+ * caller is the one billed and rate-limited. In a worker handler:
  *
  *   router.post('/notify', async ({ request, user }) => {
  *       const { to, subject, text } = await request.json();
- *       return await user.puter.email.send({
+ *       return await user.puter.email.sendTransactional({
  *           to, subject, text,
  *           emailAccessToken: me.puter.authToken,
  *           // Inline or Puter-FS attachments:
  *           attachments: [
  *               { filename, content, contentType },  // content = base64
- *               { path: '~/Documents/report.pdf' },  // read server-side
+ *               { path: '~/Documents/report.pdf' },  // streamed server-side
  *           ],
  *       });
  *   });
  *
- * Positional form: `await puter.email.send(to, subject, body)`.
+ * Positional form: `await puter.email.sendTransactional(to, subject, body)`.
  *
- * Every mail automatically gets an unsubscribe / report-abuse footer.
- * Unsubscribing is per app: a recipient who opts out stops hearing from
- * the app they opted out of, and still hears from the other apps the same
- * account runs. Opted-out recipients are dropped from that app's future
- * sends — they come back in the result's `suppressed` array — and a send
- * whose `to` list is entirely opted out is rejected.
+ * Mail goes out from a Puter-controlled address, labelled with the app's
+ * title. Every mail automatically gets an unsubscribe / report-abuse
+ * footer. Unsubscribing is per app: a recipient who opts out stops hearing
+ * from the app they opted out of, and still hears from the other apps the
+ * same account runs. Opted-out recipients are dropped from that app's
+ * future sends — they come back in the result's `suppressed` array — and a
+ * send whose `to` list is entirely opted out is rejected.
  *
  * Each recipient gets a private delivery. A recipient whose delivery
  * fails comes back in the result's `failed` array (everyone else got
  * their copy — retry with just those addresses); the call only rejects
  * when no recipient could be delivered.
+ *
+ * `send()` is the previous name of this method and still works; it will be
+ * removed once existing apps have moved to `sendTransactional()`.
  */
 export class EmailModule extends PuterModule {
     /**
-     * Sends one email. The positional form is shorthand for a plain-text body;
-     * everything else (html, cc/bcc, attachments, `emailAccessToken`) goes
-     * through the options form.
+     * Sends one transactional email. The positional form is shorthand for a
+     * plain-text body; everything else (html, cc/bcc, attachments,
+     * `emailAccessToken`) goes through the options form.
      *
-     * @type {{
-     *   (to: string | string[], subject: string, body: string): Promise<EmailSendResult>,
-     *   (options: EmailSendOptions): Promise<EmailSendResult>,
-     * }}
+     * @type {EmailSendMethod}
+     */
+    sendTransactional = utils.makeDriverMethod({
+        iface: 'puter-email',
+        method: 'sendTransactional',
+        argNames: ['to', 'subject', 'body'],
+        preprocess: preprocessSendArgs,
+    });
+
+    /**
+     * Legacy name for {@link EmailModule.sendTransactional}; same arguments,
+     * same result.
+     *
+     * @deprecated Use `sendTransactional()`.
+     * @type {EmailSendMethod}
      */
     send = utils.makeDriverMethod({
         iface: 'puter-email',
         method: 'send',
         argNames: ['to', 'subject', 'body'],
-        preprocess: (args) => {
-            // `body` is positional-call sugar for `text`.
-            if (
-                args.body !== undefined &&
-                args.text === undefined &&
-                args.html === undefined
-            ) {
-                args.text = args.body;
-            }
-            delete args.body;
-            return args;
-        },
+        preprocess: preprocessSendArgs,
     });
 }
 

@@ -171,6 +171,40 @@ export default suite('system', {
         );
     },
 
+    'email.sendTransactional passes a driver error through unchanged': async (
+        t,
+    ) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.email.sendTransactional(
+                'nobody@example.com',
+                'subject',
+                'body',
+            ),
+        )) as { code?: string; message?: string };
+        t.assert.equal(error.code, 'not_found');
+        t.assert.equal(
+            error.message,
+            'Driver not found: puter-email:(no default)',
+        );
+    },
+
+    // `send` is the pre-rename alias: same wire shape, same error path.
+    'email.send and email.sendTransactional reject identically': async (t) => {
+        const options = {
+            to: 'nobody@example.com',
+            subject: 'subject',
+            text: 'body',
+        };
+        const viaAlias = (await t.assert.rejects(() =>
+            t.puter.email.send(options),
+        )) as { code?: string; message?: string };
+        const viaNew = (await t.assert.rejects(() =>
+            t.puter.email.sendTransactional(options),
+        )) as { code?: string; message?: string };
+        t.assert.equal(viaAlias.code, viaNew.code);
+        t.assert.equal(viaAlias.message, viaNew.message);
+    },
+
     'email.send reports failures to a positional error callback': async (t) => {
         let reported: { code?: string } | null = null;
         await t.assert.rejects(() =>
