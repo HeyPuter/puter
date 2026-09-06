@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createUploadThumbnailGenerator } from './services/pdfThumbnails/index.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
 import item_icon from './helpers/itemIcon.js';
@@ -1159,6 +1160,7 @@ window.create_file = async (options) => {
     try {
         puter.fs.upload(new File(content, filename), dirname, {
             generateThumbnails: true,
+            thumbnailGenerator: createUploadThumbnailGenerator(),
             success: async function (data) {
                 const created_file = $(appendto_element).find(`.item[data-path="${html_encode(dirname)}/${html_encode(data.name)}"]`);
                 if ( created_file.length > 0 ) {
@@ -2372,6 +2374,7 @@ window.upload_items = async function (items, dest_path) {
         // options
         {
             generateThumbnails: true,
+            thumbnailGenerator: createUploadThumbnailGenerator(),
             // init
             init: async (operation_id, xhr) => {
                 opid = operation_id;
@@ -2869,6 +2872,7 @@ window.unzipItem = async function (itemPath) {
                 {
                     createFileParent: true,
                     generateThumbnails: true,
+                    thumbnailGenerator: createUploadThumbnailGenerator(),
                     progress: async function (operation_id, op_progress) {
                         progwin.set_progress(op_progress);
                         // update title if window is not visible
@@ -3119,6 +3123,7 @@ window.untarItem = async function (itemPath) {
             {
                 createFileParent: true,
                 generateThumbnails: true,
+                thumbnailGenerator: createUploadThumbnailGenerator(),
                 progress: async function (operation_id, op_progress) {
                     progwin.set_progress(op_progress);
                     if ( document.visibilityState !== 'visible' ) {

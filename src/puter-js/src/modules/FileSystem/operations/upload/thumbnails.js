@@ -118,10 +118,11 @@ export const defaultThumbnailGenerator = async (file) => {
  * empty array when thumbnail generation was not requested.
  *
  * @param {File[]} files
- * @param {{ generateThumbnails?: boolean, thumbnailGenerator?: (file: File) => Promise<string | undefined> }} options
+ * @param {import('../../types.js').UploadOptions} options
+ * @param {AbortSignal} [signal]
  * @returns {Promise<Array<string | undefined>>}
  */
-export const generateThumbnails = async (files, options) => {
+export const generateThumbnails = async (files, options, signal) => {
     const shouldGenerateThumbnails = options.generateThumbnails || options.thumbnailGenerator;
     if ( ! files.length || ! shouldGenerateThumbnails ) {
         return [];
@@ -130,7 +131,8 @@ export const generateThumbnails = async (files, options) => {
     const generator = options.thumbnailGenerator || defaultThumbnailGenerator;
     return await Promise.all(files.map(async (file) => {
         try {
-            return await generator(file);
+            if ( signal?.aborted ) return undefined;
+            return await generator(file, { defaultGenerator: defaultThumbnailGenerator, signal });
         } catch (e) {
             return undefined;
         }

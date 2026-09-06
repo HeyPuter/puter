@@ -106,6 +106,7 @@ export const toErrorMessage = (error) => {
  *   url: string,
  *   blob: Blob,
  *   contentType?: string,
+ *   timeoutMs?: number,
  *   onProgress?: (deltaBytes: number) => void,
  *   onRequestCreated?: (request: XMLHttpRequest) => void,
  *   onRequestCompleted?: (request: XMLHttpRequest) => void,
@@ -116,6 +117,7 @@ export const uploadBlobToSignedUrl = async ({
     url,
     blob,
     contentType,
+    timeoutMs = 0,
     onProgress,
     onRequestCreated,
     onRequestCompleted,
@@ -124,6 +126,7 @@ export const uploadBlobToSignedUrl = async ({
         const request = new XMLHttpRequest();
         request.open('PUT', url, true);
         request.withCredentials = false;
+        request.timeout = timeoutMs;
 
         if ( contentType ) {
             request.setRequestHeader('Content-Type', contentType);
@@ -181,6 +184,11 @@ export const uploadBlobToSignedUrl = async ({
             const error = new Error('Signed upload aborted');
             error.aborted = true;
             reject(error);
+        };
+
+        request.ontimeout = () => {
+            onRequestCompleted?.(request);
+            reject(new Error('Signed upload timed out'));
         };
 
         request.send(blob);

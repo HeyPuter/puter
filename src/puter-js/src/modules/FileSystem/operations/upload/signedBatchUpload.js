@@ -6,6 +6,7 @@
 import path from 'path-browserify';
 import {
     MAX_THUMBNAIL_BYTES,
+    THUMBNAIL_UPLOAD_TIMEOUT_MS,
     SIGNED_BATCH_WRITE_CAPABILITY_KEY,
     SIGNED_BATCH_REQUEST_CHUNK_SIZE,
     SIGNED_BATCH_CHUNK_PIPELINE_CONCURRENCY,
@@ -302,21 +303,27 @@ export async function performSignedBatchUpload (ctx) {
                 const thumbnailUploadUrl = startResponse.thumbnailUploadUrl;
                 const thumbnailUrl = startResponse.thumbnailUrl;
                 if ( thumbnailUploadUrl && thumbnailUrl ) {
-                    const thumbnailBlob = await dataUrlToBlob(thumbnailData);
-                    if ( thumbnailBlob.size <= MAX_THUMBNAIL_BYTES ) {
-                        await uploadBlobToSignedUrl({
-                            url: thumbnailUploadUrl,
-                            blob: thumbnailBlob,
-                            contentType: thumbnailBlob.type || parseDataUrlContentType(thumbnailData),
-                            onProgress: addSignedProgress,
-                            onRequestCreated: (request) => {
-                                activeSignedRequests.add(request);
-                            },
-                            onRequestCompleted: (request) => {
-                                activeSignedRequests.delete(request);
-                            },
-                        });
-                        completionThumbnailData = thumbnailUrl;
+                    try {
+                        const thumbnailBlob = await dataUrlToBlob(thumbnailData);
+                        if ( thumbnailBlob.size <= MAX_THUMBNAIL_BYTES ) {
+                            await uploadBlobToSignedUrl({
+                                url: thumbnailUploadUrl,
+                                blob: thumbnailBlob,
+                                contentType: thumbnailBlob.type || parseDataUrlContentType(thumbnailData),
+                                timeoutMs: THUMBNAIL_UPLOAD_TIMEOUT_MS,
+                                onProgress: addSignedProgress,
+                                onRequestCreated: (request) => {
+                                    activeSignedRequests.add(request);
+                                },
+                                onRequestCompleted: (request) => {
+                                    activeSignedRequests.delete(request);
+                                },
+                            });
+                            completionThumbnailData = thumbnailUrl;
+                        }
+                    } catch (error) {
+                        if ( signedUploadAborted || error?.aborted ) throw error;
+                        // A missing preview must not prevent the original file from uploading.
                     }
                 }
             } else if ( typeof thumbnailData === 'string' && thumbnailData.length > 0 ) {

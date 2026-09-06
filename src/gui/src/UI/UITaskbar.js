@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createUploadThumbnailGenerator } from '../services/pdfThumbnails/index.js';
 import UITaskbarItem from './UITaskbarItem.js';
 import UIPopover from './UIPopover.js';
 import launch_app from '../helpers/launchApp.js';
@@ -252,6 +253,7 @@ async function UITaskbar (options) {
                             });
                             await puter.fs.upload(new File([content], fileName), window.desktop_path, {
                                 generateThumbnails: true,
+                                thumbnailGenerator: createUploadThumbnailGenerator(),
                             });
                         } catch ( err ) {
                             console.error('Failed to add shortcut to desktop:', err);

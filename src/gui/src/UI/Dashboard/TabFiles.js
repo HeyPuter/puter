@@ -19,6 +19,7 @@
 
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
+import { createUploadThumbnailGenerator } from '../../services/pdfThumbnails/index.js';
 import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
@@ -1278,6 +1279,7 @@ const TabFiles = {
 
             puter.fs.upload(files, _this.currentPath, {
                 generateThumbnails: true,
+                thumbnailGenerator: createUploadThumbnailGenerator(),
                 init: async (operation_id, xhr) => {
                     opid = operation_id;
                     // create upload progress window
@@ -4716,6 +4718,7 @@ const TabFiles = {
 
         puter.fs.upload(items, destPath, {
             generateThumbnails: true,
+            thumbnailGenerator: createUploadThumbnailGenerator(),
             init: async (operation_id, xhr) => {
                 opid = operation_id;
                 upload_progress_window = await UIWindowProgress({

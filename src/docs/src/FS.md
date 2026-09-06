@@ -5,6 +5,8 @@ description: Store and manage data in the user's own cloud drive with Puter.js f
 
 The Cloud Storage API lets you store and manage data in the cloud.
 
+Local [uploads](/FS/upload/) can optionally generate browser image thumbnails or use a custom thumbnail callback. The callback can delegate to the built-in image generator and respond to upload cancellation. The Puter desktop additionally provides PDF previews without adding a PDF renderer to the SDK.
+
 It comes with a comprehensive but familiar file system operations including write, read, delete, move, and copy for files, plus powerful directory management features like creating directories, listing contents, and much more.
 
 With Puter.js, you don't need to worry about setting up storage infrastructure such as configuring buckets, managing CDNs, or ensuring availability, since everything is handled for you. Additionally, with the [User-Pays Model](/user-pays-model/), you don't have to worry about storage or bandwidth costs, as users of your application cover their own usage.
