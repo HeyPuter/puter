@@ -378,7 +378,7 @@ describe('MoonshotProvider image inlining', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'kimi-k2.5', // kimi-k2.5 declares image input modality
+                model: 'kimi-k3', // kimi-k3 declares image input modality
                 messages: messages as unknown as { role: string; content: unknown }[],
             }),
         );
@@ -423,16 +423,16 @@ describe('MoonshotProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'moonshot-v1-32k',
+                model: 'kimi-k2.7-code',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('moonshot-v1-32k');
+        expect(createMock.mock.calls[0]![0].model).toBe('kimi-k2.7-code');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'moonshotai:moonshot-v1-32k',
+            'moonshotai:kimi-k2.7-code',
             expect.any(Object),
         );
     });

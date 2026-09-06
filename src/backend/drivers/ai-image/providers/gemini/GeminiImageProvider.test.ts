@@ -24,8 +24,7 @@
  * redis) and constructs GeminiImageProvider directly against the
  * live wired `MeteringService` so the recording side runs end-to-end.
  * The Google GenAI SDK is mocked at the module boundary — that's the
- * real network egress point. Both the `generateContent` (Flash) and
- * `generateImages` (Imagen) code paths are covered.
+ * real network egress point.
  */
 
 import {
@@ -49,10 +48,9 @@ import { GeminiImageProvider } from './GeminiImageProvider.js';
 
 // ── Google GenAI SDK mock ───────────────────────────────────────────
 
-const { generateContentMock, generateImagesMock, googleAICtor } = vi.hoisted(
+const { generateContentMock, googleAICtor } = vi.hoisted(
     () => ({
         generateContentMock: vi.fn(),
-        generateImagesMock: vi.fn(),
         googleAICtor: vi.fn(),
     }),
 );
@@ -65,7 +63,6 @@ vi.mock('@google/genai', () => {
         googleAICtor(opts);
         this.models = {
             generateContent: generateContentMock,
-            generateImages: generateImagesMock,
         };
     });
     return { GoogleGenAI };
@@ -103,7 +100,6 @@ const makeProvider = () =>
 
 beforeEach(() => {
     generateContentMock.mockReset();
-    generateImagesMock.mockReset();
     toBase64DataUriMock.mockReset();
     googleAICtor.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
@@ -168,7 +164,6 @@ describe('GeminiImageProvider.generate test_mode', () => {
         );
         expect(hasCreditsSpy).not.toHaveBeenCalled();
         expect(generateContentMock).not.toHaveBeenCalled();
-        expect(generateImagesMock).not.toHaveBeenCalled();
     });
 });
 
@@ -249,7 +244,6 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         expect(sent.contents[0]).toEqual({ text: 'a tiny red dot' });
         expect(sent.config.responseModalities).toEqual(['TEXT', 'IMAGE']);
         expect(sent.config.imageConfig.aspectRatio).toBe('16:9');
-        expect(generateImagesMock).not.toHaveBeenCalled();
     });
 
     it('falls back to the first allowedRatio when an invalid ratio is supplied', async () => {
@@ -371,87 +365,5 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
             entries as Array<{ usageType: string; usageAmount: number }>
         ).find((e) => e.usageType.endsWith('output:image'));
         expect(imageEntry?.usageAmount).toBe(1290);
-    });
-});
-
-// ── generateImages (Imagen) path ────────────────────────────────────
-
-describe('GeminiImageProvider.generate Imagen path (generateImages)', () => {
-    const imagenResponse = {
-        generatedImages: [
-            { image: { mimeType: 'image/png', imageBytes: 'BASE64IMAGEN' } },
-        ],
-    };
-
-    it('routes generateImages-typed models to the Imagen API and returns a base64 data URL', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce(imagenResponse);
-
-        const result = await withTestActor(() =>
-            provider.generate({
-                // imagen-4.0-fast has apiType='generateImages'.
-                model: 'imagen-4.0-fast-generate-001',
-                prompt: 'a cat',
-                ratio: { w: 1, h: 1 },
-            }),
-        );
-
-        expect(generateContentMock).not.toHaveBeenCalled();
-        expect(generateImagesMock).toHaveBeenCalledTimes(1);
-        const sent = generateImagesMock.mock.calls[0]![0];
-        expect(sent.model).toBe('imagen-4.0-fast-generate-001');
-        expect(sent.config.aspectRatio).toBe('1:1');
-        expect(sent.config.numberOfImages).toBe(1);
-
-        expect(result).toBe('data:image/png;base64,BASE64IMAGEN');
-    });
-
-    it('meters one usage at the per-image cents rate × 1e6', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce(imagenResponse);
-
-        await withTestActor(() =>
-            provider.generate({
-                model: 'imagen-4.0-fast-generate-001',
-                prompt: 'a cat',
-            }),
-        );
-
-        // imagen-4.0-fast: 2 cents/image → 2_000_000 microcents.
-        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
-        const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
-        expect(usageType).toBe('gemini:imagen-4.0-fast-generate-001');
-        expect(count).toBe(1);
-        expect(cost).toBe(2 * 1_000_000);
-    });
-
-    it('throws 400 when the Imagen response carries no image bytes', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce({ generatedImages: [] });
-
-        await expect(
-            withTestActor(() =>
-                provider.generate({
-                    model: 'imagen-4.0-fast-generate-001',
-                    prompt: 'hi',
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('throws 400 when the Imagen response was filtered for safety', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce({
-            generatedImages: [{ raiFilteredReason: 'unsafe content' }],
-        });
-
-        await expect(
-            withTestActor(() =>
-                provider.generate({
-                    model: 'imagen-4.0-fast-generate-001',
-                    prompt: 'hi',
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
     });
 });
