@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+    PDFJS_VERSION,
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
@@ -24,7 +25,11 @@ beforeEach(async () => {
     vi.stubGlobal('Worker', class {
         terminate = vi.fn();
         postMessage = vi.fn();
-        constructor () { workers.push(this); }
+        constructor (url, options) {
+            this.url = url;
+            this.options = options;
+            workers.push(this);
+        }
         complete (value = thumbnail) { this.onmessage({ data: { type: 'thumbnail', thumbnail: value } }); }
     });
     ({ createUploadThumbnailGenerator } = await import('./index.js'));
@@ -33,7 +38,68 @@ beforeEach(async () => {
 afterEach(async () => {
     await vi.runAllTimersAsync();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+});
+
+describe('PDF thumbnail asset loading', () => {
+    it('uses the local dist directory for unbundled development', async () => {
+        const result = createUploadThumbnailGenerator()(pdf());
+        expect(workers[0].url).toBe(`/dist/pdf-thumbnails/${PDFJS_VERSION}/worker.js`);
+        workers[0].complete();
+        expect(await result).toBe(thumbnail);
+    });
+
+    it('resolves same-origin assets beside the bundle, independent of the page path', async () => {
+        vi.stubGlobal('document', { currentScript: { src: 'https://desktop.example/assets/bundle.js?v=1' } });
+        vi.stubGlobal('location', new URL('https://desktop.example/dashboard'));
+        vi.resetModules();
+        ({ createUploadThumbnailGenerator } = await import('./index.js'));
+        document.currentScript = null;
+        const result = createUploadThumbnailGenerator()(pdf());
+        expect(workers[0].url).toBe(`https://desktop.example/assets/pdf-thumbnails/${PDFJS_VERSION}/worker.js`);
+        expect(workers[0].options).toEqual({ type: 'module' });
+        workers[0].complete();
+        expect(await result).toBe(thumbnail);
+    });
+
+    it.each(['success', 'error', 'cancel', 'timeout', 'construction', 'clone'])(
+        'releases the cross-origin worker Blob after %s', async (outcome) => {
+            vi.stubGlobal('document', { currentScript: { src: 'https://cdn.example/assets/bundle.js?v=1' } });
+            vi.stubGlobal('location', new URL('https://desktop.example/dashboard'));
+            const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:https://desktop.example/worker');
+            const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+            vi.resetModules();
+            ({ createUploadThumbnailGenerator } = await import('./index.js'));
+            document.currentScript = null;
+            const generate = createUploadThumbnailGenerator();
+            await generate(new File(['image'], 'image.png'));
+            expect(createObjectUrl).not.toHaveBeenCalled();
+            if ( outcome === 'construction' ) {
+                vi.stubGlobal('Worker', class { constructor () { throw new Error('blocked'); } });
+            }
+            const controller = new AbortController();
+            const result = generate(pdf(), { signal: controller.signal });
+            expect(createObjectUrl).toHaveBeenCalledOnce();
+            expect(await createObjectUrl.mock.calls[0][0].text()).toBe(
+                `import "https://cdn.example/assets/pdf-thumbnails/${PDFJS_VERSION}/worker.js";`,
+            );
+            if ( outcome !== 'construction' ) {
+                expect(workers[0].url).toBe('blob:https://desktop.example/worker');
+                expect(workers[0].options).toEqual({ type: 'module' });
+                expect(revokeObjectUrl).not.toHaveBeenCalled();
+            }
+            if ( outcome === 'success' ) workers[0].complete();
+            if ( outcome === 'error' ) workers[0].onerror({ preventDefault: vi.fn() });
+            if ( outcome === 'cancel' ) controller.abort();
+            if ( outcome === 'timeout' ) await vi.advanceTimersByTimeAsync(PDF_THUMBNAIL_JOB_TIMEOUT_MS);
+            if ( outcome === 'clone' ) workers[0].onmessageerror();
+            expect(await result).toBe(outcome === 'success' ? thumbnail : undefined);
+            expect(revokeObjectUrl).toHaveBeenCalledExactlyOnceWith('blob:https://desktop.example/worker');
+            if ( workers.length ) expect(workers[0].terminate).toHaveBeenCalledOnce();
+            expect(vi.getTimerCount()).toBe(0);
+        },
+    );
 });
 
 describe('GUI upload thumbnail scheduling', () => {

@@ -11,7 +11,12 @@ PDF.js and its fonts, CMaps, ICC profiles and WASM decoders are copied into the
 versioned `/dist/pdf-thumbnails/` directory during the GUI build. Deploy that
 directory with the GUI. `PDFJS_VERSION` must match the exact GUI dependency;
 the build rejects mismatches. The SDK and initial GUI bundle contain no PDF.js.
-Asset requests stay on the GUI origin and begin only for an eligible PDF.
+Asset requests begin only for an eligible PDF. Bundled builds load them beside
+the GUI bundle, including when it is served from a CDN; unbundled development
+uses `/dist/pdf-thumbnails/` on the page's origin. A cross-origin asset host must
+allow CORS for the worker, modules, fonts, CMaps, ICC profiles and WASM files.
+Cross-origin builds use a local Blob module worker that imports the hosted
+worker, so the page's CSP must allow `blob:` workers and imports from that host.
 
 Each PDF gets a disposable module worker. PDF.js uses its loopback transport
 inside that worker, so termination stops both parsing and rasterization. Fonts

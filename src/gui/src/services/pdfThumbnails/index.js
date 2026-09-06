@@ -1,11 +1,19 @@
 import { defaultThumbnailGenerator } from '../../../../puter-js/src/modules/FileSystem/operations/upload/thumbnails.js';
 import {
+    PDFJS_VERSION,
     PDF_THUMBNAIL_ASSET_PATH,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_BYTES,
 } from './config.js';
+
+// Capture the bundle URL during evaluation; currentScript is null when an upload starts.
+const bundleUrl = globalThis.document?.currentScript?.src;
+const workerUrl = bundleUrl
+    ? new URL(`pdf-thumbnails/${PDFJS_VERSION}/worker.js`, bundleUrl).href
+    : `${PDF_THUMBNAIL_ASSET_PATH}worker.js`;
+const useWorkerWrapper = bundleUrl && new URL(bundleUrl).origin !== globalThis.location?.origin;
 
 const pendingJobs = new Set();
 let activeJob;
@@ -28,6 +36,7 @@ const startNextJob = () => {
 
 const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => {
     let worker;
+    let workerBlobUrl;
     let settled = false;
     let jobTimer;
     let deadlineTimer;
@@ -38,6 +47,7 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
         clearTimeout(deadlineTimer);
         signal?.removeEventListener('abort', onAbort);
         worker?.terminate();
+        if ( workerBlobUrl ) URL.revokeObjectURL(workerBlobUrl);
         pendingJobs.delete(job);
         if ( activeJob === job ) activeJob = undefined;
         resolve(thumbnail);
@@ -51,8 +61,14 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
                 return;
             }
             try {
+                // Worker entry URLs must be same-origin; module imports can use the asset host's CORS policy.
+                if ( useWorkerWrapper ) {
+                    workerBlobUrl = URL.createObjectURL(new Blob([`import ${JSON.stringify(workerUrl)};`], {
+                        type: 'text/javascript',
+                    }));
+                }
                 // All parsing, file reads and rasterization stay off the desktop thread.
-                worker = new Worker(`${PDF_THUMBNAIL_ASSET_PATH}worker.js`, { type: 'module' });
+                worker = new Worker(workerBlobUrl || workerUrl, { type: 'module' });
                 worker.onmessage = ({ data: message }) => {
                     if ( message?.type !== 'thumbnail' ) return;
                     const data = message.thumbnail;
