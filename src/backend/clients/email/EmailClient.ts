@@ -28,10 +28,15 @@ import {
     type EmailTemplateName,
 } from './templates';
 
-/** Attachment shape passed through to the underlying transport. */
+/**
+ * Attachment shape passed through to the underlying transport. Give either
+ * `content` (held in memory) or `path` (a local file the transport streams on
+ * its own, re-read for every message that carries it).
+ */
 export interface EmailAttachment {
     filename: string;
-    content: Buffer | string;
+    content?: Buffer | string;
+    path?: string;
     contentType?: string;
     encoding?: string;
 }
