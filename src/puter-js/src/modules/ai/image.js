@@ -58,6 +58,10 @@ export async function txt2img (promptOrOptions, optionsOrTestMode) {
         options = promptOrOptions;
     }
 
+    if ( ! options.prompt ) {
+        throw ({ message: 'Prompt parameter is required', code: 'prompt_required' });
+    }
+
     const driverHint = typeof options.driver === 'string' ? options.driver : undefined;
     const imageService = driverHint || 'ai-image';
 
