@@ -122,7 +122,7 @@ describe('GUI upload thumbnail scheduling', () => {
         const results = Array.from({ length: 20 }, () => generate(pdf()));
         await vi.advanceTimersByTimeAsync(PDF_THUMBNAIL_BATCH_TIMEOUT_MS);
         expect(await Promise.all(results)).toEqual(Array(20).fill(undefined));
-        expect(workers).toHaveLength(3);
+        expect(workers).toHaveLength(Math.ceil(PDF_THUMBNAIL_BATCH_TIMEOUT_MS / PDF_THUMBNAIL_JOB_TIMEOUT_MS));
         expect(workers.every(worker => worker.terminate.mock.calls.length === 1)).toBe(true);
         workers[0].complete();
         expect(await generate(pdf())).toBeUndefined();

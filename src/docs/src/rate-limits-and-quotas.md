@@ -104,7 +104,7 @@ The Puter desktop generates PDF upload thumbnails locally with these best-effort
 | Input PDF size | 20 MiB |
 | Active PDF renderers per desktop page | 1 |
 | Preparation per upload, including queued PDFs | 5 seconds from the first eligible PDF |
-| Worker lifetime per PDF, including asset loading and cleanup | 2 seconds |
+| Worker lifetime per PDF, including asset loading and cleanup | 4 seconds |
 | Embedded image or intermediate canvas area | 4,194,304 pixels |
 | Image resize budget passed to PDF.js | 16 MiB |
 | Output | First page, at most 128 × 128 pixels, preserving aspect ratio |
