@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
-    "esbuild": "0.25.11",
+    "esbuild": "0.25.12",
     "fs-extra": "^11.3.6",
     "highlight.js": "^11.11.2",
     "html-entities": "^2.3.3",
