@@ -8,6 +8,8 @@ platforms: [websites, apps, nodejs, workers]
 
 Creates a subscription that outlives this connection. It is stored against the account, keeps matching while your app is closed, and runs a handler your app published with [`puter.events.handlers.publish()`](/Events/handlers/). Contrast [`puter.events.onLocal()`](/Events/onLocal/), which lives and dies with the page.
 
+The subscription is live immediately in the region it was created in. A change made in another region in the first moment after this call resolves may take a little longer to reach it — usually well under a second — while that region catches up.
+
 See [Events](/Events/) for the subject grammar and the event shape.
 
 ## Syntax
@@ -37,7 +39,7 @@ await puter.perms.request(['events:background']);
 
 The user can revoke it wherever they manage an app's access. Doing so suspends every worker-target subscription that app holds for them with `permission_revoked`; re-granting the permission does not resume them, so subscribe again. A subscription that only wants deliveries while your app is open needs no consent at all: pass `targets: ['socket']`.
 
-A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does. Withdrawing `events:background` or uninstalling the app revokes that session in turn, so a copied-out token stops working too.
+A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does. Withdrawing `events:background` or uninstalling the app revokes that session in turn, so a copied-out token stops working too — and so does destroying the app's events worker or deleting the app outright.
 
 ## Where the handler runs, and what it is handed
 

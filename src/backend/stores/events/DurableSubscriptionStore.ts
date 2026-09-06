@@ -717,7 +717,50 @@ export class DurableSubscriptionStore extends PuterStore {
         return rows.map(toRow);
     }
 
+    /**
+     * Every holder with a row bound to this app — who may hold a reused
+     * `events:handlers` worker session for it.
+     * `idx_event_subscriptions_app_handler` is `app_uid`-leading, so this is an
+     * indexed scan rather than a table scan, with no new index needed.
+     * Suspended rows included: a row `handler_not_found` still names a holder
+     * who may hold the session.
+     */
+    async listHolderIdsForApp(appUid: string): Promise<number[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT DISTINCT \`holder_user_id\` FROM \`${TABLE}\` WHERE \`app_uid\` = ?`,
+            [appUid],
+        );
+        return rows.map((row) => Number(row.holder_user_id));
+    }
+
+    /**
+     * Page and delete every row bound to one app, wherever its holder lives.
+     * What app deletion reaps: `#reap` already purges the backlog, drops the
+     * cache and bumps a generation per owner, so this is the whole of it.
+     */
+    async reapForApp(appUid: string, batchSize: number): Promise<number> {
+        return this.#reap(await this.#listForApp(appUid, batchSize));
+    }
+
     // -- Internals ---------------------------------------------------
+
+    /**
+     * Primary, unlike the timed sweeps: this runs the moment an app is deleted,
+     * and a replica still a beat behind would answer "nothing to reap" and
+     * leave the rows with nothing to come back for them.
+     */
+    async #listForApp(
+        appUid: string,
+        batchSize: number,
+    ): Promise<DurableSubscription[]> {
+        const limit = Math.max(1, Math.floor(batchSize));
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `app_uid` = ? ORDER BY `id` LIMIT ?',
+            [appUid, limit],
+        );
+        return rows.map(toRow);
+    }
 
     /** One page of a whole-table scan, ordered and positioned by primary key. */
     async #page(

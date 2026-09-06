@@ -294,6 +294,9 @@ const buildService = (
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
+                announceWatch: () => undefined,
+                forwardEvent: () => undefined,
+                announceGeneration: () => undefined,
             },
             socket: {
                 send: vi.fn(async (spec: { socket?: string }, _key, data) => {
@@ -641,7 +644,9 @@ describe('what a dispatch costs', () => {
 
         await dispatch(elsewhere);
 
-        expect(commands).toEqual(['smismember']);
+        // One pipeline: the local membership test alongside the remote-watch
+        // read, still one round trip.
+        expect(commands).toEqual(['pipeline']);
         expect(sent).toEqual([]);
     });
 
@@ -653,8 +658,9 @@ describe('what a dispatch costs', () => {
 
         await dispatch(file);
 
-        // The membership test, then one pipelined read of the one hit.
-        expect(commands).toEqual(['smismember', 'pipeline']);
+        // The membership + remote-watch pipeline, then one pipelined read of
+        // the one hit.
+        expect(commands).toEqual(['pipeline', 'pipeline']);
     });
 
     it('walks the tree only for a user who has subscriptions', async () => {
@@ -869,7 +875,7 @@ describe('cold-region rebuild concurrency', () => {
             // Not being able to tell must resolve as "nothing subscribed"
             // rather than hang, and must not leave the in-flight lookup
             // wedged for every dispatch after it.
-            await expect(dispatch(file)).resolves.toBeUndefined();
+            await expect(dispatch(file)).resolves.toBe(false);
 
             await subscribe(`fs:${documents.uid}`);
             await dispatch(file);
@@ -1541,7 +1547,8 @@ describe('failure containment', () => {
         const { file } = seedTree();
         vi.spyOn(store, 'userHasAny').mockRejectedValue(new Error('down'));
 
-        await expect(dispatch(file)).resolves.toBeUndefined();
+        // Not being able to tell resolves as "nothing subscribed".
+        await expect(dispatch(file)).resolves.toBe(false);
         expect(sent).toEqual([]);
     });
 
@@ -1555,7 +1562,9 @@ describe('failure containment', () => {
             }
         ).services.socket.send.mockRejectedValue(new Error('no socket'));
 
-        await expect(dispatch(file)).resolves.toBeUndefined();
+        // The row still matched and was routed; the socket failure is caught
+        // asynchronously downstream of the return.
+        await expect(dispatch(file)).resolves.toBe(true);
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
         expect(delivered).toHaveLength(1);
     });
@@ -1803,7 +1812,9 @@ describe('what a kv dispatch costs', () => {
 
         await dispatchKv(['elsewhere']);
 
-        expect(commands).toEqual(['smismember']);
+        // One pipeline: the local membership test alongside the remote-watch
+        // read, still one round trip.
+        expect(commands).toEqual(['pipeline']);
         expect(sent).toEqual([]);
     });
 
@@ -1815,7 +1826,7 @@ describe('what a kv dispatch costs', () => {
 
         await dispatchKv(keys);
 
-        expect(commands).toEqual(['smismember', 'pipeline']);
+        expect(commands).toEqual(['pipeline', 'pipeline']);
     });
 });
 

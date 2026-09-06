@@ -261,6 +261,8 @@ Puter runs in several places, and a client connects to whichever one is nearest.
 
 The one consequence worth knowing is the one already stated: a `single` delivery is **at-least-once**. Undelivered events are held where the change happened, so a deployment going down loses only what it was still holding — the subscription itself, and everything already delivered, is unaffected. Handlers are asked to be idempotent for this reason, and `event.id` is the key to deduplicate on.
 
+Ordering follows the same shape: a subscription's own deliveries stay in order within the region that emits them, but the ordering is best effort across regions, and the 250 ms coalescing window is applied per region rather than globally. Two writes made moments apart can therefore arrive coalesced into one event in a region near the writer and as two separate ones somewhere farther away.
+
 ## Limits
 
 Subscriptions per connection, persistent subscriptions per account, published handlers per app, subscribe calls per minute, and how much one event may fan out are all capped — see [Rate Limits and Quotas](/rate-limits-and-quotas/). Deliveries are coalesced over 250 ms per subject, so a multipart upload or a save loop arrives as one event rather than one per write.

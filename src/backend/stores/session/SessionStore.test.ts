@@ -507,6 +507,107 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('listWorkerSessions', () => {
+        it('pages live sessions for one worker name, oldest id first', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const appA = `app-${uuidv4()}`;
+            const appB = `app-${uuidv4()}`;
+            const a = await target.getOrCreateWorker(user.id, {
+                appUid: appA,
+                workerName,
+            });
+            const b = await target.getOrCreateWorker(user.id, {
+                appUid: appB,
+                workerName,
+            });
+
+            const rows = await target.listWorkerSessions({ workerName });
+            const uuids = rows.map((row: { uuid: string }) => row.uuid);
+            expect(uuids).toContain(a.uuid);
+            expect(uuids).toContain(b.uuid);
+            expect(rows.every((row: { id: number }) => Number.isFinite(row.id)))
+                .toBe(true);
+        });
+
+        it('does not return a revoked session', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const row = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            await target.removeByUuid(row.uuid);
+
+            const rows = await target.listWorkerSessions({ workerName });
+            expect(rows.map((r: { uuid: string }) => r.uuid)).not.toContain(
+                row.uuid,
+            );
+        });
+
+        it('never returns a different worker name', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const wanted = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const other = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: other,
+            });
+
+            const rows = await target.listWorkerSessions({
+                workerName: wanted,
+            });
+            expect(rows).toEqual([]);
+        });
+
+        it('a user-scoped worker (no app) is never returned', async () => {
+            // The stray-session sweep only ever finds rows with an app to
+            // check for existence — a worker session with no app has
+            // nothing for it to resolve.
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+
+            const rows = await target.listWorkerSessions({ workerName });
+            expect(rows).toEqual([]);
+        });
+
+        it('respects the keyset cursor and limit', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const first = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            const second = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+
+            const page = await target.listWorkerSessions({
+                workerName,
+                limit: 1,
+            });
+            expect(page).toHaveLength(1);
+            expect(page[0].uuid).toBe(first.uuid);
+
+            const next = await target.listWorkerSessions({
+                workerName,
+                afterId: page[0].id,
+            });
+            expect(next.map((r: { uuid: string }) => r.uuid)).toContain(
+                second.uuid,
+            );
+            expect(next.map((r: { uuid: string }) => r.uuid)).not.toContain(
+                first.uuid,
+            );
+        });
+    });
+
     describe('error propagation (no silent swallow)', () => {
         // INSERT-IGNORE used to mask every constraint violation, not just
         // the partial-unique-index conflict the `getOrCreate*` paths rely

@@ -239,7 +239,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -1151,6 +1156,12 @@ interface IConfigOptional {
      *   worker and delivery invokes it. Absent means off: publish stores rows
      *   and nothing is deployed, and the invoker keeps its null resolver, so
      *   worker-target deliveries stay retriable until something answers.
+     * - `forwardSession` — whether `onLocal` (session) subscriptions are
+     *   forwarded across regions. On unless set to `false`, which holds back
+     *   the per-token remote-watch index: a write in another region then never
+     *   reaches a session subscription here. Durable (`onPersistent`)
+     *   subscriptions and the rest of the addressed channel are unaffected
+     *   either way.
      */
     events?: {
         enabled?: boolean;
@@ -1158,6 +1169,7 @@ interface IConfigOptional {
         notificationsFoldIn?: boolean;
         kvHandles?: boolean;
         workerRuntime?: boolean;
+        forwardSession?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
         /**
@@ -1227,8 +1239,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

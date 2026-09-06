@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { EventKey, KvOp } from '../../clients/event/types.js';
 import type { DeliverableEvent } from './registry.js';
 
 /**
@@ -62,7 +63,58 @@ export interface ForwardAck {
     entryId: string;
 }
 
-export type ForwardItem = ForwardDelivery | ForwardAck;
+/** Region R now has (or no longer has) session watchers on one anchor token. */
+export interface ForwardWatch {
+    kind: 'watch';
+    op: 'add' | 'drop';
+    /** Owner of the anchor keyspace the token lives in. */
+    userId: number;
+    token: string;
+}
+
+/** One committed change, replayed against another region's session rows. */
+export interface ForwardEvent {
+    kind: 'event';
+    family: 'fs' | 'kv';
+    ownerUserId: number;
+    /** Who caused it, so `self` is right on the far side. */
+    actingUserId?: number;
+    /** The emitter's event id and timestamp, kept so the two copies match. */
+    id: string;
+    ts: number;
+    /** Only session rows are evaluated: durable rows already crossed by row. */
+    sessionOnly: true;
+    /** Never re-forwarded. Present so a future multi-hop cannot loop. */
+    hop: 1;
+    fs?: {
+        key: EventKey;
+        entry: { uid: string; path: string; userId: number; isDir?: boolean };
+        ancestors: Array<{ uid: string; path: string }>;
+        movedFrom?: {
+            path: string;
+            ancestors: Array<{ uid: string; path: string }>;
+        };
+    };
+    kv?: { userUuid: string; appUid: string; kvKey: string; op: KvOp };
+}
+
+/** A subscription-set or presence generation moved in another region. */
+export interface ForwardBump {
+    kind: 'bump';
+    userId: number;
+    generation: number;
+    /** Which cache the receiver invalidates. */
+    scope: 'subscription' | 'presence';
+    /** `subscription` scope only: whether the table changed. */
+    durable: boolean;
+}
+
+export type ForwardItem =
+    | ForwardDelivery
+    | ForwardAck
+    | ForwardWatch
+    | ForwardEvent
+    | ForwardBump;
 
 /** One batch, as a peer receives it. */
 export interface ForwardBatch {
@@ -74,9 +126,12 @@ export interface ForwardBatch {
 /**
  * What a peer answers. `noSocket` names the pairs it holds no connection for,
  * read off its own socket registry — the only signal that authorises a repair.
+ * `noWatch` names anchor tokens the receiver holds no session row for at all —
+ * the sender prunes those out of its remote-watch index the same way.
  */
 export interface ForwardReply {
     noSocket?: Array<{ userId: number; appUid: string | null }>;
+    noWatch?: Array<{ userId: number; token: string }>;
 }
 
 // -- Bounds ----------------------------------------------------------

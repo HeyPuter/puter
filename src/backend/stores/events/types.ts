@@ -135,8 +135,16 @@ export interface DurableSubscription extends DispatchSubscription {
     createdAt: number;
 }
 
+/** A region-local session-watcher count crossed 0<->1+ for one token. */
+export interface RemoteWatchAnnounce {
+    token: string;
+    op: 'add' | 'drop';
+}
+
 /** One owner's generation after a change to the set of rows keyed under them. */
 export interface GenerationBump {
     userId: number;
     generation: number;
+    /** Session tokens whose local watcher count just crossed 0<->1+, if any. */
+    announce?: RemoteWatchAnnounce[];
 }
