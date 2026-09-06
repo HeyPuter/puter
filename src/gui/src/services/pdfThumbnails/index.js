@@ -1,3 +1,4 @@
+import { defaultThumbnailGenerator } from '../../../../puter-js/src/modules/FileSystem/operations/upload/thumbnails.js';
 import {
     PDF_THUMBNAIL_ASSET_PATH,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
@@ -84,7 +85,13 @@ export const createUploadThumbnailGenerator = () => {
         try {
             if ( context?.signal?.aborted ) return undefined;
             const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
-            if ( ! isPdf ) return await context?.defaultGenerator(file);
+            if ( ! isPdf ) {
+                // SDKs that predate the callback context pass only the file; images still need thumbnails then.
+                const imageGenerator = typeof context?.defaultGenerator === 'function'
+                    ? context.defaultGenerator
+                    : defaultThumbnailGenerator;
+                return await imageGenerator(file);
+            }
             if ( ! file.size || file.size > PDF_THUMBNAIL_MAX_FILE_BYTES ||
                 typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' ) {
                 return undefined;

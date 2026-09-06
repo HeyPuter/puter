@@ -2,12 +2,14 @@
 
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
-callback's second argument. Non-PDF files delegate to the image generator.
+callback's second argument. Non-PDF files delegate to that image generator; when
+the running SDK predates the callback context (it then passes only the file),
+the GUI's bundled copy of the SDK image generator is used instead, so image
+thumbnails do not depend on deploy order.
 
 PDF.js and its fonts, CMaps, ICC profiles and WASM decoders are copied into the
 versioned `/dist/pdf-thumbnails/` directory during the GUI build. Deploy that
-directory with the GUI, and deploy the updated SDK before the GUI so image
-delegation through the callback context is available. `PDFJS_VERSION` must match the exact GUI dependency;
+directory with the GUI. `PDFJS_VERSION` must match the exact GUI dependency;
 the build rejects mismatches. The SDK and initial GUI bundle contain no PDF.js.
 Asset requests stay on the GUI origin and begin only for an eligible PDF.
 

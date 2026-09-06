@@ -24,11 +24,12 @@ beforeAll(async () => {
         next();
     });
     app.use('/dist', express.static(directory));
-    app.use('/sdk-source', express.static(fileURLToPath(new URL('../../../../puter-js/src/', import.meta.url))));
+    // The generator's relative import into the SDK source climbs past /src, which the browser clamps to /puter-js/src.
+    app.use('/puter-js/src', express.static(fileURLToPath(new URL('../../../../puter-js/src/', import.meta.url))));
     app.use('/src', express.static(fileURLToPath(new URL('../../', import.meta.url))));
     app.get('/', (_req, res) => res.send(`<!doctype html><title>Thumbnail test</title><script type="module">
         import { createUploadThumbnailGenerator } from '/src/services/pdfThumbnails/index.js';
-        import { defaultThumbnailGenerator } from '/sdk-source/modules/FileSystem/operations/upload/thumbnails.js';
+        import { defaultThumbnailGenerator } from '/puter-js/src/modules/FileSystem/operations/upload/thumbnails.js';
         window.defaultGenerator = defaultThumbnailGenerator;
         window.createUploadThumbnailGenerator = createUploadThumbnailGenerator;
     </script>`));
@@ -97,11 +98,14 @@ describe('PDF thumbnails in a real browser', () => {
                 const generate = window.createUploadThumbnailGenerator();
                 const thumbnails = await Promise.all([file, image, new File(['notes'], 'notes.txt')]
                     .map(file => generate(file, { defaultGenerator: window.defaultGenerator })));
-                return { thumbnails, original: await file.text() };
+                // An SDK without the callback context calls the generator with the file alone.
+                const withoutContext = await generate(image);
+                return { thumbnails, withoutContext, original: await file.text() };
             }, createPdf());
             expect(result.thumbnails[0]).toMatch(/^data:image\/png;base64,/);
             expect(result.thumbnails[1]).toMatch(/^data:image\//);
             expect(result.thumbnails[2]).toBeUndefined();
+            expect(result.withoutContext).toMatch(/^data:image\//);
             expect(result.original).toBe(createPdf());
         } finally {
             await page.close();

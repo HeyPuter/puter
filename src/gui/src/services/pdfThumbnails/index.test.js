@@ -6,6 +6,11 @@ import {
 } from './config.js';
 
 const thumbnail = 'data:image/png;base64,AAAA';
+const bundledThumbnail = 'data:image/webp;base64,BBBB';
+const bundledImageGenerator = vi.fn(async () => bundledThumbnail);
+vi.mock('../../../../puter-js/src/modules/FileSystem/operations/upload/thumbnails.js', () => ({
+    defaultThumbnailGenerator: (...args) => bundledImageGenerator(...args),
+}));
 const pdf = () => new File(['%PDF-1.7'], 'document.pdf', { type: 'application/pdf' });
 let createUploadThumbnailGenerator;
 let workers;
@@ -13,6 +18,7 @@ let workers;
 beforeEach(async () => {
     vi.useFakeTimers();
     vi.resetModules();
+    bundledImageGenerator.mockClear();
     workers = [];
     vi.stubGlobal('OffscreenCanvas', class {});
     vi.stubGlobal('Worker', class {
@@ -36,8 +42,17 @@ describe('GUI upload thumbnail scheduling', () => {
         const defaultGenerator = vi.fn(async () => thumbnail);
         expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
         expect(defaultGenerator).toHaveBeenCalledWith(file);
+        expect(bundledImageGenerator).not.toHaveBeenCalled();
         expect(workers).toHaveLength(0);
     });
+
+    it.each([undefined, {}, { defaultGenerator: 'not a function' }])(
+        'falls back to the bundled image generator when the SDK passes no usable context: %j', async (context) => {
+            const file = new File(['image'], 'image.png');
+            expect(await createUploadThumbnailGenerator()(file, context)).toBe(bundledThumbnail);
+            expect(bundledImageGenerator).toHaveBeenCalledWith(file);
+            expect(workers).toHaveLength(0);
+        });
 
     it('preserves graceful failure of the image generator', async () => {
         expect(await createUploadThumbnailGenerator()(new File(['x'], 'x.png'), {
