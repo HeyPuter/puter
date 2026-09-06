@@ -50,6 +50,33 @@ afterEach(() => {
     vi.clearAllMocks();
 });
 
+describe('cancellation during preparation', () => {
+    afterEach(() => {
+        delete globalThis.DataTransferItemList;
+    });
+
+    it('does not report a preparation failure that lands after cancelling', async () => {
+        globalThis.DataTransferItemList = class {};
+        let handle;
+        const error = vi.fn();
+        const abort = vi.fn();
+        globalThis.puter.ui = {
+            getEntriesFromDataTransferItems: async () => {
+                handle.abort();
+                throw new Error('directory read failed');
+            },
+        };
+        await expect(upload.call(fs, new globalThis.DataTransferItemList(), '/user/dir', {
+            init: (_operationId, xhr) => { handle = xhr; },
+            error,
+            abort,
+        })).rejects.toMatchObject({ code: 'upload_aborted' });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(error).not.toHaveBeenCalled();
+        expect(abort).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('storage capacity pre-flight', () => {
     it('is skipped for an upload below the threshold', async () => {
         await expect(uploadOf(64)).resolves.toEqual({ uid: 'uploaded' });

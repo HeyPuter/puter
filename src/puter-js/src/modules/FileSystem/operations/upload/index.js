@@ -51,7 +51,13 @@ const uploadImpl = async function (items, dirPath, options = {}) {
             }
         }
 
+        // Native XHR.abort() does nothing before send(); preparation still needs cancellation.
+        const preparationController = new AbortController();
+
         const error = (e) => {
+            // Cancelling already settled the upload; a preparation step failing afterwards is not an error.
+            if ( preparationController.signal.aborted ) return;
+
             // Out of storage: prompt the user to upgrade, then reject as usual.
             promptIfStorageLimitError(e);
 
@@ -84,8 +90,6 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         // fires at most once even when the signed path falls back to legacy.
         const flags = { startCallbackFired: false };
 
-        // Native XHR.abort() does nothing before send(); preparation still needs cancellation.
-        const preparationController = new AbortController();
         xhr.abort = () => {
             if ( preparationController.signal.aborted ) return;
             preparationController.abort();
