@@ -164,7 +164,7 @@ The handler is called with `{ event }`. A filesystem change carries:
 | --- | --- | --- |
 | `id` | String | Unique id for the event. |
 | `subject` | String | The subject the change was projected onto, naming the node it happened to (`fs:<uid>:<op>`) — not the subject string you subscribed with. |
-| `op` | String | `add`, `write`, `move`, or `remove`. |
+| `op` | String | `add`, `write`, `move`, or `remove`. `move` covers a move and an in-place rename. |
 | `uid` | String | The uid of the node that changed. |
 | `path` | String | The path of the node that changed. |
 | `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that side — a subscription on the destination folder alone is not told where the node came from. |
@@ -260,6 +260,8 @@ A persistent subscription can also stop without you unsubscribing: its handler w
 Puter runs in several places, and a client connects to whichever one is nearest. An event finds the connection wherever it is, `ack()` settles the delivery on whichever connection you called it on, and the shape of everything you receive is identical either way.
 
 The one consequence worth knowing is the one already stated: a `single` delivery is **at-least-once**. Undelivered events are held where the change happened, so a deployment going down loses only what it was still holding — the subscription itself, and everything already delivered, is unaffected. Handlers are asked to be idempotent for this reason, and `event.id` is the key to deduplicate on.
+
+Ordering follows the same shape: a subscription's own deliveries stay in order within the region that emits them, but the ordering is best effort across regions, and the 250 ms coalescing window is applied per region rather than globally. Two writes made moments apart can therefore arrive coalesced into one event in a region near the writer and as two separate ones somewhere farther away.
 
 ## Limits
 

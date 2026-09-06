@@ -372,6 +372,32 @@ describe('removing a handler', () => {
     });
 });
 
+describe('deleteForApp', () => {
+    it('drops every handler an app published in one call', async () => {
+        await handlers().publish({ appUid, name: 'a', source: SOURCE });
+        await handlers().publish({ appUid, name: 'b', source: OTHER_SOURCE });
+
+        await expect(handlers().deleteForApp(appUid)).resolves.toBe(2);
+        expect(await handlers().listForApp(appUid)).toEqual([]);
+    });
+
+    it('never touches another app`s handlers', async () => {
+        await handlers().publish({ appUid, name: 'a', source: SOURCE });
+        await handlers().publish({
+            appUid: otherAppUid,
+            name: 'a',
+            source: SOURCE,
+        });
+
+        await handlers().deleteForApp(appUid);
+        expect(await handlers().listForApp(otherAppUid)).toHaveLength(1);
+    });
+
+    it('answers 0 for an app with nothing published', async () => {
+        await expect(handlers().deleteForApp(appUid)).resolves.toBe(0);
+    });
+});
+
 describe('totalSourceBytesForApp', () => {
     it('is zero for an app with nothing published', async () => {
         expect(await handlers().totalSourceBytesForApp(appUid)).toBe(0);

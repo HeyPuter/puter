@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Subscribes to a subject and calls `handler` every time something matching it changes. The subscription belongs to this client's connection: nothing is stored, nothing runs while the page is closed, and it ends when the connection does. See [Events](/Events/) for the subject grammar and the event shape.
+Subscribes to a subject and calls `handler` every time something matching it changes. The subscription belongs to this client's connection: nothing is stored, nothing runs while the page is closed, and it ends when the connection does. A change made from another device, another browser, or another part of the world reaches it too — one made in another region typically arrives a few hundred milliseconds later than one made locally. See [Events](/Events/) for the subject grammar and the event shape.
 
 Not for a Puter worker: a worker invocation is short-lived, so a subscription here only lasts as long as that one invocation. To react to changes from a worker, use [`onPersistent()`](/Events/onPersistent/) with a `worker` target and a published handler.
 
@@ -142,8 +142,9 @@ The promise rejects with `{ message, code }`:
             // (1) Exactly one key, and separately every key under a prefix.
             const one = await puter.events.onLocal('kv:cart', ({ event }) =>
                 puter.print(`${event.op}: ${event.key}<br>`));
-            const many = await puter.events.onLocal('kv:cart:*', ({ event }) =>
-                puter.print(`under cart: ${event.key}<br>`));
+            const many = await puter.events.onLocal(
+                `kv:${puter.appID}:cart:*`,
+                ({ event }) => puter.print(`under cart: ${event.key}<br>`));
 
             // (2) `cart` reaches the first, `cart:items` only the second.
             await puter.kv.set('cart', { total: 0 });

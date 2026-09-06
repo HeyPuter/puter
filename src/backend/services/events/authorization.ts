@@ -328,6 +328,13 @@ export const crossAppKvPermissions = (targetAppUid: string): string[] => [
     appDataPermission(targetAppUid, 'kv', CROSS_APP_KV_CLASS),
 ];
 
+// A key containing `:` written without an app id parses as `kv:<app>:<key>`,
+// which is the commonest way to arrive here by accident.
+const readAsAppSlot = (uid: string): string =>
+    uid.startsWith('app-')
+        ? ''
+        : ' — a three-segment `kv:` subject names an app in its second segment';
+
 /** Subscribe-time form. Codes match the ones a cross-app KV read answers with. */
 export const assertCrossAppKvAuthorized = async (
     actor: Actor,
@@ -339,13 +346,15 @@ export const assertCrossAppKvAuthorized = async (
     if (denial === 'disabled')
         throw new HttpError(
             403,
-            'kv: subscribing to another app’s data is not available',
+            `kv: subscribing to another app’s data is not available${readAsAppSlot(targetAppUid)}`,
             { legacyCode: 'events_cross_app_disabled' },
         );
     if (denial === 'unknown_app')
-        throw new HttpError(404, `entity_not_found: app:${targetAppUid}`, {
-            legacyCode: 'subject_does_not_exist',
-        });
+        throw new HttpError(
+            404,
+            `entity_not_found: app:${targetAppUid}${readAsAppSlot(targetAppUid)}`,
+            { legacyCode: 'subject_does_not_exist' },
+        );
     if (denial === 'sharing_off')
         throw new HttpError(
             403,

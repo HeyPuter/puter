@@ -257,6 +257,18 @@ export class EventHandlerStore extends PuterStore {
         return existing;
     }
 
+    /**
+     * Drop every handler an app has published — what a deleted app leaves
+     * behind.
+     */
+    async deleteForApp(appUid: string): Promise<number> {
+        const result = await this.clients.db.write(
+            `DELETE FROM \`${TABLE}\` WHERE \`app_uid\` = ?`,
+            [appUid],
+        );
+        return result.affectedRows;
+    }
+
     // -- Reads -------------------------------------------------------
 
     /**

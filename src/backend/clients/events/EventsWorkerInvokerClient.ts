@@ -78,14 +78,22 @@ export const EVENTS_DEPLOYED_HEADER = 'x-puter-events-deployed';
 /**
  * Dispatch-error reasons this backend can resolve itself by deploying, rather
  * than wait on the rehydrate callback finding a backend behind the dispatcher's
- * own hostname.
+ * own hostname. `deploy-timeout` is not one of them: it is only ever answered
+ * after a deploy that succeeded, so the script exists and another upload of it
+ * cannot make the namespace see it any sooner.
  */
 const SELF_DEPLOYABLE_MISS_REASONS = new Set([
     'missing',
     'deploy-failed',
-    'deploy-timeout',
     'deploy-error',
 ]);
+
+/**
+ * Dispatch-error reasons where the deploy already happened and only propagation
+ * is still catching up — one prompt retry with the deployed header is worth it,
+ * without spending another upload on it.
+ */
+const ALREADY_DEPLOYED_MISS_REASONS = new Set(['deploy-timeout']);
 
 /** What a self-deploy attempt did, and to which app/script it applies. */
 export type WorkerMissHandler = (
@@ -219,23 +227,29 @@ export class EventsWorkerInvokerClient extends PuterClient {
         };
 
         let result = await transport.send(call);
-        if (
-            result.status === null &&
-            this.#missHandler &&
-            result.dispatchReason &&
-            SELF_DEPLOYABLE_MISS_REASONS.has(result.dispatchReason)
-        ) {
-            const outcome = await this.#missHandler(
-                request.appUid,
-                request.script,
-            );
-            if (outcome !== 'deployed')
-                return {
-                    outcome: 'retriable',
-                    status: null,
-                    error: `deploy: ${outcome}`,
-                };
-            result = await transport.send({ ...call, deployed: true });
+        if (result.status === null && result.dispatchReason) {
+            if (
+                this.#missHandler &&
+                SELF_DEPLOYABLE_MISS_REASONS.has(result.dispatchReason)
+            ) {
+                const outcome = await this.#missHandler(
+                    request.appUid,
+                    request.script,
+                );
+                if (outcome !== 'deployed')
+                    return {
+                        outcome: 'retriable',
+                        status: null,
+                        error: `deploy: ${outcome}`,
+                    };
+                result = await transport.send({ ...call, deployed: true });
+            } else if (
+                ALREADY_DEPLOYED_MISS_REASONS.has(result.dispatchReason)
+            ) {
+                // No deploy to trigger — just give propagation the one retry
+                // it usually needs, without spending an upload on it.
+                result = await transport.send({ ...call, deployed: true });
+            }
         }
 
         const { status, handled, error } = result;

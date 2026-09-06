@@ -8,6 +8,8 @@ platforms: [websites, apps, nodejs, workers]
 
 Creates a subscription that outlives this connection. It is stored against the account, keeps matching while your app is closed, and runs a handler your app published with [`puter.events.handlers.publish()`](/Events/handlers/). Contrast [`puter.events.onLocal()`](/Events/onLocal/), which lives and dies with the page.
 
+The subscription is live immediately in the region it was created in. A change made in another region in the first moment after this call resolves may take a little longer to reach it — usually well under a second — while that region catches up.
+
 See [Events](/Events/) for the subject grammar and the event shape.
 
 ## Syntax
@@ -37,7 +39,7 @@ await puter.perms.request(['events:background']);
 
 The user can revoke it wherever they manage an app's access. Doing so suspends every worker-target subscription that app holds for them with `permission_revoked`; re-granting the permission does not resume them, so subscribe again. A subscription that only wants deliveries while your app is open needs no consent at all: pass `targets: ['socket']`.
 
-A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does. Withdrawing `events:background` or uninstalling the app revokes that session in turn, so a copied-out token stops working too.
+A background delivery runs as a session, the same as any other your app is granted — it shows up in the user's own sessions list as a worker session, and revoking it there stops background handlers for your app the same way withdrawing `events:background` does. Withdrawing `events:background` or uninstalling the app revokes that session in turn, so a copied-out token stops working too — and so does destroying the app's events worker or deleting the app outright.
 
 ## Where the handler runs, and what it is handed
 
@@ -61,7 +63,7 @@ A `single` delivery is owed to exactly one consumer, so it stays owed until it i
 
 - Calling `ack()` takes the delivery.
 - Returning **without** calling it acknowledges it anyway — a handler that finished did the work.
-- **Throwing acknowledges nothing.** The lease lapses after 30 seconds and the delivery is offered again, so a handler that throws sees the same event twice. `event.id` is stable across redeliveries; use it to make the second one a no-op.
+- **Throwing acknowledges nothing.** The lease lapses after 60 seconds — twice the handler invocation timeout — and the delivery is offered again, so a handler that throws sees the same event twice. `event.id` is stable across redeliveries; use it to make the second one a no-op.
 
 In the events worker the same three outcomes are the response status: `2xx` takes the delivery, `4xx` refuses it (it is dropped with a `gap` marker carrying `reason: 'handler_rejected'`), and `5xx`, `429` or no answer within 30 seconds means "not now" — the delivery is retried after 2 seconds, doubling to at most 5 minutes. **Five failures in a row, refusals included, suspend the subscription** with `failures`; the developer is notified and republishing the handler puts it back in service.
 

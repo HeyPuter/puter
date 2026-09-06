@@ -579,6 +579,42 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * A page of live worker sessions for one worker name, oldest id first —
+     * what the stray-session sweep pages through to find rows whose app no
+     * longer exists. `idx_sessions_kind_user` gives `kind = 'worker'` as a
+     * leading equality, so this range-scans worker sessions only, not the whole
+     * table; the `worker_name` predicate is evaluated on that slice. No
+     * migration.
+     *
+     * @param {{
+     *     workerName: string;
+     *     afterId?: number;
+     *     limit?: number;
+     * }} args
+     *   - `workerName` selects the worker; `afterId` is the keyset cursor (0 for
+     *       the first page); `limit` bounds the page size.
+     */
+    async listWorkerSessions({ workerName, afterId = 0, limit = 500 } = {}) {
+        if (!workerName) return [];
+        const workerNameExpr = this.clients.db.jsonTextExtract('`meta`', [
+            'worker_name',
+        ]);
+        const rows = await this.clients.db.read(
+            `SELECT \`id\`, \`uuid\`, \`user_id\`, \`app_uid\` FROM \`sessions\` ` +
+                `WHERE \`kind\` = 'worker' AND \`revoked_at\` IS NULL AND ` +
+                `\`app_uid\` IS NOT NULL AND ${workerNameExpr} = ? AND \`id\` > ? ` +
+                'ORDER BY `id` LIMIT ?',
+            [workerName, afterId, Math.max(1, Math.floor(limit))],
+        );
+        return rows.map((row) => ({
+            id: Number(row.id),
+            uuid: String(row.uuid),
+            userId: Number(row.user_id),
+            appUid: String(row.app_uid),
+        }));
+    }
+
+    /**
      * Bump `last_activity` and slide `expires_at` per the row's kind in a
      * single UPDATE. Sliding kinds (web/app/asset) get their `expires_at`
      * extended to `now + window`; `access_token` (and unknown kinds) keep their

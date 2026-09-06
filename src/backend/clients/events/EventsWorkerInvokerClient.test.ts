@@ -216,6 +216,27 @@ const alwaysMissingFetch = (calls: unknown[]): FetchImpl =>
         });
     }) as unknown as FetchImpl;
 
+/**
+ * Answers `deploy-timeout` once, then 200 once it sees the deployed header —
+ * the shape of a script that finished propagating between the two calls.
+ */
+const deployTimeoutThenOkFetch = (
+    headersSeen: Array<Record<string, string>>,
+): FetchImpl =>
+    (async (_url: string, init?: RequestInit) => {
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        headersSeen.push(headers);
+        if (headers[EVENTS_DEPLOYED_HEADER] === '1')
+            return new Response(null, {
+                status: 200,
+                headers: { [EVENTS_HANDLED_HEADER]: '1' },
+            });
+        return new Response(null, {
+            status: 503,
+            headers: { [EVENTS_DISPATCH_ERROR_HEADER]: 'deploy-timeout' },
+        });
+    }) as unknown as FetchImpl;
+
 describe('EventsWorkerInvokerClient deploy-on-miss', () => {
     it('deploys the script and retries once with the deployed header', async () => {
         const headersSeen: Array<Record<string, string>> = [];
@@ -324,6 +345,66 @@ describe('EventsWorkerInvokerClient deploy-on-miss', () => {
             outcome: 'retriable',
             status: null,
             error: 'dispatcher: forbidden (403)',
+        });
+    });
+
+    it('retries a deploy-timeout with the deployed header instead of redeploying', async () => {
+        const headersSeen: Array<Record<string, string>> = [];
+        const client = makeClient();
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl: deployTimeoutThenOkFetch(headersSeen),
+            }),
+        );
+        const deployCalls: unknown[] = [];
+        client.setMissHandler(async () => {
+            deployCalls.push(null);
+            return 'deployed';
+        });
+
+        const result = await client.invoke(REQUEST);
+
+        // The script was already deployed once — the one that led to this
+        // deploy-timeout answer — so this client must not add a second.
+        expect(deployCalls).toHaveLength(0);
+        expect(headersSeen).toHaveLength(2);
+        expect(headersSeen[0][EVENTS_DEPLOYED_HEADER]).toBeUndefined();
+        expect(headersSeen[1][EVENTS_DEPLOYED_HEADER]).toBe('1');
+        expect(result).toEqual({ outcome: 'settled', status: 200 });
+    });
+
+    it('gives up after one retry when propagation is still not done', async () => {
+        const calls: unknown[] = [];
+        const client = makeClient();
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl: (async () => {
+                    calls.push(null);
+                    return new Response(null, {
+                        status: 503,
+                        headers: {
+                            [EVENTS_DISPATCH_ERROR_HEADER]: 'deploy-timeout',
+                        },
+                    });
+                }) as unknown as FetchImpl,
+            }),
+        );
+        const deployCalls: unknown[] = [];
+        client.setMissHandler(async () => {
+            deployCalls.push(null);
+            return 'deployed';
+        });
+
+        const result = await client.invoke(REQUEST);
+
+        // The first send plus the one retry — never a third, and never a
+        // deploy. The delivery comes back on its own backoff instead.
+        expect(calls).toHaveLength(2);
+        expect(deployCalls).toHaveLength(0);
+        expect(result).toEqual({
+            outcome: 'retriable',
+            status: null,
+            error: 'dispatcher: deploy-timeout (503)',
         });
     });
 });

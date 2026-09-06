@@ -54,6 +54,32 @@ import type {
     WorkerInvocationOutcome,
 } from './workerSeam.js';
 
+// A fake meter, so the forward-path counters can be asserted on without a
+// real OTel pipeline: every counter this module creates records its adds
+// here instead of exporting them anywhere.
+const { metricCalls } = vi.hoisted(() => ({
+    metricCalls: [] as Array<{
+        name: string;
+        value: number;
+        attributes: Record<string, unknown>;
+    }>,
+}));
+vi.mock(import('@opentelemetry/api'), async (importOriginal) => ({
+    ...(await importOriginal()),
+    metrics: {
+        getMeter: () => ({
+            createCounter: (name: string) => ({
+                add: (
+                    value: number,
+                    attributes: Record<string, unknown> = {},
+                ) => {
+                    metricCalls.push({ name, value, attributes });
+                },
+            }),
+        }),
+    },
+}));
+
 // -- The replicated table --------------------------------------------
 //
 // One item per (pair, region) now, not one item with a `regions` map field:
@@ -136,6 +162,9 @@ interface Region {
     /** Peers whose POSTs never come back — a timeout, not a refusal. */
     unreachable: Set<string>;
     handlers: Map<string, (key: string, data: unknown, meta: unknown) => void>;
+    /** `outer.*` emits held here instead of reaching peers, when `deferBus`. */
+    busQueue: Array<{ key: string; data: unknown; meta: object }>;
+    deferBus: boolean;
 }
 
 let regions: Map<string, Region>;
@@ -158,9 +187,16 @@ const entry = (over: Partial<FSEntry> = {}): FSEntry =>
         ...over,
     }) as FSEntry;
 
-const actorFor = (appUid: string | null = null): Actor =>
+const actorFor = (
+    appUid: string | null = null,
+    holderUserId: number = userId,
+): Actor =>
     ({
-        user: { id: userId, uuid: `user-${userId}`, username: `u${userId}` },
+        user: {
+            id: holderUserId,
+            uuid: `user-${holderUserId}`,
+            username: `u${holderUserId}`,
+        },
         effectiveApp: appUid ? { uid: appUid } : null,
         app: appUid ? { uid: appUid } : null,
     }) as unknown as Actor;
@@ -195,6 +231,7 @@ const makeRegion = (
     name: string,
     peers: string[],
     config: Partial<IConfig> = {},
+    options: { deferBus?: boolean } = {},
 ): Region => {
     // A keyspace per region, because that is what a region is here: leases,
     // pending queues and connection counts are local by construction, and a
@@ -212,6 +249,8 @@ const makeRegion = (
         alarms: vi.fn(),
         unreachable: new Set(),
         handlers: new Map(),
+        busQueue: [],
+        deferBus: options.deferBus === true,
     } as unknown as Region;
 
     const fullConfig = {
@@ -234,8 +273,14 @@ const makeRegion = (
                 );
             },
             // The broadcast channel, simulated: an `outer.*` emit reaches every
-            // peer tagged `from_outside`, and never its own emitter.
+            // peer tagged `from_outside`, and never its own emitter — unless
+            // `deferBus` holds it for `flushBus` to deliver later, the way the
+            // real ~2 s batch delays it behind the addressed channel.
             emit: (key: string, data: unknown, meta: object) => {
+                if (region.deferBus) {
+                    region.busQueue.push({ key, data, meta });
+                    return;
+                }
                 for (const other of regions.values()) {
                     if (other === region) continue;
                     other.handlers.get(key)?.(key, data, {
@@ -308,13 +353,62 @@ const makeRegion = (
         pendingDelivery: pending,
         eventSubscription: subscriptions,
         durableSubscription: {
-            warmRegion: async () => false,
+            // A real rebuild off the shared `rows` table, not a stub that
+            // always answers "already warm" — item 13's tests need a region
+            // that actually goes cold and rebuilds from what another region
+            // wrote.
+            warmRegion: async (ownerUserId: number) => {
+                const owned = [...rows.values()].filter(
+                    (row) => row.ownerUserId === ownerUserId,
+                );
+                await subscriptions.rebuildDurable(ownerUserId, owned);
+                return true;
+            },
             getBySubId: async (subId: string) => rows.get(subId) ?? null,
             remove: async (row: DurableSubscription) => {
                 rows.delete(row.subId);
                 return { userId: row.holderUserId, generation: 1 };
             },
             suspend: async () => [{ userId, generation: 1 }],
+            // Enough of the real store's write-through contract for
+            // `subscribeDurable` to run against this harness: land the row in
+            // the shared table and this region's cache, then bump.
+            create: async (
+                input: Record<string, unknown>,
+            ): Promise<{
+                row: DurableSubscription;
+                bump: { userId: number; generation: number };
+            }> => {
+                const row = durableRow({
+                    holderUserId: input.holderUserId as number,
+                    ownerUserId: input.ownerUserId as number,
+                    subject: input.subject as string,
+                    token: input.token as string,
+                    anchorUid: input.anchorUid as string,
+                    anchorPath: input.anchorPath as string,
+                    match: (input.match as string | null) ?? null,
+                    op: (input.op as DurableSubscription['op']) ?? null,
+                    appUid: (input.appUid as string | null) ?? null,
+                    delivery: input.delivery as DurableSubscription['delivery'],
+                    targets: input.targets as DurableSubscription['targets'],
+                    handlerName: (input.handlerName as string | null) ?? null,
+                    context: (input.context as string | null) ?? null,
+                    permission:
+                        input.permission as DurableSubscription['permission'],
+                    expiresAt: (input.expiresAt as number | null) ?? null,
+                });
+                rows.set(row.subId, row);
+                await subscriptions.cacheDurable([row]);
+                return {
+                    row,
+                    bump: {
+                        userId: row.ownerUserId,
+                        generation: await subscriptions.bumpGeneration(
+                            row.ownerUserId,
+                        ),
+                    },
+                };
+            },
         },
         fsEntry: {
             getEntryByUuid: async (uid: string) =>
@@ -354,6 +448,24 @@ const makeRegion = (
         },
     };
     region.forward.onServerStart();
+    // The one listener `EventsService.onServerStart()` registers that these
+    // tests need — the webhook backstop for a durable generation bump. The
+    // rest of it (kv.mutated, permission wiring, sweep timers) is out of
+    // scope here, and `services.permission` is not stubbed to support it.
+    clients.event.on(
+        'outer.pubsub.events.generationBumped',
+        ((_key: string, data: unknown, meta: unknown) => {
+            if (!(meta as { from_outside?: boolean })?.from_outside) return;
+            const { userId: bumpedUserId, durable } = (data ?? {}) as {
+                userId?: number;
+                durable?: boolean;
+            };
+            if (typeof bumpedUserId === 'number')
+                region.events.invalidateUser(bumpedUserId, {
+                    rebuild: durable === true,
+                });
+        }) as (...args: never[]) => void,
+    );
     regions.set(name, region);
     return region;
 };
@@ -389,6 +501,48 @@ const dispatch = (region: Region, node = entry()): Promise<void> =>
         actingUserId: userId,
         ancestors: async () => ancestors(),
     });
+
+/** A session (`onLocal`) row on the shared anchor, through the real subscribe path. */
+const subscribeSession = async (
+    region: Region,
+    opts: {
+        holderUserId?: number;
+        socketId?: string;
+        appUid?: string | null;
+    } = {},
+): Promise<{ subId: string; socketId: string }> => {
+    const socketId = opts.socketId ?? `socket-${seq}`;
+    const { sub } = await region.events.subscribe(
+        actorFor(opts.appUid ?? null, opts.holderUserId ?? userId),
+        socketId,
+        { subject: `fs:${anchorUid()}` },
+    );
+    return { subId: sub.subId, socketId };
+};
+
+const unsubscribeSession = (
+    region: Region,
+    subId: string,
+    socketId: string,
+    holderUserId = userId,
+): Promise<void> =>
+    region.events.unsubscribe(actorFor(null, holderUserId), socketId, {
+        subId,
+    });
+
+/** Deliver whatever `outer.*` emits a `deferBus` region is holding. */
+const flushBus = (region: Region): void => {
+    const queued = region.busQueue;
+    region.busQueue = [];
+    for (const { key, data, meta } of queued)
+        for (const other of regions.values()) {
+            if (other === region) continue;
+            other.handlers.get(key)?.(key, data, {
+                ...meta,
+                from_outside: true,
+            });
+        }
+};
 
 const posted = (region: Region, count = 1): Promise<void> =>
     vi.waitFor(
@@ -430,6 +584,7 @@ beforeEach(() => {
     regions = new Map();
     rows = new Map();
     workerOutcome = 'deferred';
+    metricCalls.length = 0;
     EventForwardService.LEAVE_DELAY_MIN_MS = 60;
     EventForwardService.LEAVE_DELAY_MAX_MS = 60;
 });
@@ -1159,5 +1314,382 @@ describe('receiving a batch', () => {
         // in flight, proving they ran concurrently rather than queued
         // behind it.
         expect(settled.at(-1)).toBe('slow');
+    });
+});
+
+// -- Observability ------------------------------------------------------
+
+describe('forward-path metrics', () => {
+    it('counts a broadcast fan-out as sent, and the receiving region as received', async () => {
+        const west = makeRegion('west', ['east', 'south']);
+        const east = makeRegion('east', ['west', 'south']);
+        makeRegion('south', ['west', 'east']);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        await register(west);
+
+        await dispatch(west);
+        await posted(west);
+        await arrived(east);
+
+        const sent = metricCalls.filter(
+            (call) => call.name === 'events.forward.sent',
+        );
+        expect(sent).toContainEqual({
+            name: 'events.forward.sent',
+            value: 1,
+            attributes: { from: 'west', to: 'east', class: 'broadcast' },
+        });
+
+        const received = metricCalls.filter(
+            (call) => call.name === 'events.forward.received',
+        );
+        expect(received).toContainEqual({
+            name: 'events.forward.received',
+            value: 1,
+            attributes: { from: 'west', to: 'east' },
+        });
+    });
+
+    it('counts a single hand-off as sent, class single', async () => {
+        const west = makeRegion('west', ['east', 'south']);
+        const east = makeRegion('east', ['west', 'south']);
+        const south = makeRegion('south', ['west', 'east']);
+        east.rooms.add(String(userId));
+        south.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        await quiet(5);
+        await south.forward.noteConnect(actorFor());
+        await register(west, {
+            delivery: 'single',
+            targets: ['socket', 'worker'] as SubscriptionTarget[],
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await posted(west);
+        await arrived(south);
+
+        const sent = metricCalls.filter(
+            (call) => call.name === 'events.forward.sent',
+        );
+        expect(sent).toContainEqual({
+            name: 'events.forward.sent',
+            value: 1,
+            attributes: { from: 'west', to: 'south', class: 'single' },
+        });
+        expect(metricCalls).toContainEqual({
+            name: 'events.single.attempt',
+            value: 1,
+            attributes: { target: 'remote-socket', result: 'sent' },
+        });
+    });
+
+    it("counts a single attempt landing on this region's own socket", async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        west.rooms.add(String(userId));
+        east.rooms.add(String(userId));
+        await west.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor());
+        await register(west, {
+            delivery: 'single',
+            targets: ['socket', 'worker'] as SubscriptionTarget[],
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await arrived(west);
+
+        expect(metricCalls).toContainEqual({
+            name: 'events.single.attempt',
+            value: 1,
+            attributes: { target: 'local-socket', result: 'sent' },
+        });
+    });
+
+    it('counts a single attempt that reaches the handler', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        workerOutcome = 'settled';
+        await register(west, {
+            delivery: 'single',
+            targets: ['socket', 'worker'] as SubscriptionTarget[],
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await posted(west);
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+            jump(61_000);
+            await west.events.sweepPending();
+        }
+
+        expect(metricCalls).toContainEqual({
+            name: 'events.single.attempt',
+            value: 1,
+            attributes: { target: 'worker', result: 'settled' },
+        });
+    });
+});
+
+// -- Cross-region session subscriptions (item 2) -----------------------
+
+/** Session forwarding is on by default, so this is the ordinary config. */
+const forwardCfg = { events: { enabled: true } } as Partial<IConfig>;
+
+describe('a session subscription in another region', () => {
+    it('delivers a write committed in the region that has no rows', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+
+        await subscribeSession(east);
+        // The `watch` announce reaching west over the 25 ms queue.
+        await posted(east);
+
+        await dispatch(west);
+
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({ op: 'write', self: true });
+        expect(west.sent).toEqual([]);
+    });
+
+    it('delivers to a subscriber who is not the writer', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        const holderUserId = userId + 1;
+
+        await subscribeSession(east, { holderUserId });
+        await posted(east);
+
+        // `actingUserId` defaults to the anchor's owner — the shared-file
+        // case, where the holder is someone else entirely.
+        await dispatch(west);
+
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({ self: false });
+    });
+
+    it('sends nothing to a region that never announced the token', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        makeRegion('east', ['west'], forwardCfg);
+
+        await dispatch(west);
+        await quiet(150);
+
+        expect(west.posts).toEqual([]);
+    });
+
+    it('stops forwarding once the last session row goes', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+
+        const { subId, socketId } = await subscribeSession(east);
+        await posted(east);
+        const afterAnnounce = east.posts.length;
+
+        await unsubscribeSession(east, subId, socketId);
+        await vi.waitFor(() =>
+            expect(east.posts.length).toBeGreaterThan(afterAnnounce),
+        );
+
+        await dispatch(west);
+        await quiet(150);
+
+        expect(west.posts).toEqual([]);
+        const remoteAfter = await west.subscriptions.watchedFor(userId, [
+            fsAnchorToken(anchorUid()),
+        ]);
+        expect(remoteAfter.remote.size).toBe(0);
+    });
+
+    it('does not deliver a durable row twice when one shares the anchor with a session row', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+        const durable = await register(west);
+        const { subId: sessionSubId } = await subscribeSession(east);
+        await posted(east);
+
+        await dispatch(west);
+        await arrived(east, 2);
+
+        const subIds = east.sent.map((envelope) => envelope.subId);
+        expect(subIds.filter((id) => id === durable.subId)).toHaveLength(1);
+        expect(subIds.filter((id) => id === sessionSubId)).toHaveLength(1);
+    });
+
+    it('prunes a token the peer no longer holds', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        makeRegion('east', ['west'], forwardCfg);
+        const token = fsAnchorToken(anchorUid());
+        // A stale entry, written by hand rather than through a real
+        // subscribe: east never actually holds a session row for it.
+        await west.subscriptions.noteRemoteWatch(userId, token, 'east', 'add');
+
+        await dispatch(west);
+        await posted(west);
+
+        await vi.waitFor(async () => {
+            const { remote } = await west.subscriptions.watchedFor(userId, [
+                token,
+            ]);
+            expect(remote.size).toBe(0);
+        });
+    });
+
+    it('ignores an item kind it does not recognize, and still applies the ones it does', async () => {
+        const east = makeRegion('east', ['west'], forwardCfg);
+
+        await expect(
+            east.forward.receive({
+                from: 'west',
+                items: [
+                    { kind: 'from-the-future' } as never,
+                    {
+                        kind: 'bump',
+                        userId,
+                        generation: 1,
+                        scope: 'subscription',
+                        durable: true,
+                    },
+                ],
+            }),
+        ).resolves.toEqual({});
+    });
+
+    it('records watch and session-forward metrics', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        metricCalls.length = 0;
+
+        await subscribeSession(east);
+        await posted(east);
+
+        await dispatch(west);
+        await arrived(east);
+
+        expect(metricCalls).toContainEqual(
+            expect.objectContaining({
+                name: 'events.forward.sent',
+                attributes: expect.objectContaining({ class: 'watch' }),
+            }),
+        );
+        expect(metricCalls).toContainEqual(
+            expect.objectContaining({
+                name: 'events.forward.sent',
+                attributes: expect.objectContaining({ class: 'session' }),
+            }),
+        );
+        expect(metricCalls).toContainEqual(
+            expect.objectContaining({
+                name: 'events.session.forward',
+                attributes: expect.objectContaining({ result: 'matched' }),
+            }),
+        );
+    });
+
+    it('does nothing when session forwarding is turned off, even with a matching announce', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], {
+            events: { enabled: true, forwardSession: false },
+        } as Partial<IConfig>);
+
+        await subscribeSession(east);
+        await quiet(80);
+
+        await dispatch(west);
+        await quiet(150);
+
+        // East never announced (its own forwarding is off), so west has
+        // nothing in its remote-watch index to forward against.
+        expect(west.posts).toEqual([]);
+    });
+
+    it('writes no remote-watch entry on a region that has it turned off', async () => {
+        const west = makeRegion('west', ['east'], {
+            events: { enabled: true, forwardSession: false },
+        } as Partial<IConfig>);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        const token = fsAnchorToken(anchorUid());
+
+        await subscribeSession(east);
+        await posted(east);
+
+        const { remote } = await west.subscriptions.watchedFor(userId, [token]);
+        expect(remote.size).toBe(0);
+        expect(await west.subscriptions.userHasAny(userId)).toBe(false);
+    });
+});
+
+// -- The first seconds after a cross-region durable subscribe (item 13) --
+
+describe('a durable row created in another region', () => {
+    it('reaches a peer before the batched bus does', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west'], {}, { deferBus: true });
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+
+        // West marks itself warm-and-empty before the row exists to find.
+        await dispatch(west);
+
+        await east.events.subscribeDurable(actorFor(), {
+            subject: `fs:${anchorUid()}`,
+            targets: ['socket'],
+        });
+        // A tick for the 25 ms addressed queue — the bus stays held.
+        await quiet(80);
+
+        await dispatch(west);
+
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({ op: 'write' });
+    });
+
+    it('still learns about the row when the addressed send fails', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west'], {}, { deferBus: true });
+        east.unreachable.add('west');
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor());
+
+        await dispatch(west);
+
+        await east.events.subscribeDurable(actorFor(), {
+            subject: `fs:${anchorUid()}`,
+            targets: ['socket'],
+        });
+        await quiet(80);
+
+        await dispatch(west);
+        await quiet(150);
+        expect(west.sent).toEqual([]);
+
+        // The backstop: the ~2 s all-peers webhook finally lands.
+        flushBus(east);
+        await dispatch(west);
+
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({ op: 'write' });
+    });
+
+    it('also fans a presence generation bump onto the addressed channel', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        metricCalls.length = 0;
+
+        await west.forward.noteConnect(actorFor());
+
+        expect(metricCalls).toContainEqual(
+            expect.objectContaining({
+                name: 'events.forward.sent',
+                attributes: expect.objectContaining({ class: 'bump' }),
+            }),
+        );
     });
 });

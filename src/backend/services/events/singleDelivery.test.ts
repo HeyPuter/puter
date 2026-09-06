@@ -276,6 +276,9 @@ beforeEach(async () => {
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
+                announceWatch: () => undefined,
+                forwardEvent: () => undefined,
+                announceGeneration: () => undefined,
             },
             socket: {
                 send: vi.fn(async (_spec, _key, data) => {
@@ -673,7 +676,9 @@ describe('when a delivery cannot be held', () => {
             new Error('the cache is unreachable'),
         );
 
-        await expect(dispatch()).resolves.toBeUndefined();
+        // The row still matched; the enqueue failure is caught asynchronously
+        // downstream of the return.
+        await expect(dispatch()).resolves.toBe(true);
 
         expect(sent).toEqual([]);
         expect(alarms).toHaveBeenCalledWith(

@@ -28,6 +28,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
+import { EVENTS_WORKER_SESSION_NAME } from './workerRuntime.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 
@@ -86,6 +87,58 @@ const makeApp = async (ownerUserId: number): Promise<{ uid: string; token: strin
 
 const SOURCE = 'async ({ event }) => { console.log(event.path); }';
 const OTHER_SOURCE = 'async ({ event, ctx }) => { console.log(ctx.url); }';
+
+/** The reused `events:handlers` worker session for (userId, appUid), if any. */
+const workerSessionFor = async (forAppUid: string) => {
+    const rows = await env.server.stores.session.getByUserId(userId, {
+        includeRevoked: true,
+    });
+    return rows.find(
+        (row: {
+            kind: string;
+            app_uid: string;
+            meta?: { worker_name?: string };
+        }) =>
+            row.kind === 'worker' &&
+            row.app_uid === forAppUid &&
+            row.meta?.worker_name === EVENTS_WORKER_SESSION_NAME,
+    );
+};
+
+/** A durable `single` subscription bound to a published handler, with the
+ * grants a background delivery needs — the setup a session gets minted for. */
+const subscribeBackgroundHandler = async (
+    app: { uid: string; token: string },
+    handlerName: string,
+): Promise<void> => {
+    const anchor = `/${env.users.user.username}/${uuidv4()}`;
+    await env.server.services.fs.mkdir(userId, {
+        path: anchor,
+        createMissingParents: true,
+    });
+    const { actor } = await env.server.services.auth.authenticate(
+        env.users.user.token,
+    );
+    const entry = await env.server.stores.fsEntry.getEntryByPath(anchor);
+    await env.server.services.permission.grantUserAppPermission(
+        actor!,
+        app.uid,
+        `fs:${entry!.uid}:list`,
+    );
+    await env.server.services.permission.grantUserAppPermission(
+        actor!,
+        app.uid,
+        EVENTS_BACKGROUND_PERMISSION,
+    );
+
+    const subscribed = await call('POST', '/events/subscribe', app.token, {
+        subject: `fs:${anchor}`,
+        delivery: 'single',
+        handlerName,
+        targets: ['worker'],
+    });
+    expect(subscribed.status).toBe(200);
+};
 
 let creates: Array<{ appUid: string; ownerId: number | undefined }>;
 let destroys: Array<{ appUid: string; ownerId: number | undefined }>;
@@ -343,6 +396,96 @@ describe('POST /events/workers/destroy', () => {
             { appUid: app.uid },
         );
         expect(destroyed.body).toMatchObject({ removed: 1, suspended: 1 });
+    });
+
+    it('retires the app worker session it minted', async () => {
+        const app = await makeApp(userId);
+        await publish(app.token, {
+            appUid: app.uid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
+        await subscribeBackgroundHandler(app, 'ingestUpload');
+
+        // Stands in for the session a real delivery would have minted.
+        const { actor } = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+        const workerToken = await env.server.services.auth.createWorkerAppToken(
+            actor!,
+            app.uid,
+            EVENTS_WORKER_SESSION_NAME,
+        );
+
+        await call('POST', '/events/workers/destroy', app.token, {
+            appUid: app.uid,
+        });
+
+        const session = await workerSessionFor(app.uid);
+        expect(session?.revoked_at).not.toBeNull();
+
+        const reauth = await env.server.services.auth.authenticate(workerToken);
+        expect(reauth).toMatchObject({
+            reauth: { reason: 'session_revoked' },
+        });
+    });
+
+    it('leaves the rows suspended so a republish resumes them, and mints a fresh session', async () => {
+        const app = await makeApp(userId);
+        await publish(app.token, {
+            appUid: app.uid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
+        await subscribeBackgroundHandler(app, 'ingestUpload');
+        const { actor } = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+        await env.server.services.auth.createWorkerAppToken(
+            actor!,
+            app.uid,
+            EVENTS_WORKER_SESSION_NAME,
+        );
+
+        await call('POST', '/events/workers/destroy', app.token, {
+            appUid: app.uid,
+        });
+
+        const suspended = await env.server.stores.durableSubscription.listByHandler(
+            app.uid,
+            'ingestUpload',
+            { suspendedReason: 'handler_not_found' },
+        );
+        expect(suspended).toHaveLength(1);
+
+        const republished = await publish(app.token, {
+            appUid: app.uid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
+        expect(republished.status).toBe(200);
+
+        const stillSuspended =
+            await env.server.stores.durableSubscription.listByHandler(
+                app.uid,
+                'ingestUpload',
+                { suspendedReason: 'handler_not_found' },
+            );
+        expect(stillSuspended).toHaveLength(0);
+
+        // The next delivery mints a fresh session through the unchanged
+        // `#mintSubscriberToken` — nothing here refuses a new one.
+        const freshToken = await env.server.services.auth.createWorkerAppToken(
+            actor!,
+            app.uid,
+            EVENTS_WORKER_SESSION_NAME,
+        );
+        expect(typeof freshToken).toBe('string');
+        const freshSession = await env.server.stores.session.getWorker(userId, {
+            appUid: app.uid,
+            workerName: EVENTS_WORKER_SESSION_NAME,
+        });
+        expect(freshSession?.revoked_at).toBeNull();
     });
 
     it('refuses an app token destroying an app it is not', async () => {

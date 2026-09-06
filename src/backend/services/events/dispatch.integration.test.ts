@@ -288,6 +288,29 @@ describe('a move out of a watched folder', () => {
         });
     });
 
+    it('tells the folder where a renamed node used to be', async () => {
+        const folder = `/${username}/watch-rename-from`;
+        await fs().mkdir(userId, { path: folder, createMissingParents: true });
+        await subscribeTo(`fs:${folder}`);
+
+        const file = await fs().touch(userId, {
+            path: `${folder}/before.txt`,
+        });
+        await settle((d) => pathOf(d) === `${folder}/before.txt`);
+
+        const renamed = await fs().rename(userId, file, 'after.txt');
+
+        const leftFrom = (d: DeliveryEnvelope) =>
+            d.event.op === 'move' &&
+            (d.event as { from?: string }).from === file.path;
+        await settle(leftFrom);
+
+        expect(delivered.find(leftFrom)?.event).toMatchObject({
+            path: renamed.path,
+            from: file.path,
+        });
+    });
+
     it('tells a filtered subscription on the folder too', async () => {
         const from = `/${username}/watch-move-out-glob-from`;
         const to = `/${username}/watch-move-out-glob-to`;

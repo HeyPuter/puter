@@ -491,6 +491,87 @@ describe('the expiry sweep', () => {
     });
 });
 
+describe('listHolderIdsForApp', () => {
+    it('names every distinct holder bound to the app`s handlers', async () => {
+        const appUid = `app-${uuidv4()}`;
+        await durable().create(
+            input({ appUid, holderUserId: userId, targets: ['socket', 'worker'] }),
+        );
+        await durable().create(
+            input({
+                appUid,
+                holderUserId: otherUserId,
+                targets: ['socket', 'worker'],
+            }),
+        );
+        // A second row for the same holder must not double the name.
+        await durable().create(
+            input({ appUid, holderUserId: userId, targets: ['socket', 'worker'] }),
+        );
+
+        const holders = await durable().listHolderIdsForApp(appUid);
+        expect(holders.sort()).toEqual([userId, otherUserId].sort());
+    });
+
+    it('finds a suspended row`s holder too', async () => {
+        const appUid = `app-${uuidv4()}`;
+        const { row } = await durable().create(
+            input({ appUid, targets: ['socket', 'worker'] }),
+        );
+        await durable().suspend([row], 'handler_not_found');
+
+        expect(await durable().listHolderIdsForApp(appUid)).toEqual([userId]);
+    });
+
+    it('answers an empty list for an app with nothing bound', async () => {
+        expect(
+            await durable().listHolderIdsForApp(`app-${uuidv4()}`),
+        ).toEqual([]);
+    });
+});
+
+describe('reapForApp', () => {
+    it('deletes every row bound to the app and bumps its owner`s generation', async () => {
+        const appUid = `app-${uuidv4()}`;
+        const mine = await durable().create(
+            input({ appUid, targets: ['socket', 'worker'] }),
+        );
+        const untouched = await durable().create(input());
+        const before = await cache().getGeneration(userId);
+
+        await expect(durable().reapForApp(appUid, 500)).resolves.toBe(1);
+
+        await expect(durable().getBySubId(mine.row.subId)).resolves.toBeNull();
+        await expect(
+            durable().getBySubId(untouched.row.subId),
+        ).resolves.not.toBeNull();
+        await expect(cache().getGeneration(userId)).resolves.toBeGreaterThan(
+            before,
+        );
+    });
+
+    it('never touches another app`s rows', async () => {
+        const appUid = `app-${uuidv4()}`;
+        const otherAppUid = `app-${uuidv4()}`;
+        await durable().create(input({ appUid, targets: ['socket', 'worker'] }));
+        const theirs = await durable().create(
+            input({ appUid: otherAppUid, targets: ['socket', 'worker'] }),
+        );
+
+        await durable().reapForApp(appUid, 500);
+
+        await expect(
+            durable().getBySubId(theirs.row.subId),
+        ).resolves.not.toBeNull();
+    });
+
+    it('answers 0 for an app with nothing to reap', async () => {
+        await expect(
+            durable().reapForApp(`app-${uuidv4()}`, 500),
+        ).resolves.toBe(0);
+    });
+});
+
 describe('warming a cold region', () => {
     it('reads the table once and then answers from the cache', async () => {
         const { row } = await durable().create(input());

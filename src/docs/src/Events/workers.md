@@ -37,6 +37,8 @@ puter.events.workers.destroy(appUid)
 
 Removes **every** handler the named app has published, in one call — the same consequences as calling [`puter.events.handlers.remove()`](/Events/handlers/) on each of them: a name nothing is bound to is deleted outright, and a name with subscriptions on it is deleted with those subscriptions *suspended* (`suspendedReason: 'handler_not_found'`), never dropped. Publishing new handlers for the app afterwards resumes them, exactly as republishing a single removed handler would.
 
+It also retires the worker session it was running background deliveries under, for every holder — see [`onPersistent()`](/Events/onPersistent/) — the same session revoking it from the user's sessions list would end. The session is not gone for good: the first delivery after a republish mints a fresh one.
+
 Resolves to `{ appUid, removed, suspended }` — `removed` is how many handlers were deleted, `suspended` how many subscriptions that left suspended across all of them. An app with nothing published rejects with `events_handler_not_found`.
 
 ## Errors
