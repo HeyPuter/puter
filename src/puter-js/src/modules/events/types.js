@@ -24,6 +24,7 @@
  *   naming the node it happened to — `fs:<uid>:<op>`. Not the subject string
  *   you subscribed with.
  * @property {'add' | 'write' | 'move' | 'remove' | 'meta'} op What happened.
+ *   `move` covers a move and an in-place rename.
  * @property {string} uid The uid of the node the event is about.
  * @property {string} path The path of the node the event is about.
  * @property {string} [from] On a `move`, the path the node left — present only

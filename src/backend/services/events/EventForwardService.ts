@@ -34,10 +34,14 @@ import {
     PeerForwardQueue,
     type ForwardAck,
     type ForwardBatch,
+    type ForwardBump,
     type ForwardDelivery,
+    type ForwardEvent,
     type ForwardItem,
     type ForwardReply,
+    type ForwardWatch,
 } from './forwardQueue.js';
+import { forwardReceived, forwardSent, sessionForward } from './metrics.js';
 import { PresenceCache, remoteRegions } from './presenceCache.js';
 import type { DeliverableEvent, GapMarker } from './registry.js';
 
@@ -162,6 +166,18 @@ export class EventForwardService extends PuterService {
             this.config.events?.enabled === true &&
             this.services.broadcast.addressablePeers.length > 0
         );
+    }
+
+    /**
+     * Whether session (`onLocal`) subscriptions are forwarded across regions.
+     * On wherever peers exist, since it is what makes the documented `onLocal`
+     * promise true; a separate switch from {@link active} only so a deployment
+     * can hold back the standing per-write index it adds. Explicitly `false` ⇒
+     * no announcements, no `ev:rw` writes on either side, and
+     * `dispatchFs`/`dispatchKv`'s remote arm is never forwarded against.
+     */
+    get forwardSessionActive(): boolean {
+        return this.active && this.config.events?.forwardSession !== false;
     }
 
     /** What this deployment calls itself in a presence row. */
@@ -370,6 +386,90 @@ export class EventForwardService extends PuterService {
     }
 
     /**
+     * Tell every peer this region now has (or no longer has) a session watcher
+     * on one anchor token. Fires only on the transition — the first session row
+     * for a token, or the last one going — never per subscribe.
+     */
+    announceWatch(
+        ownerUserId: number,
+        token: string,
+        op: 'add' | 'drop',
+    ): void {
+        if (!this.forwardSessionActive) return;
+        for (const region of this.services.broadcast.addressablePeers) {
+            forwardSent.add(1, {
+                from: this.region,
+                to: region,
+                class: 'watch',
+            });
+            const item: ForwardWatch = {
+                kind: 'watch',
+                op,
+                userId: ownerUserId,
+                token,
+            };
+            this.#queueFor().push(region, item);
+        }
+    }
+
+    /**
+     * Replay one committed change against named regions' session rows. Only
+     * regions that announced a session watcher on one of the event's tokens are
+     * named — see `EventsService#dispatchFs`/`#dispatchKv`, which read the
+     * remote-watch index this answers to.
+     */
+    forwardEvent(
+        regions: readonly string[],
+        item: Omit<ForwardEvent, 'kind' | 'sessionOnly' | 'hop'>,
+    ): void {
+        if (!this.forwardSessionActive) return;
+        for (const region of regions) {
+            if (!this.isPeer(region)) continue;
+            forwardSent.add(1, {
+                from: this.region,
+                to: region,
+                class: 'session',
+            });
+            this.#queueFor().push(region, {
+                ...item,
+                kind: 'event',
+                sessionOnly: true,
+                hop: 1,
+            });
+        }
+    }
+
+    /**
+     * Fan a subscription-set or presence generation bump to every peer over the
+     * addressed channel, so a cold region there marks itself so within one
+     * queue window instead of waiting for the slower all-peers webhook. That
+     * webhook stays as the backstop for a peer that drops this, or is still
+     * running old code that does not know the `bump` kind.
+     */
+    announceGeneration(
+        bump: { userId: number; generation: number },
+        durable: boolean,
+        scope: 'subscription' | 'presence' = 'subscription',
+    ): void {
+        if (!this.active) return;
+        for (const region of this.services.broadcast.addressablePeers) {
+            forwardSent.add(1, {
+                from: this.region,
+                to: region,
+                class: 'bump',
+            });
+            const item: ForwardBump = {
+                kind: 'bump',
+                userId: bump.userId,
+                generation: bump.generation,
+                scope,
+                durable,
+            };
+            this.#queueFor().push(region, item);
+        }
+    }
+
+    /**
      * Regions other than this one holding a socket for the pair, read through
      * the generation-keyed cache and narrowed to regions this deployment can
      * still address. An unaddressable name would otherwise sit at the head of
@@ -425,6 +525,10 @@ export class EventForwardService extends PuterService {
      */
     async receive(batch: ForwardBatch): Promise<ForwardReply> {
         const items = batch.items ?? [];
+        forwardReceived.add(items.length, {
+            from: batch.from ?? 'unknown',
+            to: this.region,
+        });
 
         for (const item of items) {
             if (item.kind !== 'delivery') continue;
@@ -432,6 +536,56 @@ export class EventForwardService extends PuterService {
                 await this.services.events.deliverForwarded(item);
             } catch (err) {
                 console.warn('[events] forwarded delivery failed', err);
+            }
+        }
+
+        for (const item of items) {
+            if (item.kind !== 'watch') continue;
+            // Turned off here means the index is not kept here either: a peer
+            // still running the announce has nothing to forward against.
+            if (!this.forwardSessionActive) continue;
+            try {
+                await this.stores.eventSubscription.noteRemoteWatch(
+                    item.userId,
+                    item.token,
+                    batch.from,
+                    item.op,
+                );
+            } catch (err) {
+                console.warn('[events] remote-watch note failed', err);
+            }
+        }
+
+        for (const item of items) {
+            if (item.kind !== 'bump') continue;
+            if (item.scope === 'presence') {
+                this.#cache.bump(item.userId);
+                continue;
+            }
+            this.services.events.invalidateUser(item.userId, {
+                rebuild: item.durable,
+            });
+        }
+
+        // Deliveries keep the batch's order (see the delivery loop above); a
+        // raw event replayed against session rows runs through the same
+        // region-local dispatch path a local write does, so it is walked the
+        // same way rather than under the ack's concurrency bound.
+        const noWatch: Array<{ userId: number; token: string }> = [];
+        for (const item of items) {
+            if (item.kind !== 'event') continue;
+            try {
+                const { matched, tokens } =
+                    await this.services.events.dispatchForwarded(item);
+                sessionForward.add(1, {
+                    from: batch.from,
+                    result: matched ? 'matched' : 'no-rows',
+                });
+                if (!matched)
+                    for (const token of tokens)
+                        noWatch.push({ userId: item.ownerUserId, token });
+            } catch (err) {
+                console.warn('[events] forwarded session event failed', err);
             }
         }
 
@@ -487,7 +641,10 @@ export class EventForwardService extends PuterService {
                 );
         });
 
-        return noSocket.length > 0 ? { noSocket } : {};
+        const reply: ForwardReply = {};
+        if (noSocket.length > 0) reply.noSocket = noSocket;
+        if (noWatch.length > 0) reply.noWatch = noWatch;
+        return reply;
     }
 
     /**
@@ -526,6 +683,11 @@ export class EventForwardService extends PuterService {
 
     #send(region: string, delivery: ForwardableDelivery): void {
         if (!this.isPeer(region)) return;
+        forwardSent.add(1, {
+            from: this.region,
+            to: region,
+            class: delivery.ackRequired ? 'single' : 'broadcast',
+        });
         const item: ForwardDelivery = {
             kind: 'delivery',
             userId: delivery.holderUserId,
@@ -566,6 +728,16 @@ export class EventForwardService extends PuterService {
 
         for (const missing of reply?.noSocket ?? [])
             await this.#repair(peerId, missing.userId, missing.appUid);
+
+        // A peer answering "I hold no session for this token" is
+        // authoritative the same way `noSocket` is — this region's own
+        // remote-watch entry for it is stale, so it stops sending there.
+        for (const stale of reply?.noWatch ?? [])
+            await this.stores.eventSubscription
+                .noteRemoteWatch(stale.userId, stale.token, peerId, 'drop')
+                .catch((err: unknown) => {
+                    console.warn('[events] remote-watch repair failed', err);
+                });
     }
 
     /**
@@ -675,6 +847,9 @@ export class EventForwardService extends PuterService {
                 { userId, generation },
                 {},
             );
+            // Addressed alongside the webhook emit above, which stays as the
+            // backstop for a peer that drops this or runs old code.
+            this.announceGeneration({ userId, generation }, false, 'presence');
         } catch (err) {
             this.#cache.bump(userId);
             console.warn('[events] presence generation bump failed', err);

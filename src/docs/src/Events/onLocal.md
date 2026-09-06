@@ -142,8 +142,9 @@ The promise rejects with `{ message, code }`:
             // (1) Exactly one key, and separately every key under a prefix.
             const one = await puter.events.onLocal('kv:cart', ({ event }) =>
                 puter.print(`${event.op}: ${event.key}<br>`));
-            const many = await puter.events.onLocal('kv:cart:*', ({ event }) =>
-                puter.print(`under cart: ${event.key}<br>`));
+            const many = await puter.events.onLocal(
+                `kv:${puter.appID}:cart:*`,
+                ({ event }) => puter.print(`under cart: ${event.key}<br>`));
 
             // (2) `cart` reaches the first, `cart:items` only the second.
             await puter.kv.set('cart', { total: 0 });

@@ -61,7 +61,7 @@ A `single` delivery is owed to exactly one consumer, so it stays owed until it i
 
 - Calling `ack()` takes the delivery.
 - Returning **without** calling it acknowledges it anyway — a handler that finished did the work.
-- **Throwing acknowledges nothing.** The lease lapses after 30 seconds and the delivery is offered again, so a handler that throws sees the same event twice. `event.id` is stable across redeliveries; use it to make the second one a no-op.
+- **Throwing acknowledges nothing.** The lease lapses after 60 seconds — twice the handler invocation timeout — and the delivery is offered again, so a handler that throws sees the same event twice. `event.id` is stable across redeliveries; use it to make the second one a no-op.
 
 In the events worker the same three outcomes are the response status: `2xx` takes the delivery, `4xx` refuses it (it is dropped with a `gap` marker carrying `reason: 'handler_rejected'`), and `5xx`, `429` or no answer within 30 seconds means "not now" — the delivery is retried after 2 seconds, doubling to at most 5 minutes. **Five failures in a row, refusals included, suspend the subscription** with `failures`; the developer is notified and republishing the handler puts it back in service.
 

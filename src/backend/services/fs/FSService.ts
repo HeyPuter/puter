@@ -3450,12 +3450,17 @@ export class FSService extends PuterService {
                 newPath,
             );
         }
-        this.#emitFsEvent('fs.rename', updated, {
-            old_name: entry.name,
-            new_name: newName,
-            old_path: entry.path,
-            new_path: newPath,
-        });
+        this.#emitFsEvent(
+            'fs.rename',
+            updated,
+            {
+                old_name: entry.name,
+                new_name: newName,
+                old_path: entry.path,
+                new_path: newPath,
+            },
+            { path: entry.path },
+        );
         return updated;
     }
 
@@ -3854,7 +3859,8 @@ export class FSService extends PuterService {
      *
      * Currently emitted: fs.create.{file,directory,shortcut,symlink}
      * fs.write.file — overwrite of an existing file fs.rename — in-place name
-     * change (move emits fs.move.node separately)
+     * change (move emits fs.move.node separately); both carry the path the node
+     * left via `movedFrom`.
      *
      * Skipped intentionally: `fs.pending.*` (no real entry yet at signed-URL
      * issue time) and per-flavor `fs.move.file` (move already emits
@@ -3864,6 +3870,7 @@ export class FSService extends PuterService {
         name: T,
         entry: FSEntry,
         extras: Record<string, unknown> = {},
+        movedFrom?: { path: string },
     ): void {
         try {
             this.clients.event.emit(
@@ -3881,7 +3888,7 @@ export class FSService extends PuterService {
         } catch {
             console.warn('missing event emissions');
         }
-        this.#dispatchEvents(name, entry);
+        this.#dispatchEvents(name, entry, movedFrom);
     }
 
     /**

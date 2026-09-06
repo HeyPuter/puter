@@ -143,7 +143,7 @@ import {
 } from './authorization.js';
 import { DeliveryCoalescer } from './coalescer.js';
 import { forwardTarget } from './EventForwardService.js';
-import type { ForwardDelivery } from './forwardQueue.js';
+import type { ForwardDelivery, ForwardEvent } from './forwardQueue.js';
 import {
     DELIVERY_USAGE_TYPES,
     EVENTS_COSTS,
@@ -203,6 +203,7 @@ import {
     type SubjectOp,
 } from './subjects.js';
 import { backlogPolicyFor, isResumable } from './suspension.js';
+import { singleAttempt } from './metrics.js';
 import type {
     EventsInvokeTransport,
     WorkerMissHandler,
@@ -543,6 +544,26 @@ export interface FsDispatchOptions {
         path: string;
         ancestors: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
     };
+    /**
+     * Set by {@link EventsService#dispatchForwarded}: a replay of another
+     * region's committed change, evaluated against session rows only — durable
+     * rows already crossed by row, and re-forwarding would loop.
+     */
+    forwarded?: true;
+    /** Carried over from the emitting region so both copies share one id/ts. */
+    id?: string;
+    ts?: number;
+}
+
+/** What a `dispatchKv` call site can supply beyond the bus payload. */
+export interface KvDispatchOptions {
+    /** Who performed the write, for the `self` flag. */
+    actingUserId?: number;
+    /** See {@link FsDispatchOptions.forwarded}. */
+    forwarded?: true;
+    /** Carried over from the emitting region so both copies share one id/ts. */
+    id?: string;
+    ts?: number;
 }
 
 /** One persisted notification, as the bus reports it. */
@@ -592,6 +613,14 @@ const EXPIRY_MAX_BATCHES = 50;
  * listing.
  */
 const ENDED_SUBJECTS_LISTED = 20;
+
+/**
+ * Worker sessions one page of the stray-session sweep reads, and pages one pass
+ * takes. Bounded low: the sweep is a safety net for sessions no API path could
+ * reach any more, not a bulk cleanup, and it runs every hour.
+ */
+const WORKER_SESSION_SWEEP_BATCH = 500;
+const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 
 // -- Owed deliveries --------------------------------------------------
 
@@ -908,6 +937,26 @@ const isSingle = (row: DispatchSubscription): boolean =>
     row.durable === true && row.delivery === 'single';
 
 /**
+ * The three fields a forwarded copy needs and nothing else: `fsProject` and
+ * `fsTokens` read `uid`/`path`, `#eventDescriptor` reads `{uid, path}`, and
+ * `dispatchFs` reads `entry.userId` as the owner. Nothing else about the row
+ * crosses a region.
+ */
+const slimFsEntry = (
+    entry: FSEntry,
+): { uid: string; path: string; userId: number; isDir?: boolean } => ({
+    uid: entry.uid,
+    path: entry.path,
+    userId: entry.userId,
+    ...(entry.isDir !== undefined ? { isDir: entry.isDir } : {}),
+});
+
+/** Every region a set of matched remote tokens named, deduplicated. */
+const regionsIn = (remote: ReadonlyMap<string, string[]>): string[] => [
+    ...new Set([...remote.values()].flat()),
+];
+
+/**
  * `row.anchorPath` is the anchor's path at subscribe time, not now — a rename
  * or move leaves it stale, and matching against it would silently drop every
  * event past the move. The live path is the entry's own when the event is on
@@ -1197,6 +1246,35 @@ export class EventsService extends PuterService {
             void this.settleRevokedGrant(data as RevokedGrant).catch((err) => {
                 console.warn('[events] revocation settle failed', err);
             });
+        });
+
+        // A deleted app's rows can never deliver again — the grant identity
+        // they are re-checked under no longer resolves — so they are torn
+        // down rather than left to cost their holder an anchor slot forever.
+        // Best-effort: `#emitAppChanged` is fire-and-forget, so this must not
+        // be able to fail the delete that triggered it.
+        this.clients.event.on('app.changed', async (_key, data) => {
+            const {
+                app_uid: appUid,
+                action,
+                old_app: oldApp,
+            } = (data ?? {}) as {
+                app_uid?: string;
+                action?: string;
+                old_app?: { owner_user_id?: unknown };
+            };
+            if (action !== 'deleted' || !appUid) return;
+            const ownerUserId = Number(oldApp?.owner_user_id);
+            try {
+                await this.settleDeletedApp(
+                    appUid,
+                    Number.isFinite(ownerUserId) && ownerUserId > 0
+                        ? ownerUserId
+                        : undefined,
+                );
+            } catch (err) {
+                console.warn('[events] deleted-app settle failed', err);
+            }
         });
 
         // The KV store is a store, so the bus is the only seam it has to reach
@@ -1980,7 +2058,14 @@ export class EventsService extends PuterService {
         } finally {
             // A pass that stops partway may still have taken the last handler
             // with it, and the announce is what a rent listener stops on.
-            if (removed > 0) await this.#maybeAnnounceWorkerDestroy(appUid);
+            if (removed > 0) {
+                await this.#maybeAnnounceWorkerDestroy(appUid);
+                // The worker is gone; nothing should still be able to invoke
+                // under the session it was running deliveries with. Rows stay
+                // suspended `handler_not_found` — publishing again mints a
+                // fresh session through the unchanged `#mintSubscriberToken`.
+                await this.#revokeWorkerSessions(appUid);
+            }
         }
         return { appUid, removed, suspended };
     }
@@ -2441,6 +2526,51 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * Revoke `events:handlers` worker sessions whose app is already gone — the
+     * safety net for whatever `workers.destroy` and app deletion did not catch
+     * (a caller that skipped both, or a row stranded before either hook
+     * existed). Scoped to this one worker name; the same strand for
+     * `WorkerDriver`-minted sessions is a separate finding, not covered here.
+     */
+    async sweepStrandedWorkerSessions(): Promise<number> {
+        if (!this.enabled) return 0;
+
+        let revoked = 0;
+        let afterId = 0;
+        for (let page = 0; page < WORKER_SESSION_SWEEP_MAX_PAGES; page++) {
+            const rows = await this.stores.session.listWorkerSessions({
+                workerName: EVENTS_WORKER_SESSION_NAME,
+                afterId,
+                limit: WORKER_SESSION_SWEEP_BATCH,
+            });
+            if (rows.length === 0) break;
+            afterId = rows[rows.length - 1].id;
+
+            const appUids = [
+                ...new Set(rows.map((row) => row.appUid).filter(Boolean)),
+            ] as string[];
+            const apps = await this.stores.app.getByUids(appUids);
+
+            for (const row of rows) {
+                if (apps.has(row.appUid)) continue;
+                try {
+                    await this.services.auth.revokeSession(row.uuid);
+                    revoked += 1;
+                } catch (err) {
+                    console.warn(
+                        '[events] could not revoke a stranded worker session',
+                        row.uuid,
+                        err,
+                    );
+                }
+            }
+
+            if (rows.length < WORKER_SESSION_SWEEP_BATCH) break;
+        }
+        return revoked;
+    }
+
+    /**
      * Put back subscriptions a restored balance releases. Lazy on purpose: a
      * top-up is not something this service hears about, and coupling delivery
      * to the payment path would make one more thing that has to be told. The
@@ -2679,10 +2809,19 @@ export class EventsService extends PuterService {
 
     /**
      * The other half of {@link #maybeAnnounceWorkerCreate}, for a 1→0
-     * transition.
+     * transition. `ownerUserId`, when given, is used in place of an app-row
+     * lookup — needed when the app row is already gone, as it is by the time
+     * `app.changed`'s `deleted` action reaches {@link settleDeletedApp}.
      */
-    async #maybeAnnounceWorkerDestroy(appUid: string): Promise<void> {
-        await this.#emitWorkerLifecycle('events.worker.destroy', appUid);
+    async #maybeAnnounceWorkerDestroy(
+        appUid: string,
+        ownerUserId?: number,
+    ): Promise<void> {
+        await this.#emitWorkerLifecycle(
+            'events.worker.destroy',
+            appUid,
+            ownerUserId,
+        );
     }
 
     /**
@@ -2699,6 +2838,7 @@ export class EventsService extends PuterService {
     async #emitWorkerLifecycle(
         name: 'events.worker.create' | 'events.worker.destroy',
         appUid: string,
+        knownOwnerUserId?: number,
     ): Promise<void> {
         try {
             // Only a count now on the far side of the transition is one: a
@@ -2707,11 +2847,15 @@ export class EventsService extends PuterService {
             if (name === 'events.worker.create' ? count === 0 : count > 0)
                 return;
 
-            const app = await this.stores.app.getByUid(appUid);
-            const ownerUserId = Number(
-                (app as { owner_user_id?: unknown } | null)?.owner_user_id,
-            );
-            if (!Number.isFinite(ownerUserId) || ownerUserId <= 0) return;
+            let ownerUserId = knownOwnerUserId;
+            if (ownerUserId === undefined) {
+                const app = await this.stores.app.getByUid(appUid);
+                ownerUserId = Number(
+                    (app as { owner_user_id?: unknown } | null)?.owner_user_id,
+                );
+            }
+            if (!Number.isFinite(ownerUserId) || (ownerUserId as number) <= 0)
+                return;
             const owner = await this.stores.user.getById(ownerUserId);
             if (!owner) return;
 
@@ -3138,16 +3282,16 @@ export class EventsService extends PuterService {
         key: EventKey,
         entry: FSEntry,
         options: FsDispatchOptions = {},
-    ): Promise<void> {
-        if (!this.enabled) return;
+    ): Promise<boolean> {
+        if (!this.enabled) return false;
 
         const subject = lookupFsSubject(key);
-        if (!subject) return;
+        if (!subject) return false;
 
         const ownerUserId = entry?.userId;
-        if (typeof ownerUserId !== 'number') return;
+        if (typeof ownerUserId !== 'number') return false;
 
-        if (!(await this.#userHasAny(ownerUserId))) return;
+        if (!(await this.#userHasAny(ownerUserId))) return false;
 
         const ancestors = options.ancestors ? await options.ancestors() : [];
         const movedFrom = options.movedFrom
@@ -3161,21 +3305,49 @@ export class EventsService extends PuterService {
             entry,
             ancestors,
             movedFrom,
-            id: randomUUID(),
-            ts: Date.now(),
+            id: options.id ?? randomUUID(),
+            ts: options.ts ?? Date.now(),
         };
 
-        const watched = await this.stores.eventSubscription.watchedTokens(
-            ownerUserId,
-            subject.tokens(context),
-        );
-        if (watched.length === 0) return;
+        const { local, remote } =
+            await this.stores.eventSubscription.watchedFor(
+                ownerUserId,
+                subject.tokens(context),
+            );
+        if (local.length === 0 && remote.size === 0) return false;
 
-        const rows = await this.stores.eventSubscription.getForTokens(
+        // Ship first: the far side should not wait on this region's ACL
+        // re-checks. A forwarded copy is never re-forwarded — its rows are
+        // already session-local by construction, and `hop` is not read.
+        if (!options.forwarded && remote.size > 0)
+            this.services.eventForward.forwardEvent(regionsIn(remote), {
+                family: 'fs',
+                ownerUserId,
+                actingUserId: options.actingUserId,
+                id: context.id,
+                ts: context.ts,
+                fs: {
+                    key,
+                    entry: slimFsEntry(entry),
+                    ancestors: [...ancestors],
+                    movedFrom: movedFrom && {
+                        path: movedFrom.path,
+                        ancestors: [...movedFrom.ancestors],
+                    },
+                },
+            });
+
+        if (local.length === 0) return false;
+
+        let rows = await this.stores.eventSubscription.getForTokens(
             ownerUserId,
-            watched,
+            local,
         );
-        if (rows.length === 0) return;
+        // A forwarded copy evaluates session rows only: durable rows already
+        // crossed by row (`warmRegion` rebuilds them in every region).
+        if (options.forwarded)
+            rows = rows.filter((row) => row.socketId !== undefined);
+        if (rows.length === 0) return false;
 
         await this.#route(
             subject,
@@ -3190,6 +3362,7 @@ export class EventsService extends PuterService {
         // now gone.
         if (key === 'fs.remove.node')
             await this.#settleDeletedAnchor(context, rows);
+        return true;
     }
 
     /**
@@ -3201,45 +3374,75 @@ export class EventsService extends PuterService {
      * A batch is one bus event over many keys, so the watched-set check is one
      * command for the whole batch rather than one per key.
      */
-    async dispatchKv(input: KvDispatchInput): Promise<void> {
-        if (!this.enabled) return;
+    async dispatchKv(
+        input: KvDispatchInput,
+        options: KvDispatchOptions = {},
+    ): Promise<boolean> {
+        if (!this.enabled) return false;
 
         const subject = lookupKvSubject('kv.mutated');
-        if (!subject) return;
+        if (!subject) return false;
 
         const ownerUserId = input?.userId;
-        if (typeof ownerUserId !== 'number') return;
-        if (!input.keys?.length) return;
+        if (typeof ownerUserId !== 'number') return false;
+        if (!input.keys?.length) return false;
 
-        if (!(await this.#userHasAny(ownerUserId))) return;
+        if (!(await this.#userHasAny(ownerUserId))) return false;
 
         const namespace = parseKvNamespace(input.namespace);
-        if (!namespace) return;
+        if (!namespace) return false;
 
-        const ts = Date.now();
+        const ts = options.ts ?? Date.now();
         const contexts: KvEventContext[] = input.keys.map((kvKey) => ({
             key: 'kv.mutated',
             userUuid: namespace.userUuid,
             appUid: namespace.appUid,
             kvKey,
             op: input.op,
-            id: randomUUID(),
+            // A forwarded replay is always a single key, carrying the
+            // emitter's own id so both copies match.
+            id: options.forwarded && options.id ? options.id : randomUUID(),
             ts,
         }));
 
         const tokensPerKey = contexts.map((context) => subject.tokens(context));
-        const watched = new Set(
-            await this.stores.eventSubscription.watchedTokens(ownerUserId, [
+        const { local, remote } =
+            await this.stores.eventSubscription.watchedFor(ownerUserId, [
                 ...new Set(tokensPerKey.flat()),
-            ]),
-        );
-        if (watched.size === 0) return;
+            ]);
+        if (local.length === 0 && remote.size === 0) return false;
 
-        const rows = await this.stores.eventSubscription.getForTokens(
+        if (!options.forwarded && remote.size > 0)
+            contexts.forEach((context, i) => {
+                const regions = new Set<string>();
+                for (const token of tokensPerKey[i])
+                    for (const region of remote.get(token) ?? [])
+                        regions.add(region);
+                if (regions.size === 0) return;
+                this.services.eventForward.forwardEvent([...regions], {
+                    family: 'kv',
+                    ownerUserId,
+                    actingUserId: options.actingUserId,
+                    id: context.id,
+                    ts: context.ts,
+                    kv: {
+                        userUuid: namespace.userUuid,
+                        appUid: namespace.appUid,
+                        kvKey: context.kvKey,
+                        op: context.op,
+                    },
+                });
+            });
+
+        if (local.length === 0) return false;
+
+        let rows = await this.stores.eventSubscription.getForTokens(
             ownerUserId,
-            [...watched],
+            local,
         );
-        if (rows.length === 0) return;
+        if (options.forwarded)
+            rows = rows.filter((row) => row.socketId !== undefined);
+        if (rows.length === 0) return false;
 
         // Indexed once: a row holds one token, so a key's candidates are the
         // rows under the tokens it enumerated.
@@ -3247,11 +3450,13 @@ export class EventsService extends PuterService {
         for (const row of rows)
             byToken.set(row.token, [...(byToken.get(row.token) ?? []), row]);
 
+        let matchedAny = false;
         for (const [i, context] of contexts.entries()) {
             const forKey = tokensPerKey[i].flatMap(
                 (token) => byToken.get(token) ?? [],
             );
             if (forKey.length === 0) continue;
+            matchedAny = true;
 
             await this.#route(
                 subject,
@@ -3261,6 +3466,87 @@ export class EventsService extends PuterService {
                 (matched) => this.#kvStillAuthorized(matched, namespace.appUid),
             );
         }
+        return matchedAny;
+    }
+
+    /**
+     * Replay a peer's committed change against this region's session rows.
+     * Reusing `dispatchFs`/`dispatchKv` is the point: gate → watched set → rows
+     * → filter → authorize → coalesce → meter → emit, all region-local and all
+     * code already tested. `matched` reports whether this event's tokens were
+     * watched here at all — the index-staleness signal a `false` turns into a
+     * `noWatch` reply — and is independent of whether anything downstream (a
+     * filter, an ACL re-check) actually delivered.
+     */
+    async dispatchForwarded(
+        item: ForwardEvent,
+    ): Promise<{ matched: boolean; tokens: readonly string[] }> {
+        if (!this.enabled) return { matched: false, tokens: [] };
+
+        if (item.family === 'fs' && item.fs) {
+            const subject = lookupFsSubject(item.fs.key);
+            // Only `entry.uid`/`ancestors`/`movedFrom.ancestors` are read to
+            // compute tokens — the slim entry a forward carries has exactly
+            // those, never a full `FSEntry`.
+            const tokens = subject
+                ? subject.tokens({
+                      key: item.fs.key,
+                      entry: item.fs.entry,
+                      ancestors: item.fs.ancestors,
+                      movedFrom: item.fs.movedFrom,
+                      id: item.id,
+                      ts: item.ts,
+                  } as unknown as FsEventContext)
+                : [];
+            const matched = await this.dispatchFs(
+                item.fs.key,
+                item.fs.entry as FSEntry,
+                {
+                    ancestors: async () => item.fs!.ancestors,
+                    movedFrom: item.fs!.movedFrom && {
+                        path: item.fs!.movedFrom.path,
+                        ancestors: async () => item.fs!.movedFrom!.ancestors,
+                    },
+                    actingUserId: item.actingUserId,
+                    forwarded: true,
+                    id: item.id,
+                    ts: item.ts,
+                },
+            );
+            return { matched, tokens };
+        }
+
+        if (item.family === 'kv' && item.kv) {
+            const subject = lookupKvSubject('kv.mutated');
+            const tokens = subject
+                ? subject.tokens({
+                      key: 'kv.mutated',
+                      userUuid: item.kv.userUuid,
+                      appUid: item.kv.appUid,
+                      kvKey: item.kv.kvKey,
+                      op: item.kv.op,
+                      id: item.id,
+                      ts: item.ts,
+                  } as KvEventContext)
+                : [];
+            const matched = await this.dispatchKv(
+                {
+                    userId: item.ownerUserId,
+                    namespace: `v1:${item.kv.userUuid}:${item.kv.appUid}`,
+                    keys: [item.kv.kvKey],
+                    op: item.kv.op,
+                },
+                {
+                    actingUserId: item.actingUserId,
+                    forwarded: true,
+                    id: item.id,
+                    ts: item.ts,
+                },
+            );
+            return { matched, tokens };
+        }
+
+        return { matched: false, tokens: [] };
     }
 
     /**
@@ -3813,6 +4099,43 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * Retire every holder's `events:handlers` session for one app. A session is
+     * only ever minted for a holder who owns a durable row bound to one of the
+     * app's handlers, so that table is the candidate list — indexed on
+     * `app_uid`, so no new lookup is needed to find them.
+     */
+    async #revokeWorkerSessions(appUid: string): Promise<void> {
+        const holders =
+            await this.stores.durableSubscription.listHolderIdsForApp(appUid);
+        for (const userId of holders)
+            await this.#revokeWorkerSession(userId, appUid);
+    }
+
+    /**
+     * Retire everything a deleted app left behind. Its rows can never deliver
+     * again — the grant identity they are re-checked under no longer resolves,
+     * `#recheck` refuses a row whose identity cannot be resolved — so they are
+     * deleted rather than suspended, unlike `workers.destroy` (a reversible
+     * developer action) which only ever suspends.
+     */
+    async settleDeletedApp(
+        appUid: string,
+        ownerUserId?: number,
+    ): Promise<void> {
+        if (!this.enabled) return;
+
+        const holders =
+            await this.stores.durableSubscription.listHolderIdsForApp(appUid);
+        await this.#sweepInBatches((batchSize) =>
+            this.stores.durableSubscription.reapForApp(appUid, batchSize),
+        );
+        await this.stores.eventHandler.deleteForApp(appUid);
+        await this.#maybeAnnounceWorkerDestroy(appUid, ownerUserId);
+        for (const userId of holders)
+            await this.#revokeWorkerSession(userId, appUid);
+    }
+
+    /**
      * Which of a holder's rows one withdrawn grant actually stops.
      *
      * Withdrawing an app's access wholesale is the user saying the app is done,
@@ -4328,11 +4651,18 @@ export class EventsService extends PuterService {
                     bill,
                 });
             }
+            singleAttempt.add(1, {
+                target: region ? 'remote-socket' : 'local-socket',
+                result: 'sent',
+            });
             return false;
         }
 
         // Nowhere to put it yet: the lease is what paces the next attempt.
-        if (!hasWorkerFallback) return false;
+        if (!hasWorkerFallback) {
+            singleAttempt.add(1, { target: 'none', result: 'no-target' });
+            return false;
+        }
 
         const invocation = this.#workerInvocation(row, claimed.event);
         if (!invocation) return false;
@@ -4341,6 +4671,10 @@ export class EventsService extends PuterService {
         // the lease is the backoff — and the budget refusal itself must not
         // spend the one bill this entry gets, nor count against the handler.
         const outcome = await this.#invokeHandler(invocation);
+        singleAttempt.add(1, {
+            target: 'worker',
+            result: outcome ?? 'over-budget',
+        });
         if (outcome === null) return false;
 
         // Only a settled outcome is a delivery: billing and reporting it
@@ -4939,11 +5273,18 @@ export class EventsService extends PuterService {
      * `durable` says whether the table changed. Session rows live in this
      * region's Redis alone, so a peer hearing about one has nothing to rebuild
      * — only a durable bump is worth a primary read over there.
+     *
+     * Also fans the bump over the addressed peer channel — a 25 ms queue window
+     * and a pooled round trip, rather than the ~2 s all-peers webhook batch
+     * above, which stays as the backstop for a dropped addressed item or a peer
+     * running old code. And where the store reported a session-watcher
+     * transition (`bump.announce`), tells every peer to start or stop
+     * forwarding raw events for that token — the whole of how subscribe,
+     * unsubscribe, socket reap and reanchor keep the remote-watch index honest,
+     * since all of them land here.
      */
-    #publishGeneration(
-        { userId, generation }: GenerationBump,
-        durable: boolean,
-    ): void {
+    #publishGeneration(bump: GenerationBump, durable: boolean): void {
+        const { userId, generation } = bump;
         this.#cache.bump(userId, generation);
         try {
             this.clients.event.emit(
@@ -4954,6 +5295,17 @@ export class EventsService extends PuterService {
         } catch {
             // A peer that misses the bump rebuilds on its own next miss.
         }
+        this.services.eventForward.announceGeneration(
+            { userId, generation },
+            durable,
+            'subscription',
+        );
+        for (const announce of bump.announce ?? [])
+            this.services.eventForward.announceWatch(
+                userId,
+                announce.token,
+                announce.op,
+            );
     }
 
     // -- Plumbing ----------------------------------------------------
@@ -5020,6 +5372,19 @@ export class EventsService extends PuterService {
             () => {
                 void this.stores.eventSubscription
                     .refresh(holderUserId, socketId)
+                    .then((reasserted) => {
+                        // The whole of the refresh story for a peer's
+                        // remote-watch entry: re-assert whatever this socket
+                        // still holds, so a lost `ev:rw` field — or its TTL
+                        // simply lapsing — heals within one window rather
+                        // than waiting on the next transition.
+                        for (const { ownerUserId, token } of reasserted)
+                            this.services.eventForward.announceWatch(
+                                ownerUserId,
+                                token,
+                                'add',
+                            );
+                    })
                     .catch(() => {});
             },
             Math.floor((SESSION_SUBSCRIPTION_TTL_SECONDS * 1000) / 3),
@@ -5033,6 +5398,7 @@ export class EventsService extends PuterService {
         const run = () => {
             void this.sweepExpired()
                 .then(() => this.sweepSuspended())
+                .then(() => this.sweepStrandedWorkerSessions())
                 .catch((err) => {
                     console.warn('[events] expiry sweep failed', err);
                 });
