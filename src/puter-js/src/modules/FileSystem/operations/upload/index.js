@@ -84,11 +84,24 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         // fires at most once even when the signed path falls back to legacy.
         const flags = { startCallbackFired: false };
 
+        // Native XHR.abort() does nothing before send(); preparation still needs cancellation.
+        const preparationController = new AbortController();
+        xhr.abort = () => {
+            if ( preparationController.signal.aborted ) return;
+            preparationController.abort();
+            try {
+                options.abort?.(operationId);
+            } finally {
+                reject({ code: 'upload_aborted', message: 'Upload aborted.' });
+            }
+        };
+
         // Call 'init' callback if provided
         // init is basically a hook that allows the user to get the operation ID and the XMLHttpRequest object
         if ( options.init && typeof options.init === 'function' ) {
             options.init(operationId, xhr);
         }
+        if ( preparationController.signal.aborted ) return;
 
         // Normalize the accepted input shapes (DataTransferItemList, FileList,
         // File, Blob, string, or arrays of these) into a flat list of entries.
@@ -98,6 +111,7 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         } catch (e) {
             return error(e);
         }
+        if ( preparationController.signal.aborted ) return;
 
         // Separate files from directories and tally the upload size.
         // This executor is async, so anything that throws here would settle
@@ -112,10 +126,11 @@ const uploadImpl = async function (items, dirPath, options = {}) {
                 return error({ code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.' });
             }
 
-            thumbnails = await generateThumbnails(files, options);
+            thumbnails = await generateThumbnails(files, options, preparationController.signal);
         } catch (e) {
             return error(e);
         }
+        if ( preparationController.signal.aborted ) return;
 
         // Check storage capacity.
         // We need to check the storage capacity before the upload starts because
@@ -140,6 +155,9 @@ const uploadImpl = async function (items, dirPath, options = {}) {
                 // Ignored
             }
         }
+
+        if ( preparationController.signal.aborted ) return;
+        delete xhr.abort;
 
         const signedDirectories = dirs.map((dir) => dir.path);
 

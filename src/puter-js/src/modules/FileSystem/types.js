@@ -188,7 +188,20 @@
  */
 
 /**
+ * @typedef {Object} ThumbnailGeneratorContext
+ * @property {(file: File) => Promise<string | undefined>} defaultGenerator Built-in browser image generator.
+ * @property {AbortSignal} [signal] Aborted when upload preparation is cancelled.
+ */
+
+/**
+ * @typedef {(file: File, context: ThumbnailGeneratorContext) => string | undefined | Promise<string | undefined>} ThumbnailGenerator
+ */
+
+/**
  * @typedef {Object} UploadOptionsOwn
+ * @property {boolean} [generateThumbnails] Generate browser image thumbnails before uploading. Defaults to `false`.
+ * @property {ThumbnailGenerator} [thumbnailGenerator] Overrides image generation; return `undefined` to skip.
+ * @property {string} [thumbnail] Thumbnail data URL or URL, used when no generated thumbnail is returned.
  * @property {boolean} [overwrite] Whether to overwrite the destination file if it already exists.
  * Defaults to `false`.
  * @property {boolean} [dedupeName] Whether to deduplicate the file name if it already exists. Defaults

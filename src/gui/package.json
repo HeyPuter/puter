@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@prelude.so/js-sdk": "0.12.1",
-    "@thumbmarkjs/thumbmarkjs": "1.9.1"
+    "@thumbmarkjs/thumbmarkjs": "1.9.1",
+    "pdfjs-dist": "6.3.289"
   }
 }

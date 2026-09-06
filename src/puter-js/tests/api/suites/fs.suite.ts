@@ -1185,6 +1185,92 @@ export default suite('fs', {
         t.assert.equal(await (await t.puter.fs.read(`${dir}/thumb-a.txt`)).text(), 'a');
     },
 
+    'upload thumbnail callbacks can delegate to the built-in generator': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-delegation`;
+        await t.puter.fs.mkdir(dir);
+        let delegated = false;
+        await t.puter.fs.upload(new File(['original bytes'], 'document.txt'), dir, {
+            thumbnailGenerator: async (file, context) => {
+                t.assert.equal(typeof context.defaultGenerator, 'function');
+                t.assert.equal(context.signal?.aborted, false);
+                const result = await context.defaultGenerator(file);
+                t.assert.equal(result, undefined);
+                delegated = true;
+                return result;
+            },
+        });
+        t.assert.equal(delegated, true);
+        t.assert.equal(await (await t.puter.fs.read(`${dir}/document.txt`)).text(), 'original bytes');
+    },
+
+    'upload cancellation during thumbnail generation does not write files': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-cancel`;
+        await t.puter.fs.mkdir(dir);
+        let request: XMLHttpRequest;
+        let aborted = 0;
+        let signalAborted = false;
+        let started = false;
+        const error = await t.assert.rejects(() => t.puter.fs.upload(
+            new File(['must not upload'], 'cancelled.pdf'), dir, {
+                init: (_operationId, xhr) => { request = xhr; },
+                start: () => { started = true; },
+                abort: () => { aborted++; },
+                thumbnailGenerator: async (_file, { signal }) => {
+                    request.abort();
+                    request.abort();
+                    signalAborted = signal.aborted;
+                    return undefined;
+                },
+            },
+        ));
+        t.assert.equal((error as { code: string }).code, 'upload_aborted');
+        t.assert.equal(signalAborted, true);
+        t.assert.equal(started, false);
+        t.assert.equal(aborted, 1);
+        t.assert.equal((await t.puter.fs.readdir(dir)).length, 0);
+    },
+
+    'upload remains cancelled when a pending thumbnail generator finishes late': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-cancel-late`;
+        await t.puter.fs.mkdir(dir);
+        let request: XMLHttpRequest;
+        let finish: (thumbnail: string) => void;
+        let entered: () => void;
+        let started = false;
+        const generating = new Promise<void>(resolve => { entered = resolve; });
+        const result = t.puter.fs.upload(new File(['original'], 'cancelled.pdf'), dir, {
+            init: (_operationId, xhr) => { request = xhr; },
+            start: () => { started = true; },
+            thumbnailGenerator: () => new Promise<string>(resolve => {
+                finish = resolve;
+                entered();
+            }),
+        });
+        const rejection = t.assert.rejects(() => result);
+        await generating;
+        request.abort();
+        t.assert.equal(((await rejection) as { code: string }).code, 'upload_aborted');
+        finish(`data:image/png;base64,${TINY_PNG_BASE64}`);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        t.assert.equal(started, false);
+        t.assert.equal((await t.puter.fs.readdir(dir)).length, 0);
+    },
+
+    'upload cancellation in init does not invoke thumbnail generation': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-cancel-init`;
+        await t.puter.fs.mkdir(dir);
+        let generated = false;
+        const error = await t.assert.rejects(() => t.puter.fs.upload(
+            new File(['must not upload'], 'cancelled.pdf'), dir, {
+                init: (_operationId, xhr) => xhr.abort(),
+                thumbnailGenerator: async () => { generated = true; return undefined; },
+            },
+        ));
+        t.assert.equal((error as { code: string }).code, 'upload_aborted');
+        t.assert.equal(generated, false);
+        t.assert.equal((await t.puter.fs.readdir(dir)).length, 0);
+    },
+
     'upload survives a thumbnail generator that throws': async (t) => {
         const dir = `${home(t)}/fs-suite-thumb-throws`;
         await t.puter.fs.mkdir(dir);

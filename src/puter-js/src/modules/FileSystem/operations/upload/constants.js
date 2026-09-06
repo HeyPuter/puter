@@ -3,6 +3,7 @@
 export const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_THUMBNAIL_DIMENSION = 128;
 export const MIN_THUMBNAIL_DIMENSION = 32;
+export const THUMBNAIL_UPLOAD_TIMEOUT_MS = 5000;
 
 // Marks whether the signed batch-write endpoints are known to be available on
 // the current backend. Cached on the FileSystem module instance so a single

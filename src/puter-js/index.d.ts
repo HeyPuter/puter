@@ -146,6 +146,8 @@ export type {
     UploadItems,
     UploadOperationResult,
     UploadOptions,
+    ThumbnailGenerator,
+    ThumbnailGeneratorContext,
     WriteOptions,
 } from './types/modules/FileSystem/types.js';
 export type {

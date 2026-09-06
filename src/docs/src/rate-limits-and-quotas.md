@@ -97,6 +97,21 @@ All per minute unless stated:
 
 Signed-URL routes have no session to key on, so they are bounded per network rather than per account: 3,000 reads/min, 600 writes/min, 60 concurrent.
 
+The Puter desktop generates PDF upload thumbnails locally with these best-effort budgets. Exceeding them skips the preview and does not reject the original file upload:
+
+| PDF thumbnail preparation | Limit |
+| --- | --- |
+| Input PDF size | 20 MiB |
+| Active PDF renderers per desktop page | 1 |
+| Preparation per upload, including queued PDFs | 5 seconds from the first eligible PDF |
+| Worker lifetime per PDF, including asset loading and cleanup | 2 seconds |
+| Embedded image or intermediate canvas area | 4,194,304 pixels |
+| Image resize budget passed to PDF.js | 16 MiB |
+| Output | First page, at most 128 × 128 pixels, preserving aspect ratio |
+| Thumbnail payload | 2 MiB |
+
+The SDK allows five seconds for each separate signed thumbnail transfer. A failed or timed-out thumbnail transfer is skipped; explicit upload cancellation and failures transferring the original file still stop the upload. These are preview budgets, not upload file-size limits. The PDF renderer's memory budgets do not constitute a hard limit on total browser-process memory.
+
 ### WebDAV
 
 The `dav` host authenticates each request itself, so its limits are bounded per network rather than per account: **600 requests/min** and **10 concurrent**, one ceiling for everyone.
