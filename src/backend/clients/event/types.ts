@@ -119,6 +119,8 @@ export type EventMap = {
     };
 
     // ---- Apps ----
+    /** Awaited before lookup; listeners may mutate or replace appNames. */
+    'app.recommended': { appNames: string[] };
     'app.changed': {
         app_uid: string;
         action: string;

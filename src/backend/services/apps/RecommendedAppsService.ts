@@ -59,9 +59,12 @@ const RECOMMENDED_APP_NAMES = [
 
 export class RecommendedAppsService extends PuterService {
     async getRecommendedApps(): Promise<Array<Record<string, unknown>>> {
+        const event = { appNames: [...RECOMMENDED_APP_NAMES] };
+        await this.clients.event.emitAndWait('app.recommended', event, {});
+
         const apiBaseUrl = this.config.api_base_url as string | undefined;
         const results: Array<Record<string, unknown>> = [];
-        for (const name of RECOMMENDED_APP_NAMES) {
+        for (const name of event.appNames) {
             const app = await this.stores.app.getByName(name);
             if (app) results.push(toAppSummary(app, apiBaseUrl, this.config));
         }

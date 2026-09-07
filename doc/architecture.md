@@ -96,6 +96,18 @@ extension.on('user.signup', (_key, data) => {
 });
 ```
 
+The `app.recommended` event lets extensions customize desktop recommendations.
+Its `appNames` array starts as a fresh copy of the default ordered names on each
+call. Listeners may mutate or replace it, including setting it to an empty array.
+Async listeners are awaited before names are resolved to app summaries; names
+that do not exist are skipped.
+
+```ts
+extension.on('app.recommended', (_key, data) => {
+    data.appNames = ['editor', 'camera'];
+});
+```
+
 ## Conventions
 
 - **TypeScript preferred** in new code where feasible. Existing JS is fine; convert opportunistically when you're already touching a file.
