@@ -915,10 +915,14 @@ describe('MistralAIProvider image_url coercion', () => {
         usage: { promptTokens: 1, completionTokens: 1 },
     };
 
-    it('flattens image_url objects to plain strings before sending to Mistral', async () => {
+    it('rewrites canonical image_url parts to the SDK\'s camelCase imageUrl', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
 
+        const imagePartIn = {
+            type: 'image_url',
+            image_url: { url: 'https://example.com/img.png' },
+        };
         await withTestActor(() =>
             provider.complete({
                 model: 'mistral-small-2603',
@@ -927,10 +931,7 @@ describe('MistralAIProvider image_url coercion', () => {
                         role: 'user',
                         content: [
                             { type: 'text', text: 'describe this image' },
-                            {
-                                type: 'image_url',
-                                image_url: { url: 'https://example.com/img.png' },
-                            },
+                            imagePartIn,
                         ],
                     },
                 ],
@@ -940,12 +941,21 @@ describe('MistralAIProvider image_url coercion', () => {
         const [args] = completeMock.mock.calls[0]!;
         const imagePart = (args.messages[0].content as unknown[]).find(
             (p: unknown) => (p as { type: string }).type === 'image_url',
-        ) as { type: string; image_url: unknown };
-        // Mistral expects a plain string, not { url: string }.
-        expect(imagePart.image_url).toBe('https://example.com/img.png');
+        ) as Record<string, unknown>;
+        // The SDK's zod schema wants `imageUrl`; a snake_case `image_url` fails
+        // validation before the request leaves the box.
+        expect(imagePart).toEqual({
+            type: 'image_url',
+            imageUrl: 'https://example.com/img.png',
+        });
+        // Copy-on-write: the driver reuses the caller's parts on fallback.
+        expect(imagePartIn).toEqual({
+            type: 'image_url',
+            image_url: { url: 'https://example.com/img.png' },
+        });
     });
 
-    it('leaves image_url parts that are already plain strings unchanged', async () => {
+    it('carries `detail` into an imageUrl object and accepts a bare string URL', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
 
@@ -956,6 +966,13 @@ describe('MistralAIProvider image_url coercion', () => {
                     {
                         role: 'user',
                         content: [
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: 'https://example.com/hi.png',
+                                    detail: 'high',
+                                },
+                            },
                             {
                                 type: 'image_url',
                                 image_url: 'https://example.com/already-flat.png',
@@ -967,10 +984,42 @@ describe('MistralAIProvider image_url coercion', () => {
         );
 
         const [args] = completeMock.mock.calls[0]!;
-        const imagePart = (args.messages[0].content as unknown[]).find(
-            (p: unknown) => (p as { type: string }).type === 'image_url',
-        ) as { type: string; image_url: unknown };
-        expect(imagePart.image_url).toBe('https://example.com/already-flat.png');
+        const parts = args.messages[0].content as Record<string, unknown>[];
+        expect(parts[0]).toEqual({
+            type: 'image_url',
+            imageUrl: { url: 'https://example.com/hi.png', detail: 'high' },
+        });
+        expect(parts[1]).toEqual({
+            type: 'image_url',
+            imageUrl: 'https://example.com/already-flat.png',
+        });
+    });
+
+    it('replaces video parts with an inline note since Mistral has no video input', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'video_url',
+                                video_url: { url: 'https://example.com/a.mp4' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = completeMock.mock.calls[0]!;
+        const parts = args.messages[0].content as Record<string, unknown>[];
+        expect(parts[0]!.type).toBe('text');
+        expect(parts[0]!.text).toMatch(/video input is not supported/);
     });
 
     it('leaves messages with plain string content untouched', async () => {
@@ -1011,11 +1060,11 @@ describe('MistralAIProvider image_url coercion', () => {
         );
 
         const [args] = completeMock.mock.calls[0]!;
-        const parts = args.messages[0].content as { type: string; text?: string; image_url?: unknown }[];
+        const parts = args.messages[0].content as { type: string; text?: string; imageUrl?: unknown }[];
         const textPart = parts.find((p) => p.type === 'text');
         const imgPart = parts.find((p) => p.type === 'image_url');
         expect(textPart?.text).toBe('what is in this image?');
-        expect(imgPart?.image_url).toBe('https://example.com/photo.jpg');
+        expect(imgPart?.imageUrl).toBe('https://example.com/photo.jpg');
     });
 });
 

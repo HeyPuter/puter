@@ -1,4 +1,5 @@
 import { HttpError } from '@heyputer/backend/src/core/http';
+import { mediaUrlOf, unsupportedMediaTextPart } from './mediaParts.js';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
@@ -159,7 +160,21 @@ export const process_input_messages_responses_api = async (messages) => {
         }
         expanded.push(msg);
     }
-    messages = expanded;
+    // Copy-on-write from here on: the rewrites below are Responses-specific and
+    // the driver reuses these message objects on fallback to Chat Completions
+    // routes.
+    messages = expanded.map((msg) => {
+        if (!msg || typeof msg !== 'object') return msg;
+        if (!Array.isArray(msg.content)) return { ...msg };
+        return {
+            ...msg,
+            content: msg.content.map((part) =>
+                part && typeof part === 'object' && !Array.isArray(part)
+                    ? { ...part }
+                    : part,
+            ),
+        };
+    });
 
     for (const msg of messages) {
         const content_as_string = (content) => {
@@ -201,12 +216,36 @@ export const process_input_messages_responses_api = async (messages) => {
 
         const content = msg.content;
 
-        for (const o of content) {
-            if (o['image_url'] && !o.type) {
-                o.type = 'image_url';
+        for (let i = 0; i < content.length; i++) {
+            const o = content[i];
+            if (!o || typeof o !== 'object') continue;
+            // Responses wants `input_image` with a bare string URL and `detail`
+            // beside it; it rejects the Chat Completions `image_url` part.
+            if (o.type === 'image_url' || (o.image_url && !o.type)) {
+                const url = mediaUrlOf(o.image_url);
+                const detail =
+                    (o.image_url && typeof o.image_url === 'object'
+                        ? o.image_url.detail
+                        : undefined) ?? o.detail;
+                const {
+                    type: _type,
+                    image_url: _imageUrl,
+                    detail: _detail,
+                    ...rest
+                } = o;
+                content[i] = {
+                    ...rest,
+                    type: 'input_image',
+                    detail: detail ?? 'auto',
+                    ...(url !== undefined ? { image_url: url } : {}),
+                };
+                continue;
             }
-            if (o['video_url'] && !o.type) {
-                o.type = 'video_url';
+            // The Responses API has no video input item.
+            if (o.type === 'video_url' || (o.video_url && !o.type)) {
+                content[i] = unsupportedMediaTextPart(
+                    'video input is not supported by this model',
+                );
             }
         }
 

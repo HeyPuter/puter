@@ -25,7 +25,7 @@
  * wired `MeteringService` so the recording side is exercised end-to-
  * end. Moonshot is OpenAI-compatible so the OpenAI SDK is mocked at
  * the module boundary; that's the real network egress point. Image-
- * inlining behaviour is covered by `imageHandling.test.ts`; here we
+ * inlining behaviour is covered by `utils/inlineImages.test.ts`; here we
  * stub `inlineHttpImageUrls` so http URLs in vision messages don't
  * trigger network fetches and only verify the provider invokes it
  * for vision-capable models. The companion integration test
@@ -78,14 +78,14 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
-// ── imageHandling stub ──────────────────────────────────────────────
+// ── inlineImages stub ──────────────────────────────────────────────
 
 const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
     // Declared with the real function's arity so `mock.calls[0][0]` is typed.
     inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
 }));
 
-vi.mock('./imageHandling.js', () => ({
+vi.mock('../../utils/inlineImages.js', () => ({
     inlineHttpImageUrls: inlineHttpImageUrlsMock,
 }));
 

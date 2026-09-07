@@ -402,6 +402,86 @@ describe('process_input_messages_responses_api', () => {
         expect(blocks[0]?.type).toBe('output_text');
     });
 
+    it('rewrites canonical image parts into `input_image` items', async () => {
+        const imagePart = {
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/a.png', detail: 'high' },
+        };
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'what is this' }, imagePart],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]).toEqual({ type: 'input_text', text: 'what is this' });
+        // Responses wants a bare string URL with `detail` beside it — the
+        // Chat Completions object form is rejected with "Invalid value:
+        // 'image_url'".
+        expect(blocks[1]).toEqual({
+            type: 'input_image',
+            image_url: 'https://cdn.test/a.png',
+            detail: 'high',
+        });
+        // The caller's part is untouched: the driver reuses it on fallback.
+        expect(imagePart).toEqual({
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/a.png', detail: 'high' },
+        });
+        expect(messages[0]!.content).toBe(blocks === messages[0]!.content ? blocks : messages[0]!.content);
+        expect((messages[0]!.content as unknown[])[0]).toEqual({
+            type: 'text',
+            text: 'what is this',
+        });
+    });
+
+    it('types an untyped shorthand image part, defaults detail to auto, keeps file_id', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [
+                    { image_url: { url: 'data:image/png;base64,AAAA' } },
+                    { type: 'image_url', file_id: 'file_123' },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]).toEqual({
+            type: 'input_image',
+            image_url: 'data:image/png;base64,AAAA',
+            detail: 'auto',
+        });
+        expect(blocks[1]).toEqual({
+            type: 'input_image',
+            file_id: 'file_123',
+            detail: 'auto',
+        });
+    });
+
+    it('replaces video parts with an inline note — Responses has no video item', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [{ video_url: { url: 'https://cdn.test/a.mp4' } }],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]!.type).toBe('input_text');
+        expect(blocks[0]!.text).toMatch(/video input is not supported/);
+    });
+
     it('hoists a single assistant tool_use into a top-level function_call', async () => {
         const messages: Array<Record<string, unknown>> = [
             {

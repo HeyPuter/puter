@@ -19,12 +19,12 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../../util/secureHttp.js', () => ({
+vi.mock('../../../util/secureHttp.js', () => ({
     secureFetch: vi.fn(),
 }));
 
-import { secureFetch } from '../../../../util/secureHttp.js';
-import { inlineHttpImageUrls, MAX_IMAGE_BYTES } from './imageHandling.js';
+import { secureFetch } from '../../../util/secureHttp.js';
+import { inlineHttpImageUrls, MAX_IMAGE_BYTES } from './inlineImages.js';
 
 const mockedSecureFetch = vi.mocked(secureFetch);
 

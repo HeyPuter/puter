@@ -27,7 +27,7 @@ import type {
     ICompleteArguments,
 } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { inlineHttpImageUrls } from './imageHandling.js';
+import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 

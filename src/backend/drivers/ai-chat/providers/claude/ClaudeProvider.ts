@@ -39,6 +39,11 @@ import {
     toAnthropicContextManagement,
 } from '../../utils/compaction.js';
 import { make_claude_tools } from '../../utils/FunctionCalling.js';
+import {
+    mediaUrlOf,
+    parseDataUri,
+    unsupportedMediaTextPart,
+} from '../../utils/mediaParts.js';
 import { extract_and_remove_system_messages } from '../../utils/Messages.js';
 import type {
     AIChatStream,
@@ -54,6 +59,42 @@ import { modelLookupNames } from '../../utils/modelRouting.js';
 // params and streamed/returned blocks are handled with `as any` casts.
 const COMPACTION_BETA = 'compact-2026-01-12';
 
+/**
+ * Canonical media part → Anthropic block: `url` source for links, `base64`
+ * source for data URLs, `detail` dropped, video replaced by an inline note.
+ * Non-media parts come back by identity.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const toAnthropicMediaPart = (part: any): any => {
+    if (!part || typeof part !== 'object') return part;
+    if (part.type === 'image_url' || part.image_url !== undefined) {
+        const url = mediaUrlOf(part.image_url);
+        if (url === undefined) return part;
+        const {
+            type: _type,
+            image_url: _imageUrl,
+            detail: _detail,
+            ...rest
+        } = part;
+        const dataUri = parseDataUri(url);
+        const source =
+            dataUri && dataUri.base64
+                ? {
+                      type: 'base64',
+                      media_type: dataUri.mimeType,
+                      data: dataUri.data,
+                  }
+                : { type: 'url', url };
+        return { ...rest, type: 'image', source };
+    }
+    if (part.type === 'video_url' || part.video_url !== undefined) {
+        return unsupportedMediaTextPart(
+            'video input is not supported by Claude models',
+        );
+    }
+    return part;
+};
+
 export class ClaudeProvider implements IChatProvider {
     anthropic: Anthropic;
 
@@ -62,6 +103,10 @@ export class ClaudeProvider implements IChatProvider {
     #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
     #fsService: FSService;
+
+    // `puter_path` parts go through Anthropic's Files API here (larger inputs,
+    // native PDF reading) instead of the driver's inline data URLs.
+    readonly resolvesPuterPaths = true;
 
     constructor(
         meteringService: MeteringService,
@@ -285,6 +330,21 @@ export class ClaudeProvider implements IChatProvider {
                 };
             });
             return message;
+        });
+
+        // Canonical media parts → Anthropic blocks, copy-on-write: the driver
+        // reuses these message objects on fallback to OpenAI-format routes.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages = messages.map((message: any) => {
+            if (!Array.isArray(message.content)) return message;
+            let changed = false;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const content = message.content.map((part: any) => {
+                const converted = toAnthropicMediaPart(part);
+                if (converted !== part) changed = true;
+                return converted;
+            });
+            return changed ? { ...message, content } : message;
         });
 
         const modelUsed =

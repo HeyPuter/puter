@@ -31,12 +31,14 @@ import type {
     IChatCompleteResult,
     ICompleteArguments,
 } from '../../types.js';
-import { inlineHttpImageUrls } from '../moonshot/imageHandling.js';
+import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
+import {
+    messagesHaveImageContent,
+    modelSupportsVision,
+} from '../../utils/mediaParts.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import {
     mapNeuralwattApiModel,
-    messagesHaveImageContent,
-    modelSupportsVision,
     NEURALWATT_DEFAULT_MODEL,
     NEURALWATT_ID_PREFIX,
     stripNeuralwattPrefix,

@@ -159,28 +159,3 @@ export const mapNeuralwattApiModel = (
             : {}),
     };
 };
-
-/** True when the Puter model catalog entry advertises image input. */
-export const modelSupportsVision = (model: IChatModel): boolean =>
-    Array.isArray(model.modalities?.input) &&
-    model.modalities.input.includes('image');
-
-/**
- * Detect image / puter_path parts so we can prefer a vision-capable model from
- * the Neuralwatt catalog (or reject a text-only pick).
- */
-export const messagesHaveImageContent = (
-    messages: Array<{ content?: unknown }>,
-): boolean => {
-    for (const message of messages) {
-        if (!Array.isArray(message.content)) continue;
-        for (const part of message.content as Array<Record<string, unknown>>) {
-            if (!part || typeof part !== 'object') continue;
-            if (part.type === 'image_url' || part.image_url) return true;
-            if (typeof part.puter_path === 'string' && part.puter_path) {
-                return true;
-            }
-        }
-    }
-    return false;
-};

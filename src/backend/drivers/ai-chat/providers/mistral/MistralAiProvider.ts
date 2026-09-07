@@ -26,6 +26,10 @@ import type {
     IChatProvider,
     ICompleteArguments,
 } from '../../types.js';
+import {
+    mediaUrlOf,
+    unsupportedMediaTextPart,
+} from '../../utils/mediaParts.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
@@ -112,11 +116,10 @@ export class MistralAIProvider implements IChatProvider {
     }
 
     /**
-     * Mistral's API expects `image_url` content parts to carry a plain string
-     * URL, not the OpenAI-style `{ url: string }` object. This method
-     * normalises any `{ type: 'image_url', image_url: { url } }` parts to `{
-     * type: 'image_url', image_url: url }` before the request is sent. Messages
-     * whose `content` is a plain string are left untouched.
+     * The Mistral SDK validates camelCase fields, so canonical `image_url`
+     * parts become `imageUrl` (a snake_case key fails its schema client-side).
+     * Video has no Mistral equivalent and becomes an inline note.
+     * Copy-on-write: the driver reuses the caller's objects on fallback.
      */
     #coerceImageUrls(
         messages: { role: string; content: unknown }[],
@@ -124,17 +127,33 @@ export class MistralAIProvider implements IChatProvider {
         return messages.map((message) => {
             if (!Array.isArray(message.content)) return message;
             const content = message.content.map(
-                (part: { type?: string; image_url?: unknown }) => {
-                    if (
-                        part.type === 'image_url' &&
-                        part.image_url !== null &&
-                        typeof part.image_url === 'object' &&
-                        'url' in (part.image_url as object)
-                    ) {
+                (part: {
+                    type?: string;
+                    image_url?: unknown;
+                    video_url?: unknown;
+                }) => {
+                    if (part?.type === 'image_url' || part?.image_url) {
+                        const url = mediaUrlOf(part.image_url);
+                        if (url === undefined) return part;
+                        const detail =
+                            part.image_url && typeof part.image_url === 'object'
+                                ? (part.image_url as { detail?: unknown })
+                                      .detail
+                                : undefined;
+                        const { image_url: _imageUrl, ...rest } = part;
                         return {
-                            ...part,
-                            image_url: (part.image_url as { url: string }).url,
+                            ...rest,
+                            type: 'image_url',
+                            imageUrl:
+                                detail !== undefined && detail !== null
+                                    ? { url, detail }
+                                    : url,
                         };
+                    }
+                    if (part?.type === 'video_url' || part?.video_url) {
+                        return unsupportedMediaTextPart(
+                            'video input is not supported by Mistral models',
+                        );
                     }
                     return part;
                 },

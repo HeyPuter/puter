@@ -28,6 +28,7 @@ import {
     handle_completion_output,
     process_input_messages,
 } from '../../utils/OpenAIUtil.js';
+import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { GEMINI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
@@ -66,6 +67,12 @@ export class GeminiChatProvider implements IChatProvider {
         temperature,
     }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
         const actor = Context.get('actor');
+
+        // Gemini 3.1+ rejects http(s) image URLs on Google's OpenAI-compatible
+        // endpoint (bodiless 400) but accepts data URLs; inline for every
+        // model rather than maintain a version list.
+        await inlineHttpImageUrls(messages);
+
         messages = await process_input_messages(messages);
 
         // delete cache_control

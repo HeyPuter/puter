@@ -275,6 +275,117 @@ describe('ClaudeProvider.complete request shape', () => {
         usage: { input_tokens: 1, output_tokens: 1 },
     };
 
+    it('translates canonical image_url parts into url-source image blocks without touching the caller\'s parts', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        const imagePart = {
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/doge.jpeg', detail: 'low' },
+            cache_control: { type: 'ephemeral' },
+        };
+        const message = {
+            role: 'user',
+            content: [{ type: 'text', text: 'What do you see?' }, imagePart],
+        };
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [message],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages[0].content).toEqual([
+            { type: 'text', text: 'What do you see?' },
+            {
+                type: 'image',
+                source: { type: 'url', url: 'https://cdn.test/doge.jpeg' },
+                cache_control: { type: 'ephemeral' },
+            },
+        ]);
+        // The driver hands these same objects to the next route on fallback;
+        // an OpenAI-format reseller cannot read an Anthropic image block.
+        expect(imagePart).toEqual({
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/doge.jpeg', detail: 'low' },
+            cache_control: { type: 'ephemeral' },
+        });
+        expect(message.content[1]).toBe(imagePart);
+    });
+
+    it('translates data-URL images into base64 sources carrying the media type', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            // The untyped puter.js shorthand, as sent by
+                            // `puter.ai.chat(prompt, file)`.
+                            { image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages[0].content).toEqual([
+            {
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: 'image/png',
+                    data: 'iVBORw0KGgo=',
+                },
+            },
+        ]);
+    });
+
+    it('replaces video parts with an inline note and leaves text-only messages by identity', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        const textOnly = {
+            role: 'user',
+            content: [{ type: 'text', text: 'first' }],
+        };
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    textOnly,
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'video_url',
+                                video_url: { url: 'https://cdn.test/a.mp4' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages[0]).toBe(textOnly);
+        expect(args.messages[1].content[0].type).toBe('text');
+        expect(args.messages[1].content[0].text).toMatch(
+            /video input is not supported/,
+        );
+    });
+
+    it('tells the driver it resolves puter_path parts itself', () => {
+        const { provider } = makeProvider();
+        expect(provider.resolvesPuterPaths).toBe(true);
+    });
+
     it('forwards model + messages and threads max_tokens through', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
