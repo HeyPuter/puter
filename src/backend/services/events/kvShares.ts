@@ -18,6 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { type Actor, userRelatedActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
 import {
@@ -279,5 +280,37 @@ export const kvShareOwnerImplicator = (): PermissionImplicator => ({
 
         const owner = PermissionUtil.split(withoutManageArm(permission))[1];
         return owner === uuid ? {} : undefined;
+    },
+});
+
+/**
+ * Letting an app-under-user actor exercise a `kv-share:` grant its user holds,
+ * bounded to the app the grant's namespace names.
+ *
+ * Only the read arm is matched — never `manage:kv-share:…` — because answering
+ * the manage arm here would read as the unbounded namespace-root delegation and
+ * break minting for everyone (see `kvShareManageNamespaceRoot`). The
+ * namespace-app check keeps one app from reading a region shared with another
+ * app of the same user.
+ */
+export const kvShareAppDelegateImplicator = (deps: {
+    userHolds: (actor: Actor, permission: string) => Promise<boolean>;
+}): PermissionImplicator => ({
+    id: 'kv-share-app-delegate',
+    shortcut: true,
+    matches: (permission: string): boolean => isKvSharePermission(permission),
+    check: async ({ actor, permission }): Promise<unknown> => {
+        if (actor.accessToken) return undefined;
+        const app = actor.app;
+        if (!app?.uid) return undefined;
+
+        const [, owner, namespaceApp, ...segments] =
+            PermissionUtil.split(permission);
+        if (!owner || !namespaceApp || segments.length === 0) return undefined;
+        if (namespaceApp !== app.uid) return undefined;
+
+        return (await deps.userHolds(userRelatedActor(actor), permission))
+            ? {}
+            : undefined;
     },
 });

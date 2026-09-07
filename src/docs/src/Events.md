@@ -137,6 +137,8 @@ A prefix names a region, so it is taken as written: `*` and `?` are refused (`in
 
 An app can mint on its user's behalf, but only inside its own namespace and only where the user has granted it. The consent is `manage:kv-share:<userUuid>:<appId>:<prefix>` (the prefix contributing its segments, so `workspace:abc:` ends the string as `…:workspace:abc`), requested with [`puter.perms.request()`](/Perms/request/). The consent has to name a region: a request over the whole namespace is refused with `invalid_kv_share_prefix`. Minting outside the region it was given, or outside the app's own namespace, is refused with `events_kv_handle_not_delegated` and `events_kv_handle_outside_namespace` respectively. An app that mints a handle still cannot list or revoke it — `GET`/`DELETE /events/kv-handles` only ever answer an account session, and an app calling either is refused with `events_kv_handle_owner_only`.
 
+An app may also use a handle on its user's behalf. A subscription made while running as an app works when the shared region belongs to that same app — the one named in the grant the handle stands for. Running as a different app, even for the same user, is refused the same way a handle nobody minted would be: reading the handle takes its own consent, and a grant given to one app never carries over to another.
+
 A key under a handle is relative to the region it was granted on, so anything that reads as an attempt to leave it — a bare handle naming no key, or a key trying to walk out with `..` — is refused with `invalid_kv_handle_key` rather than composed into a path outside the grant.
 
 ### Watching something that does not exist yet

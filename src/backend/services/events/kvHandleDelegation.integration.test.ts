@@ -18,14 +18,17 @@
  */
 
 /**
- * An app minting a share handle on its user's data.
+ * An app minting a share handle on its user's data, and a grantee reading one
+ * through their own app.
  *
  * The bounds are the ones sharing already puts on an app handing out its
  * user's files: the authority is the user's, the consent is a `manage:` grant
  * the user gave this app on this region, and the reach is whatever the
  * credential structurally holds — for key-value that is one namespace. What
  * these cases pin is that each of those is actually load-bearing, and that a
- * handle minted this way is in every other respect an ordinary one.
+ * handle minted this way is in every other respect an ordinary one — including
+ * for a grantee who exercises it while running as an app, which only works
+ * bound to the same app the region was shared to.
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -54,6 +57,7 @@ let env: PuterTestEnv;
 let owner: TestUser;
 let guest: TestUser;
 let appUid: string;
+let appId: number;
 let appActor: Actor;
 
 const events = () => env.server.services.events;
@@ -146,6 +150,7 @@ beforeAll(async () => {
         { ownerUserId: owner.id },
     );
     appUid = app.uid;
+    appId = app.id;
     appActor = makeActor({
         user: owner.actor.user as never,
         app: { uid: app.uid, id: app.id },
@@ -444,6 +449,82 @@ describe('a handle an app minted', () => {
 
         delivered.length = 0;
         await appWrites(`${PREFIX}messages:2`, { body: 'after' });
+        await quiet();
+        expect(delivered).toEqual([]);
+    });
+});
+
+describe('a grantee subscribing through their own app actor', () => {
+    beforeAll(async () => {
+        await delegate();
+    });
+
+    it('receives the writes when it runs as the region’s own app', async () => {
+        await clearRows();
+        const { handle } = await mint();
+        const guestAppActor = makeActor({
+            user: guest.actor.user as never,
+            app: { uid: appUid, id: appId },
+        });
+
+        const { sub } = await events().subscribe(guestAppActor, SOCKET_ID, {
+            subject: `kv:${handle}:*`,
+        });
+        delivered.length = 0;
+
+        await appWrites(`${PREFIX}messages:1`, { body: 'hello' });
+        await settled();
+
+        expect(delivered).toHaveLength(1);
+        expect(delivered[0].subId).toBe(sub.subId);
+    });
+
+    it('is refused when it runs as a different app than the one the region was shared to', async () => {
+        await clearRows();
+        const { handle } = await mint();
+        // A real app row with an id, so the user-to-app scanner actually runs
+        // and the refusal is the app binding rather than a lookup finding
+        // nothing to read.
+        const name = `kv-other-${uuidv4().slice(0, 8)}`;
+        const other = await env.server.stores.app.create(
+            {
+                name,
+                title: 'Another App',
+                index_url: `https://${name}.example.test/index.html`,
+            },
+            { ownerUserId: guest.id },
+        );
+        const otherAppActor = makeActor({
+            user: guest.actor.user as never,
+            app: { uid: other.uid, id: other.id },
+        });
+
+        await expect(
+            events().subscribe(otherAppActor, SOCKET_ID, {
+                subject: `kv:${handle}:*`,
+            }),
+        ).rejects.toMatchObject({ legacyCode: 'subject_does_not_exist' });
+    });
+
+    it('stops receiving deliveries once the owner revokes the handle', async () => {
+        await clearRows();
+        const { handle } = await mint();
+        const guestAppActor = makeActor({
+            user: guest.actor.user as never,
+            app: { uid: appUid, id: appId },
+        });
+        const { sub } = await events().subscribe(guestAppActor, SOCKET_ID, {
+            subject: `kv:${handle}:*`,
+        });
+
+        await appWrites(`${PREFIX}live:1`, 1);
+        await settled();
+        expect(delivered[0].subId).toBe(sub.subId);
+
+        await events().revokeKvHandle(owner.actor, handle);
+        delivered.length = 0;
+
+        await appWrites(`${PREFIX}live:2`, 2);
         await quiet();
         expect(delivered).toEqual([]);
     });
