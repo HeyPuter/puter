@@ -555,6 +555,29 @@ export default suite('fs', {
         t.assert.equal(await blob.text(), 'upload two');
     },
 
+    'upload preserves nested paths and duplicate names in nodejs': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-nested`;
+        await t.puter.fs.mkdir(dir);
+        const files = [
+            droppedFile('content a', 'folder-a/file.txt'),
+            droppedFile('content b', 'folder-b/file.txt'),
+        ];
+
+        await t.puter.fs.upload(files, dir, {
+            parsedDataTransferItems: true,
+            createFileParent: true,
+        });
+
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/folder-a/file.txt`)).text(),
+            'content a',
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/folder-b/file.txt`)).text(),
+            'content b',
+        );
+    },
+
     'upload of a single File resolves to one entry, not an array': async (t) => {
         const dir = `${home(t)}/fs-suite-upload-single`;
         await t.puter.fs.mkdir(dir);
