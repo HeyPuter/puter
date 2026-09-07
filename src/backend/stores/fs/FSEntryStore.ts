@@ -1384,7 +1384,7 @@ export class FSEntryStore extends PuterStore {
             }
         }
 
-        const refreshedRows = (await this.clients.db.tryHardRead(
+        const refreshedRows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? AND user_id = ? LIMIT 1`,
             [uuid, userId],
         )) as unknown as FSEntryRow[];
@@ -1950,7 +1950,7 @@ export class FSEntryStore extends PuterStore {
                             .join(', ');
                         // By uuid alone — the rows just written belong to the
                         // parent's owner, not necessarily the acting user.
-                        const rows = (await this.clients.db.tryHardRead(
+                        const rows = (await this.clients.db.pread(
                             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid IN (${placeholders})`,
                             insertUuidChunk,
                         )) as unknown as FSEntryRow[];
@@ -2359,7 +2359,7 @@ export class FSEntryStore extends PuterStore {
             ],
         );
 
-        const rows = (await this.clients.db.tryHardRead(
+        const rows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
         )) as unknown as FSEntryRow[];
@@ -2413,7 +2413,7 @@ export class FSEntryStore extends PuterStore {
         // Re-read the row itself rather than going through `getEntryByUuid`:
         // that read is cache-first and would hand back the pre-touch
         // timestamps (and then re-cache them for another TTL).
-        const refreshedRows = (await this.clients.db.tryHardRead(
+        const refreshedRows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
         )) as unknown as FSEntryRow[];
@@ -2859,7 +2859,9 @@ export class FSEntryStore extends PuterStore {
             [...values, uuid],
         );
 
-        const refreshedRows = (await this.clients.db.tryHardRead(
+        // Read back from the primary: a lagging replica still holds the pre-update
+        // row, so tryHardRead would return it (and cache it).
+        const refreshedRows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
         )) as unknown as FSEntryRow[];
@@ -2942,7 +2944,7 @@ export class FSEntryStore extends PuterStore {
         // rely on TTL (60s) to refresh — username rename is rare enough
         // that a broad subtree invalidation isn't worth the round-trips.
         await this.#invalidateEntryCache(root);
-        const refreshedRows = (await this.clients.db.tryHardRead(
+        const refreshedRows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE id = ? LIMIT 1`,
             [root.id],
         )) as unknown as FSEntryRow[];

@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
@@ -28,6 +28,7 @@ import {
     assertShareablePermission,
     assertShareablePrefix,
     keyPrefixSegments,
+    kvShareAppDelegateImplicator,
     kvShareGrantCovers,
     kvShareManagePermission,
     kvShareOwnerImplicator,
@@ -41,9 +42,17 @@ import { isKvHandleId, kvHandleFromSubject } from './subjects.js';
 const OWNER = '2a1b0c9d-0000-4000-8000-000000000001';
 const OTHER = '2a1b0c9d-0000-4000-8000-000000000002';
 const APP = 'app-1234';
+const OTHER_APP = 'app-5678';
 
 const userActor = (uuid: string): Actor =>
     ({ user: { uuid }, effectiveApp: null }) as unknown as Actor;
+
+const appActor = (uuid: string, appUid: string): Actor =>
+    ({
+        user: { uuid },
+        app: { uid: appUid },
+        effectiveApp: { uid: appUid },
+    }) as unknown as Actor;
 
 describe('the share permission family', () => {
     it('names the owner, the app and the granted prefix', () => {
@@ -329,5 +338,102 @@ describe('the owner implicator', () => {
         expect(
             implicator.check({ actor: appActor, permission }),
         ).toBeUndefined();
+    });
+});
+
+describe('the app delegate implicator', () => {
+    const permission = kvSharePermission(OWNER, APP, 'workspace:abc:');
+
+    it('answers the share family, never its manage arm, nor other families', () => {
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds: vi.fn(),
+        });
+        expect(implicator.matches(permission)).toBe(true);
+        expect(implicator.matches(`manage:${permission}`)).toBe(false);
+        expect(implicator.matches(`fs:${OWNER}:read`)).toBe(false);
+    });
+
+    it('grants when the actor\'s own app matches the namespace app and the user holds the grant', async () => {
+        const userHolds = vi.fn().mockResolvedValue(true);
+        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const actor = appActor(OWNER, APP);
+
+        await expect(
+            implicator.check({ actor, permission }),
+        ).resolves.toEqual({});
+
+        expect(userHolds).toHaveBeenCalledTimes(1);
+        const [calledActor, calledPermission] = userHolds.mock.calls[0];
+        expect(calledActor.app).toBeUndefined();
+        expect(calledActor.effectiveApp).toBeNull();
+        expect(calledActor.user).toEqual({ uuid: OWNER });
+        expect(calledPermission).toBe(permission);
+    });
+
+    it('refuses when the user does not hold the grant', async () => {
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds: vi.fn().mockResolvedValue(false),
+        });
+        await expect(
+            implicator.check({ actor: appActor(OWNER, APP), permission }),
+        ).resolves.toBeUndefined();
+    });
+
+    it('refuses when the actor\'s app differs from the namespace app', async () => {
+        const userHolds = vi.fn().mockResolvedValue(true);
+        const implicator = kvShareAppDelegateImplicator({ userHolds });
+
+        await expect(
+            implicator.check({
+                actor: appActor(OWNER, OTHER_APP),
+                permission,
+            }),
+        ).resolves.toBeUndefined();
+        expect(userHolds).not.toHaveBeenCalled();
+    });
+
+    it('refuses a plain user actor with no app', async () => {
+        const userHolds = vi.fn().mockResolvedValue(true);
+        const implicator = kvShareAppDelegateImplicator({ userHolds });
+
+        await expect(
+            implicator.check({ actor: userActor(OWNER), permission }),
+        ).resolves.toBeUndefined();
+        expect(userHolds).not.toHaveBeenCalled();
+    });
+
+    it('refuses an access-token actor', async () => {
+        const userHolds = vi.fn().mockResolvedValue(true);
+        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const actor = {
+            user: { uuid: OWNER },
+            app: { uid: APP },
+            accessToken: { uid: 't' },
+        } as unknown as Actor;
+
+        await expect(
+            implicator.check({ actor, permission }),
+        ).resolves.toBeUndefined();
+        expect(userHolds).not.toHaveBeenCalled();
+    });
+
+    it('refuses a permission with no key segments or no app', async () => {
+        const userHolds = vi.fn().mockResolvedValue(true);
+        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const actor = appActor(OWNER, APP);
+
+        await expect(
+            implicator.check({
+                actor,
+                permission: PermissionUtil.join('kv-share', OWNER, APP),
+            }),
+        ).resolves.toBeUndefined();
+        await expect(
+            implicator.check({
+                actor,
+                permission: PermissionUtil.join('kv-share', OWNER),
+            }),
+        ).resolves.toBeUndefined();
+        expect(userHolds).not.toHaveBeenCalled();
     });
 });

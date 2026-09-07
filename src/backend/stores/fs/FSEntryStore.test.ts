@@ -986,6 +986,95 @@ describe('FSEntryStore timestamps and updates', () => {
             thumbnail: 'data:image/png;base64,BB',
         });
     });
+
+    it('updateEntry returns and caches the primary row when the replica lags', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/stale.txt`);
+
+        // Pre-update row, captured before the patch — stands in for what a
+        // lagging replica would still be serving.
+        const staleRows = (await server.clients.db.read(
+            'SELECT * FROM fsentries WHERE uuid = ?',
+            [file.uuid],
+        )) as Array<Record<string, unknown>>;
+        for (const row of staleRows) row.subdomains_agg = null;
+
+        const db = server.clients.db;
+        const originalTryHardRead = (Object.getPrototypeOf(db) as typeof db)
+            .tryHardRead;
+        const tryHardReadSpy = vi
+            .spyOn(db, 'tryHardRead')
+            .mockImplementation(async (query: string, params: unknown[] = []) => {
+                if (
+                    query.includes('WHERE uuid = ? LIMIT 1') &&
+                    params[0] === file.uuid
+                ) {
+                    return staleRows;
+                }
+                return originalTryHardRead.call(db, query, params);
+            });
+        try {
+
+            const newPath = `${user.home}/Documents/renamed.txt`;
+            const updated = await store.updateEntry(file.uuid, {
+                name: 'renamed.txt',
+                path: newPath,
+            });
+
+            expect(updated.name).toBe('renamed.txt');
+            expect(updated.path).toBe(newPath);
+            await expect(store.getEntryByUuid(file.uuid)).resolves.toMatchObject({
+                path: newPath,
+            });
+            expect(tryHardReadSpy).not.toHaveBeenCalled();
+
+        } finally {
+            tryHardReadSpy.mockRestore();
+        }
+    });
+
+    it('updateEntryThumbnailByUuidForUser returns the primary thumbnail when the replica lags', async () => {
+        const owner = await makeUser();
+        const file = await createFile(
+            owner,
+            `${owner.home}/Documents/stale-thumb.txt`,
+        );
+
+        const staleRows = (await server.clients.db.read(
+            'SELECT * FROM fsentries WHERE uuid = ?',
+            [file.uuid],
+        )) as Array<Record<string, unknown>>;
+        for (const row of staleRows) row.subdomains_agg = null;
+
+        const db = server.clients.db;
+        const originalTryHardRead = (Object.getPrototypeOf(db) as typeof db)
+            .tryHardRead;
+        const tryHardReadSpy = vi
+            .spyOn(db, 'tryHardRead')
+            .mockImplementation(async (query: string, params: unknown[] = []) => {
+                if (
+                    query.includes('AND user_id = ?') &&
+                    params[0] === file.uuid
+                ) {
+                    return staleRows;
+                }
+                return originalTryHardRead.call(db, query, params);
+            });
+        try {
+
+            const updated = await store.updateEntryThumbnailByUuidForUser(
+                owner.userId,
+                file.uuid,
+                'data:image/png;base64,NEW',
+            );
+
+            expect(updated.thumbnail).toBe('data:image/png;base64,NEW');
+            expect(tryHardReadSpy).not.toHaveBeenCalled();
+
+        } finally {
+            tryHardReadSpy.mockRestore();
+        }
+    });
 });
 
 describe('FSEntryStore listing and pagination', () => {

@@ -184,6 +184,7 @@ import {
     assertShareableAppUid,
     assertShareablePermission,
     assertShareablePrefix,
+    kvShareAppDelegateImplicator,
     kvShareGrantCovers,
     kvShareManageNamespaceRoot,
     kvShareManagePermission,
@@ -1297,6 +1298,15 @@ export class EventsService extends PuterService {
         // Owning a key-value namespace is holding every share grant over it,
         // which is what lets its owner mint a handle on their own data.
         this.services.permission.registerImplicator(kvShareOwnerImplicator());
+
+        // Lets an app-under-user actor exercise a share grant its user holds,
+        // scoped to the app the grant's namespace names.
+        this.services.permission.registerImplicator(
+            kvShareAppDelegateImplicator({
+                userHolds: (actor, permission) =>
+                    this.services.permission.check(actor, permission),
+            }),
+        );
 
         this.#armExpirySweep();
         this.#armPendingSweep();

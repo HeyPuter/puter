@@ -1327,6 +1327,18 @@ describe('AuthController.handleLogin', () => {
         // No session cookie set yet — login isn't complete.
         expect(res.cookies['puter_auth_token']).toBeUndefined();
     });
+
+    it('rejects with 400 (not a TypeError) when the request has no body', async () => {
+        await expect(
+            controller.handleLogin(
+                { ...makeReq({}), body: undefined },
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+    });
 });
 
 // ── Login: OTP / recovery-code branches ─────────────────────────────
@@ -1336,6 +1348,15 @@ describe('AuthController.handleLoginOtp + handleLoginRecoveryCode', () => {
         await expect(
             controller.handleLoginOtp(
                 makeReq({ token: 'not-a-jwt', code: '123456' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('handleLoginOtp rejects with 400 (not a TypeError) when the request has no body', async () => {
+        await expect(
+            controller.handleLoginOtp(
+                { ...makeReq({}), body: undefined },
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });

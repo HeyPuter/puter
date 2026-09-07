@@ -2180,6 +2180,50 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         expect(await entryAt(user, '/Documents/before.txt')).toBeNull();
     });
 
+    it('rename returns the new path even when the replica lags behind the update', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/stale-rename.txt`,
+            'x',
+        );
+
+        const db = server.clients.db;
+        const staleRows = (await db.read(
+            'SELECT * FROM fsentries WHERE uuid = ?',
+            [entry.uuid],
+        )) as Array<Record<string, unknown>>;
+        for (const row of staleRows) row.subdomains_agg = null;
+
+        const originalTryHardRead = (Object.getPrototypeOf(db) as typeof db)
+            .tryHardRead;
+        const tryHardReadSpy = vi
+            .spyOn(db, 'tryHardRead')
+            .mockImplementation(async (query: string, params: unknown[] = []) => {
+                if (
+                    query.includes('WHERE uuid = ? LIMIT 1') &&
+                    params[0] === entry.uuid
+                ) {
+                    return staleRows;
+                }
+                return originalTryHardRead.call(db, query, params);
+            });
+        try {
+
+            const renamed = await fs.rename(
+                user.userId,
+                entry,
+                'stale-rename-2.txt',
+            );
+
+            expect(renamed.path).toBe(
+                `${user.home}/Documents/stale-rename-2.txt`,
+            );
+
+        } finally {
+            tryHardReadSpy.mockRestore();
+        }
+    });
+
     it('rewrites descendant paths when a directory is renamed', async () => {
         const dir = await fs.mkdir(user.userId, {
             path: `${user.home}/Documents/olddir`,

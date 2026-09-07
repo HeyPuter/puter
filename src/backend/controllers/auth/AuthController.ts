@@ -350,7 +350,7 @@ export class AuthController extends PuterController {
         ],
     })
     async loginSet(req: Request, res: Response) {
-        const { session, auth_token } = req.body;
+        const { session, auth_token } = req.body ?? {};
         if (!session || !auth_token || !validateUuid(session)) {
             throw new HttpError(400, 'session and auth_token are required.', {
                 legacyCode: 'bad_request',
@@ -389,7 +389,7 @@ export class AuthController extends PuterController {
         ],
     })
     async handleLogin(req: Request, res: Response): Promise<void> {
-        const { username, email, password } = req.body;
+        const { username, email, password } = req.body ?? {};
 
         if (!username && !email) {
             throw new HttpError(400, 'Username or email is required.', {
@@ -506,7 +506,7 @@ export class AuthController extends PuterController {
         ],
     })
     async handleLoginOtp(req: Request, res: Response): Promise<void> {
-        const { token, code } = req.body;
+        const { token, code } = req.body ?? {};
         if (!token)
             throw new HttpError(400, 'token is required.', {
                 legacyCode: 'bad_request',
@@ -572,7 +572,7 @@ export class AuthController extends PuterController {
         ],
     })
     async handleLoginRecoveryCode(req: Request, res: Response): Promise<void> {
-        const { token, code } = req.body;
+        const { token, code } = req.body ?? {};
         if (!token)
             throw new HttpError(400, 'token is required.', {
                 legacyCode: 'bad_request',
@@ -1072,7 +1072,7 @@ export class AuthController extends PuterController {
                         (req.headers?.origin as string | null) ?? null,
                     signup_server: (this.config as { serverId?: string })
                         .serverId,
-                    referrer: req.body.referrer ?? null,
+                    referrer: body.referrer ?? null,
                     last_activity_ts: signupSqlTs,
                     reputation: validateEvent.reputation,
                     // Phone collected later in the verification dialog (null now).
@@ -3216,8 +3216,8 @@ export class AuthController extends PuterController {
         rateLimit: GRANT_LIMIT,
     })
     async handleGrantUserApp(req: Request, res: Response): Promise<void> {
-        let { app_uid } = req.body;
-        const { origin, permission, permissions, extra, meta } = req.body;
+        let { app_uid } = req.body ?? {};
+        const { origin, permission, permissions, extra, meta } = req.body ?? {};
         this.#validateAppPermissionParams({
             app_uid,
             origin,
@@ -3274,7 +3274,7 @@ export class AuthController extends PuterController {
         rateLimit: GRANT_LIMIT,
     })
     async handleRevokeUserUser(req: Request, res: Response): Promise<void> {
-        const { target_username, permission, meta } = req.body;
+        const { target_username, permission, meta } = req.body ?? {};
         if (!target_username || !permission) {
             throw new HttpError(
                 400,
@@ -3304,8 +3304,8 @@ export class AuthController extends PuterController {
         rateLimit: GRANT_LIMIT,
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
-        let { app_uid } = req.body;
-        const { origin, permission, permissions, meta } = req.body;
+        let { app_uid } = req.body ?? {};
+        const { origin, permission, permissions, meta } = req.body ?? {};
         this.#validateAppPermissionParams({
             app_uid,
             origin,
@@ -3350,7 +3350,7 @@ export class AuthController extends PuterController {
         rateLimit: AUTH_CHECK_LIMIT,
     })
     async handleCheckPermissions(req: Request, res: Response): Promise<void> {
-        const { permissions } = req.body;
+        const { permissions } = req.body ?? {};
         if (!Array.isArray(permissions)) {
             throw new HttpError(400, 'Missing or invalid `permissions` array', {
                 legacyCode: 'bad_request',
@@ -3391,7 +3391,7 @@ export class AuthController extends PuterController {
     // mandatory: an access token must not be able to revoke its own
     // issuing web session.
     async handleRevokeSession(req: Request, res: Response): Promise<void> {
-        const { uuid } = req.body;
+        const { uuid } = req.body ?? {};
         if (!uuid || typeof uuid !== 'string') {
             throw new HttpError(400, 'Missing or invalid `uuid`', {
                 legacyCode: 'bad_request',
@@ -3468,8 +3468,8 @@ export class AuthController extends PuterController {
         rateLimit: GRANT_LIMIT,
     })
     async handleGrantDevApp(req: Request, res: Response): Promise<void> {
-        let { app_uid } = req.body;
-        const { origin, permission, extra, meta } = req.body;
+        let { app_uid } = req.body ?? {};
+        const { origin, permission, extra, meta } = req.body ?? {};
         if (origin && !app_uid) {
             // Registered apps only, for the same reason the user-app handlers
             // insist on it: a synthesised `app-<uuidv5(origin)>` is resolved
@@ -3502,8 +3502,8 @@ export class AuthController extends PuterController {
         rateLimit: GRANT_LIMIT,
     })
     async handleRevokeDevApp(req: Request, res: Response): Promise<void> {
-        let { app_uid } = req.body;
-        const { origin, permission, meta } = req.body;
+        let { app_uid } = req.body ?? {};
+        const { origin, permission, meta } = req.body ?? {};
         if (origin && !app_uid) {
             // Registered apps only — see handleGrantDevApp.
             app_uid = await this.#registeredAppUidFromOrigin(origin);
@@ -3632,8 +3632,8 @@ export class AuthController extends PuterController {
         rateLimit: { ...AUTH_CHECK_LIMIT, scope: 'app-token', limit: 120 },
     })
     async handleGetUserAppToken(req: Request, res: Response): Promise<void> {
-        let { app_uid } = req.body;
-        const { origin } = req.body;
+        let { app_uid } = req.body ?? {};
+        const { origin } = req.body ?? {};
         const resolvedFromOrigin = !app_uid && !!origin;
         if (!app_uid && origin) {
             app_uid = await this.services.auth.appUidFromOrigin(origin);
@@ -3754,8 +3754,8 @@ export class AuthController extends PuterController {
         rateLimit: AUTH_CHECK_LIMIT,
     })
     async handleCheckApp(req: Request, res: Response): Promise<void> {
-        let { app_uid } = req.body;
-        const { origin } = req.body;
+        let { app_uid } = req.body ?? {};
+        const { origin } = req.body ?? {};
         if (!app_uid && origin) {
             app_uid = await this.services.auth.appUidFromOrigin(origin);
         }
@@ -3858,7 +3858,7 @@ export class AuthController extends PuterController {
     // mandatory: a leaked access token must not be able to silently
     // revoke its own siblings.
     async handleRevokeAccessToken(req: Request, res: Response): Promise<void> {
-        let { tokenOrUuid } = req.body;
+        let { tokenOrUuid } = req.body ?? {};
         if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {
             throw new HttpError(400, 'Missing `tokenOrUuid`', {
                 legacyCode: 'bad_request',
