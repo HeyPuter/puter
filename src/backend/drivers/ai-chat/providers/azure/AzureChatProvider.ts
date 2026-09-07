@@ -32,6 +32,7 @@ import {
 } from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
+import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
@@ -185,6 +186,13 @@ export class AzureChatProvider implements IChatProvider {
             actor,
         );
 
+        // The Grok deployments behind Azure cannot fetch every public image
+        // host (`image_fetch_failed`); hand them the bytes as data URLs.
+        const isGrok = modelUsed.id.startsWith('grok');
+        if (isGrok) {
+            await inlineHttpImageUrls(messages);
+        }
+
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if
         // that's missing. We normalise it here so the token count code works.
@@ -198,7 +206,6 @@ export class AzureChatProvider implements IChatProvider {
         // `safety_identifier` is an OpenAI-specific param. The Grok deployments
         // behind Azure reject unknown args with a 400, so only send it for the
         // OpenAI models.
-        const isGrok = modelUsed.id.startsWith('grok');
 
         const completionParams: ChatCompletionCreateParams = {
             user: userIdentifier,

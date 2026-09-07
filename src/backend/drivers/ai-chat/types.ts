@@ -155,4 +155,10 @@ export interface IChatProvider {
     checkModeration(
         text: string,
     ): Promise<{ flagged: boolean; categories?: string[] }> | void;
+    /**
+     * Set when the provider uploads `puter_path` parts itself (Anthropic's
+     * Files API); otherwise the driver inlines them as data URLs before each
+     * attempt.
+     */
+    readonly resolvesPuterPaths?: boolean;
 }

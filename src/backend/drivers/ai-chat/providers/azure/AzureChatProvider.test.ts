@@ -75,6 +75,15 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
+// The http→data-URL inliner does real fetches; stub it and assert on calls.
+const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
+    inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
+}));
+
+vi.mock('../../utils/inlineImages.js', () => ({
+    inlineHttpImageUrls: inlineHttpImageUrlsMock,
+}));
+
 // -- Test harness ----------------------------------------------------
 
 let server: PuterServer;
@@ -187,6 +196,61 @@ describe('AzureChatProvider model catalog', () => {
         expect(ids).toContain('x-ai/grok-4-20-non-reasoning');
         // Codex is Responses-only and must not be advertised here.
         expect(ids).not.toContain('gpt-5.3-codex');
+    });
+});
+
+// -- Image inlining for Grok deployments -----------------------------
+
+describe('AzureChatProvider.complete image inlining', () => {
+    it('inlines http image URLs for Grok deployments, which cannot fetch every host', async () => {
+        inlineHttpImageUrlsMock.mockClear();
+        createMock.mockResolvedValueOnce(okCompletion);
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'what is this' },
+                    {
+                        type: 'image_url',
+                        image_url: { url: 'https://cdn.test/a.png' },
+                    },
+                ],
+            },
+        ];
+
+        await withTestActor(() =>
+            makeProvider().complete({
+                model: 'grok-4-1-fast-non-reasoning',
+                messages,
+            }),
+        );
+
+        expect(inlineHttpImageUrlsMock).toHaveBeenCalledTimes(1);
+        expect(inlineHttpImageUrlsMock.mock.calls[0]![0]).toBe(messages);
+    });
+
+    it('leaves image URLs alone for the OpenAI deployments, which fetch fine', async () => {
+        inlineHttpImageUrlsMock.mockClear();
+        createMock.mockResolvedValueOnce(okCompletion);
+
+        await withTestActor(() =>
+            makeProvider().complete({
+                model: 'gpt-4o',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image_url',
+                                image_url: { url: 'https://cdn.test/a.png' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        expect(inlineHttpImageUrlsMock).not.toHaveBeenCalled();
     });
 });
 

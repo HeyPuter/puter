@@ -50,6 +50,7 @@ import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
+import { processPuterPathUploads } from './providers/openai/fileUpload.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
@@ -64,6 +65,12 @@ import type {
     ICompleteArguments,
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
+import {
+    messagesHavePuterPaths,
+    modelSupportsModality,
+    normalizeMediaParts,
+    requiredInputModalities,
+} from './utils/mediaParts.js';
 import {
     normalize_messages,
     normalize_single_message,
@@ -381,10 +388,28 @@ export class ChatCompletionDriver extends PuterDriver {
         }
 
         if (args.messages) {
-            args.messages = normalize_messages(args.messages);
+            args.messages = normalizeMediaParts(
+                normalize_messages(args.messages),
+            );
         }
         if (args.tools) {
             normalize_tools_object(args.tools);
+        }
+
+        // A clear 400 for image/video parts the catalog says the model cannot
+        // read, before the credit hold and the round trip. Entries that declare
+        // no modalities (reseller catalogs) are not judged.
+        for (const modality of requiredInputModalities(args.messages)) {
+            if (
+                Array.isArray(model.modalities?.input) &&
+                !modelSupportsModality(model, modality)
+            ) {
+                throw new HttpError(
+                    400,
+                    `Model ${model.id} does not support ${modality} input`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
         }
 
         // Both estimated once, before any attempt: providers rewrite
@@ -488,6 +513,7 @@ export class ChatCompletionDriver extends PuterDriver {
         };
 
         try {
+            if (!blocked) await this.#resolvePuterPaths(provider, args, actor);
             res = await provider.complete({
                 ...args,
                 model: model.id,
@@ -536,6 +562,9 @@ export class ChatCompletionDriver extends PuterDriver {
                 tried.add(routeId(fallback.provider!, fallback.id));
 
                 try {
+                    if (!blocked) {
+                        await this.#resolvePuterPaths(fbProvider, args, actor);
+                    }
                     res = await fbProvider.complete({
                         ...args,
                         model: fallback.id,
@@ -1441,6 +1470,27 @@ export class ChatCompletionDriver extends PuterDriver {
             if (pinned) return pinned;
         }
         return this.#preferHealthy(models) ?? models[0];
+    }
+
+    /**
+     * Inline `puter_path` parts as data URLs for a provider without its own
+     * upload path. Per attempt, not once up front: Claude uploads the same
+     * parts to its Files API and restores them if its attempt fails.
+     * Idempotent.
+     */
+    async #resolvePuterPaths(
+        provider: IChatProvider,
+        args: ICompleteArguments,
+        actor: Actor | undefined,
+    ): Promise<void> {
+        if (provider.resolvesPuterPaths) return;
+        if (!messagesHavePuterPaths(args.messages)) return;
+        await processPuterPathUploads(
+            args.messages,
+            { fsEntry: this.stores.fsEntry, s3Object: this.stores.s3Object },
+            this.services.fs,
+            actor,
+        );
     }
 
     #findFallback(modelId: string, tried: Set<string>): IChatModel | null {

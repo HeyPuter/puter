@@ -74,6 +74,15 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
+// The http→data-URL inliner does real fetches; stub it and assert on calls.
+const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
+    inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
+}));
+
+vi.mock('../../utils/inlineImages.js', () => ({
+    inlineHttpImageUrls: inlineHttpImageUrlsMock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -298,6 +307,53 @@ describe('GeminiChatProvider.complete request shape', () => {
         expect(createMock.mock.calls[1]![0].stream_options).toEqual({
             include_usage: true,
         });
+    });
+});
+
+// -- Image inlining --------------------------------------------------
+
+describe('GeminiChatProvider.complete image inlining', () => {
+    const baseCompletion = {
+        choices: [
+            {
+                message: { content: 'Dog', role: 'assistant' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+
+    it('runs http image URLs through the inliner before the request is shaped', async () => {
+        inlineHttpImageUrlsMock.mockClear();
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'What animal is this?' },
+                    {
+                        type: 'image_url',
+                        image_url: { url: 'https://cdn.test/doge.jpeg' },
+                    },
+                ],
+            },
+        ];
+
+        await withTestActor(() =>
+            provider.complete({ model: 'gemini-3.5-flash', messages }),
+        );
+
+        // Gemini 3.1+ returns a bodiless 400 for http URLs on Google's
+        // OpenAI-compatible endpoint; the inliner turns them into data URLs,
+        // which every Gemini model accepts.
+        expect(inlineHttpImageUrlsMock).toHaveBeenCalledTimes(1);
+        expect(inlineHttpImageUrlsMock.mock.calls[0]![0]).toBe(messages);
+        // And it runs before the OpenAI-shape pass, so what it rewrites is
+        // what gets typed and sent.
+        expect(inlineHttpImageUrlsMock.mock.invocationCallOrder[0]).toBeLessThan(
+            createMock.mock.invocationCallOrder[0]!,
+        );
     });
 });
 

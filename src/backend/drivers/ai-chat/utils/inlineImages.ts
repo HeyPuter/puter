@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { secureFetch } from '../../../../util/secureHttp.js';
+import { secureFetch } from '../../../util/secureHttp.js';
 
 // Matches the OpenAI Chat-Completions inline-upload cap.
 export const MAX_IMAGE_BYTES = 5 * 1_000_000;
