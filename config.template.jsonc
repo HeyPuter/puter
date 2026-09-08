@@ -416,7 +416,6 @@
         "xai-image-generation": { "apiKey": "" },
 
         // ─ Video generation ─
-        "openai-video-generation": { "apiKey": "" },
         "together-video-generation": { "apiKey": "" },
         "gemini-video-generation": { "apiKey": "" },
 

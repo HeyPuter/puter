@@ -20,50 +20,23 @@
 /**
  * Shared helpers for `input_images` (image-to-image) handling across image
  * providers. `input_images` is the canonical, cross-provider field; an entry
- * may be a public URL, a data-URI, or raw base64. Providers whose upstream API
- * needs base64 use these helpers to normalize URLs server-side (via the
- * SSRF-guarded `secureFetch`); providers that accept URLs natively (Replicate,
- * xAI) pass them through untouched.
+ * may be a public URL, a data-URI, or raw base64. The string-level helpers live
+ * in `drivers/util/imageInput.ts` so video providers share them; this module
+ * re-exports them and adds the `IGenerateParams`-shaped validation.
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
-import { secureFetch } from '../../util/secureHttp.js';
+import { assertInputImageString } from '../util/imageInput.js';
 import type { IGenerateParams } from './types.js';
 
-export function isHttpUrl(s: unknown): boolean {
-    return (
-        typeof s === 'string' &&
-        (s.startsWith('http://') || s.startsWith('https://'))
-    );
-}
-
-/**
- * Normalize an input-image string for providers that accept URLs natively:
- * http(s) URLs and data-URIs pass through untouched, raw base64 is wrapped with
- * `mimeHint` (default image/png).
- */
-export function toUrlOrDataUri(img: string, mimeHint?: string): string {
-    assertInputImageString(img, 'input image');
-    return isHttpUrl(img) || img.startsWith('data:')
-        ? img
-        : `data:${mimeHint ?? 'image/png'};base64,${img}`;
-}
-
-/**
- * An input image is a URL, a data-URI or raw base64 — always a string. The
- * field comes straight off the driver call, so the type has to be checked
- * before the helpers below reach for `.startsWith`.
- */
-export function assertInputImageString(img: unknown, label: string): string {
-    if (typeof img !== 'string') {
-        throw new HttpError(
-            400,
-            `${label}: each input image must be a URL, data-URI, or base64 string.`,
-            { legacyCode: 'bad_request' },
-        );
-    }
-    return img;
-}
+export {
+    assertInputImageString,
+    fetchImageAsBase64,
+    isHttpUrl,
+    parseDataUri,
+    toBase64DataUri,
+    toUrlOrDataUri,
+} from '../util/imageInput.js';
 
 /**
  * Validate `input_image` / `input_images` once, where the driver call arrives.
@@ -109,51 +82,4 @@ export function resolveSingleInputImage(
     return chosen === undefined
         ? undefined
         : assertInputImageString(chosen, providerLabel);
-}
-
-const DATA_URI_PATTERN = /^data:([^;,]+)?(?:;base64)?,(.*)$/s;
-
-/** Parse a `data:<mime>;base64,<payload>` URI into raw base64 + mime. */
-export function parseDataUri(
-    s: string,
-): { base64: string; mime: string } | null {
-    const m = DATA_URI_PATTERN.exec(s);
-    if (!m) return null;
-    return { base64: m[2] ?? '', mime: m[1] ?? 'image/png' };
-}
-
-/** Fetch an http(s) image and return raw base64 + mime (SSRF-guarded). */
-export async function fetchImageAsBase64(
-    url: string,
-): Promise<{ base64: string; mime: string }> {
-    const res = await secureFetch(url);
-    if (!res.ok) {
-        throw new HttpError(
-            400,
-            `Failed to fetch input image (status ${res.status})`,
-            { legacyCode: 'bad_request' },
-        );
-    }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const mime =
-        res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/png';
-    return { base64: buffer.toString('base64'), mime };
-}
-
-/**
- * Normalize any input-image string to a base64 data-URI: • http(s) URL →
- * fetched via secureFetch • data-URI → returned as-is • raw base64 → wrapped
- * with `mimeHint` (default image/png)
- */
-export async function toBase64DataUri(
-    img: string,
-    mimeHint?: string,
-): Promise<string> {
-    assertInputImageString(img, 'input image');
-    if (img.startsWith('data:')) return img;
-    if (isHttpUrl(img)) {
-        const { base64, mime } = await fetchImageAsBase64(img);
-        return `data:${mime};base64,${base64}`;
-    }
-    return `data:${mimeHint ?? 'image/png'};base64,${img}`;
 }

@@ -227,29 +227,43 @@
  * Options for `txt2vid()`.
  *
  * @typedef {Object} Txt2VidOptions
- * @property {string} [prompt]
- * @property {string} [driver]
- * @property {string} [model]
- * @property {number} [seconds]
- * @property {number} [duration]
- * @property {boolean} [test_mode]
- * @property {string} [size] OpenAI: output size.
- * @property {string} [resolution] OpenAI: output resolution.
- * @property {File | string} [input_reference] OpenAI: reference clip or image.
- * @property {number} [width] TogetherAI.
- * @property {number} [height] TogetherAI.
+ * @property {string} [prompt] Text description of the clip.
+ * @property {string} [provider] Pin the request to one provider: `'gemini-video-generation'`,
+ * `'together-video-generation'` or `'byteplus-video-generation'`. Defaults to the provider that owns
+ * `model`, or Google when neither is given.
+ * @property {string} [driver] Same effect as `provider`.
+ * @property {string} [model] Video model id (provider-specific). Defaults to `'veo-3.1-lite'`.
+ * @property {number} [seconds] Clip length in seconds. A value the model does not offer falls back
+ * to the model default.
+ * @property {number} [duration] Alias of `seconds`.
+ * @property {boolean} [test_mode] When `true`, returns a sample clip without using credits.
+ * @property {string} [size] Output size as `'WIDTHxHEIGHT'` on every provider (tier-based models map
+ * it to the tier of the shorter side plus an aspect ratio), or a tier such as `'720p'` for Seedance
+ * and Wan 2.7.
+ * @property {string} [resolution] Alias of `size`.
+ * @property {string} [input_reference] First-frame image for image-to-video: a URL, data URI or raw
+ * base64, on every provider.
+ * @property {string} [last_frame] Last-frame image, same formats as `input_reference`.
+ * @property {string[]} [reference_images] Subject/style reference images (URL, data URI or base64).
+ * Veo 3.1: up to 3; Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
+ * @property {string} [negative_prompt] What to keep out of the video (Veo, Together).
+ * @property {boolean} [generate_audio] Generate a soundtrack on models that support audio (Seedance 2.x
+ * and 1.5 Pro, and Together models with audio). Defaults to `true` on Seedance.
+ * @property {number} [seed] Random seed (Together, Seedance 1.x).
+ * @property {number} [width] Output width in pixels on Together models sized in pixels; with `height`,
+ * selects the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when omitted.
+ * @property {number} [height] Output height in pixels; see `width`.
  * @property {number} [fps] TogetherAI.
  * @property {number} [steps] TogetherAI.
  * @property {number} [guidance_scale] TogetherAI.
- * @property {number} [seed] TogetherAI.
  * @property {string} [output_format] TogetherAI.
  * @property {number} [output_quality] TogetherAI.
- * @property {string} [negative_prompt] TogetherAI.
- * @property {string[]} [reference_images] TogetherAI.
- * @property {Array<{ input_image: string, frame: number }>} [frame_images] TogetherAI.
+ * @property {Array<{ input_image: string, frame: number }>} [frame_images] TogetherAI: keyframe images
+ * for image-to-video.
  * @property {Record<string, unknown>} [metadata] TogetherAI.
  * @property {string} [puter_output_path] Save the generated video to this path on the Puter filesystem.
- * @property {string} [last_frame] Final frame to guide generation toward.
+ * Relative paths resolve against the app's data directory (`~/AppData/<appID>/`) when called from an
+ * app, or `~/` otherwise. The caller must have write permission to the destination.
  */
 
 /**

@@ -28,12 +28,15 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
+import { isHttpUrl, toBase64DataUri } from '../../../util/imageInput.js';
 import { VideoProvider } from '../VideoProvider.js';
 import { pollUntilSettled, videoJobFailure } from '../polling.js';
 import { GEMINI_VIDEO_GENERATION_MODELS, IGeminiVideoModel } from './models.js';
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const POLL_INTERVAL_MS = 10_000;
+// Cheapest Veo tier; also what an unknown model id resolves to.
+const DEFAULT_MODEL = 'veo-3.1-lite-generate-preview';
 
 const DIMENSION_MAP: Record<
     string,
@@ -61,7 +64,7 @@ export class GeminiVideoProvider extends VideoProvider {
     }
 
     getDefaultModel(): string {
-        return GEMINI_VIDEO_GENERATION_MODELS[0].id;
+        return DEFAULT_MODEL;
     }
 
     async models(): Promise<IVideoModel[]> {
@@ -182,10 +185,12 @@ export class GeminiVideoProvider extends VideoProvider {
                         typeof img === 'string' && img.trim().length > 0,
                 )
                 .slice(0, 3);
-            config.referenceImages = validImages.map((img: string) => ({
-                image: this.#parseImageInput(img),
-                referenceType: 'asset',
-            }));
+            config.referenceImages = await Promise.all(
+                validImages.map(async (img: string) => ({
+                    image: await this.#inlineImage(img),
+                    referenceType: 'asset',
+                })),
+            );
         }
 
         if (
@@ -193,7 +198,7 @@ export class GeminiVideoProvider extends VideoProvider {
             typeof lastFrame === 'string' &&
             lastFrame.trim()
         ) {
-            config.lastFrame = this.#parseImageInput(lastFrame);
+            config.lastFrame = await this.#inlineImage(lastFrame);
         }
 
         const generateParams: GenerateVideosParameters = {
@@ -204,7 +209,7 @@ export class GeminiVideoProvider extends VideoProvider {
 
         // First frame (image-to-video)
         if (hasFirstFrame && !hasRefImages) {
-            generateParams.image = this.#parseImageInput(
+            generateParams.image = await this.#inlineImage(
                 inputReference as string,
             );
         }
@@ -302,6 +307,18 @@ export class GeminiVideoProvider extends VideoProvider {
         return op;
     }
 
+    /**
+     * Veo only takes inline bytes, so a URL is fetched server-side (SSRF
+     * guarded) first; data URIs and raw base64 go straight to the parser.
+     */
+    async #inlineImage(
+        input: string,
+    ): Promise<{ imageBytes: string; mimeType: string }> {
+        return this.#parseImageInput(
+            isHttpUrl(input) ? await toBase64DataUri(input) : input,
+        );
+    }
+
     #parseImageInput(input: string): { imageBytes: string; mimeType: string } {
         if (input.startsWith('data:')) {
             const commaIdx = input.indexOf(',');
@@ -325,7 +342,8 @@ export class GeminiVideoProvider extends VideoProvider {
         return (
             GEMINI_VIDEO_GENERATION_MODELS.find(
                 (m) => m.id === requestedModel,
-            ) ?? GEMINI_VIDEO_GENERATION_MODELS[0]
+            ) ??
+            GEMINI_VIDEO_GENERATION_MODELS.find((m) => m.id === DEFAULT_MODEL)!
         );
     }
 

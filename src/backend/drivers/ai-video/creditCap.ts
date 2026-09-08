@@ -45,8 +45,8 @@ export interface ICapSecondsParams {
  * Clamp a video's duration to what the actor's remaining credit actually buys.
  *
  * Video is the only AI modality where a single request can cost multiples of a
- * whole monthly allowance (Sora 2 Pro at 1080p is $0.70/second — a 12s clip is
- * $8.40), so an all-or-nothing affordability check leaves the entire request
+ * whole monthly allowance (Veo 3.1 at 4K is $0.60/second — an 8s clip is
+ * $4.80), so an all-or-nothing affordability check leaves the entire request
  * cost as slop above the budget. This is the video analogue of the `max_tokens`
  * clamp in `ChatCompletionDriver`: shorten the output to fit the wallet, and
  * only reject outright when even the shortest supported clip is unaffordable.

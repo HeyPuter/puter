@@ -22,15 +22,32 @@ import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
+import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
 import { pollUntilSettled, videoJobFailure } from '../polling.js';
-import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';
+import {
+    TOGETHER_VIDEO_GENERATION_MODELS,
+    type ITogetherVideoModel,
+} from './models.js';
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const POLL_INTERVAL_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_MODEL = 'minimax/video-01-director';
 const DEFAULT_DURATION_SECONDS = 6;
+
+// Resolution tiers ('720p', '1080P') mark models that size their output
+// through `resolution` (+ `ratio`) rather than width/height.
+const isResolutionTier = (value: string): boolean => /^\d{3,4}p$/i.test(value);
+
+// The SDK's create params trail the API: `resolution`, `ratio` and
+// `generate_audio` are documented request fields it does not type yet.
+type TogetherCreatePayload = Together.VideoCreateParams & {
+    metadata?: object;
+    resolution?: string;
+    ratio?: string;
+    generate_audio?: boolean;
+};
 
 export class TogetherVideoProvider extends VideoProvider {
     #client: Together;
@@ -74,6 +91,8 @@ export class TogetherVideoProvider extends VideoProvider {
             seconds,
             no_extra_params,
             duration,
+            size,
+            resolution,
             width,
             height,
             fps,
@@ -83,8 +102,11 @@ export class TogetherVideoProvider extends VideoProvider {
             output_format: outputFormat,
             output_quality: outputQuality,
             negative_prompt: negativePrompt,
+            generate_audio: generateAudio,
             reference_images: referenceImages,
             frame_images: frameImages,
+            input_reference: inputReference,
+            last_frame: lastFrame,
             metadata,
             test_mode: testMode,
         } = params ?? {};
@@ -95,7 +117,7 @@ export class TogetherVideoProvider extends VideoProvider {
             });
         }
 
-        const selectedModel = await this.#getModel(requestedModel);
+        const selectedModel = this.#getModel(requestedModel);
         const model =
             selectedModel?.model ??
             this.#stripTogetherPrefix(requestedModel ?? DEFAULT_MODEL);
@@ -104,11 +126,19 @@ export class TogetherVideoProvider extends VideoProvider {
             return DEFAULT_TEST_VIDEO_URL;
         }
 
-        const costPerVideoCents = selectedModel?.costs?.['per-video'];
-        if (!costPerVideoCents) {
+        const costs = selectedModel?.costs ?? {};
+        const resolutionTier = this.#resolveResolutionTier(
+            size ?? resolution,
+            selectedModel,
+        );
+        const perSecondCents =
+            (resolutionTier !== undefined
+                ? costs[`per-second-${resolutionTier.toLowerCase()}`]
+                : undefined) ?? costs['per-second'];
+        const perVideoCents = costs['per-video'];
+        if (!perSecondCents && !perVideoCents) {
             throw new Error(`No pricing configured for video model ${model}`);
         }
-        const costInMicroCents = costPerVideoCents * 1_000_000;
 
         let normalizedSeconds = this.#coercePositiveInteger(
             seconds ?? duration,
@@ -125,19 +155,38 @@ export class TogetherVideoProvider extends VideoProvider {
             });
         }
 
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
-            actor,
-            costInMicroCents,
-        );
-        if (!usageAllowed) {
-            throw new HttpError(402, 'Insufficient funds', {
-                legacyCode: 'insufficient_funds',
+        // Per-second models are clamped to what the balance buys, like Veo
+        // and Seedance; per-clip models stay all-or-nothing.
+        let estimateMicroCents: number;
+        let billedUnits: number;
+        if (perSecondCents) {
+            normalizedSeconds = await capSecondsToRemainingCredits({
+                metering: this.#meteringService,
+                actor,
+                perSecondMicroCents: perSecondCents * 1_000_000,
+                requestedSeconds: normalizedSeconds ?? DEFAULT_DURATION_SECONDS,
+                allowedSeconds: selectedModel?.durationSeconds,
+                modelId: model,
             });
+            estimateMicroCents = Math.round(
+                perSecondCents * 1_000_000 * normalizedSeconds,
+            );
+            billedUnits = normalizedSeconds;
+        } else {
+            estimateMicroCents = perVideoCents! * 1_000_000;
+            const usageAllowed = await this.#meteringService.hasEnoughCredits(
+                actor,
+                estimateMicroCents,
+            );
+            if (!usageAllowed) {
+                throw new HttpError(402, 'Insufficient funds', {
+                    legacyCode: 'insufficient_funds',
+                });
+            }
+            billedUnits = 1;
         }
 
-        const createPayload: Together.VideoCreateParams & {
-            metadata?: object;
-        } = {
+        const createPayload: TogetherCreatePayload = {
             prompt,
             model,
         };
@@ -145,11 +194,23 @@ export class TogetherVideoProvider extends VideoProvider {
         if (normalizedSeconds) {
             createPayload.seconds = String(normalizedSeconds);
         }
-        if (this.#isFiniteNumber(width)) {
-            createPayload.width = Number(width);
-        }
-        if (this.#isFiniteNumber(height)) {
-            createPayload.height = Number(height);
+        if (resolutionTier !== undefined) {
+            createPayload.resolution = resolutionTier;
+            const ratio = this.#deriveRatio(
+                width,
+                height,
+                selectedModel?.ratios,
+            );
+            if (ratio) {
+                createPayload.ratio = ratio;
+            }
+        } else {
+            if (this.#isFiniteNumber(width)) {
+                createPayload.width = Number(width);
+            }
+            if (this.#isFiniteNumber(height)) {
+                createPayload.height = Number(height);
+            }
         }
         if (this.#isFiniteNumber(fps)) {
             createPayload.fps = Number(fps);
@@ -173,6 +234,9 @@ export class TogetherVideoProvider extends VideoProvider {
         if (typeof negativePrompt === 'string' && negativePrompt.trim()) {
             createPayload.negative_prompt = negativePrompt;
         }
+        if (typeof generateAudio === 'boolean') {
+            createPayload.generate_audio = generateAudio;
+        }
         if (Array.isArray(referenceImages) && referenceImages.length > 0) {
             createPayload.reference_images = referenceImages.filter(
                 (item: string) =>
@@ -186,6 +250,22 @@ export class TogetherVideoProvider extends VideoProvider {
                     typeof frame === 'object' &&
                     typeof frame.input_image === 'string',
             ) as Together.VideoCreateParams['frame_images'];
+        } else {
+            // `input_reference` / `last_frame` are the cross-provider names
+            // for Together's keyframes; an explicit `frame_images` wins.
+            const keyframes = [
+                [inputReference, 'first'],
+                [lastFrame, 'last'],
+            ]
+                .filter(([image]) => typeof image === 'string' && image.trim())
+                .map(([image, frame]) => ({
+                    input_image: (image as string).trim(),
+                    frame,
+                }));
+            if (keyframes.length > 0) {
+                createPayload.frame_images =
+                    keyframes as unknown as Together.VideoCreateParams['frame_images'];
+            }
         }
         if (metadata && typeof metadata === 'object') {
             createPayload.metadata = metadata;
@@ -214,12 +294,22 @@ export class TogetherVideoProvider extends VideoProvider {
             throw videoJobFailure('together', 'Video generation was cancelled');
         }
 
+        // Together reports what it actually charged for the job; the catalog
+        // rate above was only the pre-flight estimate.
+        const reportedCost = finalJob?.outputs?.cost;
+        const costMicroCents =
+            typeof reportedCost === 'number' &&
+            Number.isFinite(reportedCost) &&
+            reportedCost >= 0
+                ? Math.round(reportedCost * 100 * 1_000_000)
+                : estimateMicroCents;
+
         const usageKey = `together-video:${model}`;
         await this.#meteringService.incrementUsage(
             actor,
             usageKey,
-            1,
-            costInMicroCents,
+            billedUnits,
+            costMicroCents,
         );
 
         const videoUrl = finalJob?.outputs?.video_url;
@@ -242,13 +332,12 @@ export class TogetherVideoProvider extends VideoProvider {
         });
     }
 
-    async #getModel(requestedModel?: string): Promise<IVideoModel | undefined> {
+    #getModel(requestedModel?: string): ITogetherVideoModel | undefined {
         const bareModel = this.#stripTogetherPrefix(
             requestedModel ?? DEFAULT_MODEL,
         );
-        const allModels = await this.models();
-        return allModels.find(
-            (m) => m.model?.toLowerCase() === bareModel.toLowerCase(),
+        return TOGETHER_VIDEO_GENERATION_MODELS.find(
+            (m) => m.model.toLowerCase() === bareModel.toLowerCase(),
         );
     }
 
@@ -257,6 +346,47 @@ export class TogetherVideoProvider extends VideoProvider {
             return model.slice('togetherai:'.length);
         }
         return model;
+    }
+
+    /**
+     * The catalog spelling of the requested tier, or the model's default tier;
+     * undefined for models sized by width/height.
+     */
+    #resolveResolutionTier(
+        candidate: unknown,
+        model?: ITogetherVideoModel,
+    ): string | undefined {
+        const tiers = (model?.dimensions ?? []).filter(isResolutionTier);
+        if (tiers.length === 0) return undefined;
+        if (typeof candidate === 'string') {
+            const wanted = candidate.trim().toLowerCase();
+            const match = tiers.find((t) => t.toLowerCase() === wanted);
+            if (match) return match;
+        }
+        return tiers[0];
+    }
+
+    /** Snap width/height to one of the model's `ratio` strings. */
+    #deriveRatio(
+        width?: number,
+        height?: number,
+        ratios?: string[] | null,
+    ): string | undefined {
+        if (
+            !ratios?.length ||
+            !this.#isFiniteNumber(width) ||
+            !this.#isFiniteNumber(height)
+        ) {
+            return undefined;
+        }
+        const w = Math.round(Number(width));
+        const h = Math.round(Number(height));
+        if (w <= 0 || h <= 0) return undefined;
+        const gcd = (a: number, b: number): number =>
+            b === 0 ? a : gcd(b, a % b);
+        const d = gcd(w, h) || 1;
+        const candidate = `${w / d}:${h / d}`;
+        return ratios.includes(candidate) ? candidate : undefined;
     }
 
     #coercePositiveInteger(value: unknown): number | undefined {
