@@ -173,7 +173,10 @@ export class EventsController extends PuterController {
         );
     }
 
-    /** GET /events/kv-handles — what this account has shared out. */
+    /**
+     * GET /events/kv-handles — what this account has shared out. An app sees
+     * its own namespace only.
+     */
     @Get('/kv-handles', {
         subdomain: 'api',
         requireAuth: true,
@@ -200,8 +203,9 @@ export class EventsController extends PuterController {
     }
 
     /**
-     * DELETE /events/kv-handles/:handle — take a shared region back. A handle
-     * this account did not mint reads as absent.
+     * DELETE /events/kv-handles/:handle — take a shared region back. An app may
+     * take back one in its own namespace; a handle another account minted reads
+     * as absent.
      */
     @Delete('/kv-handles/:handle', {
         subdomain: 'api',

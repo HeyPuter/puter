@@ -70,8 +70,11 @@ export const limitFor = (
         ? undefined
         : tier.bySubscription[subscriptionId]) ?? tier.limit;
 
-/** The two counts a durable subscribe is held to, already resolved by plan. */
-export interface SubscriptionQuota {
+/**
+ * What a plan-tiered quota resolves to: what an account may hold, and what one
+ * app may take of it.
+ */
+export interface TieredQuota {
     perUser: number;
     perApp: number;
 }
@@ -153,11 +156,23 @@ export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
 export const EVENTS_KV_HANDLE_LIMIT = userWindow('events:kvHandles', 60);
 
 /**
- * Live share handles one account may hold out at a time. Each is a standing
- * grant on part of the account's data, and revoking marks rather than deletes,
- * so without a ceiling the rate limit alone lets the rows grow forever.
+ * Live share handles one account may hold out at a time, across every app.
+ *
+ * Each is a standing grant on part of the account's data, and revoking marks
+ * rather than deletes, so without a ceiling the rate limit alone lets the rows
+ * grow forever. A temporary account holds none: the grant outlives the session
+ * that made it, and no account is left to take it back.
  */
-export const EVENTS_KV_HANDLES_PER_USER = 200;
+export const EVENTS_KV_HANDLES_PER_USER = tiered(500, 200, 0);
+
+/**
+ * Live share handles one app may hold out for one account.
+ *
+ * Below the per-account cap so that one app cannot spend an account's whole
+ * budget: a handle names one namespace, so without this a second app on the
+ * same account would be left with nothing.
+ */
+export const EVENTS_KV_HANDLES_PER_APP = tiered(100, 50, 0);
 
 // -- Handler surface -------------------------------------------------
 

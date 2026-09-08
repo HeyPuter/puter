@@ -33,7 +33,10 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import {
+    EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_KV_HANDLE_LIMIT,
+} from '../../controllers/events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
@@ -527,5 +530,224 @@ describe('a grantee subscribing through their own app actor', () => {
         await appWrites(`${PREFIX}live:2`, 2);
         await quiet();
         expect(delivered).toEqual([]);
+    });
+});
+
+describe('an app managing what it minted', () => {
+    beforeAll(async () => {
+        await delegate();
+        // Every real mint/revoke in this describe spends the same per-user
+        // call budget.
+        await env.server.clients.redis.del(
+            `rate:${EVENTS_KV_HANDLE_LIMIT.scope}:${owner.id}`,
+        );
+    });
+
+    it('revokes what it minted, settling subscriptions and a narrower handle beneath it', async () => {
+        await clearRows();
+        // Its own base, nested under `PREFIX` for the delegation but disjoint
+        // from every other case's region — a fresh live handle regardless of
+        // what earlier describes in this file left standing.
+        const base = `${PREFIX}revoke-basic-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await mint({ prefix: base });
+        const deeper = await mint({ prefix: `${base}messages:` });
+        const { sub } = await events().subscribeDurable(guest.actor, {
+            subject: `kv:${handle}:*`,
+            delivery: 'single',
+            handlerName: 'onChange',
+        });
+
+        await events().revokeKvHandle(appActor, handle);
+        await vi.waitFor(
+            async () => {
+                const [row] = (await env.server.clients.db.pread(
+                    `SELECT \`suspended_reason\` FROM \`${TABLE}\` WHERE \`sub_id\` = ?`,
+                    [sub.subId],
+                )) as Array<{ suspended_reason: unknown }>;
+                expect(row?.suspended_reason).toBe('permission_revoked');
+            },
+            { timeout: 5_000, interval: 25 },
+        );
+
+        await expect(
+            permissions().check(
+                guest.actor,
+                kvSharePermission(owner.uuid, appUid, base),
+            ),
+        ).resolves.toBe(false);
+
+        const page = await events().listKvHandles(owner.actor, { limit: 100 });
+        expect(
+            page.items.find((one) => one.handle === handle)?.revokedAt,
+        ).toBeTypeOf('number');
+        expect(
+            page.items.find((one) => one.handle === deeper.handle)?.revokedAt,
+        ).toBeTypeOf('number');
+    });
+
+    it('takes back a handle the account session minted into its namespace', async () => {
+        // Nested under the delegated `PREFIX`, since revoking it as the app
+        // still runs the delegation check the mint would have.
+        const prefix = `${PREFIX}session-in-app-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await mint({ appUid, prefix }, owner.actor);
+
+        const revoked = await events().revokeKvHandle(appActor, handle);
+        expect(revoked.handle).toBe(handle);
+
+        const page = await events().listKvHandles(owner.actor, { limit: 100 });
+        expect(
+            page.items.find((one) => one.handle === handle)?.revokedAt,
+        ).toBeTypeOf('number');
+    });
+
+    it('is refused for a handle outside its namespace', async () => {
+        const prefix = `outside-namespace-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await mint(
+            { appUid: 'os-global', prefix },
+            owner.actor,
+        );
+
+        await expect(
+            events().revokeKvHandle(appActor, handle),
+        ).rejects.toMatchObject({ legacyCode: 'events_kv_handle_owner_only' });
+    });
+
+    it('is refused for a handle in its namespace revoked by a different app of the same user', async () => {
+        const prefix = `${PREFIX}other-app-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await mint({ prefix });
+
+        const name = `kv-sibling-${uuidv4().slice(0, 8)}`;
+        const sibling = await env.server.stores.app.create(
+            {
+                name,
+                title: 'Sibling App',
+                index_url: `https://${name}.example.test/index.html`,
+            },
+            { ownerUserId: owner.id },
+        );
+        const siblingActor = makeActor({
+            user: owner.actor.user as never,
+            app: { uid: sibling.uid, id: sibling.id },
+        });
+
+        await expect(
+            events().revokeKvHandle(siblingActor, handle),
+        ).rejects.toMatchObject({ legacyCode: 'events_kv_handle_owner_only' });
+    });
+
+    it('is refused for an access token the delegated app issued', async () => {
+        const prefix = `${PREFIX}app-token-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await mint({ prefix });
+        const tokenActor = makeActor({
+            user: owner.actor.user as never,
+            accessToken: {
+                uid: `tok-${uuidv4()}`,
+                issuer: appActor,
+                authorized: null,
+                fullAccess: false,
+            },
+        });
+
+        await expect(
+            events().revokeKvHandle(tokenActor, handle),
+        ).rejects.toMatchObject({ legacyCode: 'events_kv_handle_owner_only' });
+    });
+
+    it('is refused once the delegation is withdrawn, and the handle stands', async () => {
+        // A per-case prefix with its own delegation, disjoint from `PREFIX` —
+        // withdrawing it must not touch what the other cases in this describe
+        // rely on.
+        const prefix = `withdrawn-revoke-${uuidv4().slice(0, 8)}:`;
+        await delegate(prefix);
+        const { handle } = await mint({ prefix });
+        await undelegate(prefix);
+
+        await expect(
+            events().revokeKvHandle(appActor, handle),
+        ).rejects.toMatchObject({
+            legacyCode: 'events_kv_handle_not_delegated',
+        });
+
+        const page = await events().listKvHandles(owner.actor, {
+            limit: 100,
+        });
+        expect(
+            page.items.find((one) => one.handle === handle)?.revokedAt,
+        ).toBeNull();
+    });
+
+    it('lists confined to its own namespace, unlike the account session', async () => {
+        const sessionPrefix = `session-listing-${uuidv4().slice(0, 8)}:`;
+        const appPrefix = `${PREFIX}app-listing-${uuidv4().slice(0, 8)}:`;
+        await mint({ appUid: 'os-global', prefix: sessionPrefix }, owner.actor);
+        await mint({ prefix: appPrefix });
+
+        const appPage = await events().listKvHandles(appActor, {
+            limit: 100,
+            includeTotal: true,
+        });
+        expect(appPage.items.length).toBeGreaterThan(0);
+        for (const row of appPage.items) expect(row.appUid).toBe(appUid);
+        expect(
+            appPage.items.some((row) => row.appUid === 'os-global'),
+        ).toBe(false);
+
+        const ownerPage = await events().listKvHandles(owner.actor, {
+            limit: 100,
+            includeTotal: true,
+        });
+        expect(appPage.total).toBeLessThan(ownerPage.total as number);
+    });
+
+    it('spends the account`s handle budget the same as an owner-initiated revoke', async () => {
+        const prefix = `${PREFIX}budget-probe-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await mint({ prefix });
+        const key = `rate:${EVENTS_KV_HANDLE_LIMIT.scope}:${owner.id}`;
+
+        const before = await env.server.clients.redis.zcard(key);
+        await events().revokeKvHandle(appActor, handle);
+        const after = await env.server.clients.redis.zcard(key);
+
+        expect(after).toBe(before + 1);
+    });
+
+    it('answers another user`s handle in the same namespace as absent, not as forbidden', async () => {
+        const prefix = `cross-user-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await events().mintKvHandle(guest.actor, {
+            granteeUsername: owner.username,
+            appUid,
+            prefix,
+        });
+
+        await expect(
+            events().revokeKvHandle(appActor, handle),
+        ).rejects.toMatchObject({ legacyCode: 'subject_does_not_exist' });
+    });
+
+    it('leaves an audit row naming the user and the app that acted', async () => {
+        const prefix = `${PREFIX}revoke-audit-probe-${uuidv4().slice(0, 8)}:`;
+        const { handle } = await mint({ prefix });
+
+        await events().revokeKvHandle(appActor, handle);
+
+        const row = await vi.waitFor(async () => {
+            const [found] = (await env.server.clients.db.pread(
+                'SELECT `issuer_user_id`, `holder_user_id`, `extra` FROM `audit_user_to_user_permissions` ' +
+                    'WHERE `permission` = ? AND `action` = ?',
+                [kvSharePermission(owner.uuid, appUid, prefix), 'revoke'],
+            )) as Array<{
+                issuer_user_id: number;
+                holder_user_id: number;
+                extra: unknown;
+            }>;
+            expect(found).toBeDefined();
+            return found;
+        });
+
+        expect(row.issuer_user_id).toBe(owner.id);
+        expect(row.holder_user_id).toBe(guest.id);
+        const extra =
+            typeof row.extra === 'string' ? JSON.parse(row.extra) : row.extra;
+        expect(extra).toMatchObject({ appUid });
     });
 });
