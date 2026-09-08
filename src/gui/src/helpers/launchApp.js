@@ -22,6 +22,7 @@ import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } f
 import UIWindow from '../UI/UIWindow.js';
 import { starts_hidden } from './startsHidden.js';
 import { append_signed_item_params } from './appendSignedItemParams.js';
+import { expand_home_path } from './expandHomePath.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -323,6 +324,27 @@ const launch_app = async (options) => {
         // add file_signature to options
         file_signature = file_signature.items;
     }
+    // A launch that names its file by path alone (a URL landing, a default-app
+    // preference). Sign it here so the app receives it as an opened item.
+    else if ( options.file_path ) {
+        options.file_path = expand_home_path(options.file_path, window.home_path);
+        try {
+            const signed = await puter.fs.sign(app_info.uuid, { path: options.file_path, action: 'write' });
+            // A path the user can't reach comes back as an empty signature
+            // rather than an error, so there is nothing to check but the uid.
+            if ( signed?.items?.uid ) {
+                options.token = signed.token;
+                file_signature = signed.items;
+            } else {
+                options.file_path = undefined;
+            }
+        } catch ( e ) {
+            // Open the app without the file rather than not at all. Clearing
+            // the path also keeps it out of the window title.
+            console.warn(`launch_app: could not open ${options.file_path}`, e);
+            options.file_path = undefined;
+        }
+    }
 
     // -----------------------------------
     // Create entry to track the "portal"
@@ -380,16 +402,7 @@ const launch_app = async (options) => {
             }
         }
 
-        // if path starts with ~, replace it with home_path
-        if ( options.path && options.path.startsWith('~/') )
-        {
-            options.path = window.home_path + options.path.slice(1);
-        }
-        // if path is ~, replace it with home_path
-        else if ( options.path === '~' )
-        {
-            options.path = window.home_path;
-        }
+        options.path = expand_home_path(options.path, window.home_path);
 
         // open window
         el_win = UIWindow({

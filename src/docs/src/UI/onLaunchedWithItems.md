@@ -29,3 +29,20 @@ A function to execute after items are opened by user action. The function will b
 </body>
 </html>
 ```
+
+## Launching from a URL
+
+An app can also be launched with a file straight from a link, by naming the
+file in the `file` query parameter:
+
+```
+https://puter.com/app/<app-name>?file=<path>
+```
+
+The path may be absolute (`/username/Documents/report.docx`) or written
+relative to the user's home directory (`~/Documents/report.docx`). The file is
+handed to the app exactly as double-clicking it would, so `onLaunchedWithItems`
+receives it and `wasLaunchedWithItems()` returns `true`.
+
+If the file doesn't exist, or the user doesn't have access to it, the app is
+launched with no items rather than failing to open.
