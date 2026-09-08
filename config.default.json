@@ -23,6 +23,8 @@
     "storage_capacity": 104857600,
     "disable_user_signup": false,
     "teams_enabled": false,
+    "max_teams_per_user": 1,
+    "max_seats_per_team": 50,
     "strict_email_verification_required": false,
     "gui_assets_root": "./src/gui",
     "puterjs_root": "./src/puter-js/dist",
