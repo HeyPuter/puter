@@ -273,7 +273,7 @@
     //     "emailBatchSeconds": 90
     // },
 
-    // ── Teams / workspaces ──────────────────────────────────────────────
+    // ── Teams / teams ──────────────────────────────────────────────
     // Off by default, and off is the state every existing install stays in.
     // The tables ship either way and sit inert; this gates whether `/teams`
     // is registered at all, so with it off the paths do not exist rather than

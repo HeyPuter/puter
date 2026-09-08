@@ -56,7 +56,7 @@ export type LegacyErrorCodes =
     | 'account_is_not_verified'
     | 'app_or_api_token_required'
     | 'team_not_found'
-    | 'not_the_workspace_owner'
+    | 'not_the_team_owner'
     | 'not_an_org_account';
 
 /**

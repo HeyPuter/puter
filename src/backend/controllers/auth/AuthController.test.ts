@@ -2108,7 +2108,7 @@ describe('AuthController grant flows', () => {
                 makeReq(
                     {
                         app_uid: app.uid,
-                        permission: `${namespace}:workspace:abc`,
+                        permission: `${namespace}:team:abc`,
                     },
                     { actor: issuerActor },
                 ),
@@ -5319,7 +5319,7 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         const permission = kvSharePermission(
             owner.uuid as string,
             'os-global',
-            'workspace:abc:',
+            'team:abc:',
         );
         await inCtx(ownerActor, () =>
             server.services.permission.grantUserUserPermission(
