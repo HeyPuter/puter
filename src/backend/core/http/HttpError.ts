@@ -57,7 +57,9 @@ export type LegacyErrorCodes =
     | 'app_or_api_token_required'
     | 'team_not_found'
     | 'not_the_team_owner'
-    | 'not_an_org_account';
+    | 'not_an_org_account'
+    | 'team_limit_reached'
+    | 'seat_limit_reached';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
