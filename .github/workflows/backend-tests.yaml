@@ -115,7 +115,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: needs.changes.outputs.backend == 'true' && !cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage-${{ matrix.artifact }}
           path: src/backend/coverage/
