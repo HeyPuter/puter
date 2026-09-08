@@ -20,7 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import {
     EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
-    type SubscriptionQuota,
+    type TieredQuota,
 } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DeliveryClass } from '../../services/events/registry.js';
@@ -100,7 +100,7 @@ export interface DurableSubscriptionInput {
      * structural maximum, so a writer that never resolved a plan still cannot
      * leave an account holding more rows than the design allows.
      */
-    limits?: SubscriptionQuota;
+    limits?: TieredQuota;
 }
 
 /** One keyset page of rows, and where the next page starts. */

@@ -267,7 +267,7 @@ describe('revoking a handle', () => {
 
         const { handle } = await mint();
         const deeper = await mint(`${PREFIX}messages:`);
-        expect(await countLive()).toBe(before + 2);
+        expect((await countLive()).total).toBe(before.total + 2);
 
         await events().revokeKvHandle(owner.actor, handle);
 
@@ -279,7 +279,7 @@ describe('revoking a handle', () => {
         });
         const deeperRow = page.items.find((one) => one.handle === deeper.handle);
         expect(deeperRow?.revokedAt).toBeTypeOf('number');
-        expect(await countLive()).toBe(before);
+        expect((await countLive()).total).toBe(before.total);
     });
 
     it('never retires a sibling the revoked grant did not cover', async () => {

@@ -31,16 +31,20 @@ import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_KV_HANDLE_LIMIT,
+    EVENTS_KV_HANDLES_PER_APP,
     EVENTS_KV_HANDLES_PER_USER,
 } from '../../controllers/events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
 import {
     createTestUser,
     setupPuterTestEnv,
     type PuterTestEnv,
 } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 import { kvSharePermission } from './kvShares.js';
 import { isKvHandleId, kvAnchorToken } from './subjects.js';
@@ -249,25 +253,28 @@ describe('minting a handle', () => {
     it('stops at the number of handles one account may hold out', async () => {
         const seeded: string[] = [];
         try {
-            const live =
+            const { total: live } =
                 await env.server.stores.kvShareHandle.countLiveForOwner(
                     owner.id,
                 );
-            for (let i = live; i < EVENTS_KV_HANDLES_PER_USER; i++) {
+            // Rotate namespaces so the per-account cap is what trips here — no
+            // namespace sitting anywhere near its own per-app cap.
+            const spread = EVENTS_KV_HANDLES_PER_APP.limit - 1;
+            for (let i = live; i < EVENTS_KV_HANDLES_PER_USER.limit; i++) {
+                const namespace = `app-ceiling-${Math.floor(i / spread)}`;
+                const prefix = `ceiling:${i}:`;
                 const row = await env.server.stores.kvShareHandle.mint({
                     ownerUserId: owner.id,
                     granteeUserId: guest.id,
-                    appUid: 'os-global',
-                    keyPrefix: `ceiling:${i}:`,
-                    permission: kvSharePermission(
-                        owner.uuid,
-                        'os-global',
-                        `ceiling:${i}:`,
-                    ),
+                    appUid: namespace,
+                    keyPrefix: prefix,
+                    permission: kvSharePermission(owner.uuid, namespace, prefix),
                 });
                 seeded.push(row.handle);
             }
 
+            // `mint()` defaults to `os-global`, a namespace nowhere near any
+            // per-app cap here.
             await expect(
                 mint({ prefix: 'over:the:line:' }),
             ).rejects.toMatchObject({
@@ -287,6 +294,121 @@ describe('minting a handle', () => {
             await env.server.clients.db.write(
                 'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ?',
                 [owner.id],
+            );
+        }
+    });
+
+    it('holds one namespace to its own cap while another still has room', async () => {
+        const namespace = 'app-perapp-probe';
+        try {
+            for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit; i++) {
+                const prefix = `perapp:${i}:`;
+                await env.server.stores.kvShareHandle.mint({
+                    ownerUserId: owner.id,
+                    granteeUserId: guest.id,
+                    appUid: namespace,
+                    keyPrefix: prefix,
+                    permission: kvSharePermission(owner.uuid, namespace, prefix),
+                });
+            }
+
+            await expect(
+                mint({ appUid: namespace, prefix: 'over:the:app:' }),
+            ).rejects.toMatchObject({
+                legacyCode: 'events_kv_handle_limit_reached',
+            });
+            await expect(
+                mint({ appUid: 'app-another-probe', prefix: 'still:room:' }),
+            ).resolves.toEqual(
+                expect.objectContaining({ prefix: 'still:room:' }),
+            );
+        } finally {
+            await env.server.clients.db.write(
+                'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? AND `app_uid` IN (?, ?)',
+                [owner.id, namespace, 'app-another-probe'],
+            );
+        }
+    });
+
+    it('does not hold the global namespace to the per-app cap', async () => {
+        try {
+            for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit; i++) {
+                const prefix = `global:${i}:`;
+                await env.server.stores.kvShareHandle.mint({
+                    ownerUserId: owner.id,
+                    granteeUserId: guest.id,
+                    appUid: KV_GLOBAL_APP_KEY,
+                    keyPrefix: prefix,
+                    permission: kvSharePermission(
+                        owner.uuid,
+                        KV_GLOBAL_APP_KEY,
+                        prefix,
+                    ),
+                });
+            }
+
+            await expect(
+                mint({ prefix: 'global:still:room:' }),
+            ).resolves.toEqual(
+                expect.objectContaining({ prefix: 'global:still:room:' }),
+            );
+        } finally {
+            // By prefix, not by namespace: the global one is where the rest of
+            // this file's handles live too.
+            await env.server.clients.db.write(
+                'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? ' +
+                    "AND `app_uid` = ? AND `key_prefix` LIKE 'global:%'",
+                [owner.id, KV_GLOBAL_APP_KEY],
+            );
+        }
+    });
+
+    it('hands back an existing handle at the cap, taking no slot', async () => {
+        const namespace = 'app-idempotent-probe';
+        const prefix = 'idempotent:cap:';
+        try {
+            const first = await mint({ appUid: namespace, prefix });
+
+            for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit - 1; i++) {
+                const filler = `filler:${i}:`;
+                await env.server.stores.kvShareHandle.mint({
+                    ownerUserId: owner.id,
+                    granteeUserId: guest.id,
+                    appUid: namespace,
+                    keyPrefix: filler,
+                    permission: kvSharePermission(owner.uuid, namespace, filler),
+                });
+            }
+
+            const before = (
+                await env.server.stores.kvShareHandle.countLiveForOwner(
+                    owner.id,
+                    namespace,
+                )
+            ).forApp;
+            expect(before).toBe(EVENTS_KV_HANDLES_PER_APP.limit);
+
+            await expect(
+                mint({ appUid: namespace, prefix }),
+            ).resolves.toEqual(first);
+
+            const after = (
+                await env.server.stores.kvShareHandle.countLiveForOwner(
+                    owner.id,
+                    namespace,
+                )
+            ).forApp;
+            expect(after).toBe(before);
+
+            await expect(
+                mint({ appUid: namespace, prefix: 'idempotent:cap:other:' }),
+            ).rejects.toMatchObject({
+                legacyCode: 'events_kv_handle_limit_reached',
+            });
+        } finally {
+            await env.server.clients.db.write(
+                'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? AND `app_uid` = ?',
+                [owner.id, namespace],
             );
         }
     });
@@ -486,5 +608,143 @@ describe('a write in the shared region', () => {
         await quiet();
 
         expect(delivered).toEqual([]);
+    });
+});
+
+/**
+ * The tiering the rest of this file opts out of. Seeded accounts carry no
+ * email, which is exactly what the plan machinery reads as a temporary
+ * account — so this block boots with plans left on and gives the account an
+ * email when it wants to be a registered one.
+ */
+describe('what a plan lets an account hold', () => {
+    let tiered: PuterTestEnv;
+    let tieredUserId: number;
+    let tieredUuid: string;
+
+    const mintTiered = async (
+        prefix: string,
+        appUid?: string,
+    ): Promise<{ status: number; body: Record<string, unknown> }> => {
+        const response = await fetch(
+            new URL('/events/kv-handles', tiered.apiOrigin),
+            {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${tiered.users.user.token}`,
+                },
+                body: JSON.stringify({
+                    granteeUsername: tiered.users.other.username,
+                    prefix,
+                    ...(appUid ? { appUid } : {}),
+                }),
+            },
+        );
+        return {
+            status: response.status,
+            body: (await response.json()) as Record<string, unknown>,
+        };
+    };
+
+    /**
+     * Move the account between the plans the caps are written against: an
+     * address on file is what tells them apart.
+     */
+    const setEmail = async (email: string | null) => {
+        await tiered.server.stores.user.update(tieredUserId, { email });
+        const user = await tiered.server.stores.user.getById(tieredUserId);
+        tiered.server.services.metering.invalidateActorSubscription(
+            user!.uuid,
+        );
+    };
+
+    beforeAll(async () => {
+        tiered = await setupPuterTestEnv({
+            events: { enabled: true, kvHandles: true },
+        } as IConfig);
+        const user = await tiered.server.stores.user.getByUsername(
+            tiered.users.user.username,
+        );
+        tieredUserId = user!.id;
+        tieredUuid = user!.uuid as string;
+    }, BOOT_TIMEOUT_MS);
+
+    afterAll(async () => {
+        await tiered?.shutdown();
+    });
+
+    it('refuses a temporary account outright — it holds no share handles', async () => {
+        await setEmail(null);
+
+        const refused = await mintTiered('tiered-temp-probe:');
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_kv_handle_requires_account');
+    });
+
+    it('refuses one even where the region is already shared, so the idempotent answer cannot slip past', async () => {
+        await setEmail(null);
+        const prefix = 'tiered-temp-standing:';
+        const grantee = await tiered.server.stores.user.getByUsername(
+            tiered.users.other.username,
+        );
+        await tiered.server.stores.kvShareHandle.mint({
+            ownerUserId: tieredUserId,
+            granteeUserId: grantee!.id,
+            appUid: KV_GLOBAL_APP_KEY,
+            keyPrefix: prefix,
+            permission: kvSharePermission(
+                tieredUuid,
+                KV_GLOBAL_APP_KEY,
+                prefix,
+            ),
+        });
+
+        const refused = await mintTiered(prefix);
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_kv_handle_requires_account');
+    });
+
+    it('holds a free account to the free per-app cap, with room left in the account cap', async () => {
+        await setEmail(`${tiered.users.user.username}@example.invalid`);
+        const namespace = 'app-tiered-free-probe';
+        const cap =
+            EVENTS_KV_HANDLES_PER_APP.bySubscription[DEFAULT_FREE_SUBSCRIPTION];
+        const grantee = await tiered.server.stores.user.getByUsername(
+            tiered.users.other.username,
+        );
+
+        // Both servers in this file share the process-wide Redis mock, so this
+        // user id's call budget already carries the other server's mints.
+        await tiered.server.clients.redis.del(
+            `rate:${EVENTS_KV_HANDLE_LIMIT.scope}:${tieredUserId}`,
+        );
+
+        for (let i = 0; i < cap; i++)
+            await tiered.server.stores.kvShareHandle.mint({
+                ownerUserId: tieredUserId,
+                granteeUserId: grantee!.id,
+                appUid: namespace,
+                keyPrefix: `seeded:${i}:`,
+                permission: kvSharePermission(
+                    tieredUuid,
+                    namespace,
+                    `seeded:${i}:`,
+                ),
+            });
+
+        const refused = await mintTiered('over:the:app:', namespace);
+        expect(refused.status).toBe(409);
+        expect(refused.body.code).toBe('events_kv_handle_limit_reached');
+
+        // The account itself is nowhere near its own cap (200), so a mint into
+        // another namespace still succeeds.
+        const accepted = await mintTiered(
+            'still:room:',
+            'app-tiered-free-other',
+        );
+        expect(accepted.status).toBe(200);
     });
 });

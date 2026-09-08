@@ -174,14 +174,16 @@ Over these, **the share still succeeds** — only the announcement is dropped. T
 
 One write can reach many subscriptions, so events are bounded on both halves: how much you may register, and how much any one event may turn into.
 
-Durable subscriptions are the ones that outlive a connection, so they are the half that varies by plan:
+Durable subscriptions and cross-user share handles outlive the connection that made them, so they are the half that varies by plan:
 
-| Limit                                     | Paid | Free | Anonymous |
-| ----------------------------------------- | ---- | ---- | --------- |
-| Durable subscriptions per account         | 500  | 100  | —         |
-| Durable subscriptions per app, per account | 100  | 25   | —         |
+| Limit                                             | Paid | Free | Anonymous |
+| ------------------------------------------------- | ---- | ---- | --------- |
+| Durable subscriptions per account                 | 500  | 100  | —         |
+| Durable subscriptions per app, per account        | 100  | 25   | —         |
+| Live key-value share handles per account          | 500  | 200  | —         |
+| Live key-value share handles per app, per account | 100  | 50   | —         |
 
-A temporary (anonymous) account cannot create durable subscriptions at all — `subscribe` fails with `events_durable_requires_account`, and session subscriptions, which live and die with the connection, are the surface it has. Past either cap the call fails with `events_subscription_limit`; unsubscribing frees a slot immediately.
+A temporary (anonymous) account cannot create durable subscriptions at all — `subscribe` fails with `events_durable_requires_account`, and session subscriptions, which live and die with the connection, are the surface it has. Past either cap the call fails with `events_subscription_limit`; unsubscribing frees a slot immediately. Minting a share handle fails the same way — `events_kv_handle_requires_account` — and past either handle cap the mint fails with `events_kv_handle_limit_reached`; revoking frees a slot, and retired handles stay listed without counting. The per-app handle cap bounds each app namespace; a handle minted without naming one answers to the account cap alone.
 
 | Limit                                        | All accounts |
 | -------------------------------------------- | ------------ |
@@ -191,7 +193,6 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Subscription listings per minute             | 120          |
 | Subscription listing page size               | 200          |
 | Key-value share-handle calls per minute      | 60           |
-| Live key-value share handles per account     | 200          |
 | Key-value share-handle listing page size     | 200          |
 | Missed-event fetches per minute              | 120          |
 | Events per fetch page                        | 200          |

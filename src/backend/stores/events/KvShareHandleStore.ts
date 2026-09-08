@@ -56,6 +56,8 @@ export interface KvShareHandleListOptions {
     limit?: number;
     cursor?: string;
     includeTotal?: boolean;
+    /** Narrow to one namespace — what an app acting for the owner may see. */
+    appUid?: string | null;
 }
 
 export interface MintKvShareHandleInput {
@@ -120,14 +122,25 @@ export class KvShareHandleStore extends PuterStore {
         return row;
     }
 
-    /** Live handles this owner is holding out, for the per-account ceiling. */
-    async countLiveForOwner(ownerUserId: number): Promise<number> {
+    /**
+     * Live handles this owner is holding out — in total, and in the namespace a
+     * mint is naming. Both ceilings read off one count, over the owner index.
+     */
+    async countLiveForOwner(
+        ownerUserId: number,
+        appUid: string | null = null,
+    ): Promise<{ total: number; forApp: number }> {
         const [row] = await this.clients.db.pread(
-            `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
+            'SELECT COUNT(*) AS `total`, ' +
+                'SUM(CASE WHEN `app_uid` = ? THEN 1 ELSE 0 END) AS `for_app` ' +
+                `FROM \`${TABLE}\` ` +
                 'WHERE `owner_user_id` = ? AND `revoked_at` IS NULL',
-            [ownerUserId],
+            [appUid, ownerUserId],
         );
-        return Number(row?.total ?? 0);
+        return {
+            total: Number(row?.total ?? 0),
+            forApp: Number(row?.for_app ?? 0),
+        };
     }
 
     /**
@@ -235,8 +248,15 @@ export class KvShareHandleStore extends PuterStore {
         );
         const after = asNumber(decodeCursor(options.cursor)?.id);
 
-        const where = ['`owner_user_id` = ?'];
-        const params: unknown[] = [ownerUserId];
+        const filter = ['`owner_user_id` = ?'];
+        const filterParams: unknown[] = [ownerUserId];
+        if (options.appUid !== undefined && options.appUid !== null) {
+            filter.push('`app_uid` = ?');
+            filterParams.push(options.appUid);
+        }
+
+        const where = [...filter];
+        const params = [...filterParams];
         if (after !== null) {
             where.push('`id` > ?');
             params.push(after);
@@ -258,8 +278,8 @@ export class KvShareHandleStore extends PuterStore {
         if (options.includeTotal) {
             const [count] = await this.clients.db.read(
                 `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
-                    'WHERE `owner_user_id` = ?',
-                [ownerUserId],
+                    `WHERE ${filter.join(' AND ')}`,
+                filterParams,
             );
             result.total = Number(count?.total ?? 0);
         }

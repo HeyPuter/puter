@@ -106,6 +106,14 @@ describe('the share permission family', () => {
                 kvSharePermission(OTHER, APP, 'workspace:abc:'),
             ),
         ).toBe(false);
+        // Coverage never crosses namespaces: the app uid is what keeps a
+        // revoke inside the one the handle was minted in.
+        expect(
+            kvShareGrantCovers(
+                granted,
+                kvSharePermission(OWNER, OTHER_APP, 'workspace:abc:messages:'),
+            ),
+        ).toBe(false);
     });
 
     it('never reads a withdrawn child as covering its own parent', () => {

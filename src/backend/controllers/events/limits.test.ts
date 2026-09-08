@@ -33,6 +33,8 @@ import {
     EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
+    EVENTS_KV_HANDLES_PER_APP,
+    EVENTS_KV_HANDLES_PER_USER,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
     limitFor,
@@ -42,6 +44,8 @@ import {
 const tiers: Array<[string, TieredLimit]> = [
     ['durable subscriptions per account', EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER],
     ['durable subscriptions per app', EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP],
+    ['live share handles per account', EVENTS_KV_HANDLES_PER_USER],
+    ['live share handles per app', EVENTS_KV_HANDLES_PER_APP],
 ];
 
 describe('the tiered subscription quotas', () => {
@@ -65,6 +69,18 @@ describe('the tiered subscription quotas', () => {
             ).toBeLessThanOrEqual(
                 limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, plan),
             );
+        }
+    });
+
+    it('keeps what one app may hold below what the account may hold, for share handles', () => {
+        for (const plan of [
+            null,
+            DEFAULT_FREE_SUBSCRIPTION,
+            DEFAULT_TEMP_SUBSCRIPTION,
+        ]) {
+            expect(
+                limitFor(EVENTS_KV_HANDLES_PER_APP, plan),
+            ).toBeLessThanOrEqual(limitFor(EVENTS_KV_HANDLES_PER_USER, plan));
         }
     });
 

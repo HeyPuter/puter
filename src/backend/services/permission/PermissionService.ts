@@ -1063,7 +1063,9 @@ export class PermissionService extends PuterService {
                     permission: removedPermission,
                     action: 'revoke',
                     reason: meta.reason ?? 'revoked via PermissionService',
-                    extra: this.#auditActorContext(actor),
+                    extra: meta.appUid
+                        ? { appUid: meta.appUid }
+                        : this.#auditActorContext(actor),
                 })
                 .catch((err) => {
                     console.warn(
