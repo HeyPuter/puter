@@ -55,7 +55,7 @@
     "mysql2": "^3.22.6",
     "nodemailer": "^9.0.6",
     "openai": "^6.34.0",
-    "otpauth": "^9.2.4",
+    "otpauth": "^9.5.2",
     "pg": "^8.21.0",
     "replicate": "^1.0.0",
     "sharp": "^0.35.4",
