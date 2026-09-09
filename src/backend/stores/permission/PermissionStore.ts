@@ -487,6 +487,33 @@ export class PermissionStore extends PuterStore {
     }
 
     /** As above, for several prefixes in one scan. */
+    /** The group analogue: a deleted node's group grants must go with it. */
+    async deleteUserGroupPermsByPermissionPrefixes(
+        permissions: string[],
+    ): Promise<Array<{ group_id: number; permission: string }>> {
+        if (permissions.length === 0) return [];
+        const where = permissions
+            .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
+            .join(' OR ');
+        const params = permissions.flatMap((permission) => [
+            permission,
+            `${permission.replace(/([!%_])/g, '!$1')}:%`,
+        ]);
+
+        const rows = (await this.clients.db.read(
+            'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
+                `WHERE ${where}`,
+            params,
+        )) as Array<{ group_id: number; permission: string }>;
+        if (rows.length === 0) return [];
+
+        await this.clients.db.write(
+            `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
+            params,
+        );
+        return rows;
+    }
+
     async deleteUserUserPermsByPermissionPrefixes(
         permissions: string[],
     ): Promise<
@@ -959,14 +986,151 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         let permClause = permissions.map(() => 'p.permission = ?').join(' OR ');
         if (permissions.length > 1) permClause = `(${permClause})`;
+        // Deletion leaves memberships and grants, so a deleted team would
+        // otherwise keep resolving access nothing can withdraw.
         const rows = await this.clients.db.read(
             'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
-                `WHERE ug.user_id = ? AND ${permClause}`,
+                'JOIN `group` g ON g.`id` = ug.group_id ' +
+                `WHERE ug.user_id = ? AND g.\`deleted_at\` IS NULL AND ${permClause}`,
             [userId, ...permissions],
         );
         return rows.map((row) =>
             this.#decodeExtra<LinkedUserGroupPermRow>(row),
+        );
+    }
+
+    /** Any group, seeded or team: a grant does not care which kind it is. */
+    async resolveGroupId(groupUid: string): Promise<number | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT `id` FROM `group` WHERE `uid` = ? LIMIT 1',
+            [groupUid],
+        )) as { id: number }[];
+        return rows[0]?.id ?? null;
+    }
+
+    /** Whose cached readings a grant to this group invalidates. */
+    async listGroupMemberUuids(groupId: number): Promise<string[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'WHERE ug.`group_id` = ?',
+            [groupId],
+        )) as { uuid: string | null }[];
+        return rows
+            .map((r) => r.uuid)
+            .filter((uuid): uuid is string => Boolean(uuid));
+    }
+
+    /** Whose standing access a grant to this group settles. */
+    async listGroupMemberIds(groupId: number): Promise<number[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT `user_id` FROM `jct_user_group` WHERE `group_id` = ?',
+            [groupId],
+        )) as { user_id: number }[];
+        return rows.map((r) => Number(r.user_id));
+    }
+
+    /** Batched `readUserGroupPerms`, tagged with the user each row reached. */
+    async readUserGroupPermsForHolders(
+        userIds: number[],
+        permissions: string[],
+    ): Promise<
+        Array<{ holder_user_id: number; permission: string; user_id: number }>
+    > {
+        const holders = [...new Set(userIds)];
+        const perms = [...new Set(permissions)];
+        if (holders.length === 0 || perms.length === 0) return [];
+        const rows = await this.clients.db.read(
+            'SELECT ug.`user_id` AS `holder_user_id`, p.`permission`, p.`user_id` ' +
+                'FROM `user_to_group_permissions` p ' +
+                'JOIN `jct_user_group` ug ON p.`group_id` = ug.`group_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE ug.\`user_id\` IN (${holders.map(() => '?').join(', ')}) ` +
+                'AND g.`deleted_at` IS NULL ' +
+                `AND p.\`permission\` IN (${perms.map(() => '?').join(', ')})`,
+            [...holders, ...perms],
+        );
+        return rows as unknown as Array<{
+            holder_user_id: number;
+            permission: string;
+            user_id: number;
+        }>;
+    }
+
+    /** What this issuer already granted this group under a prefix. */
+    async queryIssuerGroupPermsByPrefix(
+        issuerUserId: number,
+        groupId: number,
+        prefix: string,
+    ): Promise<string[]> {
+        const rows = await this.clients.db.read(
+            'SELECT permission FROM `user_to_group_permissions` ' +
+                'WHERE `user_id` = ? AND `group_id` = ? AND permission LIKE ?',
+            [issuerUserId, groupId, `${prefix}%`],
+        );
+        return rows.map((r) => String(r.permission));
+    }
+
+    /** `user_id` is the issuer; `group_id` is who receives it. */
+    async upsertUserGroupPerm(
+        groupId: number,
+        issuerUserId: number,
+        permission: string,
+        extra: Record<string, unknown>,
+    ): Promise<void> {
+        const upsertClause = this.clients.db.upsertClause(
+            ['user_id', 'group_id', 'permission'],
+            ['extra'],
+        );
+        await this.clients.db.write(
+            'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
+                `VALUES (?, ?, ?, ?) ${upsertClause}`,
+            [
+                issuerUserId,
+                groupId,
+                permission,
+                JSON.stringify(extra),
+                JSON.stringify(extra),
+            ],
+        );
+    }
+
+    /** Scoped to the issuer: one issuer's revoke must not drop another's. */
+    async deleteUserGroupPerm(
+        groupId: number,
+        issuerUserId: number,
+        permission: string,
+    ): Promise<boolean> {
+        const result = await this.clients.db.write(
+            'DELETE FROM `user_to_group_permissions` ' +
+                'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
+            [groupId, issuerUserId, permission],
+        );
+        return result.anyRowsAffected;
+    }
+
+    async auditUserGroupPerm(
+        entry: AuditEntry & {
+            group_id: number;
+            issuer_user_id: number;
+            permission: string;
+        },
+    ): Promise<void> {
+        await this.clients.db.write(
+            'INSERT INTO `audit_user_to_group_permissions` (' +
+                '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
+                '`permission`, `extra`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                entry.issuer_user_id,
+                entry.issuer_user_id,
+                entry.group_id,
+                entry.group_id,
+                entry.permission,
+                entry.extra ? JSON.stringify(entry.extra) : null,
+                entry.action,
+                entry.reason,
+            ],
         );
     }
 
