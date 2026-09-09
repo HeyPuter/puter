@@ -12,6 +12,7 @@ import os from './os.suite.ts';
 import perms from './perms.suite.ts';
 import sharing from './sharing.suite.ts';
 import system from './system.suite.ts';
+import teams from './teams.suite.ts';
 import util from './util.suite.ts';
 import workers from './workers.suite.ts';
 
@@ -33,6 +34,7 @@ export const suites: Suite[] = [
     perms,
     sharing,
     system,
+    teams,
     util,
     workers,
 ];

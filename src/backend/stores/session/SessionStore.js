@@ -129,6 +129,44 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * @typedef {object} SignInRow
+     * @property {number} id
+     * @property {number} created_at Unix seconds.
+     * @property {string | null} last_ip
+     * @property {string | null} last_user_agent
+     */
+
+    /**
+     * Interactive sign-ins for a user, newest first, for the account's own
+     * activity view. Revoked rows are included -- a session someone opened and
+     * closed is exactly what the reader is looking for. Derived kinds (app,
+     * access token, asset, worker) are not sign-ins and stay out.
+     *
+     * Uncached and keyset-paginated on `id`: the caller merges this with
+     * another stream, so it asks for one page at a time rather than the whole
+     * history.
+     *
+     * @param {number} userId
+     * @param {{ limit: number; beforeId?: number | null }} opts
+     * @returns {Promise<SignInRow[]>}
+     */
+    async listSignIns(userId, { limit, beforeId = null }) {
+        const rows = await this.clients.db.read(
+            'SELECT `id`, `created_at`, `last_ip`, `last_user_agent` FROM `sessions` ' +
+                "WHERE `user_id` = ? AND `kind` = 'web'" +
+                (beforeId === null ? '' : ' AND `id` < ?') +
+                ' ORDER BY `id` DESC LIMIT ?',
+            beforeId === null ? [userId, limit] : [userId, beforeId, limit],
+        );
+        return rows.map((row) => ({
+            id: Number(row.id),
+            created_at: Number(row.created_at ?? 0),
+            last_ip: row.last_ip ?? null,
+            last_user_agent: row.last_user_agent ?? null,
+        }));
+    }
+
+    /**
      * Create a new session row.
      *
      * @param userId - User ID (numeric)

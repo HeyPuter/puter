@@ -52,12 +52,14 @@ import TabApps from './TabApps.js';
 import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
 import TabSecurity from './TabSecurity.js';
+import TabTeams from './TabTeams.js';
 
 // Registry of built-in tabs
 const builtinTabs = [
     TabHome,
     TabApps,
     TabFiles,
+    TabTeams,
     '-',
     TabUsage,
     TabAccount,

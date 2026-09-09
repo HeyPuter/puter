@@ -18,7 +18,6 @@
  */
 
 import bcrypt from 'bcrypt';
-import { randomBytes } from 'node:crypto';
 import validator from 'validator';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -26,36 +25,37 @@ import {
     USERNAME_MAX_LENGTH,
     USERNAME_REGEX,
 } from '../../controllers/auth/AuthController.js';
+import type { EmailTemplateName } from '../../clients/email/templates.js';
 import type {
     EventMap,
     TeamBillingContext,
     TeamBillingEvent,
 } from '../../clients/event/types';
 import { HttpError } from '../../core/http/HttpError.js';
-import { checkHandle } from '../../stores/team/TeamStore.js';
+import {
+    AUDIT_PAGE_CAP,
+    AUDIT_PAGE_SIZE,
+    checkHandle,
+} from '../../stores/team/TeamStore.js';
 import type {
     TeamAuditRow,
     TeamMemberRow,
     TeamRow,
 } from '../../stores/team/TeamStore';
+import {
+    decodeCursor,
+    encodeCursor,
+    normalizeLimit,
+    type PageResult,
+} from '../../util/pagination.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import { cleanEmail } from '../../util/email.js';
+import {
+    generateTemporaryPassword,
+    temporaryPasswordExpiry,
+} from '../../util/temporaryPassword.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { PuterService } from '../types';
-
-/** Unambiguous alphabet -- no 0/O or 1/l, since a human retypes this. */
-const TEMP_PASSWORD_ALPHABET =
-    'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-
-/** ~95 bits, generated rather than chosen so it is never a reused pattern. */
-export const generateTemporaryPassword = (length = 16): string => {
-    const bytes = randomBytes(length);
-    let out = '';
-    for (let i = 0; i < length; i++) {
-        out += TEMP_PASSWORD_ALPHABET[bytes[i] % TEMP_PASSWORD_ALPHABET.length];
-    }
-    return out;
-};
 
 /** Why an account was disabled. Free text in `0063`; this is the team one. */
 export const DISABLED_BY_TEAM = 'disabled_by_team';
@@ -69,6 +69,45 @@ export const DISABLED_BY_TEAM = 'disabled_by_team';
 const CAP_LOCK_ATTEMPTS = 8;
 const CAP_LOCK_RETRY_MS = 25;
 const CAP_LOCK_TTL_SECONDS = 10;
+
+/**
+ * Audit vocabulary. `reset_member_password` covers both a reissue before first
+ * use and a reset of a live account: from the member's side both mean the
+ * administrator now holds a working credential for their account.
+ */
+export const AUDIT_RESET_PASSWORD = 'reset_member_password';
+export const AUDIT_ACTIVATE = 'activate';
+
+/** Written before the row it names goes; `_keep` is what preserves it. */
+export const AUDIT_DELETE_ACCOUNT = 'delete_account';
+
+/** Not an audit row: synthesised from `sessions` for the member's own view. */
+export const SIGN_IN_ACTION = 'sign_in';
+
+/** One line of a member's activity, whether recorded or a sign-in. */
+export interface MemberActivityEntry {
+    action: string;
+    reason: string | null;
+    /** Unix seconds, so the two sources sort on one axis on every dialect. */
+    created_at: number;
+    username: string | null;
+    actor_username: string | null;
+    ip: string | null;
+    user_agent: string | null;
+}
+
+/** `sessions` stores unix seconds; audit rows a timestamp the driver shapes. */
+const epochSeconds = (value: unknown): number => {
+    if (value instanceof Date) return Math.floor(value.getTime() / 1000);
+    if (typeof value === 'number') return Math.floor(value);
+    const text = String(value ?? '');
+    // sqlite returns UTC 'YYYY-MM-DD HH:MM:SS', which Date.parse reads as local.
+    const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(text)
+        ? `${text.replace(' ', 'T')}Z`
+        : text;
+    const parsed = Date.parse(iso);
+    return Number.isNaN(parsed) ? 0 : Math.floor(parsed / 1000);
+};
 
 export class TeamService extends PuterService {
     // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
@@ -393,6 +432,14 @@ export class TeamService extends PuterService {
                     username: member.username,
                     held_bytes: held,
                 });
+
+                // The team notice covers the disabling, so a member is
+                // told once rather than twice about the same event.
+                await this.#notifyMember(
+                    member.user_id,
+                    'team_closed',
+                    team,
+                );
             }
             if (!page.cursor) break;
             page = await this.stores.team.listMembers(teamUid, {
@@ -427,16 +474,95 @@ export class TeamService extends PuterService {
         );
     }
 
-    /** The caller's own entries; the only reader who is not the actor. */
+    /**
+     * The caller's own entries, interleaved with sign-ins to their account. The
+     * only reader who is not the actor, and the only place a sign-in between an
+     * administrator's reset and the member's own password change becomes
+     * visible to the person it concerns.
+     */
     async listOwnAudit(
         teamUid: string,
         actorUserId: number,
         opts: { limit?: unknown; cursor?: string } = {},
-    ) {
+    ): Promise<PageResult<MemberActivityEntry>> {
         const team = await this.requireMembership(teamUid, actorUserId);
-        return this.#withUsernames(
-            await this.stores.team.listAuditForUser(team.id, actorUserId, opts),
+        const limit =
+            normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
+            AUDIT_PAGE_SIZE;
+        const cursor =
+            decodeCursor(opts.cursor, 'member activity cursor') ?? {};
+        const fromAudit = typeof cursor.a === 'number' ? cursor.a : undefined;
+        const fromSignIn = typeof cursor.s === 'number' ? cursor.s : null;
+
+        const audit = await this.stores.team.listAuditForUser(
+            team.id,
+            actorUserId,
+            {
+                limit,
+                cursor:
+                    fromAudit === undefined
+                        ? undefined
+                        : encodeCursor({ id: fromAudit }),
+            },
         );
+        // One past the limit, so a page that consumes no sign-in still knows
+        // whether any remain.
+        const signIns = await this.stores.session.listSignIns(actorUserId, {
+            limit: limit + 1,
+            beforeId: fromSignIn,
+        });
+
+        const named = await this.#withUsernames(audit);
+        const self =
+            (await this.stores.user.getById(actorUserId))?.username ?? null;
+        const merged = [
+            ...named.items.map((entry, i) => ({
+                entry,
+                stream: 'a' as const,
+                id: audit.items[i].id,
+            })),
+            ...signIns.slice(0, limit).map((row) => ({
+                entry: {
+                    action: SIGN_IN_ACTION,
+                    reason: null,
+                    created_at: epochSeconds(row.created_at),
+                    username: self,
+                    actor_username: null,
+                    ip: row.last_ip,
+                    user_agent: row.last_user_agent,
+                } as MemberActivityEntry,
+                stream: 's' as const,
+                id: row.id,
+            })),
+        ].sort(
+            (x, y) =>
+                y.entry.created_at - x.entry.created_at ||
+                x.stream.localeCompare(y.stream) ||
+                y.id - x.id,
+        );
+
+        const page = merged.slice(0, limit);
+        const more =
+            merged.length > limit || !!audit.cursor || signIns.length > limit;
+        // A stream that contributed nothing keeps its old position: everything
+        // it still holds is older than this page, so it resumes where it was.
+        const next = {
+            ...(page.some((row) => row.stream === 'a')
+                ? { a: page.findLast((row) => row.stream === 'a')!.id }
+                : fromAudit === undefined
+                  ? {}
+                  : { a: fromAudit }),
+            ...(page.some((row) => row.stream === 's')
+                ? { s: page.findLast((row) => row.stream === 's')!.id }
+                : fromSignIn === null
+                  ? {}
+                  : { s: fromSignIn }),
+        };
+
+        return {
+            items: page.map((row) => row.entry),
+            ...(more ? { cursor: encodeCursor(next) } : {}),
+        };
     }
 
     /** Resolves a team the caller owns, soft-deleted or not. */
@@ -458,7 +584,10 @@ export class TeamService extends PuterService {
     }
 
     /** Internal user ids never reach the wire, as `toClientTeam` does for `id`. */
-    async #withUsernames(page: { items: TeamAuditRow[]; cursor?: string }) {
+    async #withUsernames(page: {
+        items: TeamAuditRow[];
+        cursor?: string;
+    }): Promise<PageResult<MemberActivityEntry>> {
         const ids = new Set<number>();
         for (const row of page.items) {
             ids.add(row.user_id_keep);
@@ -469,12 +598,15 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map((row) => ({
+            items: page.items.map((row): MemberActivityEntry => ({
                 action: row.action,
                 reason: row.reason,
-                created_at: row.created_at,
+                created_at: epochSeconds(row.created_at),
                 username: name(row.user_id_keep),
                 actor_username: name(row.actor_user_id),
+                // Only a sign-in carries these; the shape stays uniform.
+                ip: null,
+                user_agent: null,
             })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
@@ -604,12 +736,8 @@ export class TeamService extends PuterService {
         });
 
         // Returned once; forced change on first use is what bounds it.
-        const temporaryPassword = generateTemporaryPassword();
-        await this.stores.user.update(user.id, {
-            password: await bcrypt.hash(temporaryPassword, 8),
-            requires_password_change: 1,
-        });
-        await this.#notifyAccountCreated(user, team);
+        const temporaryPassword = await this.#issueTemporaryPassword(user.id);
+        await this.#notifyUser(user, 'team_account_created', team);
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {
@@ -633,8 +761,82 @@ export class TeamService extends PuterService {
         targetUserId: number,
     ): Promise<{ temporaryPassword: string }> {
         const team = await this.requireOwner(teamUid, actorUserId);
-        await this.requireOrgAccount(teamUid, targetUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
 
+        // Only before first use; changing a live account's password is reset.
+        if (!user.requires_password_change) {
+            throw new HttpError(409, 'That account is already activated', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        // Recorded first, so a failed append cannot leave an unlogged credential.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_PASSWORD,
+            reason: 'reissue',
+        });
+        const temporaryPassword =
+            await this.#issueTemporaryPassword(targetUserId);
+        await this.#notifyUser(user, 'team_account_created', team);
+        return { temporaryPassword };
+    }
+
+    /**
+     * Takes a live account back with a fresh temporary password. The one route
+     * from a team to member data, and the answer to a locked-out
+     * employee.
+     */
+    async resetMemberPassword(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<{ temporaryPassword: string }> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+
+        // Recorded first, so a failed append cannot leave an unlogged reset.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_PASSWORD,
+        });
+        const temporaryPassword =
+            await this.#issueTemporaryPassword(targetUserId);
+        // 2FA is deliberately untouched: a reset alone is not takeover.
+        await this.#dropSessions(targetUserId);
+        await this.#notifyUser(user, 'team_password_reset', team);
+        return { temporaryPassword };
+    }
+
+    /**
+     * Records that a member replaced the credential their administrator issued.
+     * A no-op for everyone who is not a seat, which is almost every account.
+     */
+    async recordPasswordSelfChange(userId: number): Promise<void> {
+        const seat = await this.stores.team.getOrgSeat(userId);
+        if (!seat) return;
+        const team = await this.stores.team.getByUidIncludingDeleted(
+            seat.team_uid,
+        );
+        if (!team) return;
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId,
+            actorUserId: userId,
+            action: AUDIT_ACTIVATE,
+        });
+    }
+
+    /** The target of a member route, read past the cache the caller just wrote. */
+    async #requireTargetAccount(
+        teamUid: string,
+        targetUserId: number,
+    ): Promise<UserRow> {
+        await this.requireOrgAccount(teamUid, targetUserId);
         const user = await this.stores.user.getByProperty('id', targetUserId, {
             force: true,
         });
@@ -643,41 +845,58 @@ export class TeamService extends PuterService {
                 legacyCode: 'not_found',
             });
         }
-        // Only before first use; changing a live account's password is reset.
-        if (!user.requires_password_change) {
-            throw new HttpError(409, 'That account is already activated', {
-                legacyCode: 'conflict',
-            });
-        }
-
-        const temporaryPassword = generateTemporaryPassword();
-        await this.stores.user.update(targetUserId, {
-            password: await bcrypt.hash(temporaryPassword, 8),
-            requires_password_change: 1,
-        });
-        await this.#notifyAccountCreated(user, team);
-        return { temporaryPassword };
+        return user as UserRow;
     }
 
-    /** A notice only -- it carries no credential, so delivery is best effort. */
-    async #notifyAccountCreated(user: UserRow, team: TeamRow): Promise<void> {
-        if (!this.clients.email || !user.email) return;
+    /** Never logged and never stored in plaintext; the caller shows it once. */
+    async #issueTemporaryPassword(userId: number): Promise<string> {
+        const temporaryPassword = generateTemporaryPassword();
+        await this.stores.user.update(userId, {
+            password: await bcrypt.hash(temporaryPassword, 8),
+            requires_password_change: 1,
+            temp_password_expires_at: temporaryPasswordExpiry(),
+        });
+        await this.stores.user.invalidateById(userId);
+        return temporaryPassword;
+    }
+
+    /**
+     * A notice about something the team did to a member's account. It
+     * carries no credential, so delivery is best effort -- nothing the caller
+     * did depends on it arriving, and an address the administrator supplied may
+     * not even reach its holder.
+     */
+    async #notifyUser(
+        user: UserRow | null | undefined,
+        template: EmailTemplateName,
+        team: TeamRow,
+    ): Promise<void> {
+        if (!this.clients.email || !user?.email) return;
         try {
-            const sent = await this.clients.email.send(
-                user.email,
-                'team_account_created',
-                {
-                    username: user.username,
-                    team_name: team.name ?? 'Your team',
-                },
-            );
+            const sent = await this.clients.email.send(user.email, template, {
+                username: user.username,
+                team_name: team.name ?? 'Your team',
+            });
             // `sendRaw` returns null with no transport rather than throwing.
             if (sent === null) {
-                console.warn('[team-provision] no email transport configured');
+                console.warn(`[team] no email transport for ${template}`);
             }
         } catch (e) {
-            console.warn('[team-provision] notice failed:', e);
+            console.warn(`[team] ${template} notice failed:`, e);
         }
+    }
+
+    /** The same notice, for a caller holding only the member's id. */
+    async #notifyMember(
+        userId: number,
+        template: EmailTemplateName,
+        team: TeamRow,
+    ): Promise<void> {
+        await this.#notifyUser(
+            await this.stores.user.getById(userId),
+            template,
+            team,
+        );
     }
 
     // -- Disable and re-enable ---- the whole of offboarding ------------
@@ -720,6 +939,9 @@ export class TeamService extends PuterService {
             username: membership.username,
             held_bytes: held,
         });
+
+        // Their sessions are gone, so email is the only channel left.
+        await this.#notifyMember(targetUserId, 'team_account_disabled', team);
     }
 
     /** Nothing was destroyed, so the account returns as it was. */
@@ -765,6 +987,38 @@ export class TeamService extends PuterService {
             username: user.username,
             held_bytes: await this.#heldBytes(targetUserId),
         });
+    }
+
+    /** Disable is the reversible step in front of the irreversible one. */
+    async deleteMember(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        await this.requireOrgAccount(teamUid, targetUserId);
+
+        // Forced, as `enableMember` is: a cached row predates the disable.
+        const user = await this.stores.user.getByProperty('id', targetUserId, {
+            force: true,
+        });
+        if (!user?.suspended) {
+            throw new HttpError(409, 'Disable the account before deleting it', {
+                legacyCode: 'account_must_be_disabled_first',
+            });
+        }
+
+        // Written first; `_keep` is what makes it outlive the account.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_DELETE_ACCOUNT,
+        });
+
+        // `cascadeDelete` emits `team.account.deleted` itself; a second emit
+        // here would close the storage charge twice.
+        await this.services.userAccount.cascadeDelete(targetUserId);
     }
 
     /** The three columns together; `suspended` is the one that gates requests. */

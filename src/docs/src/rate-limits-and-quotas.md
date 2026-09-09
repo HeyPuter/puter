@@ -192,14 +192,23 @@ Available only where a deployment has turned teams on. Every team route is bound
 | Team reads per minute               | 600          |
 | Teams one account may own           | 1            |
 | Seats one team may provision        | 50           |
+| Member password resets per day           | 20           |
 
 A seat is a real Puter account on the ordinary tier, created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
 
+A reset returns a temporary password once and never again. It stops working 24 hours after it is issued, so an unused reset expires rather than becoming a standing credential; after that the administrator has to issue a new one. Until the member replaces it, every authenticated request from that account fails with `password_change_required` — signing in works, but nothing else does until they choose their own password.
+
 Deleting a team frees the owner's slot, but it does **not** free the seats: the accounts it created still exist, still hold their files, and keep their usernames. They are disabled, not removed — deleting a team is not a way to stop paying for the accounts in it.
+
+Removing a seat for good is a separate, explicit request, and it is refused unless the account is already disabled (`account_must_be_disabled_first`). That ordering puts a reversible step in front of the only irreversible operation in the feature. **There is no restore window**: deletion removes the files, returns the username to the pool, and invalidates every credential. Nothing expires a disabled account on a timer — it persists, costing only the bytes it holds, until someone asks for it to go.
 
 Lowering the seat limit never disables anyone. A team already above a reduced limit keeps every account it has and is simply refused new ones until it is back under.
 
 Both limits are per deployment (`max_teams_per_user`, `max_seats_per_team`) rather than per team, so raising them moves every team at once.
+
+A team's whole configuration is its name, its handle, and whether its directory is open to apps. In particular there is **no sharing policy**: a team cannot restrict who its members share with, by domain or otherwise, and there is no control over public links. Members share exactly as any other Puter account does.
+
+Both buckets are per account, not per team, so administering several teams spends one budget, and the read limit is one bucket shared by every listing call. Where a deployment has teams off, `puter.teams` rejects with `not_found` rather than `too_many_requests`.
 
 ### Events
 

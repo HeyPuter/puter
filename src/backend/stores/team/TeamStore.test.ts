@@ -501,4 +501,39 @@ describe('TeamStore', () => {
         expect(paged.items).toHaveLength(2);
         expect(paged.cursor).toBeTruthy();
     });
+    it('returns audit timestamps as unix seconds, not a dialect datetime', async () => {
+        const team = await store.create({
+            ownerUserId: owner.id,
+            name: 'Stamps',
+            handle: freeHandle(),
+        });
+        const member = await makeUser();
+        await store.addMember(team.uid, member.id, { orgOwned: true });
+        await store.appendAudit({
+            teamId: team.id,
+            userId: member.id,
+            actorUserId: owner.id,
+            action: 'provision',
+        });
+
+        const page = await store.listAuditForUser(team.id, member.id);
+        const row = page.items[0];
+
+        // Merged with session rows, which are unix seconds; a dialect
+        // datetime sorts the two streams apart.
+        expect(typeof row.created_at).toBe('number');
+
+        // Against the database's own clock, not the host's: the postgres test
+        // engine is an emulator whose VM clock sits years off wall time.
+        const [{ db_now: dbNow }] = (await server.clients.db.read(
+            server.clients.db.case({
+                postgres:
+                    'SELECT EXTRACT(EPOCH FROM CURRENT_TIMESTAMP::timestamp)::bigint AS db_now',
+                mysql: 'SELECT UNIX_TIMESTAMP() AS db_now',
+                otherwise: "SELECT CAST(strftime('%s','now') AS INTEGER) AS db_now",
+            }),
+            [],
+        )) as Array<{ db_now: number }>;
+        expect(Math.abs(row.created_at - Number(dbNow))).toBeLessThan(300);
+    });
 });
