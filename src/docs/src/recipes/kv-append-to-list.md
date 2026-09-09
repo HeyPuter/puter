@@ -1,8 +1,9 @@
 ---
 title: Append items to a growing list
-description: Keep an append-only list such as an event log or a chat history as a real array in one entry, so adding to it is a single write that never reads the list first.
+description: Keep a running log of things as they happen, like chat messages, events or activity history, and add to it in one line.
 tags: [kv, data-modeling]
 order: 10
+draft: true
 ---
 
 **Use this when** the only operation is append, such as an event log, a chat
@@ -25,8 +26,8 @@ log.length;        // 2 (already an array, no parse step)
 
 ## Append with add()
 
-[`puter.kv.add()`](/KV/add/) appends without the list ever travelling to your app
-and back:
+[`puter.kv.add()`](/KV/add/) appends without the list ever travelling to your
+app and back:
 
 ```js
 await puter.kv.add('log', [{ at: 3, event: 'saved' }]);
@@ -99,9 +100,9 @@ expression is invalid for update"* and the stored value is left unchanged.
 ## Notes
 
 - Counters use [`puter.kv.incr()`](/KV/incr/); `add()` is the append operation.
-- Array elements are not path-addressable, so there is no `log.0` to target. If you
-  find yourself needing to change or remove one item, store the items
-  [keyed by id](/recipes/kv-edit-items-by-id/) instead.
+- Array elements are not path-addressable, so there is no `log.0` to target. If
+  you find yourself needing to change or remove one item, store the items
+  [storing a small list](/recipes/store-small-list/) instead.
 - A value is capped at **400 KB**. For a list that grows indefinitely, cap it,
   roll over to a new key, or move to [one key per
-  item](/recipes/kv-prefix-listing/).
+  item](/recipes/store-large-collection/).

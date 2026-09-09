@@ -97,6 +97,12 @@ function renderPage ({ title, description, canonical, body }) {
 // matter. Subdirectories (assets/) are ignored. Returns null if any recipe is
 // invalid, after printing every problem found — so one build surfaces all of
 // them rather than one per run.
+//
+// A recipe with `draft: true` in its front matter is still validated, so a
+// mistake in it surfaces before it is published, but it is left out of the
+// returned list — which is the only list the site has, so the recipe appears
+// in no page, no index, no sitemap entry and no llms.txt line until the flag
+// comes off.
 function readRecipes () {
     const validTags = Object.keys(recipeTags);
     const entries = fs.readdirSync(RECIPES_SRC_DIR, { withFileTypes: true })
@@ -130,6 +136,8 @@ function readRecipes () {
                 }
             }
         }
+
+        if ( frontMatter.draft ) continue;
 
         recipes.push({
             slug,
@@ -245,8 +253,8 @@ function renderIndexPage (recipes) {
             <main class="recipes-main">
                 <h1>Recipes</h1>
                 <p class="recipes-intro">
-                    Prebuilt patterns for common Puter.js tasks — the recommended way to do
-                    each of these. Copy one rather than working it out from the API reference.
+                    Build specific Puter.js features with recipes from Puter
+                    and the community.
                 </p>
                 ${renderCards(recipes)}
             </main>
@@ -254,7 +262,7 @@ function renderIndexPage (recipes) {
 
     return renderPage({
         title: 'Recipes | Puter.js',
-        description: 'Prebuilt, copy-pasteable patterns for building with Puter.js — AI, storage, auth, hosting, and more.',
+        description: 'Build specific Puter.js features with recipes from Puter and the community.',
         canonical: `${site}/recipes/`,
         body,
     });
@@ -269,7 +277,6 @@ function renderRecipePage (recipe, recipes) {
             <main class="recipes-main recipe-detail">
                 <h1>${encode(recipe.title)}</h1>
                 ${renderTagChips(recipe.tags, { linked: true })}
-                <p class="recipe-lede">${encode(recipe.description)}</p>
                 <hr>
                 ${marked.parse(recipe.body)}
                 <a class="recipes-back" href="/recipes/">&larr; All recipes</a>
