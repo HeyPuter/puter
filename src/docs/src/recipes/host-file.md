@@ -70,7 +70,7 @@ const items = await puter.fs.upload(fileInput.files, 'public');
 
 The [`puter.fs.upload()`](/FS/upload/) method deduplicates names, so `photo.png`
 lands as `photo (1).png` when the name is taken. Read the name back off the
-result and to keep the URL consistent.
+result and use it to keep the URL consistent.
 
 ## Compose the URL
 
