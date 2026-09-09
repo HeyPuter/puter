@@ -16,18 +16,17 @@
 /src/backend/controllers/hosting/ @ProgrammerIn-wonderland
 /src/backend/controllers/webdav/ @ProgrammerIn-wonderland
 /src/backend/controllers/wisp/ @ProgrammerIn-wonderland
-/src/backend/controllers/peer/ @ProgrammerIn-wonderland
 /src/backend/drivers/ai-*/ @ProgrammerIn-wonderland
 /src/backend/drivers/util/ @ProgrammerIn-wonderland
-/src/backend/drivers/subdomain/ @ProgrammerIn-wonderland
 /src/backend/drivers/workers/ @ProgrammerIn-wonderland
-/src/backend/services/subdomain/ @ProgrammerIn-wonderland
 /src/backend/services/localworker/ @ProgrammerIn-wonderland
-/src/backend/services/socket/ @ProgrammerIn-wonderland
 /src/backend/stores/subdomain/ @ProgrammerIn-wonderland
 /extensions/workerSandbox* @ProgrammerIn-wonderland
 /src/worker/ @ProgrammerIn-wonderland
 /src/worker-types/ @ProgrammerIn-wonderland
+
+# Backend: peer
+/src/backend/controllers/peer/ @velzie
 
 # Backend: sharing, permissions, and teams
 /src/backend/controllers/share/ @jfcastro92
@@ -47,12 +46,14 @@
 /src/puter-js/src/modules/hosting/ @ProgrammerIn-wonderland
 /src/puter-js/src/modules/Workers* @ProgrammerIn-wonderland
 /src/puter-js/src/modules/networking/ @ProgrammerIn-wonderland
-/src/puter-js/src/modules/Peer* @ProgrammerIn-wonderland
 /src/puter-js/src/lib/networkUtils* @ProgrammerIn-wonderland
 /src/puter-js/tests/api/suites/ai.suite.ts @ProgrammerIn-wonderland
 /src/puter-js/tests/api/suites/hosting.suite.ts @ProgrammerIn-wonderland
 /src/puter-js/tests/api/suites/workers.suite.ts @ProgrammerIn-wonderland
 /src/puter-js/tests/api/suites/net.suite.ts @ProgrammerIn-wonderland
+
+# SDK: peer
+/src/puter-js/src/modules/Peer* @velzie
 
 # SDK: sharing and permissions
 /src/puter-js/src/modules/perms/ @jfcastro92
