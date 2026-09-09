@@ -20,7 +20,16 @@
 
 import http from 'node:http';
 import type { Request, RequestHandler, Response } from 'express';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { HttpError } from './core/http/HttpError.ts';
 import { extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
 import { allocateEphemeralPort, setupTestServer } from './testUtil.ts';
@@ -477,5 +486,102 @@ describe('PuterServer route option validation', () => {
         } finally {
             await server.shutdown();
         }
+    });
+});
+
+/**
+ * Dedup and repeat throttling mean a responder sees only an alarm's latest
+ * occurrence, so what a thrower attached in `fields` has to travel with each
+ * one — and a plain Error has to keep raising the same alarm without it.
+ */
+describe('PuterServer HTTP alarm gate', () => {
+    let server: PuterServer;
+    let port: number;
+
+    const attempts = [
+        { model: 'm', provider: 'a', error: 'boom' },
+        { model: 'm', provider: 'b', status: 502, error: 'bad gateway' },
+    ];
+
+    beforeAll(async () => {
+        extensionStore.routeHandlers.push(
+            {
+                method: 'get',
+                path: '/explode',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(500, 'All providers failed', {
+                        legacyCode: 'internal_error',
+                        // Same names as the gate's own fields, which must
+                        // stay the HTTP status and the thrown error.
+                        fields: { attempts, status: 'theirs', error: 'theirs' },
+                    });
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
+                path: '/plain',
+                options: {},
+                handler: (() => {
+                    throw new Error('kaboom');
+                }) as unknown as RequestHandler,
+            },
+        );
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.routeHandlers.length = 0;
+        await server?.shutdown();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const raisedFor = async (path: string) => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = await rawRequest(port, path, { host: 'puter.localhost' });
+        expect(res.status).toBe(500);
+        const raised = alarm.mock.calls.find((c) =>
+            String(c[0]).startsWith(`http_500:GET:${path}:`),
+        );
+        expect(raised).toBeTruthy();
+        return {
+            id: raised![0] as string,
+            fields: raised![2] as Record<string, unknown>,
+        };
+    };
+
+    it("attaches an HttpError's fields as `details` without touching its own", async () => {
+        const { id, fields } = await raisedFor('/explode');
+        expect(id).toBe(
+            'http_500:GET:/explode:internal_error:All providers failed',
+        );
+        expect(fields.details).toEqual({
+            attempts,
+            status: 'theirs',
+            error: 'theirs',
+        });
+        expect(fields.status).toBe(500);
+        expect(fields.error).toBeInstanceOf(HttpError);
+    });
+
+    it('raises the same alarm for a plain Error, with no details', async () => {
+        const { id, fields } = await raisedFor('/plain');
+        expect(id).toBe('http_500:GET:/plain:kaboom');
+        expect(fields.status).toBe(500);
+        expect(fields.error).toBeInstanceOf(Error);
+        expect(fields).not.toHaveProperty('details');
     });
 });

@@ -78,6 +78,11 @@ this.clients.alarm.create(alarmId, message, fields, 'critical', {
 
 The HTTP error handler uses it: its id is route + error signature, so a hot
 loop of the same crash is one incident with N occurrences instead of N pages.
+Dedup and Slack's repeat throttle mean a responder sees only the latest
+occurrence, so the handler attaches the `HttpError`'s `fields` to the alarm as
+`details` — put what a responder needs (which upstreams failed, and how)
+there. Everything in `fields` is also returned to the client in the response
+body, so it has to be safe to show the caller.
 Reach for it anywhere else only when the id is that specific — otherwise a
 per-request alarm can flood the pager.
 

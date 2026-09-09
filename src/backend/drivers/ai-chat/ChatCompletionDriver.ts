@@ -584,7 +584,15 @@ export class ChatCompletionDriver extends PuterDriver {
 
         if (!res) {
             await hold.release();
-            throw classifyAttempts(attempts, { allModelsFree });
+            const failure = classifyAttempts(attempts, { allModelsFree });
+            // A deduped alarm shows only its latest occurrence, so each
+            // request's per-route failures are logged here, under its trace.
+            if (!failure.noAlarm) {
+                console.warn(
+                    `[ai-chat] all routes failed (${completionId}, ${model.provider}:${model.id}, ${failure.legacyCode}): ${JSON.stringify(attempts)}`,
+                );
+            }
+            throw failure;
         }
 
         const username = actor.user?.username;
