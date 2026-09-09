@@ -278,6 +278,11 @@ describe('kv.incr / kv.decr driver payloads', () => {
         expect(lastBody().args).toEqual({ key: 'n', pathAndAmountMap: { '': 5 } });
     });
 
+    it('incr(key, 0) preserves a zero amount instead of defaulting to 1', async () => {
+        await kv.incr('n', 0);
+        expect(lastBody().args).toEqual({ key: 'n', pathAndAmountMap: { '': 0 } });
+    });
+
     it('incr(key, pathAndAmountMap) passes the map through', async () => {
         await kv.incr('n', { 'user.score': 2 });
         expect(lastBody().args).toEqual({ key: 'n', pathAndAmountMap: { 'user.score': 2 } });
@@ -325,6 +330,11 @@ describe('kv.incr / kv.decr driver payloads', () => {
     it('decr(key, amount) maps the amount to the root path', async () => {
         await kv.decr('n', 4);
         expect(lastBody().args).toEqual({ key: 'n', pathAndAmountMap: { '': 4 } });
+    });
+
+    it('decr(key, 0) preserves a zero amount instead of defaulting to 1', async () => {
+        await kv.decr('n', 0);
+        expect(lastBody().args).toEqual({ key: 'n', pathAndAmountMap: { '': 0 } });
     });
 });
 
