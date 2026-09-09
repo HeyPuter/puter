@@ -1,6 +1,6 @@
 ---
 title: Managing a list of objects inside a key-value entry
-description: Store items such as todos, tasks or saved records as an object keyed by id in one entry, so changing or removing one of them is a single write instead of rewriting the whole value.
+description: Save a list you can edit later, like todos, tasks or notes, so items can be changed or removed and are still there on the next visit.
 tags: [kv, data-modeling]
 order: 20
 ---

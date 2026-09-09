@@ -1,8 +1,9 @@
 ---
 title: Append items to a growing list
-description: Keep an append-only list such as an event log or a chat history as a real array in one entry, so adding to it is a single write that never reads the list first.
+description: Keep a running log of things as they happen, like chat messages, events or activity history, and add to it in one line.
 tags: [kv, data-modeling]
 order: 10
+draft: true
 ---
 
 **Use this when** the only operation is append, such as an event log, a chat

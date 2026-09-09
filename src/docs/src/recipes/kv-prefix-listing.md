@@ -1,6 +1,6 @@
 ---
 title: Managing a collection of key-value entries
-description: Give each record its own key under a shared prefix, so single records are written, changed and expired directly while the collection is read back a slice at a time.
+description: Store more records than fit in one entry, like profiles, documents or sessions, and read them back a page at a time.
 tags: [kv, data-modeling, performance]
 order: 30
 ---
@@ -105,7 +105,10 @@ Only the leading field is selectable, so give that position to whichever one you
 read by most often. If that is status rather than category, key on
 `todo:<done>:<id>` instead and let category become the client-side filter. This
 is key-prefix partitioning, not a query engine, and there is no secondary
-index.
+index. [Filtering records by status, owner or
+date](/recipes/kv-filter-records/) covers the layouts that buy the other
+filters back: composite segments, a second key per read path, and date
+prefixes.
 
 ## Notes
 

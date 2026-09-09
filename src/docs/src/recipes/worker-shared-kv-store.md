@@ -1,6 +1,6 @@
 ---
 title: Share key-value data between users with a worker
-description: Deploy a worker with puter.workers.create() so puter.kv runs under your account instead of each user's own — one shared store behind an HTTP API you call with puter.workers.exec(), for a leaderboard, guestbook or any multi-user backend.
+description: Store data every user of your app can see and update, like a leaderboard, a guestbook or a shared counter, without running a backend.
 tags: [workers, kv, auth]
 order: 40
 ---
@@ -21,7 +21,7 @@ running your app*, one per app per account. User A calls
 whatever B wrote, which is `null` until B writes something. That is what you
 want for private state, and it is why a leaderboard belongs somewhere else.
 
-Inside a worker, `me.puter` is the **worker owner's** account — you, the
+Inside a worker, `me.puter` is the **worker owner's** account: you, the
 developer. Every request that reaches the worker touches that one store, so
 `me.puter.kv` is a database shared by all your users. The worker's route
 handlers are the API in front of it.
@@ -72,7 +72,7 @@ router.post('/scores', async ({ request, user }) => {
 the same URL arrives without one, so the `! user` branch is how a route becomes
 sign-in-only.
 
-That pairing — one shared store plus the caller's identity — is the whole
+That pairing of one shared store plus the caller's identity is the whole
 backend model: `me.puter.kv` says *where* the data lives, `uuid` says *whose
 row this is*.
 
@@ -105,8 +105,8 @@ Validate the value while you are there:
 
 Read-all, write-own falls out of the key: the `GET` handler lists the prefix,
 the `POST` handler addresses exactly one key inside it. Authorization rules
-that are more involved than this go in the same place — the worker owns the
-store, so its handlers are the only path to the data.
+that are more involved than this go in the same place, since the worker owns
+the store, so its handlers are the only path to the data.
 
 ## Deploy it
 
@@ -120,7 +120,7 @@ deployment.url;      // https://leaderboard-api.puter.work
 ```
 
 The name and URL are permanent. Ship changes by overwriting `leaderboard.js`
-with [`puter.fs.write()`](/FS/write/) — [`puter.workers.create()`](/Workers/create/)
+with [`puter.fs.write()`](/FS/write/); [`puter.workers.create()`](/Workers/create/)
 covers updating in more detail.
 
 ## Call it from your app
@@ -158,7 +158,7 @@ room:<roomId>:member:<uuid>   membership of one room
 ```
 
 Everything in [managing a collection of key-value
-entries](/recipes/kv-prefix-listing/) applies — a prefix is one filter
+entries](/recipes/kv-prefix-listing/) applies: a prefix is one filter
 dimension, results sort lexicographically by key, and paging is how a
 collection stays affordable once it is large. Put a prefix on shared keys even
 when the worker has a store to itself: it keeps the leaderboard separate from
@@ -167,7 +167,7 @@ whatever the worker stores next.
 ## Keep private state in the app
 
 Data only its owner reads has no reason to make the trip. Settings, drafts, a
-personal history — leave those on `puter.kv` in app code, where they are
+personal history: leave those on `puter.kv` in app code, where they are
 already per-user and cost no round trip through your worker:
 
 ```js
@@ -183,7 +183,7 @@ private data; `me.puter.kv` stays the shared one.
 
 - A worker's `puter.kv` namespace belongs to the app the worker runs as.
   Deployed with a user token it gets its own `sandbox-<name>` app, so its keys
-  sit apart from your app's own store — a key written by the worker is not
+  sit apart from your app's own store. A key written by the worker is not
   visible to `puter.kv.get()` in the app, and vice versa. See
   [`puter.workers.create()`](/Workers/create/) for binding a worker to a
   specific app.

@@ -1,6 +1,6 @@
 ---
 title: Turn an uploaded file into a public URL
-description: Publish one directory with puter.hosting.create(), then every file puter.fs.upload() or puter.fs.write() puts in it has a shareable https://<subdomain>.puter.site link — for avatars, image uploads, CDN assets and share links.
+description: Upload a file and get a public URL for it, a link you can drop into an image tag, send to someone, or point a CDN at.
 tags: [fs, hosting]
 order: 50
 ---
@@ -29,8 +29,8 @@ site.root_dir.path;    // '/username/public'
 
 `site.subdomain` is the label; the site itself is at
 `https://<subdomain>.puter.site`. Everything under `root_dir` is served from
-there, including files added long after this call — the mapping is to the
-directory, not to a snapshot of it.
+there, including files added long after this call, because the mapping is to
+the directory, not to a snapshot of it.
 
 Subdomain names are global, so `puter.randName()` (or any id of your own) claims
 one nobody else has. A name already in use rejects with a `conflict` error
@@ -179,19 +179,19 @@ its files untouched, so the same files can be republished under a new name later
 ## Keep the public directory separate
 
 Serving is by directory, so the directory boundary is the privacy boundary:
-every file under `root_dir` — including ones written after the site was created
-— is returned to anyone who requests its URL, with no Puter account involved.
+every file under `root_dir`, including ones written after the site was created,
+is returned to anyone who requests its URL, with no Puter account involved.
 Files the user has not chosen to share belong in a sibling directory that no
 subdomain points at.
 
 ```js
-await puter.fs.mkdir('public');       // published — links work for anyone
-await puter.fs.mkdir('documents');    // not published — SDK access only
+await puter.fs.mkdir('public');       // published: links work for anyone
+await puter.fs.mkdir('documents');    // not published: SDK access only
 ```
 
 Within the public directory, the filename is what gates access. There is no
-directory index — `https://<subdomain>.puter.site/` and every directory path
-return `404` unless a file sits at exactly that path — so a name nobody can
+directory index: `https://<subdomain>.puter.site/` and every directory path
+return `404` unless a file sits at exactly that path, so a name nobody can
 guess is a link only its recipients hold:
 
 ```js
@@ -221,17 +221,17 @@ directory.
   `puter.fs.write()` and `puter.hosting.create()` therefore lands on the same
   directory in both cases.
 - Responses carry `Access-Control-Allow-Origin: *`, so a published URL works
-  from any origin — `fetch()`, `<img>`, `<video>`, a CSS `url()`. The
+  from any origin: `fetch()`, `<img>`, `<video>`, a CSS `url()`. The
   `Content-Type` comes from the stored file, so `.png` arrives as `image/png`.
 - Path segments encode a space as `%20`. Names outside the letters, digits, `.`,
   `-`, `_` and space set need further percent-encoding, which the edge currently
-  answers with a redirect to the same URL — generating the stored name keeps
+  answers with a redirect to the same URL. Generating the stored name keeps
   every link in the set that resolves.
 - Inside a registered app, `puter.hosting.list()` and `get()` see the sites that
   app created. A site created by the Puter desktop or another app of yours is
   visible from `puter.fs.stat(dir, { returnSubdomains: true })` on its directory.
-- Publishing a directory someone shared with you requires `manage` access on it —
-  the level [`share()`](/FS/share/) calls "Can edit & share".
+- Publishing a directory someone shared with you requires `manage` access on
+  it, the level [`share()`](/FS/share/) calls "Can edit & share".
 - Dropping an `index.html` into the published directory turns the same subdomain
   into a real site, which is what [`puter.hosting.create()`](/Hosting/create/)
   documents on its own.

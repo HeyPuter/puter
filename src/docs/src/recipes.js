@@ -97,6 +97,12 @@ function renderPage ({ title, description, canonical, body }) {
 // matter. Subdirectories (assets/) are ignored. Returns null if any recipe is
 // invalid, after printing every problem found — so one build surfaces all of
 // them rather than one per run.
+//
+// A recipe with `draft: true` in its front matter is still validated, so a
+// mistake in it surfaces before it is published, but it is left out of the
+// returned list — which is the only list the site has, so the recipe appears
+// in no page, no index, no sitemap entry and no llms.txt line until the flag
+// comes off.
 function readRecipes () {
     const validTags = Object.keys(recipeTags);
     const entries = fs.readdirSync(RECIPES_SRC_DIR, { withFileTypes: true })
@@ -130,6 +136,8 @@ function readRecipes () {
                 }
             }
         }
+
+        if ( frontMatter.draft ) continue;
 
         recipes.push({
             slug,

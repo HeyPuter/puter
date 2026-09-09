@@ -889,18 +889,28 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
 
     outputContent += prompt;
 
+    let included = 0;
+
     files.forEach(file => {
         // exclude prompt.md, /assets/
         if ( file.includes('prompt.md') || file.includes('/assets/') ) {
             return;
         }
         const fileContent = fs.readFileSync(file, 'utf8');
+        // `draft: true` keeps a page out of every published surface, this
+        // concatenated dump included.
+        if ( parseFrontMatter(fileContent).frontMatter?.draft ) {
+            return;
+        }
+        included++;
         const relativePath = path.relative(`${process.cwd() }/src`, file);
         const metadata = `\n<!--\nFile: ${relativePath}\n-->\n\n`;
         outputContent += `${metadata + stripNonEssentialMedia(fileContent) }\n`;
     });
 
     fs.writeFileSync(outputFile, outputContent, 'utf8');
+
+    return included;
 };
 
 function splitHtmlIntoSections (markdown) {
@@ -985,8 +995,8 @@ const main = () => {
     const markdownFiles = getMarkdownFiles(`${currentDir }/src`);
     const outputFile = path.join(currentDir, 'dist', 'prompt.md');
 
-    concatMarkdownFiles(markdownFiles, outputFile);
-    console.log(`Concatenated ${markdownFiles.length} markdown files into ${outputFile}`);
+    const concatenated = concatMarkdownFiles(markdownFiles, outputFile);
+    console.log(`Concatenated ${concatenated} markdown files into ${outputFile}`);
 
     generateSearchIndex();
 
