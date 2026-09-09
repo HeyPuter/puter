@@ -126,7 +126,7 @@ You can use AI models from various providers to perform tasks such as chat, text
 
 <div class="example-content" data-section="text-to-video">
 
-#### Generate a sample Sora clip
+#### Generate a sample clip (test mode)
 
 ```html;ai-txt2vid
 <html>
@@ -200,7 +200,7 @@ These AI features are supported out of the box when using Puter.js:
 - **[`puter.ai.txt2speech.listEngines()`](/AI/txt2speech.listEngines/)** - List available TTS engines/models
 - **[`puter.ai.txt2speech.listVoices()`](/AI/txt2speech.listVoices/)** - List available TTS voices
 - **[`puter.ai.speech2speech()`](/AI/speech2speech/)** - Convert speech in one voice to another voice
-- **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short videos with OpenAI Sora models
+- **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short video clips from text or a reference image with Veo, Seedance and other models
 - **[`puter.ai.speech2txt()`](/AI/speech2txt/)** - Transcribe or translate audio recordings into text
 
 ## Examples
@@ -234,7 +234,12 @@ You can see various Puter.js AI features in action from the following examples:
   - [List TTS Voices](/playground/ai-txt2speech-list-voices/)
   - [Transcribe audio with `speech2txt`](/AI/speech2txt/)
 - Text to Video
-  - [Generate a sample Sora clip](/AI/txt2vid/)
+  - [Generate a sample clip (test mode)](/playground/ai-txt2vid/)
+  - [Text to Video with options](/playground/ai-txt2vid-options/)
+  - [Text to Video with Google Veo](/playground/ai-txt2vid-veo/)
+  - [Animate a photo (image-to-video)](/playground/ai-txt2vid-image-to-video/)
+  - [Save the clip to the Puter filesystem](/playground/ai-txt2vid-save/)
+  - [Show progress and handle errors](/playground/ai-txt2vid-errors/)
 - Speech to Speech
   - [Convert speech in one voice to another voice](/playground/ai-speech2speech-url/)
   - [Convert speech in one voice to another voice with a recording stored as a file](/playground/ai-speech2speech-file/)

@@ -1,0 +1,39 @@
+<html>
+<body>
+    <p>Pick a photo to animate:</p>
+    <input type="file" id="photo" accept="image/*">
+    <p id="status"></p>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        const status = document.getElementById('status');
+
+        document.getElementById('photo').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Seedance and Veo take the first frame as a data: URI
+            const dataUri = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            status.textContent = 'Generating... this can take a few minutes.';
+            try {
+                const video = await puter.ai.txt2vid("Slow push-in on the scene as a gentle wind moves through it", {
+                    model: "seedance-2-0-mini",
+                    seconds: 5,
+                    size: "720p",
+                    input_reference: dataUri,
+                    generate_audio: false
+                });
+                status.textContent = '';
+                document.body.appendChild(video);
+            } catch (err) {
+                status.textContent = `Failed: ${err.message} (${err.code})`;
+            }
+        });
+    </script>
+</body>
+</html>

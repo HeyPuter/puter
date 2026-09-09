@@ -266,6 +266,30 @@ const examples = [
                 source: '/playground/examples/ai-txt2vid-options.html',
             },
             {
+                title: 'Text to Video with Google Veo',
+                description: 'Generate a video with a Google Veo model and a negative prompt using Puter.js AI API. Run and experiment with this example in the playground.',
+                slug: 'ai-txt2vid-veo',
+                source: '/playground/examples/ai-txt2vid-veo.html',
+            },
+            {
+                title: 'Image to Video',
+                description: 'Animate a photo into a short clip with Puter.js AI API by passing it as the first-frame reference image. Run and experiment with this example in the playground.',
+                slug: 'ai-txt2vid-image-to-video',
+                source: '/playground/examples/ai-txt2vid-image-to-video.html',
+            },
+            {
+                title: 'Save a generated video to the Puter filesystem',
+                description: 'Generate a video and store it directly in the Puter filesystem with puter_output_path. Run and experiment with this example in the playground.',
+                slug: 'ai-txt2vid-save',
+                source: '/playground/examples/ai-txt2vid-save.html',
+            },
+            {
+                title: 'Text to Video with progress and error handling',
+                description: 'Show progress while a video renders and handle moderation, credit and timeout errors with Puter.js AI API. Run and experiment with this example in the playground.',
+                slug: 'ai-txt2vid-errors',
+                source: '/playground/examples/ai-txt2vid-errors.html',
+            },
+            {
                 title: 'List AI models',
                 description: 'Retrieve the available AI chat models (and providers) in Puter.js. Try out this example directly in the playground.',
                 slug: 'ai-list-models',

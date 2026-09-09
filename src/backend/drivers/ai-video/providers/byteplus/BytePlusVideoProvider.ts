@@ -34,8 +34,6 @@ const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const DEFAULT_BASE_URL = 'https://ark.ap-southeast.bytepluses.com/api/v3';
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_MODEL = 'dreamina-seedance-2-0-mini-260615';
-// Seedance 2.0 multimodal reference accepts up to 9 reference images.
-const MAX_REFERENCE_IMAGES = 9;
 
 const ARK_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'];
 
@@ -276,10 +274,10 @@ export class BytePlusVideoProvider extends VideoProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            if (referenceImages!.length > MAX_REFERENCE_IMAGES) {
+            if (referenceImages!.length > spec.maxReferenceImages) {
                 throw new HttpError(
                     400,
-                    `${modelId} accepts at most ${MAX_REFERENCE_IMAGES} reference image(s)`,
+                    `${modelId} accepts at most ${spec.maxReferenceImages} reference image(s)`,
                     { legacyCode: 'bad_request' },
                 );
             }

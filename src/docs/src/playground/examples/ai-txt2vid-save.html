@@ -1,0 +1,17 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // test_mode keeps this free; the sample clip is still written to the path
+        puter.ai.txt2vid({
+            prompt: "A paper boat drifting down a rain-soaked street",
+            test_mode: true,
+            puter_output_path: "videos/paper-boat.mp4"  // ~/AppData/<appID>/videos/paper-boat.mp4
+        }).then(async (video) => {
+            const file = await puter.fs.stat("videos/paper-boat.mp4");
+            puter.print(`Saved ${file.name} (${file.size} bytes) to ${file.path}`);
+            document.body.appendChild(video);
+        }).catch(console.error);
+    </script>
+</body>
+</html>

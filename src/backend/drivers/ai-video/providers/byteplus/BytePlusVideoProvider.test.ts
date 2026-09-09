@@ -520,3 +520,82 @@ describe('BytePlusVideoProvider.generate metering', () => {
         ).rejects.toMatchObject({ statusCode: 402 });
     });
 });
+
+// -- Seedance 2.5 ----------------------------------------------------
+
+describe('BytePlusVideoProvider.generate seedance 2.5', () => {
+    const refs = (n: number) =>
+        Array.from({ length: n }, (_, i) => `https://example.com/ref-${i}.png`);
+
+    it('resolves the short alias, accepts 1080p, sends audio and omits seed', async () => {
+        mockTaskFlow(succeededTask({ resolution: '1080p' }));
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedance-2-5',
+                prompt: 'hi',
+                resolution: '1080p',
+                seed: 7,
+            }),
+        );
+        const body = sentBody();
+        expect(body.model).toBe('dreamina-seedance-2-5-260628');
+        expect(body.resolution).toBe('1080p');
+        expect(body.duration).toBe(5);
+        expect(body.generate_audio).toBe(true);
+        expect(body.seed).toBeUndefined();
+    });
+
+    it('accepts up to 30 reference images on 2.5 while 2.0 stays capped at 9', async () => {
+        mockTaskFlow(succeededTask());
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedance-2-5',
+                prompt: 'hi',
+                reference_images: refs(30),
+            }),
+        );
+        const content = sentBody().content as Array<{ role?: string }>;
+        expect(content.filter((c) => c.role === 'reference_image')).toHaveLength(
+            30,
+        );
+
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'seedance-2-5',
+                    prompt: 'hi',
+                    reference_images: refs(31),
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'seedance-2-0',
+                    prompt: 'hi',
+                    reference_images: refs(10),
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('bills 1080p output at the 2.5 rate', async () => {
+        mockTaskFlow(succeededTask({ resolution: '1080p' }));
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedance-2-5',
+                prompt: 'hi',
+                resolution: '1080p',
+            }),
+        );
+        const model = findModel('dreamina-seedance-2-5-260628');
+        const rate = model.costs!['video_tokens:1080p'];
+        expect(incrementUsageSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            'byteplus-video-generation:dreamina-seedance-2-5-260628:video_tokens:1080p',
+            108_000,
+            108_000 * rate * 1_000_000,
+        );
+    });
+});

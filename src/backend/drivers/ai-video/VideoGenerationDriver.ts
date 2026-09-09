@@ -28,7 +28,6 @@ import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
-import { OpenAIVideoProvider } from './providers/openai/OpenAIVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
 import type {
     IGenerateVideoParams,
@@ -36,12 +35,39 @@ import type {
     IVideoProvider,
 } from './types.js';
 
-const DEFAULT_PROVIDER = 'openai-video-generation';
+const DEFAULT_PROVIDER = 'gemini-video-generation';
+
+const isResolutionTier = (value: string): boolean => /^\d{3,4}p$/i.test(value);
+
+const parsePixelSize = (
+    value: string | undefined,
+): { width: number; height: number } | undefined => {
+    const match = value?.match(/^(\d+)\s*x\s*(\d+)$/i);
+    if (!match) return undefined;
+    const width = Number.parseInt(match[1], 10);
+    const height = Number.parseInt(match[2], 10);
+    return width > 0 && height > 0 ? { width, height } : undefined;
+};
+
+/** Resolution tier of the shorter side, e.g. 1920x1080 and 1080x1920 → 1080p. */
+const tierForPixels = ({
+    width,
+    height,
+}: {
+    width: number;
+    height: number;
+}) => {
+    const shortSide = Math.min(width, height);
+    if (shortSide <= 480) return '480p';
+    if (shortSide <= 720) return '720p';
+    if (shortSide <= 1080) return '1080p';
+    return '4k';
+};
 
 /**
  * Driver implementing the `puter-video-generation` interface.
  *
- * Manages multiple upstream providers (OpenAI/Sora, Together, Gemini/Veo, ...)
+ * Manages multiple upstream providers (Gemini/Veo, Together, BytePlus/Seedance)
  * and handles model resolution, provider routing, and parameter normalisation.
  * Each provider is a plain `IVideoProvider` -- the driver instantiates them
  * from config on boot.
@@ -55,9 +81,8 @@ export class VideoGenerationDriver extends PuterDriver {
     // alias all provider ids here. `generate` falls back to
     // `Context.driverName` when `args.provider` isn't supplied.
     readonly driverAliases = [
-        'openai-video-generation',
-        'together-video-generation',
         'gemini-video-generation',
+        'together-video-generation',
         'byteplus-video-generation',
     ];
     readonly isDefault = true;
@@ -158,19 +183,24 @@ export class VideoGenerationDriver extends PuterDriver {
             throw new Error('no video generation providers configured');
         }
 
+        // The generic `ai-video` driver name is not a provider, so requests
+        // that name no usable provider land on the default rather than on
+        // whichever provider happened to register first.
+        const fallbackProvider = configuredProviders.includes(DEFAULT_PROVIDER)
+            ? DEFAULT_PROVIDER
+            : configuredProviders[0];
+
         let intendedProvider =
             args.provider ??
             (Context.get('driverName') as string | undefined) ??
             '';
 
         if (!args.model && !intendedProvider) {
-            intendedProvider = configuredProviders.includes(DEFAULT_PROVIDER)
-                ? DEFAULT_PROVIDER
-                : configuredProviders[0];
+            intendedProvider = fallbackProvider;
         }
 
         if (intendedProvider && !this.#providers[intendedProvider]) {
-            intendedProvider = configuredProviders[0];
+            intendedProvider = fallbackProvider;
         }
 
         if (!args.model && intendedProvider) {
@@ -216,24 +246,44 @@ export class VideoGenerationDriver extends PuterDriver {
         if (model.dimensions?.length) {
             const requestedResolution =
                 typeof args.size === 'string' && args.size.trim()
-                    ? args.size
+                    ? args.size.trim()
                     : typeof args.resolution === 'string' &&
                         args.resolution.trim()
-                      ? args.resolution
+                      ? args.resolution.trim()
                       : undefined;
+            const requestedPixels = parsePixelSize(requestedResolution);
+
+            // `WIDTHxHEIGHT` is the one size vocabulary callers can use with
+            // every provider. Tier-based catalogs ('720p') take the tier of
+            // the shorter side; width/height then carry the aspect ratio for
+            // providers that derive one, or the exact size for providers that
+            // take pixels.
+            const catalogIsTiers = model.dimensions.every(isResolutionTier);
+            const wanted =
+                catalogIsTiers && requestedPixels
+                    ? tierForPixels(requestedPixels)
+                    : requestedResolution;
 
             // Case-insensitive so '4K' matches a catalog entry spelled '4k';
             // the matched catalog spelling (not the caller's) is forwarded.
             const normalizedResolution =
-                (requestedResolution &&
+                (wanted &&
                     model.dimensions.find(
-                        (d) =>
-                            d.toLowerCase() ===
-                            requestedResolution.toLowerCase(),
+                        (d) => d.toLowerCase() === wanted.toLowerCase(),
                     )) ||
                 model.dimensions[0];
             args.size = normalizedResolution;
             args.resolution = normalizedResolution;
+
+            if (requestedPixels && args.width == null && args.height == null) {
+                const pixels = catalogIsTiers
+                    ? requestedPixels
+                    : parsePixelSize(normalizedResolution);
+                if (pixels) {
+                    args.width = pixels.width;
+                    args.height = pixels.height;
+                }
+            }
         }
 
         const result = await provider.generate({
@@ -271,14 +321,13 @@ export class VideoGenerationDriver extends PuterDriver {
             return undefined;
         };
 
-        const openaiKey = readKey(
-            providers['openai-video-generation'],
-            providers['openai-completion'],
-            providers['openai'],
+        const geminiKey = readKey(
+            providers['gemini-video-generation'],
+            providers['gemini'],
         );
-        if (openaiKey) {
-            this.#providers['openai-video-generation'] =
-                new OpenAIVideoProvider({ apiKey: openaiKey }, m);
+        if (geminiKey) {
+            this.#providers['gemini-video-generation'] =
+                new GeminiVideoProvider({ apiKey: geminiKey }, m);
         }
 
         const togetherKey = readKey(
@@ -288,15 +337,6 @@ export class VideoGenerationDriver extends PuterDriver {
         if (togetherKey) {
             this.#providers['together-video-generation'] =
                 new TogetherVideoProvider({ apiKey: togetherKey }, m);
-        }
-
-        const geminiKey = readKey(
-            providers['gemini-video-generation'],
-            providers['gemini'],
-        );
-        if (geminiKey) {
-            this.#providers['gemini-video-generation'] =
-                new GeminiVideoProvider({ apiKey: geminiKey }, m);
         }
 
         // Falls back to the shared `byteplus` (ai-chat) key; `apiBaseUrl`

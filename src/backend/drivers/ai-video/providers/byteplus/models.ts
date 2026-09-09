@@ -36,8 +36,10 @@ export interface BytePlusVideoSpec {
     supportsAudio: boolean;
     /** Supports first+last frame image-to-video. */
     supportsLastFrame: boolean;
-    /** Supports multimodal `reference_image` inputs (Seedance 2.0 series). */
+    /** Supports multimodal `reference_image` inputs (Seedance 2.x series). */
     supportsReferenceImages: boolean;
+    /** Reference images accepted per request; 0 when unsupported. */
+    maxReferenceImages: number;
     /** Supports the `seed` param (not the Seedance 2.0 series). */
     supportsSeed: boolean;
 }
@@ -66,11 +68,30 @@ const perMToken = (usd: number): number => (usd * 100) / 1_000_000;
 // `default-duration-per-video` is the estimated cents for a 5s clip at the
 // model's default resolution — it exists for cross-provider cost sorting and
 // display, not billing.
-//
-// dreamina-seedance-2-5-260628 is priced on the pricing page but the API
-// reference still lists its API access as "available soon", so it's
-// deliberately absent here.
 export const BYTEPLUS_VIDEO_GENERATION_MODELS: IVideoModel[] = [
+    {
+        id: 'dreamina-seedance-2-5-260628',
+        puterId: 'byteplus:byteplus/dreamina-seedance-2-5-260628',
+        aliases: [
+            'dreamina-seedance-2-5',
+            'byteplus/dreamina-seedance-2-5',
+            'seedance-2-5',
+        ],
+        name: 'Dreamina Seedance 2.5',
+        costs_currency: 'usd-cents',
+        output_cost_key: 'default-duration-per-video',
+        costs: {
+            'video_tokens:480p': perMToken(10.7),
+            'video_tokens:720p': perMToken(10.7),
+            'video_tokens:1080p': perMToken(11.7),
+            'default-duration-per-video': 116,
+        },
+        durationSeconds: seconds(5, 4, 30),
+        dimensions: ['720p', '480p', '1080p'],
+        fps: FPS,
+        defaultUsageKey:
+            'byteplus-video-generation:dreamina-seedance-2-5-260628:video_tokens:720p',
+    },
     {
         id: 'dreamina-seedance-2-0-260128',
         puterId: 'byteplus:byteplus/dreamina-seedance-2-0-260128',
@@ -205,12 +226,24 @@ const SEEDANCE_1_0_DIMS = {
 };
 
 export const BYTEPLUS_VIDEO_SPECS: Record<string, BytePlusVideoSpec> = {
+    // Ark caps Seedance 2.5 at 50 multimodal references per request; 30 is
+    // the image share Together publishes for the same model.
+    'dreamina-seedance-2-5-260628': {
+        duration: { min: 4, max: 30, default: 5 },
+        dims: SEEDANCE_2_0_DIMS,
+        supportsAudio: true,
+        supportsLastFrame: true,
+        supportsReferenceImages: true,
+        maxReferenceImages: 30,
+        supportsSeed: false,
+    },
     'dreamina-seedance-2-0-260128': {
         duration: { min: 4, max: 15, default: 5 },
         dims: SEEDANCE_2_0_DIMS,
         supportsAudio: true,
         supportsLastFrame: true,
         supportsReferenceImages: true,
+        maxReferenceImages: 9,
         supportsSeed: false,
     },
     'dreamina-seedance-2-0-fast-260128': {
@@ -219,6 +252,7 @@ export const BYTEPLUS_VIDEO_SPECS: Record<string, BytePlusVideoSpec> = {
         supportsAudio: true,
         supportsLastFrame: true,
         supportsReferenceImages: true,
+        maxReferenceImages: 9,
         supportsSeed: false,
     },
     'dreamina-seedance-2-0-mini-260615': {
@@ -227,6 +261,7 @@ export const BYTEPLUS_VIDEO_SPECS: Record<string, BytePlusVideoSpec> = {
         supportsAudio: true,
         supportsLastFrame: true,
         supportsReferenceImages: true,
+        maxReferenceImages: 9,
         supportsSeed: false,
     },
     'seedance-1-5-pro-251215': {
@@ -235,6 +270,7 @@ export const BYTEPLUS_VIDEO_SPECS: Record<string, BytePlusVideoSpec> = {
         supportsAudio: true,
         supportsLastFrame: true,
         supportsReferenceImages: false,
+        maxReferenceImages: 0,
         supportsSeed: true,
     },
     'seedance-1-0-pro-250528': {
@@ -243,6 +279,7 @@ export const BYTEPLUS_VIDEO_SPECS: Record<string, BytePlusVideoSpec> = {
         supportsAudio: false,
         supportsLastFrame: true,
         supportsReferenceImages: false,
+        maxReferenceImages: 0,
         supportsSeed: true,
     },
     'seedance-1-0-pro-fast-251015': {
@@ -251,6 +288,7 @@ export const BYTEPLUS_VIDEO_SPECS: Record<string, BytePlusVideoSpec> = {
         supportsAudio: false,
         supportsLastFrame: false,
         supportsReferenceImages: false,
+        maxReferenceImages: 0,
         supportsSeed: true,
     },
 };
