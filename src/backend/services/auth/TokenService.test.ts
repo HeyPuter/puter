@@ -20,7 +20,7 @@
 import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { describe, expect, it } from 'vitest';
-import { TokenService, V1TokensDisabledError } from './TokenService.js';
+import { TokenService } from './TokenService.js';
 
 const V2_SECRET = 'test-v2-secret';
 const V1_SECRET = 'test-v1-secret';
@@ -246,7 +246,7 @@ describe('TokenService.verify — v2', () => {
             { type: 'access-token' },
             { expiresIn: -60 },
         );
-        expect(() => svc.verify('auth', token)).toThrow();
+        expect(() => svc.verify('auth', token)).toThrow(/jwt expired/);
     });
 
     it('tolerates 30s of clock skew on `iat`', () => {
@@ -263,9 +263,9 @@ describe('TokenService.verify — v2', () => {
 
 describe('TokenService.verify — retired v1 tokens', () => {
     // v1 is retired: no secret verifies it any more, and every shape it could
-    // arrive in has to land on the same structured error so the auth probe can
-    // answer `reauth_required` instead of a bare 401.
-    it('rejects a v1-shaped token, carrying the unverified payload as a hint', () => {
+    // arrive in must be rejected as an ordinary invalid token — no payload,
+    // no hint.
+    it('rejects a v1-shaped token', () => {
         const svc = createTokenService();
         const token = mintV1Token({
             t: 'au',
@@ -279,44 +279,30 @@ describe('TokenService.verify — retired v1 tokens', () => {
                 'hex',
             ).toString('base64'),
         });
-        let thrown: unknown;
-        try {
-            svc.verify('auth', token);
-        } catch (e) {
-            thrown = e;
-        }
-        expect(thrown).toBeInstanceOf(V1TokensDisabledError);
-        // Decompressed from the *unverified* payload — advisory only, but it is
-        // what labels the reauth response.
-        expect((thrown as V1TokensDisabledError).payload).toMatchObject({
-            type: 'app-under-user',
-            user_uid: '33333333-3333-3333-3333-333333333333',
-        });
+        expect(() => svc.verify('auth', token)).toThrow(/unsupported or invalid token/);
     });
 
     it('rejects when the header `kid` is missing', () => {
         const svc = createTokenService();
         const token = jwt.sign({ t: 's' }, V1_SECRET);
-        expect(() => svc.verify('auth', token)).toThrow(V1TokensDisabledError);
+        expect(() => svc.verify('auth', token)).toThrow(/unsupported or invalid token/);
     });
 
     it('rejects when the header `kid` is an unknown value', () => {
         const svc = createTokenService();
         const token = jwt.sign({ t: 's' }, V1_SECRET, { keyid: 'v99' });
-        expect(() => svc.verify('auth', token)).toThrow(V1TokensDisabledError);
+        expect(() => svc.verify('auth', token)).toThrow(/unsupported or invalid token/);
     });
 
     it('rejects a v1-shaped token signed with any other secret', () => {
         const svc = createTokenService();
         const token = jwt.sign({ t: 's' }, 'not-the-legacy-secret');
-        expect(() => svc.verify('auth', token)).toThrow(V1TokensDisabledError);
+        expect(() => svc.verify('auth', token)).toThrow(/unsupported or invalid token/);
     });
 
     it('rejects a garbage string that is not a JWT at all', () => {
         const svc = createTokenService();
-        expect(() => svc.verify('auth', 'not-a-jwt')).toThrow(
-            V1TokensDisabledError,
-        );
+        expect(() => svc.verify('auth', 'not-a-jwt')).toThrow(/unsupported or invalid token/);
     });
 });
 

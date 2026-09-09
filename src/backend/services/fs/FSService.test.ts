@@ -38,6 +38,7 @@ import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionHelpers.js';
 import { setupTestServer } from '../../testUtil.js';
+import type { IConfig } from '../../types.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSService } from './FSService.js';
 import { UNLIMITED_STORAGE_ALLOWANCE } from './FSService.js';
@@ -2915,6 +2916,312 @@ describe('FSService copy', () => {
         expect(await entryAt(user, '/Documents/cp-ghost.txt')).toBeNull();
 
         consoleError.mockRestore();
+    });
+});
+
+describe('FSService copy event dispatch', () => {
+    let eventsServer: PuterServer;
+    let eventsFs: FSService;
+    let user: TestUser;
+
+    beforeAll(async () => {
+        eventsServer = await setupTestServer({
+            events: { enabled: true },
+        } as unknown as IConfig);
+        eventsFs = eventsServer.services.fs as unknown as FSService;
+        const username = `fsev-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await eventsServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            eventsServer.clients.db,
+            eventsServer.stores.user,
+            created,
+        );
+        const refreshed = (await eventsServer.stores.user.getById(
+            created.id,
+        ))!;
+        user = {
+            userId: refreshed.id,
+            username: refreshed.username,
+            uuid: refreshed.uuid,
+            home: `/${refreshed.username}`,
+            actor: {
+                user: {
+                    id: refreshed.id,
+                    uuid: refreshed.uuid,
+                    username: refreshed.username,
+                    email: refreshed.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            },
+        };
+    });
+
+    afterAll(async () => {
+        await eventsServer?.shutdown();
+    });
+
+    const eventsWriteFile = async (
+        path: string,
+        content: string,
+    ): Promise<FSEntry> => {
+        const result = await eventsFs.write(user.userId, {
+            fileMetadata: {
+                path,
+                size: Buffer.byteLength(content),
+                contentType: 'text/plain',
+            },
+            fileContent: content,
+        });
+        return result.fsEntry;
+    };
+
+    const eventsEntryAt = (path: string) =>
+        eventsServer.stores.fsEntry.getEntryByPath(`${user.home}${path}`, {
+            useTryHardRead: true,
+            skipCache: true,
+        });
+
+    type AncestorChainLike = Array<{ uid: string; path: string }>;
+
+    // Fresh capture per test: the dispatch is fire-and-forget, so `dispatched`
+    // fills in asynchronously and every caller must restore its own spies.
+    const captureDispatches = () => {
+        const dispatched: Array<{
+            key: string;
+            path: string;
+            uid: string;
+            ancestors: AncestorChainLike;
+        }> = [];
+        const dispatchSpy = vi
+            .spyOn(eventsServer.services.events, 'dispatchFs')
+            .mockImplementation(async (key, entry, options) => {
+                dispatched.push({
+                    key,
+                    path: entry.path,
+                    uid: entry.uid,
+                    ancestors: [...((await options?.ancestors?.()) ?? [])],
+                });
+                return true;
+            });
+        const walkSpy = vi.spyOn(eventsFs, 'getAncestorChain');
+        return {
+            dispatched,
+            walkSpy,
+            restore: () => {
+                dispatchSpy.mockRestore();
+                walkSpy.mockRestore();
+            },
+        };
+    };
+
+    it('publishes a copied file as a create', async () => {
+        const source = await eventsWriteFile(
+            `${user.home}/Documents/cpev-file.txt`,
+            'x',
+        );
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            const copy = await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(1));
+            expect(dispatched[0]).toMatchObject({
+                key: 'fs.create.file',
+                path: copy.path,
+                uid: copy.uid,
+            });
+            expect(dispatched[0].ancestors[0]).toEqual({
+                uid: copy.uid,
+                path: copy.path,
+            });
+            expect(
+                dispatched[0].ancestors.some(
+                    (a) => a.uid === destination.uid,
+                ),
+            ).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+
+    it('publishes every entry a directory copy creates', async () => {
+        await eventsFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cpev/sub`,
+            createMissingParents: true,
+        });
+        await eventsWriteFile(`${user.home}/Documents/cpev/a.txt`, 'a');
+        await eventsWriteFile(`${user.home}/Documents/cpev/sub/b.txt`, 'b');
+        const source = (await eventsEntryAt('/Documents/cpev'))!;
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                newName: 'cpev-copy',
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(4));
+            expect(dispatched.map((d) => d.key).sort()).toEqual([
+                'fs.create.directory',
+                'fs.create.directory',
+                'fs.create.file',
+                'fs.create.file',
+            ]);
+            // The source tree itself never publishes — only what the copy made.
+            expect(
+                dispatched.every((d) => !d.path.startsWith(source.path)),
+            ).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+
+    it('walks the destination ancestors once for a whole tree', async () => {
+        await eventsFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cpev2/sub`,
+            createMissingParents: true,
+        });
+        await eventsWriteFile(`${user.home}/Documents/cpev2/a.txt`, 'a');
+        await eventsWriteFile(`${user.home}/Documents/cpev2/sub/b.txt`, 'b');
+        const source = (await eventsEntryAt('/Documents/cpev2'))!;
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, walkSpy, restore } = captureDispatches();
+        try {
+            await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                newName: 'cpev2-copy',
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(4));
+            expect(walkSpy).toHaveBeenCalledTimes(1);
+            expect(walkSpy.mock.calls[0]?.[0]).toBe(destination.path);
+
+            const nested = dispatched.find((d) =>
+                d.path.endsWith('/cpev2-copy/sub/b.txt'),
+            )!;
+            const destinationChain =
+                await eventsFs.getAncestorChain(destination.path);
+            expect(nested.ancestors.map((a) => a.path)).toEqual([
+                `${user.home}/Desktop/cpev2-copy/sub/b.txt`,
+                `${user.home}/Desktop/cpev2-copy/sub`,
+                `${user.home}/Desktop/cpev2-copy`,
+                ...destinationChain.map((a) => a.path),
+            ]);
+        } finally {
+            restore();
+        }
+    });
+
+    it('publishes an empty-file clone as a create', async () => {
+        const source = await eventsFs.touch(user.userId, {
+            path: `${user.home}/Documents/cpev-empty.txt`,
+        });
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            const copy = await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(1));
+            expect(dispatched[0]).toMatchObject({
+                key: 'fs.create.file',
+                path: copy.path,
+                uid: copy.uid,
+            });
+        } finally {
+            restore();
+        }
+    });
+
+    it('leaves a copied shortcut and symlink unpublished', async () => {
+        const documents = (await eventsEntryAt('/Documents'))!;
+        const destination = (await eventsEntryAt('/Desktop'))!;
+        const target = await eventsWriteFile(
+            `${user.home}/Documents/cpev-link-target.txt`,
+            'x',
+        );
+        const shortcut = await eventsFs.mkshortcut(user.userId, {
+            parent: documents,
+            name: 'cpev-shortcut',
+            target,
+        });
+        const symlink = await eventsServer.stores.fsEntry.createNonFileEntry({
+            userId: user.userId,
+            parent: documents,
+            name: 'cpev-symlink',
+            kind: 'symlink',
+            symlinkPath: `${user.home}/Documents/cpev-link-target.txt`,
+        });
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            await eventsFs.copy(user.userId, {
+                source: shortcut,
+                destinationParent: destination,
+                overwrite: false,
+            });
+            await eventsFs.copy(user.userId, {
+                source: symlink,
+                destinationParent: destination,
+                overwrite: false,
+            });
+
+            // Drain the microtask/nextTick queue so a stray dispatch has
+            // somewhere to land before asserting none arrived.
+            await new Promise((resolve) => setImmediate(resolve));
+            expect(dispatched).toEqual([]);
+        } finally {
+            restore();
+        }
+    });
+
+    it('completes the copy when the dispatcher throws', async () => {
+        const source = await eventsWriteFile(
+            `${user.home}/Documents/cpev-throws.txt`,
+            'x',
+        );
+        const destination = (await eventsEntryAt('/Desktop'))!;
+        const dispatchSpy = vi
+            .spyOn(eventsServer.services.events, 'dispatchFs')
+            .mockImplementation(() => {
+                throw new Error('dispatcher is down');
+            });
+
+        try {
+            const copy = await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: false,
+            });
+            expect(copy.path).toBe(`${user.home}/Desktop/cpev-throws.txt`);
+            await expect(
+                eventsServer.stores.fsEntry.getEntryByPath(copy.path),
+            ).resolves.toMatchObject({ uuid: copy.uuid });
+        } finally {
+            dispatchSpy.mockRestore();
+        }
     });
 });
 

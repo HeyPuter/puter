@@ -186,20 +186,6 @@ const COMPRESSION: Record<string, CompressionContext> = {
     'hosted-asset': HOSTED_ASSET_COMPRESSION,
 };
 
-/**
- * Thrown by `verify()` for any token that isn't v2 — the v1 format is retired
- * and no secret verifies it any more. Carries the **unverified** payload so the
- * auth probe can mint a `reauth_required` response with an `auth_id` hint — the
- * hint is advisory only (never trusted as identity), so reading it from an
- * unsigned payload is safe.
- */
-export class V1TokensDisabledError extends Error {
-    constructor(public readonly payload: Record<string, unknown>) {
-        super('v1 tokens are disabled');
-        this.name = 'V1TokensDisabledError';
-    }
-}
-
 // -- TokenService ----------------------------------------------------
 
 // The exact secret values shipped in config.default.json. Matched exactly
@@ -283,9 +269,9 @@ export class TokenService extends PuterService {
     }
 
     /**
-     * Verify and decompress. Only v2 tokens (`kid: 'v2'`) verify; anything else
-     * is the retired v1 format and throws `V1TokensDisabledError`, which the
-     * auth probe turns into a `reauth_required` answer rather than a bare 401.
+     * Verify and decompress. Only v2 tokens (`kid: 'v2'`) verify; any other
+     * token — including the retired v1 format — is rejected as invalid, with no
+     * payload or hint surfaced.
      *
      * Throws on invalid signature / expired / malformed (propagates
      * `jsonwebtoken`'s errors). Callers in the auth probe should catch and
@@ -308,21 +294,9 @@ export class TokenService extends PuterService {
             return this.#decompressPayload(context, payload) as unknown as T;
         }
 
-        // Anything without `kid: 'v2'` is the retired v1 format. Surface a
-        // structured error so the auth probe can route to a `reauth_required`
-        // response (with an `auth_id` hint) instead of a bare 401 that strands
-        // the user. Decompress the *unverified* payload — the hint is advisory,
-        // never trusted as identity.
-        const rawPayload =
-            decoded &&
-            typeof decoded === 'object' &&
-            decoded.payload &&
-            typeof decoded.payload === 'object'
-                ? (decoded.payload as Record<string, unknown>)
-                : {};
-        throw new V1TokensDisabledError(
-            this.#decompressPayload(context, rawPayload),
-        );
+        // Anything without `kid: 'v2'` is the retired v1 format — rejected
+        // outright as an invalid token, with no payload or hint surfaced.
+        throw new Error('unsupported or invalid token');
     }
 
     /**

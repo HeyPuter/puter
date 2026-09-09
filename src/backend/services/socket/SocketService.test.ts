@@ -43,13 +43,13 @@ import {
 describe('buildSocketReauthError', () => {
     it('packs reason + auth_id into error.data matching the HTTP shape', () => {
         const err = buildSocketReauthError({
-            reason: 'token_v1',
+            reason: 'session_expired',
             auth_id: 'u-1',
         });
         expect(err.message).toBe('reauth_required');
         expect(err.data).toEqual({
             code: 'reauth_required',
-            reason: 'token_v1',
+            reason: 'session_expired',
             auth_id: 'u-1',
         });
     });
@@ -188,17 +188,17 @@ describe('decideSocketAuth', () => {
         expect(decision.reject.message).toBe('socket auth failed');
     });
 
-    it('reauth wins over a usable actor (legacy v1 path)', () => {
-        // Legacy v1 tokens may lazy-backfill a valid actor AND emit a
-        // reauth signal — the socket must still reject so the client
-        // migrates. Mirrors the HTTP gate's priority.
+    it('reauth wins over a usable actor', () => {
+        // authenticate() may return a valid actor AND a reauth signal
+        // (e.g. an expired session) — the socket must still reject so the
+        // client re-auths. Mirrors the HTTP gate's priority.
         const decision = decideSocketAuth({
             actor: userActor,
-            reauth: { reason: 'token_v1', auth_id: 'u-1' },
+            reauth: { reason: 'session_expired', auth_id: 'u-1' },
         } as AuthResult);
         if (!('reject' in decision)) throw new Error('expected reject');
         expect((decision.reject as SocketReauthError).data.reason).toBe(
-            'token_v1',
+            'session_expired',
         );
     });
 });

@@ -134,6 +134,43 @@ describe('ui.requestPermission when the check does not settle it', () => {
     });
 });
 
+describe('ui.requestPermission `create`', () => {
+    it('forwards `create` in the options posted to the GUI', async () => {
+        const ui = makeUI();
+
+        ui.requestPermission({
+            permission: 'fs:/alice/.mail:write',
+            create: true,
+        });
+
+        await vi.waitFor(() => expect(promptCalls()).toHaveLength(1));
+        expect(promptCalls()[0][0].options.create).toBe(true);
+    });
+
+    it('leaves the options payload unchanged when `create` is absent', async () => {
+        const ui = makeUI();
+
+        ui.requestPermission({ permission: 'fs:/alice/.mail:write' });
+
+        await vi.waitFor(() => expect(promptCalls()).toHaveLength(1));
+        expect(promptCalls()[0][0].options).toEqual({
+            permission: 'fs:/alice/.mail:write',
+        });
+    });
+
+    it('rejects an invalid `create` value before any postMessage or check', async () => {
+        const ui = makeUI();
+
+        await expect(ui.requestPermission({
+            permission: 'fs:/alice/.mail:write',
+            create: 'socket',
+        })).rejects.toMatchObject({ code: 'invalid_argument' });
+
+        expect(mockReq).not.toHaveBeenCalled();
+        expect(promptCalls()).toHaveLength(0);
+    });
+});
+
 describe('ui.requestPermission where no prompt can be raised', () => {
     // This environment has always answered false, and a check run as the user —
     // who holds far more than the app would — must not turn that into a grant.

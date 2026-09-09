@@ -298,6 +298,33 @@ describe('perms request(resource, details)', () => {
             }),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
+
+    // -- `create` --
+
+    it('forwards `create` to requestPermission', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, 'permission', {
+            permission: 'fs:/alice/.mail:write',
+            create: true,
+        });
+
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'fs:/alice/.mail:write',
+            create: true,
+        });
+    });
+
+    it('rejects an invalid `create` value before any prompt', async () => {
+        const mod = makeModule();
+        await expect(
+            request.call(mod, 'permission', {
+                permission: 'a:read',
+                create: 'socket',
+            }),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
 });
 
 describe('perms request([...]) batching', () => {
@@ -413,6 +440,49 @@ describe('perms request([...]) batching', () => {
             ]),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    // One prompt is one decision, so a shared `create` value applies to it.
+    it('applies a single `create` value shared across a batch', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, [
+            { resource: 'permission', permission: 'a:read', create: true },
+            { resource: 'permission', permission: 'b:read' },
+        ]);
+
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permissions: ['a:read', 'b:read'],
+            create: true,
+        });
+    });
+
+    it('rejects conflicting `create` values across a batch, before any prompt', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await expect(
+            request.call(mod, [
+                { resource: 'permission', permission: 'a:read', create: true },
+                { resource: 'permission', permission: 'b:read', create: 'file' },
+            ]),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    // `create` only means something on `'permission'` entries; a stray one
+    // elsewhere in the batch must not be read as a second, conflicting value.
+    it('ignores a stray `create` on a non-permission entry in a batch', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, [
+            { resource: 'permission', permission: 'a:read', create: true },
+            { resource: 'apps', create: 'file' },
+        ]);
+
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permissions: ['a:read', 'apps-of-user:u-1:read'],
+            create: true,
+        });
     });
 
     it('rejects an entry with no resource, an unknown one, or a stray second argument', async () => {
@@ -568,6 +638,16 @@ describe('perms check(resource, details)', () => {
 
         // The queue is empty now, so the route refuses: not held.
         expect(await check.call(mod, 'appRootDir', { app: 'app-1' })).toBe(false);
+    });
+
+    it('rejects an invalid `create` value the same way `request` does', async () => {
+        const mod = makeModule();
+        await expect(
+            check.call(mod, 'permission', {
+                permission: 'a:read',
+                create: 'socket',
+            }),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
 
     // A failed check is not a denial — reporting one would prompt needlessly.

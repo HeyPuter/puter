@@ -20,7 +20,7 @@ puter.perms.check(requests)
 
 ## Parameters
 
-The same as [`puter.perms.request()`](/Perms/request/) — see the resource table there for what each one accepts.
+The same as [`puter.perms.request()`](/Perms/request/) — see the resource table there for what each one accepts. `create` is accepted and validated for signature symmetry, but `check()` never creates anything — it only ever reports whether access is already held. An invalid `create` value rejects with `{ message, code: 'invalid_argument' }`, the same as `request()`.
 
 ## Return value
 

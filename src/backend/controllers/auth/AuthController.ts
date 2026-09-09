@@ -20,6 +20,7 @@
 import bcrypt from 'bcrypt';
 import type { Request, RequestHandler, Response } from 'express';
 import crypto from 'node:crypto';
+import { posix as pathPosix } from 'node:path';
 import { v4 as uuidv4, validate as validateUuid } from 'uuid';
 import validator from 'validator';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
@@ -83,6 +84,16 @@ import {
     appDataSharingAllowed,
     parseAppDataPermission,
 } from '../../services/permission/appDataScopes.js';
+import {
+    assertCreatablePath,
+    fsCreateKindFor,
+    MAX_CREATED_ENTRIES_PER_GRANT,
+    parseCreateFlag,
+    parseFsPathPermission,
+    type FsCreateKind,
+} from '../../services/permission/fsPathPermission.js';
+import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 
 export const USERNAME_REGEX = /^\w{1,}$/;
@@ -3210,6 +3221,100 @@ export class AuthController extends PuterController {
         }
     }
 
+    /**
+     * Whether a granted `fs:` path permission needs its target created before
+     * the grant can resolve, and if so where and what kind. Null when there is
+     * nothing to create: `create` was not requested, the entry does not name an
+     * `fs:` path, it is a `manage:` grant, or the path already exists.
+     *
+     * Side-effect-free, like `#prepareAppDataGrant` above — a pre-grant hook
+     * run in the same validation loop, so a bad entry elsewhere in the list
+     * still leaves nothing created.
+     */
+    async #planFsPathCreate(
+        actor: Actor,
+        permission: string,
+        create: boolean | FsCreateKind,
+    ): Promise<{ path: string; kind: FsCreateKind } | null> {
+        if (!create) return null;
+        const parsed = parseFsPathPermission(permission);
+        if (!parsed) return null;
+        // A `manage:` grant delegates re-sharing, not access itself — creating
+        // a path in order to delegate management of it is not a coherent
+        // request.
+        if (parsed.hasManage) return null;
+
+        const path = normalizeAbsolutePath(parsed.path);
+        const existing = await this.stores.fsEntry.getEntryByPath(path);
+        if (existing) {
+            if (
+                (create === 'dir' && !existing.isDir) ||
+                (create === 'file' && existing.isDir)
+            ) {
+                throw new HttpError(409, `An entry already exists at ${path}`, {
+                    legacyCode: 'conflict',
+                });
+            }
+            // Already there: the grant resolves the existing entry, nothing to
+            // create. A `true` heuristic guess never conflicts with reality.
+            return null;
+        }
+
+        // Checked only once the path is confirmed missing, so an existing
+        // shared path outside the caller's home is not a new rejection.
+        assertCreatablePath(path, actor.user!.username!);
+
+        const kind =
+            create === true
+                ? fsCreateKindFor(pathPosix.basename(path))
+                : create;
+        return { path, kind };
+    }
+
+    /** Creates the target `#planFsPathCreate` planned, as the user actor. */
+    async #createGrantTarget(
+        actor: Actor,
+        plan: { path: string; kind: FsCreateKind },
+    ): Promise<FSEntry> {
+        const userId = actor.user!.id;
+        // Missing intermediate directories are created along with the leaf.
+        // They are deliberately not rolled back if a later phase fails, so a
+        // failed grant can leave empty directories inside the user's home.
+        return plan.kind === 'dir'
+            ? await this.services.fs.mkdir(userId, {
+                  path: plan.path,
+                  createMissingParents: true,
+              })
+            : await this.services.fs.touch(userId, {
+                  path: plan.path,
+                  createMissingParents: true,
+              });
+    }
+
+    /**
+     * Undoes what `#createGrantTarget` made for this request, newest first,
+     * when a later phase fails. Auto-created intermediate directories are not
+     * rolled back — they are left as empty directories inside the user's own
+     * home.
+     */
+    async #rollbackCreatedGrantTargets(
+        actor: Actor,
+        created: FSEntry[],
+    ): Promise<void> {
+        const userId = actor.user!.id;
+        for (const entry of [...created].reverse()) {
+            try {
+                await this.services.fs.remove(userId, {
+                    entry,
+                    recursive: false,
+                });
+            } catch {
+                // Best-effort: the error that triggered the rollback is what
+                // the caller sees, not a failure to undo it.
+            }
+        }
+    }
+
     @Post('/auth/grant-user-app', {
         subdomain: 'api',
         requireUserActor: true,
@@ -3234,30 +3339,73 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        // 400 on a bad value, before anything else runs.
+        const create = parseCreateFlag(req.body?.create);
 
-        // Validate every entry before writing any, so a bad one in the list
-        // cannot leave a partially-granted set behind: the dialog reads a 4xx as
-        // "nothing was written" and skips its withdrawal, so a partial commit
-        // leaves live access the user was told they refused. The rewrite running
-        // twice is cheaper than splitting the grant into prepare/commit.
+        // Validate every entry before writing or creating anything, so a bad
+        // one in the list cannot leave a partially-granted set behind: the
+        // dialog reads a 4xx as "nothing was written" and skips its
+        // withdrawal, so a partial commit leaves live access the user was
+        // told they refused.
+        const plans: Array<{
+            entry: string;
+            path: string;
+            kind: FsCreateKind;
+        }> = [];
         for (const entry of list) {
-            await this.services.permission.assertUserAppPermissionWritable(
-                entry,
-            );
             // A delegation over a whole key-value namespace has no bounded
             // description, so it is refused where it is asked for rather than
             // prompted for and then refused at use.
             assertBoundedManageGrant(entry);
             await this.#prepareAppDataGrant(req.actor!, entry);
-        }
-        for (const entry of list) {
-            await this.services.permission.grantUserAppPermission(
+            const plan = await this.#planFsPathCreate(
                 req.actor!,
-                app_uid,
                 entry,
-                extra ?? undefined,
-                meta ?? undefined,
+                create,
             );
+            if (plan) {
+                // Checked on every planned entry, not just successful
+                // creations, so the cap bounds attempts in this request.
+                if (plans.length >= MAX_CREATED_ENTRIES_PER_GRANT) {
+                    throw new HttpError(400, 'Too many paths to create', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                plans.push({ entry, ...plan });
+            } else {
+                // Nothing to create for this entry: the same pre-flight the
+                // rewrite always ran, measuring the width of the row it
+                // resolves to. Once a path is created, `grantUserAppPermission`
+                // re-runs the identical rewrite and check itself.
+                await this.services.permission.assertUserAppPermissionWritable(
+                    entry,
+                );
+            }
+        }
+
+        // Two entries in the same batch can name the same path (different
+        // modes on one `fs:` target); create it once, not once per entry.
+        const uniquePlans = [
+            ...new Map(plans.map((p) => [p.path, p])).values(),
+        ];
+
+        const created: FSEntry[] = [];
+        try {
+            for (const plan of uniquePlans) {
+                created.push(await this.#createGrantTarget(req.actor!, plan));
+            }
+            for (const entry of list) {
+                await this.services.permission.grantUserAppPermission(
+                    req.actor!,
+                    app_uid,
+                    entry,
+                    extra ?? undefined,
+                    meta ?? undefined,
+                );
+            }
+        } catch (err) {
+            await this.#rollbackCreatedGrantTargets(req.actor!, created);
+            throw err;
         }
         res.json({});
     }

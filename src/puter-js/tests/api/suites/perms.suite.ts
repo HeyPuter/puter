@@ -147,6 +147,28 @@ export default suite('perms', {
         },
     },
 
+    // -- `create` on the raw-permission form --
+
+    'request rejects an invalid `create` value before any prompt': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.perms.request('permission', {
+                permission: UNHELD_PERMISSION,
+                create: 'socket' as unknown as boolean,
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
+    },
+
+    'a batch rejects conflicting `create` values across entries': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.perms.request([
+                { resource: 'permission', permission: 'a:read', create: true },
+                { resource: 'permission', permission: 'b:read', create: 'file' },
+            ]),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
+    },
+
     // -- check(resource, details) --
 
     'check answers without prompting': async (t) => {

@@ -6,9 +6,10 @@ const FIXTURE = FIXTURE_URL.replace(
     'boot-reauth.html',
 );
 
-// Any token the backend can't honor. Real visitors arrive with a legacy v1
-// token, a revoked session, or an expired one; all three come back as
-// `401 reauth_required`, which is the only thing that matters here.
+// Any token the backend can't honor — an unrecognized token comes back as
+// `401 token_auth_failed`, a revoked or expired session as `401
+// reauth_required`. Either way boot must not turn a page load into a sign-in
+// prompt, which is the only thing that matters here.
 const STALE_TOKEN = 'stale.boot.token';
 
 /**

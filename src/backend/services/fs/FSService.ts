@@ -78,6 +78,9 @@ import type {
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 
+/** What `getAncestorChain` returns: a node and every directory above it. */
+type AncestorChain = Array<{ uid: string; path: string }>;
+
 /**
  * Storage-allowance sentinel meaning "don't enforce a quota on this write".
  *
@@ -3819,20 +3822,28 @@ export class FSService extends PuterService {
      * `movedFrom` is a move only: the folder `entry` left needs its own
      * ancestor walk, taken from where it used to live, or its subscribers would
      * never hear the node went.
+     *
+     * `ancestors` lets a caller that already knows the chain supply it instead
+     * of walking from `entry.path`.
      */
     #dispatchEvents(
         key: EventKey,
         entry: FSEntry,
-        movedFrom?: { path: string },
+        options: {
+            movedFrom?: { path: string };
+            ancestors?: () => Promise<AncestorChain>;
+        } = {},
     ): void {
         const events = this.services.events;
         if (!events?.enabled) return;
+        const { movedFrom, ancestors } = options;
         try {
             void events
                 .dispatchFs(key, entry, {
                     actingUserId: (Context.get('actor') as Actor | undefined)
                         ?.user?.id,
-                    ancestors: () => this.getAncestorChain(entry.path),
+                    ancestors:
+                        ancestors ?? (() => this.getAncestorChain(entry.path)),
                     ...(movedFrom
                         ? {
                               movedFrom: {
@@ -3849,6 +3860,38 @@ export class FSService extends PuterService {
         } catch (err) {
             console.warn('[fs] event dispatch failed', err);
         }
+    }
+
+    /**
+     * Publish an entry a copy created as a plain `add` — the same thing a write
+     * or an upload publishes. Events-API dispatch only: `fs.create.*` on the
+     * internal bus has consumers a copy has never reached, and the copy's own
+     * bus event stays `fs.copy.node`.
+     *
+     * Links are left out: a shortcut names another node, so what a subscriber
+     * should be told about one is unsettled.
+     *
+     * `above` is the new entries between this one and the destination parent,
+     * innermost first, so a tree copy costs one ancestor walk rather than one
+     * per entry.
+     */
+    #publishCopiedEntry(
+        entry: FSEntry,
+        above: AncestorChain,
+        destinationChain: () => Promise<AncestorChain>,
+    ): void {
+        if (entry.isSymlink || entry.isShortcut) return;
+        this.#dispatchEvents(
+            entry.isDir ? 'fs.create.directory' : 'fs.create.file',
+            entry,
+            {
+                ancestors: async () => [
+                    { uid: entry.uid, path: entry.path },
+                    ...above,
+                    ...(await destinationChain()),
+                ],
+            },
+        );
     }
 
     /**
@@ -3888,7 +3931,7 @@ export class FSService extends PuterService {
         } catch {
             console.warn('missing event emissions');
         }
-        this.#dispatchEvents(name, entry, movedFrom);
+        this.#dispatchEvents(name, entry, { movedFrom });
     }
 
     /**
@@ -4028,7 +4071,9 @@ export class FSService extends PuterService {
         } catch {
             // ignore — non-critical.
         }
-        this.#dispatchEvents('fs.move.node', updated, { path: source.path });
+        this.#dispatchEvents('fs.move.node', updated, {
+            movedFrom: { path: source.path },
+        });
         return updated;
     }
 
@@ -4037,7 +4082,8 @@ export class FSService extends PuterService {
      * issues S3 CopyObject + DB inserts. Thumbnail URLs on entries ride along
      * in the DB column — the thumbnail extension is notified via `fs.copy.node`
      * so it can duplicate the backing S3 object (otherwise deleting one copy
-     * would nuke the other's thumbnail).
+     * would nuke the other's thumbnail). Each entry the copy creates publishes
+     * as `add`; a copied shortcut or symlink does not.
      */
     async copy(
         userId: number,
@@ -4119,14 +4165,28 @@ export class FSService extends PuterService {
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
 
+        // One ancestor walk for the whole copy, run only if something needs
+        // it — the destination parent's own chain is the same for every
+        // entry the copy creates.
+        let destinationChainCache: Promise<AncestorChain> | null = null;
+        const destinationChain = (): Promise<AncestorChain> => {
+            if (!destinationChainCache)
+                destinationChainCache = this.getAncestorChain(
+                    destinationParent.path,
+                );
+            return destinationChainCache;
+        };
+
         if (!source.isDir) {
-            return this.#copyLeafEntry(
+            const copied = await this.#copyLeafEntry(
                 userId,
                 source,
                 destinationParent,
                 name,
                 finalPath,
             );
+            this.#publishCopiedEntry(copied, [], destinationChain);
+            return copied;
         }
 
         // Recursive directory copy:
@@ -4142,6 +4202,11 @@ export class FSService extends PuterService {
             associatedAppId: source.associatedAppId,
             isPublic: source.isPublic,
         });
+        // The new entries above a given new entry, so a descendant's chain
+        // can be built without reading anything back.
+        const aboveByNewPath = new Map<string, AncestorChain>();
+        aboveByNewPath.set(newRoot.path, []);
+        this.#publishCopiedEntry(newRoot, [], destinationChain);
 
         const descendants = await this.stores.fsEntry.listDescendantsByPath(
             source.path,
@@ -4180,6 +4245,12 @@ export class FSService extends PuterService {
                           ? `/${descendant.name}`
                           : `${newParent.path}/${descendant.name}`,
                   );
+            const above: AncestorChain = [
+                { uid: newParent.uid, path: newParent.path },
+                ...(aboveByNewPath.get(newParent.path) ?? []),
+            ];
+            aboveByNewPath.set(copied.path, above);
+            this.#publishCopiedEntry(copied, above, destinationChain);
             newByOldPath.set(descendant.path, copied);
         }
 

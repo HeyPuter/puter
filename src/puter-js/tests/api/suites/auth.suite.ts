@@ -282,29 +282,30 @@ export default suite('auth', {
         });
     },
 
-    // A token the backend rejects routes through the reauth coordinator rather
-    // than surfacing the raw 401. Restricted to the non-interactive runtimes:
-    // on `web` the same response drives the sign-in popup, which a headless
-    // suite has no way to answer.
-    'a token the backend rejects routes through reauth': {
+    // Malformed tokens return a plain 401; only recognized sessions can
+    // produce a reauth signal. Web handles invalid tokens with a sign-in popup.
+    'a malformed token returns 401 without triggering reauth': {
         platforms: ['node', 'workerd'],
         fn: async (t) => {
             const p = internals(t);
-            p.authToken = 'auth-suite-not-a-real-token';
+            const token = p.authToken;
+            const invalidToken = 'auth-suite-not-a-real-token';
+            const reauthSignals: unknown[] = [];
+            const dispose = p.on('puter.auth.reauth_required', (payload) => {
+                reauthSignals.push(payload);
+            });
+            p.authToken = invalidToken;
             try {
                 const error = (await t.assert.rejects(() =>
                     t.puter.auth.getUser(),
-                )) as { code?: string };
-                t.assert.equal(error.code, 'reauth_required');
-                t.assert.equal(
-                    p.authToken,
-                    null,
-                    'the rejected token must be dropped before reauth runs',
-                );
+                )) as { status?: number; message?: string };
+                t.assert.equal(error.status, 401);
+                t.assert.equal(error.message, 'Unauthorized');
+                t.assert.equal(reauthSignals.length, 0);
+                t.assert.equal(p.authToken, invalidToken);
             } finally {
-                // Reauth drops the token, so restore through the public setter
-                // to re-notify the modules holding a connection.
-                t.puter.setAuthToken(t.env.users.user.token);
+                dispose();
+                p.authToken = token;
             }
         },
     },

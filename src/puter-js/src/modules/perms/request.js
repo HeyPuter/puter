@@ -62,7 +62,12 @@ const folderNameOf = (details) => assertFolderName(details.name);
  * @returns {string[]}
  */
 const permissionsOf = (details) => {
-    const { permission, permissions } = details;
+    const { permission, permissions, create } = details;
+    if ( create !== undefined
+        && create !== true && create !== false
+        && create !== 'dir' && create !== 'file' ) {
+        throw invalidArgument('`create` must be true, false, "dir", or "file"');
+    }
     if ( permissions !== undefined ) {
         if ( permission !== undefined ) {
             throw invalidArgument('pass `permission` or `permissions`, not both');
@@ -337,6 +342,20 @@ async function runEntries (ctx, entries, prompt) {
         ),
     );
 
+    // Only the raw-permission resource carries `create`, and one prompt is one
+    // decision — so at most one distinct value may cover it. Checked here,
+    // still before anything is asked.
+    const createValues = [...new Set(
+        entries
+            .filter(({ resource }) => resource === 'permission')
+            .map(({ details }) => details.create)
+            .filter(Boolean),
+    )];
+    if ( createValues.length > 1 ) {
+        throw invalidArgument('conflicting `create` values in one request');
+    }
+    const create = createValues[0];
+
     const holds = pooledHolds(
         ctx,
         entries.flatMap(({ resource }, i) =>
@@ -376,7 +395,7 @@ async function runEntries (ctx, entries, prompt) {
     const granted =
         missing.length === 0
             ? true
-            : await requestPermissions(ctx.puter, missing);
+            : await requestPermissions(ctx.puter, missing, create);
 
     return await Promise.all(
         entries.map(({ resource, details }, i) =>

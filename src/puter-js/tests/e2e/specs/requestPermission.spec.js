@@ -433,6 +433,37 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
     });
 });
 
+test.describe('puter.ui.requestPermission `create` flag (env=app)', () => {
+    test('deny creates nothing; allow creates the directory and resolves true', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+            const dialog = page.locator('dialog.perm-dialog');
+
+            // Deny first: the dialog describes what creating the path would
+            // do (there is nothing to stat yet), and nothing is created. The
+            // fixture's name has no dot, so the heuristic says directory —
+            // the copy must say "folder", not the generic "create" wording.
+            await appFrame.locator('#req-fs-create-perm').click();
+            await expect(dialog).toBeVisible();
+            await expect(dialog.locator('.perm-dialog-perm-text')).toContainText('folder');
+            await dialog.locator('.perm-dialog-deny').click();
+            await expect(appFrame.locator('#log [data-entry="perm:fscreate:false"]')).toBeVisible();
+            await expect(appFrame.locator('#log [data-entry="perm:fscreate:stat:missing"]')).toBeVisible();
+            await expect(dialog).toBeHidden();
+
+            // Allow: the same path is now created server-side, as the user.
+            await appFrame.locator('#req-fs-create-perm').click();
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            await expect(appFrame.locator('#log [data-entry="perm:fscreate:true"]')).toBeVisible();
+            await expect(appFrame.locator('#log [data-entry="perm:fscreate:stat:dir"]')).toBeVisible();
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+});
+
 test.describe('puter.ui.requestPermission (env=gui)', () => {
     test('inside the Puter GUI it resolves false without opening anything', async ({ page, context }) => {
         // The popup flow is for third-party websites. The GUI's own SDK runs

@@ -112,6 +112,17 @@ The Puter desktop generates PDF upload thumbnails locally with these best-effort
 
 The SDK allows five seconds for each separate signed thumbnail transfer. A failed or timed-out thumbnail transfer is skipped; explicit upload cancellation and failures transferring the original file still stop the upload. These are preview budgets, not upload file-size limits. The PDF renderer's memory budgets do not constitute a hard limit on total browser-process memory.
 
+### Permissions
+
+| Limit | Value |
+| ----- | ----- |
+| Grant / revoke calls | 60/min per account |
+| Permissions per grant or revoke request | 16 |
+| Filesystem entries a `create` grant may bring into existence per request | 4 |
+| Path depth a `create` grant may provision below the home directory | 16 components |
+
+The last two apply only to [`create`](/Perms/request/#creating-a-path-on-request) on a raw `fs:` permission request. Missing intermediate directories are created along with the requested path.
+
 ### WebDAV
 
 The `dav` host authenticates each request itself, so its limits are bounded per network rather than per account: **600 requests/min** and **10 concurrent**, one ceiling for everyone.
