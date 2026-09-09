@@ -16,7 +16,19 @@ export function toTeam (row) {
         name: /** @type {string | null} */ (row.name ?? null),
         handle: /** @type {string | null} */ (row.handle ?? null),
         isOwner: row.is_owner === true,
+        directoryEnabled: row.directory_enabled === true,
         createdAt: /** @type {string} */ (row.created_at),
+    };
+}
+
+/**
+ * @param {Record<string, unknown>} row
+ * @returns {import('../types.js').TeamDirectoryEntry}
+ */
+export function toDirectoryEntry (row) {
+    return {
+        username: /** @type {string} */ (row.username),
+        uuid: /** @type {string} */ (row.uuid),
     };
 }
 

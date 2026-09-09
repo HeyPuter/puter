@@ -10,6 +10,8 @@
  * @property {string | null} name The team's display name.
  * @property {string | null} handle The team's short handle, unique while it exists. `null` when unset.
  * @property {boolean} isOwner Whether the caller is the owner account of this team.
+ * @property {boolean} directoryEnabled Whether apps acting for a member may read the member list
+ * through `Teams.listDirectory()`. Off unless the owner account turns it on.
  * @property {string} createdAt When the team was created, in `YYYY-MM-DDTHH:MM:SSZ` format.
  */
 
@@ -28,11 +30,19 @@
  * @typedef {Object} UpdateTeamAttributes
  * @property {string} [name] The team's new display name.
  * @property {string | null} [handle] A new handle, or `null` to release the current one.
+ * @property {boolean} [directoryEnabled] Whether apps acting for a member may read the member list.
+ * Off by default; turning it on is recorded in the team's audit log.
  */
 
 /**
  * An account belonging to a team.
  *
+ * @typedef {Object} TeamDirectoryEntry
+ * @property {string} username The colleague's Puter username.
+ * @property {string} uuid Their account identifier, stable across a username change.
+ */
+
+/**
  * @typedef {Object} TeamMember
  * @property {string} username The member's Puter username.
  * @property {boolean} orgOwned Whether the team provisioned and pays for this account, as opposed

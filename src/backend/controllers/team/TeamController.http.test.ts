@@ -172,6 +172,49 @@ describe('team endpoints over HTTP', () => {
         ).toBeFalsy();
     });
 
+    // -- the directory ------------------------------------------------
+
+    it('keeps the directory shut until the team opts in', async () => {
+        const { team } = await makeTeam();
+
+        const before = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            env.users.user.token,
+        );
+        // 404, not 403: whether this is on is not an app's to probe for.
+        expect(before.status).toBe(404);
+
+        const on = await call('PUT', `/teams/${team.uid}`, env.users.user.token, {
+            directory_enabled: true,
+        });
+        expect(on.status).toBe(200);
+        expect(await on.json()).toMatchObject({ directory_enabled: true });
+
+        const after = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            env.users.user.token,
+        );
+        expect(after.status).toBe(200);
+        const body = (await after.json()) as { items: { username: string }[] };
+        expect(body.items.some((m) => m.username === env.users.user.username)).toBe(true);
+    });
+
+    it('refuses the directory to someone outside the team', async () => {
+        const { team } = await makeTeam();
+        await call('PUT', `/teams/${team.uid}`, env.users.user.token, {
+            directory_enabled: true,
+        });
+
+        const res = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            env.users.other.token,
+        );
+        expect(res.status).toBe(404);
+    });
+
     it('lists members with org_owned distinguishing the owner', async () => {
         const { team, memberUsername } = await makeTeam();
 

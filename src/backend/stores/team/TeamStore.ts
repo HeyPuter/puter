@@ -36,6 +36,8 @@ export interface TeamRow {
     handle: string | null;
     deleted_at: string | null;
     created_at: string;
+    /** Whether an app acting for a member may read the member list. */
+    directory_enabled: number;
 }
 
 export const TEAM_KIND = 'team';
@@ -82,8 +84,8 @@ export const AUDIT_PAGE_CAP = 200;
 
 /**
  * Ceiling on a share announcement's fan-out. Well above the default seat cap,
- * so it bounds a pathological team rather than a real one; the caller logs
- * when it bites, because a silently shortened fan-out reads as "everyone knows".
+ * so it bounds a pathological team rather than a real one; the caller logs when
+ * it bites, because a silently shortened fan-out reads as "everyone knows".
  */
 export const NOTIFY_FANOUT_CAP = 500;
 
@@ -259,7 +261,11 @@ export class TeamStore extends PuterStore {
     /** Null when no live team has that uid. `handle: null` releases it. */
     async update(
         uid: string,
-        changes: { name?: string; handle?: string | null },
+        changes: {
+            name?: string;
+            handle?: string | null;
+            directoryEnabled?: boolean;
+        },
     ): Promise<TeamRow | null> {
         const sets: string[] = [];
         const params: unknown[] = [];
@@ -277,6 +283,10 @@ export class TeamStore extends PuterStore {
             }
             sets.push('`handle` = ?');
             params.push(changes.handle);
+        }
+        if (changes.directoryEnabled !== undefined) {
+            sets.push('`directory_enabled` = ?');
+            params.push(changes.directoryEnabled ? 1 : 0);
         }
         if (sets.length === 0) return this.getByUid(uid);
 
@@ -364,6 +374,47 @@ export class TeamStore extends PuterStore {
                 ? [teamUid, TEAM_KIND, limit + 1]
                 : [teamUid, TEAM_KIND, after, limit + 1],
         )) as unknown as TeamMemberRow[];
+
+        const items = rows.slice(0, limit);
+        const cursor =
+            rows.length > limit
+                ? encodeCursor({ id: items[items.length - 1].id })
+                : undefined;
+        return { items, cursor };
+    }
+
+    /**
+     * The directory page: who a member may be suggested alongside. Excludes
+     * suspended accounts and ones that never activated -- offering someone who
+     * cannot sign in is noise, and their existence is not this list's to tell.
+     *
+     * Activation is `requires_password_change` clearing, not the password
+     * existing: a provisioned seat holds the temporary one from birth.
+     */
+    async listDirectory(
+        teamUid: string,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ): Promise<PageResult<{ id: number; username: string; uuid: string }>> {
+        const limit =
+            normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
+            MEMBER_PAGE_SIZE;
+        const page = decodeCursor(opts.cursor, 'team directory cursor');
+        const after = typeof page?.id === 'number' ? page.id : null;
+
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`id`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE g.\`uid\` = ? AND g.${this.#live()} ` +
+                'AND (u.`suspended` IS NULL OR u.`suspended` = 0) ' +
+                'AND (u.`requires_password_change` IS NULL ' +
+                'OR u.`requires_password_change` = 0)' +
+                (after === null ? '' : ' AND ug.`id` > ?') +
+                ' ORDER BY ug.`id` LIMIT ?',
+            after === null
+                ? [teamUid, TEAM_KIND, limit + 1]
+                : [teamUid, TEAM_KIND, after, limit + 1],
+        )) as unknown as { id: number; username: string; uuid: string }[];
 
         const items = rows.slice(0, limit);
         const cursor =
@@ -546,8 +597,6 @@ export class TeamStore extends PuterStore {
         return Number(rows[0]?.n ?? 0);
     }
 
-
-
     /** Soft-deleted teams count: their seats still hold billable bytes. */
     async getOrgSeat(userId: number): Promise<OrgSeatRow | null> {
         return this.#cached(`team:seat:${userId}`, () =>
@@ -630,7 +679,7 @@ export class TeamStore extends PuterStore {
         // Unix seconds in SQL: the mysql driver reads a stored UTC datetime
         // as local, which shifts every row away from the sign-ins.
         const epoch = this.clients.db.case({
-            postgres: "EXTRACT(EPOCH FROM `created_at`)::bigint",
+            postgres: 'EXTRACT(EPOCH FROM `created_at`)::bigint',
             mysql: 'UNIX_TIMESTAMP(`created_at`)',
             otherwise: "CAST(strftime('%s', `created_at`) AS INTEGER)",
         });

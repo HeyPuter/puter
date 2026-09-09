@@ -319,6 +319,58 @@ describe('team billing events', () => {
         expect(mine.map((r) => r.action)).toContain('delete_account');
     });
 
+    // -- the directory --------------------------------------------------
+
+    it('offers only members who have actually taken up their account', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        await service.updateTeam(team.uid, owner.id, {
+            directoryEnabled: true,
+        });
+
+        const unactivated = await service.listDirectory(team.uid, owner.id);
+        // Provisioned holds the temporary password from birth, so this is the
+        // forced-change flag, not the password, deciding.
+        expect(unactivated.items.map((m) => m.username)).not.toContain(seat.username);
+
+        await server.stores.user.update(seat.userId, {
+            requires_password_change: 0,
+        });
+        await server.stores.user.invalidateById(seat.userId);
+        const activated = await service.listDirectory(team.uid, owner.id);
+        expect(activated.items.map((m) => m.username)).toContain(seat.username);
+
+        await service.disableMember(team.uid, owner.id, seat.userId);
+        const suspended = await service.listDirectory(team.uid, owner.id);
+        expect(suspended.items.map((m) => m.username)).not.toContain(seat.username);
+    });
+
+    it('records the directory being opened, but not a repeat of the same value', async () => {
+        const team = await makeTeam();
+        const directoryRows = async () => {
+            const page = await server.stores.team.listAudit(team.id);
+            return page.items
+                .map((r) => String(r.action))
+                .filter((a) => a.startsWith('directory_'));
+        };
+
+        await service.updateTeam(team.uid, owner.id, { directoryEnabled: true });
+        expect(await directoryRows()).toEqual(['directory_enabled']);
+
+        await service.updateTeam(team.uid, owner.id, { directoryEnabled: true });
+        expect(await directoryRows()).toEqual(['directory_enabled']);
+
+        await service.updateTeam(team.uid, owner.id, { directoryEnabled: false });
+        expect(await directoryRows()).toEqual(['directory_disabled', 'directory_enabled']);
+    });
+
+    it('refuses the directory while the team has not opted in', async () => {
+        const team = await makeTeam();
+        await expect(
+            service.listDirectory(team.uid, owner.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
     it('says nothing about an account no team pays for', async () => {
         const outsider = await makeUser();
         seen.length = 0;

@@ -36,9 +36,9 @@ type GuiEvent<R = Record<string, unknown>> = {
 type FsCreateEvent = { node: FSEntry; entry: FSEntry; uid: string };
 
 /**
- * Who pays, and for which team. Deliberately no payment identity: the
- * payer's row is alive at emit time, so a consumer resolves it when it acts --
- * a snapshot taken here would be stale, and two events racing on it would each
+ * Who pays, and for which team. Deliberately no payment identity: the payer's
+ * row is alive at emit time, so a consumer resolves it when it acts -- a
+ * snapshot taken here would be stale, and two events racing on it would each
  * create their own customer.
  */
 export type TeamBillingContext = {

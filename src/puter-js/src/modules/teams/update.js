@@ -17,6 +17,7 @@ export async function update (uid, attributes) {
     const body = {};
     if ( attributes?.name !== undefined ) body.name = attributes.name;
     if ( attributes?.handle !== undefined ) body.handle = attributes.handle;
+    if ( attributes?.directoryEnabled !== undefined ) body.directory_enabled = attributes.directoryEnabled;
 
     return toTeam(await req(this.puter, 'PUT', `/teams/${segment}`, { body, operation: 'update' }));
 }
