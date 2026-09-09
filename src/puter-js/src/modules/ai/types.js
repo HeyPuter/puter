@@ -168,8 +168,9 @@
  * @property {string} [model] Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'`
  * (OpenAI), or `'grok-imagine-image'` when `provider` is `'xai'`.
  * @property {string} [quality] Image quality / output size tier. Interpretation is provider- and
- * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`), and
- * `gpt-image-2` also accepts `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
+ * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`),
+ * `gpt-image-2` also accepts `'auto'`, and `gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` also
+ * accept `'xhigh'` | `'max'` | `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
  * `'4K'` (availability varies by model).
  * @property {string} [input_image] An input image for image-to-image generation. Replicate and xAI
  * `grok-imagine-*` accept a URL; Gemini and OpenAI `gpt-image-*` expect a base64-encoded (or data-URI)

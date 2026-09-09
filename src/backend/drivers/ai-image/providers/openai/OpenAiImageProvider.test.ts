@@ -427,6 +427,142 @@ describe('OpenAiImageProvider.generate gpt-image-* request shape', () => {
     });
 });
 
+// -- gpt-image-2.5 family --
+
+describe('OpenAiImageProvider gpt-image-2.5 models', () => {
+    const gptResponse = {
+        data: [{ b64_json: 'AAAA' }],
+        usage: {
+            input_tokens: 100,
+            output_tokens: 800,
+            input_tokens_details: {
+                text_tokens: 100,
+                image_tokens: 0,
+                cached_tokens: 0,
+            },
+        },
+    };
+
+    it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+        '%s takes open-ended sizes and the xhigh/max quality tiers',
+        (id) => {
+            const model = makeProvider()
+                .models()
+                .find((m) => m.id === id);
+            expect(model).toBeDefined();
+            expect(model!.allowedQualityLevels).toEqual([
+                'low',
+                'medium',
+                'high',
+                'xhigh',
+                'max',
+                'auto',
+            ]);
+            expect(model!.allowedRatios).toBeUndefined();
+        },
+    );
+
+    it('sends the xhigh tier upstream and meters it under that price key', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValueOnce(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'xhigh',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        expect(generateMock.mock.calls[0]![0].quality).toBe('xhigh');
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        const types = (entries as Array<{ usageType: string }>).map(
+            (e) => e.usageType,
+        );
+        expect(types).toEqual(
+            expect.arrayContaining([
+                'openai:gpt-image-2.5-sunburst:xhigh:1024x1024:input',
+                'openai:gpt-image-2.5-sunburst:xhigh:1024x1024:output',
+            ]),
+        );
+    });
+
+    it('bills output at the reported token count, not the estimate', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValueOnce(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-flare',
+                prompt: 'hi',
+                quality: 'max',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        const output = (
+            entries as Array<{ usageType: string; costOverride: number }>
+        ).find((e) => e.usageType.endsWith(':output'))!;
+        // 800 output tokens at image_output=3000 cents/1M = 2.4 cents.
+        expect(output.costOverride).toBe(2_400_000);
+    });
+
+    it('estimates fewer output tokens per quality tier than gpt-image-2', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2',
+                prompt: 'hi',
+                quality: 'medium',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'medium',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        // Latent factor 48 vs 24 at the medium tier.
+        const gptImage2Estimate = hasCreditsSpy.mock.calls[0]![1];
+        const gptImage25Estimate = hasCreditsSpy.mock.calls[1]![1];
+        expect(gptImage25Estimate).toBeLessThan(gptImage2Estimate);
+    });
+
+    it('scales the credit gate up for the max tier', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'high',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'max',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        const highEstimate = hasCreditsSpy.mock.calls[0]![1];
+        const maxEstimate = hasCreditsSpy.mock.calls[1]![1];
+        expect(maxEstimate).toBeGreaterThan(highEstimate);
+    });
+});
+
 // ── gpt-image-2 size normalizer ────────────────────────────────────
 
 describe('OpenAiImageProvider.generate gpt-image-2 size normalizer', () => {
