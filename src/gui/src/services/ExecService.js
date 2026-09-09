@@ -19,6 +19,7 @@
 
 import { PROCESS_IPC_ATTACHED, Service } from '../definitions.js';
 import launch_app from '../helpers/launchApp.js';
+import { expand_home_path } from '../helpers/expandHomePath.js';
 
 export class ExecService extends Service {
     static description = `
@@ -132,13 +133,8 @@ export class ExecService extends Service {
 
                     // For the first file, create a file signature and set it up like opening a file
                     if ( file_paths.length > 0 ) {
-                        let first_file_path = file_paths[0];
-
-                        // resolve tilde to home path (i.e. ~/Desktop/file.txt -> /[username]/Desktop/file.txt)
-                        if ( first_file_path.startsWith('~/') )
-                        {
-                            first_file_path = window.home_path + first_file_path.slice(1);
-                        }
+                        // i.e. ~/Desktop/file.txt -> /[username]/Desktop/file.txt
+                        const first_file_path = expand_home_path(file_paths[0], window.home_path);
 
                         try {
                             // Get file stats to verify it exists

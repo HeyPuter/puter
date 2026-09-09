@@ -209,6 +209,9 @@ const postAuthActions = async (action) => {
                     // malformed posargs: launch without them
                 }
             }
+            // `?file=<path>` opens that file with the app, the same as
+            // double-clicking it would.
+            const file_path = window.url_query_params.get('file');
             // The server titles /app/<name> pages after the app, so the
             // launch's lazy base-title capture would keep the app's name
             // forever — preset the title to fall back to when the app's
@@ -265,6 +268,7 @@ const postAuthActions = async (action) => {
                     maximized: true,
                     params: app_query_params,
                     readURL: window.url_query_params.get('readURL'),
+                    ...(file_path ? { file_path } : {}),
                     ...(app_obj ? { app_obj } : {}),
                     ...(posargs ? {
                         args: {
