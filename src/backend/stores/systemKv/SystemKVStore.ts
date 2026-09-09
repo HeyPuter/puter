@@ -1423,6 +1423,7 @@ export class SystemKVStore extends PuterStore {
             offset,
             includeTotal,
             fetchUntilFull,
+            reverse,
         }: {
             as?: 'keys' | 'values' | 'entries';
             limit?: number;
@@ -1431,6 +1432,7 @@ export class SystemKVStore extends PuterStore {
             offset?: number;
             includeTotal?: boolean;
             fetchUntilFull?: boolean;
+            reverse?: boolean;
         },
         opts?: KVOpts,
     ): Promise<
@@ -1456,7 +1458,50 @@ export class SystemKVStore extends PuterStore {
             cap: MAX_LIST_OFFSET,
             label: 'kv: offset',
         });
-        const pageKey = decodeCursor(cursor, 'kv: cursor');
+        if (reverse !== undefined && typeof reverse !== 'boolean') {
+            throw new HttpError(400, 'kv: reverse must be a boolean', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const decodedCursor = decodeCursor(cursor, 'kv: cursor');
+        let pageKey = decodedCursor;
+        let cursorReverse = false;
+        if (decodedCursor !== undefined) {
+            if (
+                !decodedCursor ||
+                typeof decodedCursor !== 'object' ||
+                Array.isArray(decodedCursor)
+            ) {
+                throw new HttpError(400, 'invalid kv: cursor', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            if (Object.hasOwn(decodedCursor, 'reverse')) {
+                if (
+                    decodedCursor.reverse !== true ||
+                    !decodedCursor.key ||
+                    typeof decodedCursor.key !== 'object' ||
+                    Array.isArray(decodedCursor.key) ||
+                    Object.keys(decodedCursor.key).length === 0
+                ) {
+                    throw new HttpError(400, 'invalid kv: cursor', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                cursorReverse = true;
+                pageKey = decodedCursor.key as Record<string, unknown>;
+            }
+            if (reverse !== undefined && reverse !== cursorReverse) {
+                throw new HttpError(
+                    400,
+                    'kv: reverse conflicts with cursor direction',
+                    {
+                        legacyCode: 'bad_request',
+                    },
+                );
+            }
+        }
+        const effectiveReverse = reverse ?? cursorReverse;
         const normalizedPattern = normalizePattern(pattern);
 
         if (pageKey !== undefined && normalizedOffset !== undefined) {
@@ -1505,6 +1550,7 @@ export class SystemKVStore extends PuterStore {
                 '',
                 false,
                 {
+                    scanIndexForward: !effectiveReverse,
                     ...(normalizedPattern
                         ? {
                               beginsWith: {
@@ -1605,7 +1651,11 @@ export class SystemKVStore extends PuterStore {
             } while (countKey);
         }
 
-        const nextCursor = encodeCursor(nextKey);
+        const nextCursor = encodeCursor(
+            nextKey && effectiveReverse
+                ? { reverse: true, key: nextKey }
+                : nextKey,
+        );
         return {
             res: {
                 items,

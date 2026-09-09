@@ -352,6 +352,96 @@ describe('SystemKVStore', () => {
             );
         });
 
+        it('lists backwards without changing the unpaginated shape', async () => {
+            expect(
+                (await target.list({ as: 'keys', reverse: true }, opts)).res,
+            ).toEqual(['veg:carrot', 'fruit:banana', 'fruit:apple']);
+            expect((await target.list({ as: 'keys' }, opts)).res).toEqual([
+                'fruit:apple',
+                'fruit:banana',
+                'veg:carrot',
+            ]);
+        });
+
+        it.each([false, true])(
+            'preserves cursor direction reverse=%s',
+            async (reverse) => {
+                const first = (
+                    await target.list({ as: 'keys', limit: 1, reverse }, opts)
+                ).res as { items: string[]; cursor: string };
+                expect(first.items).toEqual([
+                    reverse ? 'veg:carrot' : 'fruit:apple',
+                ]);
+                const second = (
+                    await target.list(
+                        { as: 'keys', limit: 1, cursor: first.cursor },
+                        opts,
+                    )
+                ).res as { items: string[] };
+                expect(second.items).toEqual(['fruit:banana']);
+                await expect(
+                    target.list(
+                        { limit: 1, cursor: first.cursor, reverse: !reverse },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it('applies reverse ordering to prefix filtering, offset, and totals', async () => {
+            const result = await target.list(
+                {
+                    as: 'values',
+                    pattern: 'fruit:*',
+                    reverse: true,
+                    offset: 1,
+                    limit: 1,
+                    includeTotal: true,
+                },
+                opts,
+            );
+            expect(result.res).toMatchObject({ items: ['red'], total: 2 });
+        });
+
+        it('fills reverse pages past expired keys', async () => {
+            await target.set(
+                {
+                    key: 'fruit:blueberry',
+                    value: 'expired',
+                    expireAt: Math.floor(Date.now() / 1000) - 10,
+                },
+                opts,
+            );
+            const result = await target.list(
+                {
+                    as: 'keys',
+                    pattern: 'fruit:*',
+                    reverse: true,
+                    limit: 2,
+                    fetchUntilFull: true,
+                },
+                opts,
+            );
+            expect(result.res).toMatchObject({
+                items: ['fruit:banana', 'fruit:apple'],
+            });
+        });
+
+        it('rejects invalid reverse flags and cursor wrappers', async () => {
+            await expect(
+                target.list({ reverse: 'true' as unknown as boolean }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            for (const cursor of [
+                { reverse: true, key: 'bad' },
+                { reverse: true, key: {} },
+                { reverse: false, key: {} },
+            ]) {
+                await expect(
+                    target.list({ cursor }, opts),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            }
+        });
+
         it('returns key/value entries by default', async () => {
             const result = await target.list({}, opts);
             expect(Array.isArray(result.res)).toBe(true);
