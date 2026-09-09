@@ -87,14 +87,6 @@ body {
 }
 
 .recipes-intro,
-.recipe-lede {
-    margin: 0 0 28px;
-    font-size: 16px;
-    line-height: 1.6;
-    color: #55585f;
-    max-width: 62ch;
-}
-
 /* ---------- Sidebar: search + tag filters ---------- */
 
 .recipes-search input {
@@ -295,21 +287,6 @@ a.recipe-tag:hover {
 }
 
 .recipe-detail .code-wrapper { margin: 18px 0; }
-
-/* The anchor links the docs' heading renderer emits; the docs sheet styles them
-   only under .docs-content, so they need positioning here. */
-.recipe-detail .anchored-heading { position: relative; }
-
-.recipe-detail .anchor::before {
-    content: '#';
-    position: absolute;
-    left: -20px;
-    color: #c3c7cf;
-    opacity: 0;
-    transition: opacity 0.12s;
-}
-
-.recipe-detail .anchored-heading:hover .anchor::before { opacity: 1; }
 
 .recipes-back {
     display: inline-block;

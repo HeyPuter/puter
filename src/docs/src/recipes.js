@@ -253,8 +253,8 @@ function renderIndexPage (recipes) {
             <main class="recipes-main">
                 <h1>Recipes</h1>
                 <p class="recipes-intro">
-                    Prebuilt patterns for common Puter.js tasks — the recommended way to do
-                    each of these. Copy one rather than working it out from the API reference.
+                    Build specific Puter.js features with recipes from Puter
+                    and the community.
                 </p>
                 ${renderCards(recipes)}
             </main>
@@ -262,7 +262,7 @@ function renderIndexPage (recipes) {
 
     return renderPage({
         title: 'Recipes | Puter.js',
-        description: 'Prebuilt, copy-pasteable patterns for building with Puter.js — AI, storage, auth, hosting, and more.',
+        description: 'Build specific Puter.js features with recipes from Puter and the community.',
         canonical: `${site}/recipes/`,
         body,
     });
@@ -277,7 +277,6 @@ function renderRecipePage (recipe, recipes) {
             <main class="recipes-main recipe-detail">
                 <h1>${encode(recipe.title)}</h1>
                 ${renderTagChips(recipe.tags, { linked: true })}
-                <p class="recipe-lede">${encode(recipe.description)}</p>
                 <hr>
                 ${marked.parse(recipe.body)}
                 <a class="recipes-back" href="/recipes/">&larr; All recipes</a>
