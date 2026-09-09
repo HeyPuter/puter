@@ -24,9 +24,7 @@
 /extensions/workerSandbox* @ProgrammerIn-wonderland
 /src/worker/ @ProgrammerIn-wonderland
 /src/worker-types/ @ProgrammerIn-wonderland
-
-# Backend: peer
-/src/backend/controllers/peer/ @velzie
+/src/backend/controllers/peer/ @ProgrammerIn-wonderland
 
 # Backend: sharing, permissions, and teams
 /src/backend/controllers/share/ @jfcastro92
@@ -51,9 +49,7 @@
 /src/puter-js/tests/api/suites/hosting.suite.ts @ProgrammerIn-wonderland
 /src/puter-js/tests/api/suites/workers.suite.ts @ProgrammerIn-wonderland
 /src/puter-js/tests/api/suites/net.suite.ts @ProgrammerIn-wonderland
-
-# SDK: peer
-/src/puter-js/src/modules/Peer* @velzie
+/src/puter-js/src/modules/Peer* @ProgrammerIn-wonderland
 
 # SDK: sharing and permissions
 /src/puter-js/src/modules/perms/ @jfcastro92
