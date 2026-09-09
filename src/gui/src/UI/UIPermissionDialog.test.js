@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The dialog module has no imports — it reads globals — so they are defined
-// before it loads. `i18n` echoes the key and params so a test can assert which
-// wording was chosen rather than the English text itself.
+// The dialog module reads `i18n` and other GUI plumbing as globals rather than
+// importing them, so they are defined before it loads. `i18n` echoes the key
+// and params so a test can assert which wording was chosen rather than the
+// English text itself.
 globalThis.window = globalThis.window ?? {};
 window.api_origin = 'https://api.test';
 window.auth_token = 'tok';

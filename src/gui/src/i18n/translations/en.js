@@ -766,6 +766,8 @@ const en = {
         // Permission Descriptions
         'perm_fs_file_access': 'use {{name}} located at {{path}} with {{access}} access.',
         'perm_fs_resource_access': 'access {{resource_id}} with {{access}} access.',
+        'perm_fs_create_dir': 'create a folder named {{name}} in {{path}} (it does not exist yet) and use it with {{access}} access.',
+        'perm_fs_create_file': 'create a file named {{name}} in {{path}} (it does not exist yet) and use it with {{access}} access.',
         'perm_folder_access': '{{access}} {{folder}}.',
         'perm_thread_post': 'post to thread {{thread}}.',
         'perm_service_invoke': 'use {{service}} to invoke {{interface}}.',

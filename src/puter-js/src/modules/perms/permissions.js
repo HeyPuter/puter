@@ -7,6 +7,7 @@ import {
 /** @typedef {import('./index.js').PermsModule} PermsModule */
 /** @typedef {import('../../index.js').Puter} Puter */
 /** @typedef {import('./types.js').PermsAccess} PermsAccess */
+/** @typedef {import('./types.js').PermsCreateKind} PermsCreateKind */
 
 /**
  * Ask for a raw permission string, or several under one prompt. Unsupported
@@ -14,13 +15,18 @@ import {
  *
  * @param {Puter} puter
  * @param {string[]} permissions
+ * @param {PermsCreateKind} [create] - Forwarded only when set, so the message
+ *   is unchanged when nothing asked to create a path.
  * @returns {Promise<boolean>}
  */
-export async function requestPermissions (puter, permissions) {
+export async function requestPermissions (puter, permissions, create) {
     // Scalar form for a lone permission: the shape the dialog dedupes on.
-    return permissions.length === 1
-        ? await puter.ui.requestPermission({ permission: permissions[0] })
-        : await puter.ui.requestPermission({ permissions });
+    const options = permissions.length === 1
+        ? { permission: permissions[0] }
+        : { permissions };
+    return await puter.ui.requestPermission(
+        create ? { ...options, create } : options,
+    );
 }
 
 /**

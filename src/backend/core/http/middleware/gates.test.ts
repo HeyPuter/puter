@@ -168,14 +168,14 @@ describe('requireAuthGate', () => {
 
     // ── Reauth signal ───────────────────────────────────────────────
 
-    it('returns 401 reauth_required for a legacy v1 token', () => {
+    it('returns 401 reauth_required when a reauth signal is present', () => {
         const got = runGate(requireAuthGate(), {
-            requiresReauth: { reason: 'token_v1', auth_id: 'u-1' },
+            requiresReauth: { reason: 'session_expired', auth_id: 'u-1' },
         });
         expectHttpError(got, 401, 'reauth_required');
         expect((got as HttpError).fields).toMatchObject({
             code: 'reauth_required',
-            reason: 'token_v1',
+            reason: 'session_expired',
             auth_id: 'u-1',
         });
     });
@@ -207,7 +207,7 @@ describe('requireAuthGate', () => {
         // Both flags set: the structured reauth signal wins. v2 clients
         // key on `code === 'reauth_required'`; v1 clients still see a 401.
         const got = runGate(requireAuthGate(), {
-            requiresReauth: { reason: 'token_v1', auth_id: 'u-1' },
+            requiresReauth: { reason: 'session_expired', auth_id: 'u-1' },
             tokenAuthFailed: true,
         });
         expectHttpError(got, 401, 'reauth_required');

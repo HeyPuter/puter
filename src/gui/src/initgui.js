@@ -684,6 +684,13 @@ const postAuthActions = async (action) => {
         // an origin either. Without one there is nothing to prompt about and the
         // denial below is reported as usual.
         const origin = window.openerOrigin;
+        // Only these literal values are meaningful; anything else (including
+        // absent) means no create request, the same default the grant
+        // endpoint applies.
+        const raw_create = window.url_query_params.get('create');
+        const create = raw_create === 'true' ? true
+            : (raw_create === 'dir' || raw_create === 'file') ? raw_create
+            : undefined;
 
         // Whatever happens, the requester must get an answer and the popup
         // must close — otherwise the popup wedges open with the caller's
@@ -716,6 +723,7 @@ const postAuthActions = async (action) => {
                 permissions,
                 permission: permissions.length === 1 ? permissions[0] : undefined,
                 origin: origin,
+                create,
             });
         } catch (e) {
             console.error('request-permission action failed', e);

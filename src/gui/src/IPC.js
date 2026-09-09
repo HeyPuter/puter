@@ -1418,6 +1418,20 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
+        // Accepted values mirror the grant endpoint's; anything else is a
+        // malformed request, same as a bad permission list.
+        const requested_create = event.data.options.create;
+        if ( requested_create !== undefined
+            && requested_create !== true
+            && requested_create !== false
+            && requested_create !== 'dir'
+            && requested_create !== 'file' )
+        {
+            console.error('IPC requestPermission requires `create` to be true, false, "dir", or "file"', event.data);
+            respond(false);
+            return;
+        }
+
         let granted = await UIPermissionDialog({
             // Both forms: the dialog reads `permissions`, and `permission` keeps
             // the single-scope path working for callers (and dialog versions)
@@ -1429,6 +1443,7 @@ const ipc_listener = async (event, handled) => {
                 : undefined,
             app_uid: app_uuid,
             app_name: app_name,
+            create: requested_create,
         });
 
         // report the user's decision to the requester window

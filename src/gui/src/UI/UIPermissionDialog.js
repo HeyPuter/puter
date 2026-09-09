@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { fsCreateKindFor } from '../helpers/fsCreateKind.js';
+
 // Keeps a second request for the same (entity, permission) from stacking a
 // duplicate dialog; both callers await the same user decision.
 const pending_dialogs = new Map();
@@ -55,6 +57,8 @@ const LOOKUP_TIMEOUT_MS = 10000;
  * @param {string} [options.app_name] - Registered name of the requesting app;
  *   used for display, never as the grant target.
  * @param {string} [options.origin] - Origin of the requesting site (popup flow).
+ * @param {boolean|'dir'|'file'} [options.create] - Create the fs path if it
+ *   does not exist, after the user approves. Forwarded to the grant only.
  * @returns {Promise<boolean>} `true` only if the permission was granted.
  */
 async function UIPermissionDialog (options) {
@@ -96,7 +100,7 @@ async function UIPermissionDialog (options) {
     // `||`, not `??`: the gate above treats an empty uid as absent, so the key
     // has to fall through to the origin too — otherwise two different origins
     // arriving with a blank uid would share one decision.
-    const pending_key = `${options.app_uid || options.origin || ''}\n${options.permissions.join('\n')}`;
+    const pending_key = `${options.app_uid || options.origin || ''}\n${options.permissions.join('\n')}\n${options.create ?? ''}`;
     if ( pending_dialogs.has(pending_key) ) {
         return pending_dialogs.get(pending_key);
     }
@@ -274,6 +278,9 @@ async function show_permission_dialog (options) {
                         // can't survive a rejected scope — and the
                         // uncertain-commit handling below stays single-flight.
                         permissions: options.permissions,
+                        // Omitted rather than sent `false`/`undefined`, so the
+                        // request shape is unchanged for every existing caller.
+                        ...(options.create ? { create: options.create } : {}),
                     }),
                     method: 'POST',
                     ...(controller ? { signal: controller.signal } : {}),
@@ -583,6 +590,23 @@ async function get_permission_description (permission, options = {}) {
                     icon: fsentry.is_dir ? 'folder' : 'file',
                 };
             } catch (e) {
+                // The path doesn't exist, but `create` will make it on Allow.
+                // Named from the permission string itself, since there is
+                // nothing to stat yet.
+                if ( options.create ) {
+                    const slash = resource_id.lastIndexOf('/');
+                    const name = slash >= 0 ? resource_id.slice(slash + 1) : resource_id;
+                    const dirpath = slash > 0 ? resource_id.slice(0, slash) : '/';
+                    // An explicit `'dir'`/`'file'` wins; `create: true` falls
+                    // back to the same basename heuristic the backend uses.
+                    const kind = options.create === 'dir' || options.create === 'file'
+                        ? options.create
+                        : fsCreateKindFor(name);
+                    return {
+                        html: i18n(kind === 'dir' ? 'perm_fs_create_dir' : 'perm_fs_create_file', { name, path: dirpath, access: action }),
+                        icon: kind === 'dir' ? 'folder' : 'file',
+                    };
+                }
                 // Can't stat, use resource_id directly
                 return {
                     html: i18n('perm_fs_resource_access', {

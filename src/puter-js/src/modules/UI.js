@@ -1,5 +1,6 @@
 import EventListener from '../lib/EventListener.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
+import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
 import { checkPermissions } from './perms/lib/holds.js';
@@ -1814,10 +1815,21 @@ export class UIModule extends EventListener {
      *
      * Access already granted resolves `true` without prompting.
      *
-     * @param {{ permission?: string, permissions?: string[] }} options
+     * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
+     *   `create`: for an `fs:` permission naming a path that doesn't exist,
+     *   create it server-side after the user approves. See `puter.perms.request`.
      * @returns {Promise<boolean>} `true` only if the permission was granted.
+     * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
+     *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
      */
     async requestPermission (options) {
+        const create = options?.create;
+        if ( create !== undefined
+            && create !== true && create !== false
+            && create !== 'dir' && create !== 'file' ) {
+            throw new PuterJSError('create must be true, false, "dir", or "file"', 'invalid_argument');
+        }
+
         // Only where a prompt would be raised. Elsewhere this answers false
         // without asking anyone, and a check must not turn that into a grant.
         if ( ( this.env === 'app' || this.env === 'web' )
@@ -1894,7 +1906,10 @@ export class UIModule extends EventListener {
             const query = requested
                 .map(p => `permission=${encodeURIComponent(p)}`)
                 .join('&');
-            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}`;
+            // Left out entirely when absent, so the URL is byte-identical to
+            // before this option existed.
+            const create_param = create ? `&create=${encodeURIComponent(create === true ? 'true' : create)}` : '';
+            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}${create_param}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.

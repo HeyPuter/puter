@@ -308,7 +308,7 @@ describe('fetchUrl', () => {
                         status: 401,
                         body: {
                             code: 'reauth_required',
-                            reason: 'token_v1',
+                            reason: 'session_expired',
                             auth_id: 'a',
                         },
                     }),
@@ -329,7 +329,7 @@ describe('fetchUrl', () => {
                 expect(
                     globalThis.puter.dropStaleAuthToken,
                 ).toHaveBeenCalledWith({
-                    reason: 'token_v1',
+                    reason: 'session_expired',
                     auth_id: 'a',
                     sentToken: 'stale',
                 });

@@ -140,6 +140,71 @@ describe('the write path reaches subscribers', () => {
 
         expect(deliveredUnder(folder)).toEqual([]);
     });
+
+    it('delivers a copied file as add under the watched folder', async () => {
+        const source = `/${username}/copy-src-file.txt`;
+        const folder = `/${username}/watch-copy-file`;
+        await fs().write(userId, {
+            fileMetadata: { path: source, size: 1, contentType: 'text/plain' },
+            fileContent: 'x',
+        });
+        await fs().mkdir(userId, { path: folder, createMissingParents: true });
+        const sub = await subscribeTo(`fs:${folder}`);
+
+        const sourceEntry =
+            await env.server.stores.fsEntry.getEntryByPath(source);
+        const destinationParent =
+            await env.server.stores.fsEntry.getEntryByPath(folder);
+        const copy = await fs().copy(userId, {
+            source: sourceEntry!,
+            destinationParent: destinationParent!,
+        });
+        await settle((d) => pathOf(d) === copy.path);
+
+        const mine = deliveredUnder(folder);
+        expect(mine).toHaveLength(1);
+        expect(mine[0].subId).toBe(sub.subId);
+        expect(mine[0].event).toMatchObject({ op: 'add', path: copy.path });
+    });
+
+    it('delivers every entry a copied directory creates', async () => {
+        const src = `/${username}/copy-src-tree`;
+        const folder = `/${username}/watch-copy-tree`;
+        await fs().mkdir(userId, {
+            path: `${src}/sub`,
+            createMissingParents: true,
+        });
+        await fs().write(userId, {
+            fileMetadata: {
+                path: `${src}/sub/b.txt`,
+                size: 1,
+                contentType: 'text/plain',
+            },
+            fileContent: 'b',
+        });
+        await fs().mkdir(userId, { path: folder, createMissingParents: true });
+        await subscribeTo(`fs:${folder}`);
+
+        const sourceEntry = await env.server.stores.fsEntry.getEntryByPath(src);
+        const destinationParent =
+            await env.server.stores.fsEntry.getEntryByPath(folder);
+        const copy = await fs().copy(userId, {
+            source: sourceEntry!,
+            destinationParent: destinationParent!,
+            newName: 'copy-src-tree-copy',
+        });
+        await settle((d) => pathOf(d) === `${copy.path}/sub/b.txt`);
+
+        const mine = deliveredUnder(folder);
+        expect(mine.every((d) => d.event.op === 'add')).toBe(true);
+        expect(mine.map((d) => pathOf(d))).toEqual(
+            expect.arrayContaining([
+                copy.path,
+                `${copy.path}/sub`,
+                `${copy.path}/sub/b.txt`,
+            ]),
+        );
+    });
 });
 
 describe('the writer never pays for the subscriber', () => {

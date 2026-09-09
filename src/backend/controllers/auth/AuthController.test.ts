@@ -1580,6 +1580,21 @@ describe('AuthController.handleElevate', () => {
     });
 });
 
+describe('AuthController — forged non-v2 token mints no reauth_token hint', () => {
+    it('a forged token naming a victim uuid has nothing for /signup{reauth_token} to redeem', async () => {
+        // v1 is fully removed: a forged non-v2 token must not yield a
+        // `reauth` signal, so `signReauthToken` is never reachable for it.
+        const { user } = await makeUserAndActor();
+        const forged = jwt.sign(
+            { auth_id: user.uuid },
+            'attacker-controlled-secret',
+        );
+        const result = await server.services.auth.authenticate(forged);
+        expect(result.reauth).toBeUndefined();
+        expect(result.actor).toBeUndefined();
+    });
+});
+
 // ── Logout ──────────────────────────────────────────────────────────
 
 describe('AuthController.handleLogout', () => {
@@ -2285,6 +2300,490 @@ describe('AuthController grant flows', () => {
         expect(await storedPermissions()).not.toContain(resolvedPermission);
         // And it must not have written the sentinel as a row of its own.
         expect(await storedPermissions()).not.toContain(NOTHING);
+    });
+});
+
+// ── grant-user-app `create` flag ────────────────────────────────────
+
+describe('AuthController.handleGrantUserApp `create` flag', () => {
+    let user: { id: number; uuid: string; username: string };
+    let target: { username: string };
+    let userActor: Actor;
+    let appActor: Actor;
+    let appUid: string;
+    let appId: number;
+
+    beforeAll(async () => {
+        const uname = `fc_${uuidv4().slice(0, 8)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: uname,
+                email: `${uname}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const u = await server.stores.user.getByUsername(uname);
+        await server.stores.user.update(u!.id, { email_confirmed: 1 });
+        user = { id: u!.id, uuid: u!.uuid, username: u!.username };
+        userActor = {
+            user: {
+                id: user.id,
+                uuid: user.uuid,
+                username: user.username,
+                email: u!.email!,
+                email_confirmed: true,
+            },
+        } as Actor;
+
+        const tname = `fct_${uuidv4().slice(0, 8)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: tname,
+                email: `${tname}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        target = { username: tname };
+
+        const app = await server.stores.app.create(
+            {
+                name: `fc-app-${uuidv4()}`,
+                title: 'FsCreateApp',
+                index_url: 'https://example.test/fs-create',
+            },
+            { ownerUserId: user.id },
+        );
+        appUid = app.uid;
+        appId = app.id;
+        appActor = {
+            user: userActor.user,
+            app: { id: app.id, uid: app.uid },
+        } as unknown as Actor;
+    });
+
+    const grant = (body: Record<string, unknown>) =>
+        inCtx(userActor, () =>
+            controller.handleGrantUserApp(
+                makeReq({ app_uid: appUid, ...body }, { actor: userActor }),
+                makeRes(),
+            ),
+        );
+
+    const revoke = (body: Record<string, unknown>) =>
+        inCtx(userActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq({ app_uid: appUid, ...body }, { actor: userActor }),
+                makeRes(),
+            ),
+        );
+
+    /** Reads permission held by the app as granted by `user`, via a real check. */
+    const checkAsApp = async (permission: string): Promise<boolean> => {
+        const res = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor: appActor }),
+                res,
+            ),
+        );
+        return (res.body as { permissions: Record<string, boolean> })
+            .permissions[permission];
+    };
+
+    const grantedPermissions = async (): Promise<string[]> =>
+        (
+            (await server.clients.db.read(
+                'SELECT `permission` FROM `user_to_app_permissions` ' +
+                    'WHERE `user_id` = ? AND `app_id` = ?',
+                [user.id, appId],
+            )) as Array<{ permission: string }>
+        ).map((r) => r.permission);
+
+    const path = (name: string) => `/${user.username}/${name}`;
+    const rand = () => uuidv4().slice(0, 6);
+
+    it('creates a missing directory, grants it, and a subsequent check reports it held', async () => {
+        const p = path(`.mail-${rand()}`);
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+
+        await grant({ permission: `fs:${p}:write`, create: true });
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(entry?.isDir).toBe(true);
+        expect(await grantedPermissions()).toContain(`fs:${entry!.uuid}:write`);
+        expect(await checkAsApp(`fs:${p}:write`)).toBe(true);
+    });
+
+    it('creates a missing file when `create: true` and the basename has a dot', async () => {
+        const p = path(`notes-${rand()}.txt`);
+        await grant({ permission: `fs:${p}:write`, create: true });
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(entry?.isDir).toBe(false);
+    });
+
+    it('applies the basename heuristic end-to-end for each documented shape', async () => {
+        const cases: Array<[string, boolean]> = [
+            [`.mail-${rand()}`, true],
+            [`.config-${rand()}`, true],
+            [`Docs-${rand()}`, true],
+            [`notes-${rand()}.txt`, false],
+            [`.env-${rand()}.local`, false],
+            [`archive-${rand()}.tar.gz`, false],
+        ];
+        for (const [name, expectDir] of cases) {
+            const p = path(name);
+            await grant({ permission: `fs:${p}:write`, create: true });
+            const entry = await server.stores.fsEntry.getEntryByPath(p);
+            expect(entry?.isDir).toBe(expectDir);
+        }
+    });
+
+    it('an explicit `dir`/`file` overrides the heuristic', async () => {
+        const mailPath = path(`.mail-${rand()}`);
+        await grant({ permission: `fs:${mailPath}:write`, create: 'file' });
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(mailPath))?.isDir,
+        ).toBe(false);
+
+        const notesPath = path(`notes-${rand()}.txt`);
+        await grant({ permission: `fs:${notesPath}:write`, create: 'dir' });
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(notesPath))?.isDir,
+        ).toBe(true);
+    });
+
+    it('without `create`, a missing path still 404s and nothing is created', async () => {
+        const p = path(`missing-${rand()}`);
+        await expect(
+            grant({ permission: `fs:${p}:write` }),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+    });
+
+    it('creates missing intermediate directories along with the leaf', async () => {
+        const seg = rand();
+        const dirA = path(`a-${seg}`);
+        const leaf = path(`a-${seg}/.mail`);
+
+        await grant({ permission: `fs:${leaf}:write`, create: true });
+
+        const parentEntry = await server.stores.fsEntry.getEntryByPath(dirA);
+        expect(parentEntry?.isDir).toBe(true);
+        const leafEntry = await server.stores.fsEntry.getEntryByPath(leaf);
+        expect(leafEntry?.isDir).toBe(true);
+        expect(await grantedPermissions()).toContain(`fs:${leafEntry!.uuid}:write`);
+    });
+
+    it('rolls back only the leaf, not auto-created intermediate directories, when a later phase fails', async () => {
+        const seg = rand();
+        const dirA = path(`b-${seg}`);
+        const leaf = path(`b-${seg}/.mail`);
+
+        // Same short-then-too-wide rewrite trick as the rollback test above:
+        // phase A's pre-flight passes, phase C's re-check then fails, so the
+        // leaf (and its auto-created parent) already exist by the time the
+        // request unwinds.
+        const prefix = `rbparent-${uuidv4()}`;
+        let calls = 0;
+        server.services.permission.registerRewriter({
+            id: prefix,
+            matches: (permission: string) => permission === `${prefix}:x`,
+            rewrite: async () => {
+                calls += 1;
+                return calls === 1
+                    ? `${prefix}:short`
+                    : `${prefix}:${'x'.repeat(300)}`;
+            },
+        });
+
+        await expect(
+            grant({
+                permissions: [`fs:${leaf}:write`, `${prefix}:x`],
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // The intermediate directory created along the way is left in place...
+        const parentEntry = await server.stores.fsEntry.getEntryByPath(dirA);
+        expect(parentEntry?.isDir).toBe(true);
+        // ...but the leaf that `#createGrantTarget` created is rolled back.
+        expect(await server.stores.fsEntry.getEntryByPath(leaf)).toBeFalsy();
+    });
+
+    it("refuses to create under AppData or Trash, even inside the caller's own home", async () => {
+        // AppData itself exists as a standard home folder since signup, but
+        // the app-uid directory below it does not — with parents now
+        // auto-created, that subdirectory is an intermediate parent this
+        // guard must still refuse to seed on the way to the leaf.
+        const appDataSubdir = path(`AppData/some-app-${rand()}`);
+        const appDataPath = `${appDataSubdir}/x`;
+        await expect(
+            grant({ permission: `fs:${appDataPath}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        expect(await server.stores.fsEntry.getEntryByPath(appDataPath)).toBeFalsy();
+        expect(await server.stores.fsEntry.getEntryByPath(appDataSubdir)).toBeFalsy();
+
+        const trashPath = path(`Trash/x-${rand()}`);
+        await expect(
+            grant({ permission: `fs:${trashPath}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        expect(await server.stores.fsEntry.getEntryByPath(trashPath)).toBeFalsy();
+    });
+
+    it('rejects a path more than the depth limit below home, creating nothing', async () => {
+        const deep = path(Array.from({ length: 17 }, () => `d-${rand()}`).join('/'));
+        await expect(
+            grant({ permission: `fs:${deep}:write`, create: true }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'directory_depth_limit_exceeded',
+        });
+        expect(await server.stores.fsEntry.getEntryByPath(deep)).toBeFalsy();
+    });
+
+    it('caps how many entries one request may create, and creates nothing once over the cap', async () => {
+        const paths = Array.from({ length: 5 }, () => path(`.cap-${rand()}`));
+        await expect(
+            grant({
+                permissions: paths.map((p) => `fs:${p}:write`),
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        for (const p of paths) {
+            expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+        }
+    });
+
+    it('conflicts with 409 when an explicit kind disagrees with an existing entry, and grants nothing', async () => {
+        const dirPath = path(`existing-dir-${rand()}`);
+        await server.services.fs.mkdir(user.id, {
+            path: dirPath,
+            createMissingParents: true,
+        });
+        await expect(
+            grant({ permission: `fs:${dirPath}:write`, create: 'file' }),
+        ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
+        const dirEntry = await server.stores.fsEntry.getEntryByPath(dirPath);
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${dirEntry!.uuid}:write`,
+        );
+
+        const filePath = path(`existing-file-${rand()}.txt`);
+        await server.services.fs.touch(user.id, {
+            path: filePath,
+            createMissingParents: true,
+        });
+        await expect(
+            grant({ permission: `fs:${filePath}:write`, create: 'dir' }),
+        ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
+        const fileEntry = await server.stores.fsEntry.getEntryByPath(filePath);
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${fileEntry!.uuid}:write`,
+        );
+    });
+
+    it('`create: true` never conflicts with an existing entry, even when the heuristic disagrees', async () => {
+        // `.mail` alone would heuristically be a *dir*; create a *file* there
+        // first and confirm `create: true` still resolves it instead of
+        // erroring or overwriting it.
+        const p = path(`.mail-${rand()}`);
+        const created = await server.services.fs.touch(user.id, {
+            path: p,
+            createMissingParents: true,
+        });
+        expect(created.isDir).toBe(false);
+
+        await grant({ permission: `fs:${p}:write`, create: true });
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(entry?.isDir).toBe(false);
+        expect(entry?.uuid).toBe(created.uuid);
+        expect(await grantedPermissions()).toContain(`fs:${entry!.uuid}:write`);
+    });
+
+    it("rejects creating outside the caller's home directory, leaving the other user's tree untouched", async () => {
+        const p = `/${target.username}/evil-${rand()}`;
+        await expect(
+            grant({ permission: `fs:${p}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+    });
+
+    it('rejects a path traversal attempt with 400, and creates nothing', async () => {
+        const p = `/${user.username}/../${target.username}/evil-${rand()}`;
+        await expect(
+            grant({ permission: `fs:${p}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('does not apply `create` to a `manage:` grant — 404 unchanged, nothing created', async () => {
+        const p = path(`manage-missing-${rand()}`);
+        await expect(
+            grant({ permission: `manage:fs:${p}:write`, create: true }),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+    });
+
+    it('a batch creates only the missing entry and grants both', async () => {
+        const existingPath = path(`already-there-${rand()}`);
+        await server.services.fs.mkdir(user.id, {
+            path: existingPath,
+            createMissingParents: true,
+        });
+        const missingPath = path(`.newmail-${rand()}`);
+        expect(await server.stores.fsEntry.getEntryByPath(missingPath)).toBeFalsy();
+
+        const mkdirSpy = vi.spyOn(server.services.fs, 'mkdir');
+        const touchSpy = vi.spyOn(server.services.fs, 'touch');
+        try {
+            await grant({
+                permissions: [`fs:${existingPath}:write`, `fs:${missingPath}:write`],
+                create: true,
+            });
+            // Only the missing one is actually created.
+            expect(mkdirSpy.mock.calls.length + touchSpy.mock.calls.length).toBe(1);
+        } finally {
+            mkdirSpy.mockRestore();
+            touchSpy.mockRestore();
+        }
+
+        const existingEntry = await server.stores.fsEntry.getEntryByPath(existingPath);
+        const createdEntry = await server.stores.fsEntry.getEntryByPath(missingPath);
+        expect(createdEntry?.isDir).toBe(true);
+        const perms = await grantedPermissions();
+        expect(perms).toContain(`fs:${existingEntry!.uuid}:write`);
+        expect(perms).toContain(`fs:${createdEntry!.uuid}:write`);
+    });
+
+    it('creates a path named twice in one batch only once, and grants both entries', async () => {
+        const p = path(`.dupmail-${rand()}`);
+
+        const mkdirSpy = vi.spyOn(server.services.fs, 'mkdir');
+        const touchSpy = vi.spyOn(server.services.fs, 'touch');
+        try {
+            await grant({
+                permissions: [`fs:${p}:write`, `fs:${p}:read`],
+                create: true,
+            });
+            expect(mkdirSpy.mock.calls.length + touchSpy.mock.calls.length).toBe(1);
+        } finally {
+            mkdirSpy.mockRestore();
+            touchSpy.mockRestore();
+        }
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        const perms = await grantedPermissions();
+        expect(perms).toContain(`fs:${entry!.uuid}:write`);
+        expect(perms).toContain(`fs:${entry!.uuid}:read`);
+    });
+
+    it('creates and grants nothing when a later entry fails phase-A validation', async () => {
+        const goodPath = path(`.batchmail-${rand()}`);
+        await expect(
+            grant({
+                permissions: [`fs:${goodPath}:write`, 'x'.repeat(300)],
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(await server.stores.fsEntry.getEntryByPath(goodPath)).toBeFalsy();
+    });
+
+    it('rolls back what phase B created when phase C fails afterward', async () => {
+        const missingPath = path(`.rollback-${rand()}`);
+
+        // A second entry whose rewrite is short during phase A's pre-flight
+        // (so nothing is rejected before anything is created) but has grown
+        // too wide by the time phase C re-runs it — modelling a grant that
+        // only fails once the fs path from the same batch already exists.
+        const prefix = `rbtest-${uuidv4()}`;
+        let calls = 0;
+        server.services.permission.registerRewriter({
+            id: `test-rollback-${prefix}`,
+            matches: (permission: string) => permission === `${prefix}:x`,
+            rewrite: async () => {
+                calls += 1;
+                return calls === 1
+                    ? `${prefix}:short`
+                    : `${prefix}:${'x'.repeat(300)}`;
+            },
+        });
+
+        await expect(
+            grant({
+                permissions: [`fs:${missingPath}:write`, `${prefix}:x`],
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // Phase B created the directory; phase C then failed on the second
+        // entry, and the rollback undid it.
+        expect(await server.stores.fsEntry.getEntryByPath(missingPath)).toBeFalsy();
+    });
+
+    it('grant/revoke parity: revoking after a `create` grant removes the row and check no longer holds it', async () => {
+        const p = path(`.parity-${rand()}`);
+        await grant({ permission: `fs:${p}:write`, create: true });
+        expect(await checkAsApp(`fs:${p}:write`)).toBe(true);
+
+        await revoke({ permission: `fs:${p}:write` });
+        expect(await checkAsApp(`fs:${p}:write`)).toBe(false);
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(await grantedPermissions()).not.toContain(`fs:${entry!.uuid}:write`);
+    });
+
+    it('check-permissions on a missing fs path answers false rather than 404ing, without poisoning a mixed batch', async () => {
+        const missingPath = path(`.checkmissing-${rand()}`);
+        // A held fs grant: the owning user holds it implicitly (is-owner), so
+        // the app-under-user delegation resolves without needing a separate
+        // flat grant on the user themselves.
+        const heldPath = path(`.checkheld-${rand()}`);
+        await grant({ permission: `fs:${heldPath}:write`, create: true });
+        const heldPermission = `fs:${heldPath}:write`;
+
+        const res = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [`fs:${missingPath}:write`, heldPermission] },
+                    { actor: appActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.statusCode).toBe(200);
+        const body = res.body as { permissions: Record<string, boolean> };
+        expect(body.permissions[`fs:${missingPath}:write`]).toBe(false);
+        expect(body.permissions[heldPermission]).toBe(true);
+        expect(await server.stores.fsEntry.getEntryByPath(missingPath)).toBeFalsy();
+    });
+
+    it('ignores `create` on a non-fs permission and grants it normally', async () => {
+        const permission = `apps-of-user:${user.uuid}:read`;
+        await grant({ permission, create: true });
+        expect(await grantedPermissions()).toContain(permission);
+    });
+
+    it('rejects an invalid `create` value with 400, before anything is created or granted', async () => {
+        for (const badCreate of ['sock', 1, {}]) {
+            const p = path(`.badcreate-${rand()}`);
+            await expect(
+                grant({ permission: `fs:${p}:write`, create: badCreate as never }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+        }
     });
 });
 

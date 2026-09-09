@@ -16,6 +16,7 @@
 
     <button id="req-email-perm" disabled>Request Email Permission</button>
     <button id="req-driver-perm" disabled>Request Driver Permission</button>
+    <button id="req-fs-create-perm" disabled>Request FS Create Permission</button>
 
     <div id="log" data-testid="log"></div>
 
@@ -52,6 +53,7 @@
             statusEl.textContent = `Ready (env=${puter.env})`;
             document.getElementById('req-email-perm').disabled = false;
             document.getElementById('req-driver-perm').disabled = false;
+            document.getElementById('req-fs-create-perm').disabled = false;
         }
 
         function waitForPuter() {
@@ -88,6 +90,26 @@
                 log(`perm:driver:${granted}`);
             } catch (e) {
                 log(`perm:driver:error:${e?.message ?? e}`);
+            }
+        });
+
+        // A path under the user's own home that does not exist, with
+        // `create: true`. Randomized per load so a re-run never collides with
+        // an entry a previous run created.
+        window.__fsCreateName = `e2e-create-${Math.random().toString(36).slice(2, 10)}`;
+        document.getElementById('req-fs-create-perm').addEventListener('click', async () => {
+            try {
+                const whoami = await puter.auth.whoami();
+                const path = `/${whoami.username}/${window.__fsCreateName}`;
+                const granted = await puter.ui.requestPermission({
+                    permission: `fs:${path}:write`,
+                    create: true,
+                });
+                log(`perm:fscreate:${granted}`);
+                const stat = await puter.fs.stat({ path }).catch(() => null);
+                log(`perm:fscreate:stat:${stat ? (stat.is_dir ? 'dir' : 'file') : 'missing'}`);
+            } catch (e) {
+                log(`perm:fscreate:error:${e?.message ?? e}`);
             }
         });
     </script>

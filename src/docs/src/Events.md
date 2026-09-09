@@ -166,7 +166,7 @@ The handler is called with `{ event }`. A filesystem change carries:
 | --- | --- | --- |
 | `id` | String | Unique id for the event. |
 | `subject` | String | The subject the change was projected onto, naming the node it happened to (`fs:<uid>:<op>`) — not the subject string you subscribed with. |
-| `op` | String | `add`, `write`, `move`, or `remove`. `move` covers a move and an in-place rename. |
+| `op` | String | `add`, `write`, `move`, or `remove`. `move` covers a move and an in-place rename, and `add` covers a copy's destination as well as a create. |
 | `uid` | String | The uid of the node that changed. |
 | `path` | String | The path of the node that changed. |
 | `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that side — a subscription on the destination folder alone is not told where the node came from. |

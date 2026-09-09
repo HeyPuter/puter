@@ -43,6 +43,7 @@ The fields the resource takes:
 - **`app`** (string | object) — for `'appData'`: the target app, by uid or by registered name. For `'appRootDir'`: the app's uid, or an object with one.
 - **`scopes`** (string | array | object) — for `'appData'`: what this app wants to do with that data. See [Using another app's data](/Perms/appData/) for the full scope forms.
 - **`permission`** (string) / **`permissions`** (array of strings) — for `'permission'`: a raw permission string, or several to put behind one prompt. Pass one or the other, not both.
+- **`create`** (boolean | `'dir'` | `'file'`) — for `'permission'`: create the path an `fs:` permission names if it doesn't exist yet. See [Creating a path on request](#creating-a-path-on-request) below. Defaults to absent (no creation, today's behavior).
 
 #### `requests` (array) (optional)
 
@@ -68,6 +69,48 @@ Some permission strings are not supported and are denied silently.
 An app's root directory has no raw form: `app-root-dir:` reads as nothing during a permission check, so asking for it this way would prompt on every call and [`check()`](/Perms/check/) would report it as not granted even once it is. Use the `'appRootDir'` resource, which asks the server directly.
 
 A lone string that names no resource is treated as a permission string, so `puter.perms.request('fs:/user/Documents:read')` keeps working.
+
+## Creating a path on request
+
+An `fs:{path}:{mode}` permission for a path that doesn't exist is normally denied outright — there's nothing to grant access to. Passing `create` on a `'permission'` request changes that: if the user approves, the path is created on the server (as the user, inside their own home directory) before the grant is written.
+
+```js
+const granted = await puter.perms.request('permission', {
+    permission: `fs:/${username}/.mail:write`,
+    create: true,
+});
+```
+
+- **`true`** — create the path if missing, choosing a file or a directory from its basename: strip one leading `.`, and a `.` remaining in what's left means a file, otherwise a directory.
+
+    | Path | Basename | Created as |
+    | ---- | -------- | ---------- |
+    | `/user/.mail` | `.mail` | Directory |
+    | `/user/.config` | `.config` | Directory |
+    | `/user/Documents` | `Documents` | Directory |
+    | `/user/notes.txt` | `notes.txt` | File |
+    | `/user/.env.local` | `.env.local` | File |
+    | `/user/archive.tar.gz` | `archive.tar.gz` | File |
+
+    A dot inside a directory name is read the same way, so `/user/my.folder` creates a file named `my.folder`, not a folder. Pass `'dir'` explicitly when the name doesn't fit the pattern.
+- **`'dir'`** / **`'file'`** — force the kind instead of guessing from the basename.
+
+Creation only ever happens after the user clicks Allow, and never on a `check()` or on a denied request — a denied prompt creates nothing. If the path already exists, `create` is a no-op: the grant resolves the existing entry, whatever kind it already is. The path must be inside the requesting user's own home directory (not inside `AppData` or `Trash`, and not more than 16 path components below it — see [rate limits and quotas](/rate-limits-and-quotas/#permissions)), or the request is rejected. `create` has no effect on anything but an `fs:` path permission — it's silently ignored on other permission strings, and it does not apply to a `manage:fs:…` delegation (creating a path in order to hand out management of it isn't a bounded request).
+
+Missing intermediate directories are created along the way. `puter.perms.request('permission', { permission: 'fs:/user/a/b/.mail:write', create: true })` creates `a` and `b` as directories too if they don't exist yet, not just `.mail`.
+
+A batch of raw permissions shares one prompt, so at most one distinct `create` value may apply to it: passing none is fine, passing the same value on every entry that needs it is fine, and passing two different values across entries throws before anything is asked.
+
+A malformed `create` rejects the promise with `{ message, code }` rather than resolving to `false` — an invalid value is a caller bug, not a user denial, and the two must not be confused for one another. `create` can throw or reject with:
+
+| Code | When |
+| ---- | ---- |
+| `invalid_argument` | `create` isn't `true`, `false`, `'dir'`, or `'file'` — or a batch names conflicting values. |
+| `forbidden` | The path is outside the requesting user's own home directory, or inside `AppData`/`Trash`. |
+| `conflict` | The path already exists as the *other* kind and `create` was `'dir'` or `'file'` (not `true`). |
+| `directory_depth_limit_exceeded` | The path is more than 16 components below the home directory. |
+| `bad_request` | The request would create more entries than the per-request limit — see [rate limits and quotas](/rate-limits-and-quotas/#permissions). |
+| `subject_does_not_exist` | The path is missing and `create` was left out — the pre-existing behavior. |
 
 ## Batching
 
@@ -158,6 +201,27 @@ const [documents, apps] = await puter.perms.request([
                 permission: `user:${user.uuid}:email:read`,
             });
             puter.print(granted ? 'Permission granted' : 'Permission denied');
+        });
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Request access to a file that doesn't exist yet, creating it on approval</strong>
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request">Set Up Mail Folder</button>
+    <script>
+        document.getElementById('request').addEventListener('click', async () => {
+            const user = await puter.auth.getUser();
+            const granted = await puter.perms.request('permission', {
+                permission: `fs:/${user.username}/.mail:write`,
+                create: true,
+            });
+            puter.print(granted ? 'Mail folder ready' : 'Permission denied');
         });
     </script>
 </body>

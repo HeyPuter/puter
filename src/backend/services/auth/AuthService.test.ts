@@ -240,13 +240,13 @@ describe('AuthService (integration)', () => {
             });
         });
 
-        it('returns { reauth: token_v1 } for a token that is not v2', async () => {
-            // Since v1 was retired nothing but `kid: 'v2'` can verify, so an
-            // unrecognizable token is answered with "sign in again" rather than
-            // a bare failure the client can't act on.
+        it('returns { invalid } for a token that is not v2', async () => {
+            // v1 is fully removed: nothing but `kid: 'v2'` can verify, and an
+            // unrecognizable token is an ordinary invalid token — no reauth hint.
             const result = await authService.authenticate('not-a-jwt');
+            expect(result.invalid).toBe(true);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth?.reason).toBe('token_v1');
+            expect(result.reauth).toBeUndefined();
         });
 
         it('returns { invalid } for a v2-routed token with a bad signature', async () => {
@@ -259,10 +259,10 @@ describe('AuthService (integration)', () => {
             expect(result.reauth).toBeUndefined();
         });
 
-        it('a v1-signed session token resolves no actor, only a reauth signal', async () => {
+        it('a v1-signed session token resolves no actor and no reauth signal (v1 fully removed)', async () => {
             // The user's row and session are perfectly healthy; it is the token
-            // format that is retired, so the answer is "sign in again" and
-            // never an authenticated actor.
+            // format that is retired, so the answer is a plain invalid token —
+            // no actor, no reauth hint.
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const legacyJwt = jwt.sign(
@@ -281,11 +281,26 @@ describe('AuthService (integration)', () => {
                 'dev-jwt-secret-change-me',
             );
             const result = await authService.authenticate(legacyJwt);
+            expect(result.invalid).toBe(true);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth?.reason).toBe('token_v1');
-            // The advisory hint still comes off the unverified payload, so the
-            // client can re-attach to the same identity.
-            expect(result.reauth?.auth_id).toBe(user.uuid);
+            expect(result.reauth).toBeUndefined();
+        });
+
+        it('takeover regression: a forged no-kid token naming a victim uuid mints no reauth/actor', async () => {
+            // Previously, a v1-shaped token's unverified auth_id/user_uid was
+            // trusted as a reauth hint, letting an attacker who knows a victim's
+            // uuid mint a forged token and get a `reauth_token` for that
+            // identity. v1 is fully removed: this must resolve to a plain
+            // invalid token, nothing else.
+            const victim = await makeUser();
+            const forged = jwt.sign(
+                { auth_id: victim.uuid },
+                'attacker-controlled-secret',
+            );
+            const result = await authService.authenticate(forged);
+            expect(result.invalid).toBe(true);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toBeUndefined();
         });
 
         // ── App-under-user verify path ─────────────────────────────

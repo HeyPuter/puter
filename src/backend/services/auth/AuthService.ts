@@ -31,7 +31,6 @@ import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
 import { FULL_API_ACCESS } from '../permission/consts';
 import { PuterService } from '../types';
-import { V1TokensDisabledError } from './TokenService';
 import type {
     AccessTokenPayload,
     AnyTokenPayload,
@@ -44,7 +43,7 @@ const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
-export type ReauthReason = 'token_v1' | 'session_revoked' | 'session_expired';
+export type ReauthReason = 'session_revoked' | 'session_expired';
 
 export interface AuthResult {
     actor?: Actor;
@@ -154,19 +153,7 @@ export class AuthService extends PuterService {
                 'auth',
                 token,
             );
-        } catch (err) {
-            // A retired v1 token — surface a `reauth_required` signal with an
-            // advisory `auth_id` hint so stragglers holding one see the
-            // re-login modal instead of a bare 401. The hint is read from the
-            // *unverified* payload; it's only used to label the response, never
-            // to grant access.
-            if (err instanceof V1TokensDisabledError) {
-                const hint = err.payload;
-                const auth_id =
-                    (hint.auth_id as string | undefined) ??
-                    (hint.user_uid as string | undefined);
-                return { reauth: { reason: 'token_v1', auth_id } };
-            }
+        } catch {
             return { invalid: true };
         }
 

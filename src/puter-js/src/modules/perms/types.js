@@ -60,12 +60,22 @@
  */
 
 /**
+ * What kind of entry `create` should make when its path is missing. `true`
+ * picks a kind from the basename (a dot beyond one leading one means a file);
+ * `'dir'`/`'file'` force it.
+ *
+ * @typedef {boolean | 'dir' | 'file'} PermsCreateKind
+ */
+
+/**
  * Details for `'permission'`, the raw-permission-string escape hatch. Several
  * at once go under a single prompt.
  *
  * @typedef {Object} PermsPermissionRequest
  * @property {string} [permission] - One permission string.
  * @property {string[]} [permissions] - Several, instead of `permission`.
+ * @property {PermsCreateKind} [create] - For an `fs:` permission naming a
+ *   missing path, create it after approval. See `puter.perms.request`.
  */
 
 /**

@@ -209,6 +209,7 @@ export type {
     PermsAppDataRequest,
     PermsAppRootDirRequest,
     PermsBatchEntry,
+    PermsCreateKind,
     PermsFolderName,
     PermsFolderRequest,
     PermsPermissionRequest,

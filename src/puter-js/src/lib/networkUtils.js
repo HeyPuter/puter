@@ -66,8 +66,8 @@ function resolveBackgroundReauth(resp, sentToken) {
  *
  * Recognised backend signals:
  *
- * - `reauth_required` (`authProbe`): retired v1 tokens, revoked sessions, and
- *   expired sessions beyond the silent re-mint window.
+ * - `reauth_required` (`authProbe`): revoked sessions and expired sessions
+ *   beyond the silent re-mint window.
  * - `token_auth_failed` (legacy `APIError.create('token_auth_failed')`): token no
  *   longer valid, prompt re-login (web env only).
  *

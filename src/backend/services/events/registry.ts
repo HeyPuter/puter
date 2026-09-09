@@ -436,7 +436,7 @@ export const PUBLIC_SUBJECTS = [
 export const UNPUBLISHED_INTERNAL_EVENTS = [
     {
         event: 'fs.copy.node',
-        reason: 'Payload types its entries as `unknown` and carries S3 object keys; publishing the destination as `add` needs a typed payload first.',
+        reason: 'Reports that a backing object was duplicated, for extensions that mirror it — the copied entry itself publishes as `add` through its own create dispatch.',
     },
     {
         event: 'fs.create.shortcut',
