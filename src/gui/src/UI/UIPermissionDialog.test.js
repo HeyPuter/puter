@@ -16,6 +16,7 @@ const { get_app_data_description, get_kv_share_description } =
 const CONTACTS = 'app-contacts';
 const CALENDAR = 'app-calendar';
 const OWNER = '2a1b0c9d-0000-4000-8000-000000000001';
+const SITE = 'https://calendar.example';
 
 /** Stub the app lookup the describer performs. */
 const stubApp = (app) => {
@@ -25,12 +26,18 @@ const stubApp = (app) => {
     }));
 };
 
+/** Stub the origin → app-uid lookup the popup flow's describers perform. */
+const stubOriginApp = (uid) => {
+    window.getAppUIDFromOrigin = vi.fn(async () => uid);
+};
+
 const describeScope = (permission, options = { app_uid: CALENDAR }) =>
     get_app_data_description(permission.split(':'), options);
 
 describe('UIPermissionDialog app-data descriptions', () => {
     beforeEach(() => {
         stubApp({ uid: CONTACTS, name: 'contacts', title: 'Contacts' });
+        delete window.getAppUIDFromOrigin;
     });
 
     it('names the target app and the read verb', async () => {
@@ -106,12 +113,29 @@ describe('UIPermissionDialog app-data descriptions', () => {
         });
         expect(await describeScope(`app-data:${CONTACTS}:kv:get`)).toBeNull();
     });
+
+    it('refuses a site’s request for its own data', async () => {
+        // The popup flow reaches the same self-request check the in-GUI flow does.
+        stubOriginApp(CONTACTS);
+        expect(
+            await describeScope(`app-data:${CONTACTS}:kv:get`, { origin: SITE }),
+        ).toBeNull();
+    });
+
+    it('still describes a cross-app request when the requester will not resolve', async () => {
+        // An unresolvable requester only costs the self-request check here; it
+        // must not deny a valid cross-app request.
+        stubOriginApp(null);
+        const d = await describeScope(`app-data:${CONTACTS}:kv:get`, { origin: SITE });
+        expect(d.html).toContain('perm_app_data_read');
+    });
 });
 
 describe('UIPermissionDialog key-value delegation descriptions', () => {
     beforeEach(() => {
         stubApp({ uid: CALENDAR, name: 'calendar', title: 'Calendar' });
         globalThis.puter = { auth: { whoami: async () => ({ uuid: OWNER }) } };
+        delete window.getAppUIDFromOrigin;
     });
 
     const describeShare = (permission, options = { app_uid: CALENDAR }) =>
@@ -142,13 +166,70 @@ describe('UIPermissionDialog key-value delegation descriptions', () => {
                 `manage:kv-share:${OWNER}:${CONTACTS}:workspace:abc`,
             ),
         ).toBeNull();
-        // No requesting app at all — the popup flow — cannot be bounded either.
+    });
+
+    it('describes a delegation from a site that resolves to the namespace’s app', async () => {
+        // The popup flow: the requester arrives as an origin, not a uid.
+        stubOriginApp(CALENDAR);
+        const d = await describeShare(
+            `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
+            { origin: SITE },
+        );
+        expect(d.html).toContain('perm_kv_share_manage');
+        expect(d.html).toContain('Calendar');
+        expect(d.html).toContain('region=workspace:abc:');
+        expect(window.getAppUIDFromOrigin).toHaveBeenCalledWith(SITE);
+    });
+
+    it('refuses a site that resolves to a different app', async () => {
+        stubOriginApp(CONTACTS);
         expect(
             await describeShare(
                 `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
-                { origin: 'https://site.example' },
+                { origin: SITE },
             ),
         ).toBeNull();
+    });
+
+    it('refuses a site whose app uid does not resolve', async () => {
+        stubOriginApp(null);
+        expect(
+            await describeShare(
+                `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
+                { origin: SITE },
+            ),
+        ).toBeNull();
+        // The lookup reports failure by value, both shapes.
+        window.getAppUIDFromOrigin = vi.fn(async () => undefined);
+        expect(
+            await describeShare(
+                `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
+                { origin: SITE },
+            ),
+        ).toBeNull();
+    });
+
+    it('refuses when the lookup itself throws', async () => {
+        // A failed lookup must deny, never prompt.
+        window.getAppUIDFromOrigin = vi.fn(async () => {
+            throw new Error('network down');
+        });
+        expect(
+            await describeShare(
+                `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
+                { origin: SITE },
+            ),
+        ).toBeNull();
+    });
+
+    it('keeps naming the requester by uid when the GUI supplies one', async () => {
+        // A stub that would deny if it were consulted.
+        stubOriginApp(CONTACTS);
+        const d = await describeShare(
+            `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
+        );
+        expect(d.html).toContain('perm_kv_share_manage');
+        expect(window.getAppUIDFromOrigin).not.toHaveBeenCalled();
     });
 
     it('refuses another user’s data', async () => {

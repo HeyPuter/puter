@@ -735,6 +735,36 @@ async function get_app_by_uid (uid) {
 }
 
 /**
+ * The uid of the app making the request, for the describers that compare it
+ * against a uid the permission itself names.
+ *
+ * The in-GUI path knows the uid outright (IPC.js passes it); the popup and
+ * iframe flows know the requester only by origin, so it is resolved here. It is
+ * resolved for the description alone and never sent to /auth/grant-user-app,
+ * which keeps receiving the origin and re-resolving it server-side: an origin
+ * with no app row of its own resolves to a synthetic `app-<uuidv5(origin)>`,
+ * and the grant endpoint reads its `app_uid` as uid-or-name, so a forwarded
+ * synthetic uid would hand the grant to whoever registered an app under that
+ * literal name.
+ *
+ * Null when there is nothing to resolve or the lookup fails —
+ * `getAppUIDFromOrigin` reports failure by resolving to a null or undefined uid
+ * rather than throwing (a refused origin comes back as an error body with no
+ * uid), and throws only when the call itself cannot be made.
+ */
+async function resolve_requesting_app_uid (options) {
+    if ( options.app_uid ) return options.app_uid;
+    if ( ! options.origin ) return null;
+    try {
+        const uid = await window.getAppUIDFromOrigin(options.origin);
+        return uid ?? null;
+    } catch (e) {
+        console.error('Failed to resolve requesting app', options.origin, e);
+        return null;
+    }
+}
+
+/**
  * Describes `app-data:<uid>[:<store>[:<op>]]` — one app using another's data.
  *
  * Returns null (which denies without prompting) when there is nothing to ask:
@@ -747,7 +777,12 @@ export async function get_app_data_description (parts, options) {
     if ( ! target_uid ) return null;
 
     // An app already reaches its own data; approving that would mean nothing.
-    if ( options.app_uid && target_uid === options.app_uid ) return null;
+    // A requester that will not resolve is not fatal here, unlike in the
+    // delegation describer below: this check only suppresses a prompt that
+    // would mean nothing, and denying on a failed lookup would refuse a
+    // cross-app request that is perfectly good.
+    const requester_app_uid = await resolve_requesting_app_uid(options);
+    if ( requester_app_uid && target_uid === requester_app_uid ) return null;
 
     const app = await get_app_by_uid(target_uid);
     if ( ! app ) return null;
@@ -791,17 +826,21 @@ export async function get_app_data_description (parts, options) {
  * region of the data it keeps for this user to other people it picks.
  *
  * Returns null (which denies without prompting) for anything this copy cannot
- * honestly bound: another user's data, a namespace that is not the requester's
- * own, or a request naming no region — that last one is the whole of the app's
- * data, which is a different decision and not one a prompt can put in a line.
+ * honestly bound: another user's data, a requester this copy cannot name, a
+ * namespace that is not the requester's own, or a request naming no region —
+ * that last one is the whole of the app's data, which is a different decision
+ * and not one a prompt can put in a line.
  */
 export async function get_kv_share_description (parts, options) {
     const [, , owner_uuid, namespace_app_uid, ...segments] = parts;
     if ( ! owner_uuid || ! namespace_app_uid || segments.length === 0 ) return null;
 
     // An app reaches its own namespace and no other, so a request naming
-    // another one describes access it could not use.
-    if ( ! options.app_uid || namespace_app_uid !== options.app_uid ) return null;
+    // another one describes access it could not use. Checking that at all
+    // needs the requester named, so an origin that will not resolve is refused
+    // here rather than prompted for.
+    const requester_app_uid = await resolve_requesting_app_uid(options);
+    if ( ! requester_app_uid || namespace_app_uid !== requester_app_uid ) return null;
 
     const whoami = await puter.auth.whoami();
     if ( whoami.uuid !== owner_uuid ) return null;
