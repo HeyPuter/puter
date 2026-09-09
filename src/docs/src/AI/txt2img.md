@@ -56,13 +56,13 @@ Raw base64 carries no MIME type of its own. When it cannot be detected from the 
 
 #### OpenAI Options
 
-Available when `provider: 'openai-image-generation'` or inferred from model (`gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`):
+Available when `provider: 'openai-image-generation'` or inferred from model (`gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`):
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. Available: `'gpt-image-2'`, `'gpt-image-1.5'`, `'gpt-image-1'`, `'gpt-image-1-mini'` |
-| `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'` |
-| `ratio` | `Object` | Aspect ratio with `w` and `h` properties. `gpt-image-2` accepts arbitrary sizes; other GPT models are restricted to fixed sizes |
+| `model` | `String` | Image model to use. Available: `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'`, `'gpt-image-1.5'`, `'gpt-image-1'`, `'gpt-image-1-mini'` |
+| `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` models also accept `'xhigh'`, `'max'`, and `'auto'` |
+| `ratio` | `Object` | Aspect ratio with `w` and `h` properties. `gpt-image-2` and the `gpt-image-2.5-*` models accept arbitrary sizes; other GPT models are restricted to fixed sizes |
 | `input_image` | `String` | An input image for image-to-image editing — a URL or base64/data-URI (URLs are fetched server-side). |
 | `input_images` | `Array<String>` | Multiple input images (URL or base64/data-URI) for image-to-image editing. Routes the request through OpenAI's image edit endpoint. |
 

@@ -47,8 +47,8 @@ interface OpenAIImageUsage {
 
 /**
  * OpenAI image generation provider for v2. Supports the GPT Image models
- * (gpt-image-1, -1-mini, -1.5, -2), including image-to-image editing via
- * `input_images` (the `images.edit` endpoint).
+ * (gpt-image-1, -1-mini, -1.5, -2, -2.5-sunburst, -2.5-flare), including
+ * image-to-image editing via `input_images` (the `images.edit` endpoint).
  */
 export class OpenAiImageProvider implements IImageProvider {
     #meteringService: MeteringService;
@@ -67,6 +67,23 @@ export class OpenAiImageProvider implements IImageProvider {
     // Actual billing uses the real `image_tokens` reported in the response.
     // Mirrors the constant the Gemini image provider uses.
     static #ESTIMATED_IMAGE_INPUT_TOKENS = 560;
+
+    // Latent-grid factors the output-token estimate is built from; the 2.5
+    // family spends fewer tokens per quality tier and adds two tiers above
+    // `high`.
+    static #GPT_IMAGE_2_LATENT_FACTORS: Record<string, number> = {
+        low: 16,
+        medium: 48,
+        high: 96,
+    };
+
+    static #GPT_IMAGE_2_5_LATENT_FACTORS: Record<string, number> = {
+        low: 16,
+        medium: 24,
+        high: 48,
+        xhigh: 64,
+        max: 96,
+    };
 
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#meteringService = meteringService;
@@ -495,11 +512,11 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     #isGptImageModel(model: string) {
-        // Covers gpt-image-1, gpt-image-1-mini, gpt-image-1.5, gpt-image-2 and future variants.
+        // Covers gpt-image-1, gpt-image-1-mini, gpt-image-1.5, gpt-image-2, gpt-image-2.5-* and future variants.
         return model.startsWith('gpt-image-');
     }
 
-    // gpt-image-2 size rules: each edge in [16, 3840] and a multiple of 16,
+    // gpt-image-2/2.5 size rules: each edge in [16, 3840] and a multiple of 16,
     // long:short ratio <= 3:1, pixel count in [655360, 8294400]. Silently
     // clamps/snaps rather than throwing so arbitrary user input is accepted.
     // https://developers.openai.com/api/docs/guides/image-generation
@@ -577,16 +594,15 @@ export class OpenAiImageProvider implements IImageProvider {
 
     // extracted from calculator at https://developers.openai.com/api/docs/guides/image-generation#cost-and-latency
     #estimateGptImage2OutputTokens(
+        model: string,
         width: number,
         height: number,
         quality?: string,
     ): number {
-        const FACTORS: Record<string, number> = {
-            low: 16,
-            medium: 48,
-            high: 96,
-        };
-        const factor = FACTORS[quality ?? ''] ?? FACTORS.medium;
+        const factors = model.startsWith('gpt-image-2.5')
+            ? OpenAiImageProvider.#GPT_IMAGE_2_5_LATENT_FACTORS
+            : OpenAiImageProvider.#GPT_IMAGE_2_LATENT_FACTORS;
+        const factor = factors[quality ?? ''] ?? factors.medium;
         const longEdge = Math.max(width, height);
         const shortEdge = Math.min(width, height);
         const shortLatent = Math.round((factor * shortEdge) / longEdge);
@@ -605,6 +621,7 @@ export class OpenAiImageProvider implements IImageProvider {
         const rate = this.#getCostRate(selectedModel, 'image_output');
         if (rate === undefined) return undefined;
         const tokens = this.#estimateGptImage2OutputTokens(
+            selectedModel.id,
             ratio.w,
             ratio.h,
             quality,

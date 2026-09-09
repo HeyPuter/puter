@@ -21,6 +21,52 @@ import type { IImageModel } from '../../types.js';
 
 export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
+        puterId: 'openai:openai/gpt-image-2.5-sunburst',
+        id: 'gpt-image-2.5-sunburst',
+        aliases: [
+            'openai/gpt-image-2.5-sunburst',
+            'gpt-image-2.5-sunburst-2026-09-08',
+        ],
+        name: 'GPT Image 2.5 Sunburst',
+        version: '2.5',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            // Image tokens (per 1M tokens)
+            image_input: 800, // $8.00
+            image_cached_input: 200, // $2.00
+            image_output: 3000, // $30.00
+            'low:1024x1024': 0.588,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high', 'xhigh', 'max', 'auto'],
+    },
+    {
+        puterId: 'openai:openai/gpt-image-2.5-flare',
+        id: 'gpt-image-2.5-flare',
+        aliases: [
+            'openai/gpt-image-2.5-flare',
+            'gpt-image-2.5-flare-2026-09-08',
+        ],
+        name: 'GPT Image 2.5 Flare',
+        version: '2.5',
+        costs_currency: 'usd-cents',
+        index_cost_key: 'low:1024x1024',
+        costs: {
+            // Text tokens (per 1M tokens)
+            text_input: 500, // $5.00
+            text_cached_input: 125, // $1.25
+            // Image tokens (per 1M tokens)
+            image_input: 800, // $8.00
+            image_cached_input: 200, // $2.00
+            image_output: 3000, // $30.00
+            'low:1024x1024': 0.588,
+        },
+        allowedQualityLevels: ['low', 'medium', 'high', 'xhigh', 'max', 'auto'],
+    },
+    {
         puterId: 'openai:openai/gpt-image-2',
         id: 'gpt-image-2',
         aliases: ['openai/gpt-image-2', 'gpt-image-2-2026-04-21'],
