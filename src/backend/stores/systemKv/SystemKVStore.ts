@@ -18,7 +18,6 @@
  */
 
 import { metrics } from '@opentelemetry/api';
-import { PuterStore } from '../types';
 import type { KvMutation } from '../../clients/event/types';
 import type { Actor } from '../../core/actor';
 import {
@@ -26,10 +25,6 @@ import {
     SYSTEM_ACTOR,
     SYSTEM_ACTOR_UUID,
 } from '../../core/actor';
-import {
-    PUTER_KV_STORE_TABLE_DEFINITION,
-    PUTER_KV_STORE_TABLE_NAME,
-} from './tableDefinition';
 import { HttpError } from '../../core/http';
 import {
     decodeCursor,
@@ -37,17 +32,22 @@ import {
     normalizeLimit,
     normalizeOffset,
 } from '../../util/pagination';
+import { PuterStore } from '../types';
 import {
     cacheTtlSecondsFor,
     decodeCachedRead,
     encodeCachedHit,
     encodeCachedMiss,
-    kvCacheKey,
     KV_CACHE_BLOCK_MARKER,
+    kvCacheKey,
     resolveKvCacheSettings,
     type KvCachedItem,
     type KvCacheSettings,
 } from './readCache';
+import {
+    PUTER_KV_STORE_TABLE_DEFINITION,
+    PUTER_KV_STORE_TABLE_NAME,
+} from './tableDefinition';
 
 const meter = metrics.getMeter('puter-backend');
 
@@ -229,7 +229,7 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
         actor.effectiveApp?.uid ??
         opts?.appUuid ??
         KV_GLOBAL_APP_KEY;
-    return kvNamespace(actor.user.uuid, appUuid);
+    return kvNamespace(actor.user.uuid!, appUuid);
 };
 
 /** The namespace one user's data for one app lives in. */
@@ -285,25 +285,100 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
         legacyCode: 'bad_request',
     });
 
-/**
- * Reject a caller-supplied document path (`a.b.c`, optionally with `[0]` list
- * indexes) whose segments would walk onto the prototype chain.
- */
-const assertPath = (valPath: string): void => {
+type PathToken =
+    | { type: 'key'; value: string }
+    | { type: 'index'; value: number };
+
+const invalidPathError = (): HttpError =>
+    new HttpError(400, 'kv: path has invalid syntax', {
+        legacyCode: 'bad_request',
+    });
+
+/** Parse the dot and bracket forms accepted by the KV document methods. */
+const parsePath = (valPath: string): PathToken[] => {
     if (typeof valPath !== 'string')
         throw new HttpError(400, 'kv: path must be a string', {
             legacyCode: 'bad_request',
         });
-    for (const chunk of valPath.split('.')) {
-        const name = chunk.split(/\[\d*\]/g)[0];
-        if (UNSAFE_OBJECT_KEYS.has(name))
-            throw unsafeKeyError(name, 'path segment');
+    if (valPath === '') return [];
+
+    const tokens: PathToken[] = [];
+    let position = 0;
+    let expectSegment = true;
+    while (position < valPath.length) {
+        if (valPath[position] === '.') {
+            while (valPath[position] === '.') position++;
+            expectSegment = true;
+            continue;
+        }
+
+        if (!expectSegment && valPath[position] !== '[')
+            throw invalidPathError();
+
+        if (valPath[position] === '[') {
+            position++;
+            if (position >= valPath.length) throw invalidPathError();
+            const quote = valPath[position];
+            if (quote === '"' || quote === "'") {
+                position++;
+                let value = '';
+                let closed = false;
+                while (position < valPath.length) {
+                    const char = valPath[position++];
+                    if (char === '\\') {
+                        if (position >= valPath.length)
+                            throw invalidPathError();
+                        value += valPath[position++];
+                    } else if (char === quote) {
+                        closed = true;
+                        break;
+                    } else {
+                        value += char;
+                    }
+                }
+                if (!closed || valPath[position] !== ']')
+                    throw invalidPathError();
+                position++;
+                if (UNSAFE_OBJECT_KEYS.has(value))
+                    throw unsafeKeyError(value, 'path segment');
+                tokens.push({ type: 'key', value });
+            } else {
+                const start = position;
+                while (
+                    position < valPath.length &&
+                    /[0-9]/.test(valPath[position])
+                )
+                    position++;
+                if (start === position || valPath[position] !== ']')
+                    throw invalidPathError();
+                const value = Number(valPath.slice(start, position));
+                if (!Number.isSafeInteger(value)) throw invalidPathError();
+                position++;
+                tokens.push({ type: 'index', value });
+            }
+            expectSegment = false;
+            continue;
+        }
+
+        if (!expectSegment) throw invalidPathError();
+        const start = position;
+        while (
+            position < valPath.length &&
+            valPath[position] !== '.' &&
+            valPath[position] !== '['
+        )
+            position++;
+        const value = valPath.slice(start, position);
+        if (!value) throw invalidPathError();
+        if (UNSAFE_OBJECT_KEYS.has(value))
+            throw unsafeKeyError(value, 'path segment');
+        tokens.push({ type: 'key', value });
+        expectSegment = false;
     }
+    return tokens;
 };
 
-const assertPaths = (paths: string[]): void => {
-    for (const valPath of paths) assertPath(valPath);
-};
+const parsePaths = (paths: string[]): PathToken[][] => paths.map(parsePath);
 
 const isOversizedExpression = (err: Error): boolean =>
     /expression size/i.test(err.message);
@@ -366,6 +441,12 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 const objectsEqual = (left: unknown, right: unknown): boolean => {
     if (left === right) return true;
+    if (Array.isArray(left) && Array.isArray(right)) {
+        return (
+            left.length === right.length &&
+            left.every((value, index) => objectsEqual(value, right[index]))
+        );
+    }
     if (!isPlainObject(left) || !isPlainObject(right)) return false;
     const leftKeys = Object.keys(left);
     const rightKeys = Object.keys(right);
@@ -377,15 +458,36 @@ const objectsEqual = (left: unknown, right: unknown): boolean => {
     return true;
 };
 
-const cleanAttrName = (chunk: string): string =>
-    `#${chunk.replaceAll(PATH_CLEANER_REGEX, '')}`;
+class PathExpressionRenderer {
+    readonly names: Record<string, string> = { '#value': 'value' };
+    #aliases = new Map<string, string>();
+
+    path(tokens: PathToken[]): string {
+        let result = '#value';
+        for (const token of tokens) {
+            if (token.type === 'index') result += `[${token.value}]`;
+            else result += `.${this.#alias(token.value)}`;
+        }
+        return result;
+    }
+
+    #alias(key: string): string {
+        let alias = this.#aliases.get(key);
+        if (alias) return alias;
+        alias = `#p${this.#aliases.size}_${key.replaceAll(PATH_CLEANER_REGEX, '')}`;
+        this.#aliases.set(key, alias);
+        this.names[alias] = key;
+        return alias;
+    }
+}
 
 /** The `SET` assignment `incr` renders for one path. */
-const incrSetStatement = (valPath: string, idx: number): string => {
-    const attrName = ['value', ...valPath.split('.')]
-        .filter(Boolean)
-        .map(cleanAttrName)
-        .join('.');
+const incrSetStatement = (
+    tokens: PathToken[],
+    idx: number,
+    renderer: PathExpressionRenderer,
+): string => {
+    const attrName = renderer.path(tokens);
     return `${attrName} = if_not_exists(${attrName}, :start${idx}) + :incr${idx}`;
 };
 
@@ -401,8 +503,14 @@ const incrSetStatement = (valPath: string, idx: number): string => {
 export const INCR_EXPRESSION_BUDGET_BYTES = 3584;
 
 /** Size of the update expression `incr` would send for `paths`. */
-export const incrExpressionBytes = (paths: string[]): number =>
-    Buffer.byteLength(`SET ${paths.map(incrSetStatement).join(', ')}`);
+export const incrExpressionBytes = (paths: string[]): number => {
+    const renderer = new PathExpressionRenderer();
+    return Buffer.byteLength(
+        `SET ${parsePaths(paths)
+            .map((tokens, index) => incrSetStatement(tokens, index, renderer))
+            .join(', ')}`,
+    );
+};
 
 /**
  * Split paths into batches whose expressions each fit `maxBytes`, preserving
@@ -1608,15 +1716,16 @@ export class SystemKVStore extends PuterStore {
                 { legacyCode: 'bad_request' },
             );
         }
-        assertPaths(Object.keys(pathAndAmountMap));
+        const pathTokens = parsePaths(Object.keys(pathAndAmountMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const setStatements = Object.keys(pathAndAmountMap).map(
-            (valPath, idx) => incrSetStatement(valPath, idx),
+        const renderer = new PathExpressionRenderer();
+        const setStatements = pathTokens.map((tokens, idx) =>
+            incrSetStatement(tokens, idx, renderer),
         );
         const valueAttributeValues = Object.entries(pathAndAmountMap).reduce(
             (acc, [_path, amt], idx) => {
@@ -1625,18 +1734,6 @@ export class SystemKVStore extends PuterStore {
                 return acc;
             },
             {} as Record<string, number>,
-        );
-        const valueAttributeNames = Object.entries(pathAndAmountMap).reduce(
-            (acc, [valPath]) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
         );
 
         // Fold the TTL into the same UpdateItem so a counter bump is a single
@@ -1651,18 +1748,17 @@ export class SystemKVStore extends PuterStore {
                 });
             setStatements.push('#ttl = if_not_exists(#ttl, :ttl)');
             valueAttributeValues[':ttl'] = ttlSeconds;
-            valueAttributeNames['#ttl'] = 'ttl';
+            renderer.names['#ttl'] = 'ttl';
         }
 
         const updateExpression = `SET ${setStatements.join(', ')}`;
-        const expressionNames = { ...valueAttributeNames, '#value': 'value' };
         const runUpdate = () =>
             this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
                 updateExpression,
                 valueAttributeValues,
-                expressionNames,
+                renderer.names,
             );
 
         // Most increments land on an item whose parent maps already exist (a
@@ -1687,7 +1783,7 @@ export class SystemKVStore extends PuterStore {
             createPathsUsage = await this.createPaths(
                 namespace,
                 key,
-                Object.keys(pathAndAmountMap),
+                pathTokens,
             );
             response = await runUpdate();
         }
@@ -1732,7 +1828,7 @@ export class SystemKVStore extends PuterStore {
         for (const val of Object.values(pathAndValueMap)) {
             assertValue(val);
         }
-        assertPaths(Object.keys(pathAndValueMap));
+        const pathTokens = parsePaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -1742,18 +1838,14 @@ export class SystemKVStore extends PuterStore {
         const createPathsUsage = await this.createPaths(
             namespace,
             key,
-            Object.keys(pathAndValueMap),
+            pathTokens,
         );
 
-        const setStatements = Object.entries(pathAndValueMap).map(
-            ([valPath], idx) => {
-                const attrName = ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .map(cleanAttrName)
-                    .join('.');
-                return `${attrName} = list_append(if_not_exists(${attrName}, :emptyList${idx}), :append${idx})`;
-            },
-        );
+        const renderer = new PathExpressionRenderer();
+        const setStatements = pathTokens.map((tokens, idx) => {
+            const attrName = renderer.path(tokens);
+            return `${attrName} = list_append(if_not_exists(${attrName}, :emptyList${idx}), :append${idx})`;
+        });
         const valueAttributeValues = Object.entries(pathAndValueMap).reduce(
             (acc, [_path, val], idx) => {
                 acc[`:append${idx}`] = Array.isArray(val) ? val : [val];
@@ -1762,25 +1854,12 @@ export class SystemKVStore extends PuterStore {
             },
             {} as Record<string, unknown>,
         );
-        const valueAttributeNames = Object.entries(pathAndValueMap).reduce(
-            (acc, [valPath]) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
-        );
-
         const response = await this.clients.dynamo.update(
             this.tableName,
             { key, namespace },
             `SET ${setStatements.join(', ')}`,
             valueAttributeValues,
-            { ...valueAttributeNames, '#value': 'value' },
+            renderer.names,
         );
         await this.#committed(actor, namespace, [key], 'set');
 
@@ -1805,34 +1884,16 @@ export class SystemKVStore extends PuterStore {
                 legacyCode: 'bad_request',
             });
         }
-        assertPaths(paths);
+        const pathTokens = parsePaths(paths);
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const removeStatements = paths.map((valPath) => {
-            return ['value', ...valPath.split('.')]
-                .filter(Boolean)
-                .map((chunk) => {
-                    const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                    const indexSuffix = chunk.slice(cleanedChunk.length);
-                    return `${cleanAttrName(cleanedChunk)}${indexSuffix}`;
-                })
-                .join('.');
-        });
-        const valueAttributeNames = paths.reduce(
-            (acc, valPath) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
+        const renderer = new PathExpressionRenderer();
+        const removeStatements = pathTokens.map((tokens) =>
+            renderer.path(tokens),
         );
 
         try {
@@ -1841,7 +1902,7 @@ export class SystemKVStore extends PuterStore {
                 { key, namespace },
                 `REMOVE ${removeStatements.join(', ')}`,
                 undefined,
-                { ...valueAttributeNames, '#value': 'value' },
+                renderer.names,
             );
             await this.#committed(actor, namespace, [key], 'set');
             return {
@@ -1896,7 +1957,7 @@ export class SystemKVStore extends PuterStore {
         for (const val of Object.values(pathAndValueMap)) {
             assertValue(val);
         }
-        assertPaths(Object.keys(pathAndValueMap));
+        const pathTokens = parsePaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -1905,18 +1966,14 @@ export class SystemKVStore extends PuterStore {
         const createPathsUsage = await this.createPaths(
             namespace,
             key,
-            Object.keys(pathAndValueMap),
+            pathTokens,
         );
 
-        const setStatements = Object.entries(pathAndValueMap).map(
-            ([valPath], idx) => {
-                const attrName = ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .map(cleanAttrName)
-                    .join('.');
-                return `${attrName} = :value${idx}`;
-            },
-        );
+        const renderer = new PathExpressionRenderer();
+        const setStatements = pathTokens.map((tokens, idx) => {
+            const attrName = renderer.path(tokens);
+            return `${attrName} = :value${idx}`;
+        });
         const valueAttributeValues = Object.entries(pathAndValueMap).reduce(
             (acc, [_path, val], idx) => {
                 acc[`:value${idx}`] = val;
@@ -1924,19 +1981,6 @@ export class SystemKVStore extends PuterStore {
             },
             {} as Record<string, unknown>,
         );
-        const valueAttributeNames = Object.entries(pathAndValueMap).reduce(
-            (acc, [valPath]) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
-        );
-
         if (ttl !== undefined) {
             const ttlSeconds = Number(ttl);
             if (Number.isNaN(ttlSeconds))
@@ -1946,7 +1990,7 @@ export class SystemKVStore extends PuterStore {
             const timestamp = Math.floor(Date.now() / 1000) + ttlSeconds;
             setStatements.push('#ttl = :ttl');
             valueAttributeValues[':ttl'] = timestamp;
-            valueAttributeNames['#ttl'] = 'ttl';
+            renderer.names['#ttl'] = 'ttl';
         }
 
         const response = await this.clients.dynamo.update(
@@ -1954,7 +1998,7 @@ export class SystemKVStore extends PuterStore {
             { key, namespace },
             `SET ${setStatements.join(', ')}`,
             valueAttributeValues,
-            { ...valueAttributeNames, '#value': 'value' },
+            renderer.names,
         );
 
         await this.#committed(actor, namespace, [key], 'set');
@@ -2034,37 +2078,53 @@ export class SystemKVStore extends PuterStore {
     }
 
     /**
-     * Ensure each intermediate map layer exists for a set of nested paths.
-     * Returns write units consumed. DDB can't set nested paths on missing
-     * parents in one expression, so we walk the layers and `SET ...
-     * if_not_exists(..., {})` each one.
+     * Create missing parent containers one layer at a time and return write
+     * units consumed. Indexed ancestors must already exist.
      */
     private async createPaths(
         namespace: string,
         key: string,
-        pathList: string[],
+        pathList: PathToken[][],
     ): Promise<number> {
-        assertPaths(pathList);
-
         const nestedMapValue = (() => {
+            const rootIsList = pathList[0]?.[0]?.type === 'index';
+            if (
+                pathList.some(
+                    (tokens) =>
+                        tokens[0] &&
+                        (tokens[0].type === 'index') !== rootIsList,
+                )
+            )
+                throw new HttpError(
+                    400,
+                    'kv: paths require incompatible roots',
+                    {
+                        legacyCode: 'bad_request',
+                    },
+                );
+            if (rootIsList) return [] as unknown[];
+
             const valueRoot: Record<string, unknown> = {};
             let hasPaths = false;
-            pathList.forEach((valPath) => {
-                if (!valPath) return;
+            pathList.forEach((tokens) => {
+                if (tokens.length === 0) return;
                 hasPaths = true;
-                const chunks = valPath.split('.').filter(Boolean);
                 let cursor: Record<string, unknown> = valueRoot;
-                for (let i = 0; i < chunks.length - 1; i++) {
-                    const chunk = chunks[i];
+                for (let i = 0; i < tokens.length - 1; i++) {
+                    const token = tokens[i];
+                    if (token.type === 'index') break;
+                    const next = tokens[i + 1];
+                    const container = next.type === 'index' ? [] : {};
                     // Own properties only: an inherited hit here would mean
                     // walking (and then writing to) the prototype chain.
-                    const existing = Object.hasOwn(cursor, chunk)
-                        ? cursor[chunk]
+                    const existing = Object.hasOwn(cursor, token.value)
+                        ? cursor[token.value]
                         : undefined;
                     if (!isPlainObject(existing)) {
-                        cursor[chunk] = {};
+                        cursor[token.value] = container;
                     }
-                    cursor = cursor[chunk] as Record<string, unknown>;
+                    if (Array.isArray(container)) break;
+                    cursor = cursor[token.value] as Record<string, unknown>;
                 }
             });
             return hasPaths ? valueRoot : null;
@@ -2072,39 +2132,49 @@ export class SystemKVStore extends PuterStore {
 
         if (!nestedMapValue) return 0;
 
-        const allIntermediatePaths = new Set<string>();
-        pathList.forEach((valPath) => {
-            const chunks = ['value', ...valPath.split('.')].filter(Boolean);
-            for (let i = 1; i < chunks.length; i++) {
-                allIntermediatePaths.add(chunks.slice(0, i).join('.'));
+        const allIntermediatePaths = new Map<string, PathToken[]>();
+        const containerTypes = new Map<string, PathToken['type']>();
+        allIntermediatePaths.set('', []);
+        for (const tokens of pathList) {
+            for (let i = 1; i < tokens.length; i++) {
+                const prefix = tokens.slice(0, i);
+                if (prefix.at(-1)?.type === 'index') continue;
+                const id = JSON.stringify(prefix);
+                allIntermediatePaths.set(id, prefix);
+                const containerType = tokens[i].type;
+                const existingType = containerTypes.get(id);
+                if (existingType && existingType !== containerType) {
+                    throw new HttpError(
+                        400,
+                        'kv: paths require incompatible containers',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                containerTypes.set(id, containerType);
             }
-        });
+        }
 
         let writeUnits = 0;
-        const orderedPaths = [...allIntermediatePaths].sort(
-            (left, right) => left.split('.').length - right.split('.').length,
+        const orderedPaths = [...allIntermediatePaths.values()].sort(
+            (left, right) => left.length - right.length,
         );
 
         for (const layerPath of orderedPaths) {
-            const chunks = layerPath.split('.');
-            const attrName = chunks.map(cleanAttrName).join('.');
-            const expressionNames: Record<string, string> = {};
-            chunks.forEach((chunk) => {
-                const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                expressionNames[cleanAttrName(cleanedChunk)] = cleanedChunk;
-            });
-            const isRootLayer = layerPath === 'value';
+            const renderer = new PathExpressionRenderer();
+            const attrName = renderer.path(layerPath);
+            const isRootLayer = layerPath.length === 0;
+            const nextType = containerTypes.get(JSON.stringify(layerPath));
             const expressionValues = isRootLayer
                 ? { ':nestedMap': nestedMapValue }
-                : { ':emptyMap': {} };
-            const valueToken = isRootLayer ? ':nestedMap' : ':emptyMap';
+                : { ':emptyContainer': nextType === 'index' ? [] : {} };
+            const valueToken = isRootLayer ? ':nestedMap' : ':emptyContainer';
 
             const response = await this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
                 `SET ${attrName} = if_not_exists(${attrName}, ${valueToken})`,
                 expressionValues,
-                expressionNames,
+                renderer.names,
             );
             writeUnits += Number(response.ConsumedCapacity?.CapacityUnits ?? 0);
 

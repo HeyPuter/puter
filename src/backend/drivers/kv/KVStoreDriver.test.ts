@@ -52,6 +52,26 @@ describe('KVStoreDriver', () => {
     const inCtx = <T>(fn: () => T | Promise<T>, withActor: Actor = actor) =>
         runWithContext({ actor: withActor }, fn);
 
+    it('mutates root array paths through the public driver', async () => {
+        await inCtx(async () => {
+            const key = 'rootArray';
+            await target.set({ key, value: [{ score: 2, tags: [] }, 'keep'] });
+            await target.update({
+                key,
+                pathAndValueMap: { '[0].name': 'Puter' },
+            });
+            await target.incr({ key, pathAndAmountMap: { '[0].score': 3 } });
+            await target.decr({ key, pathAndAmountMap: { '[0].score': 1 } });
+            await target.add({ key, pathAndValueMap: { '[0].tags': ['new'] } });
+            expect(await target.get({ key })).toEqual([
+                { name: 'Puter', score: 4, tags: ['new'] },
+                'keep',
+            ]);
+            expect(await target.remove({ key, paths: ['[0]'] })).toEqual(['keep']);
+            expect(await target.get({ key })).toEqual(['keep']);
+        });
+    });
+
     describe('get', () => {
         it('returns the value previously stored under the same key', async () => {
             const res = await inCtx(async () => {

@@ -27,9 +27,11 @@ An array is appended element by element, so wrap a single value in an array to a
 
 #### `pathAndValue` (Object) (optional)
 
-An object where each key is a dot-separated path (for example, `"profile.tags"`) and each value is the value (or values) to add at that path.
+An object where each key is a path (for example, `"profile.tags"`) and each value is the value (or values) to add at that path.
 
 Appended values follow the same limits as [`puter.kv.set()`](/KV/set/): **400 KB**, and every number within **±9,007,199,254,740,991** — a larger one is stored clamped to that bound.
+
+Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. When a path continues through an array element (for example, `[0].score`), that element must already exist. Missing object parents are created automatically; sparse array elements are not created.
 
 ## Return value
 
