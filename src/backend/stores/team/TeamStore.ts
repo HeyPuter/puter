@@ -577,6 +577,25 @@ export class TeamStore extends PuterStore {
         return Number(rows[0]?.n ?? 0);
     }
 
+    /**
+     * Seats that are provisioned and not suspended.
+     *
+     * Distinct from `countSeats` on purpose. That one bounds the cap, where a
+     * suspended seat still counts because it still holds a username. This one
+     * answers "how many accounts is the team getting the benefit of", which is
+     * what the console tells the owner they pay per account for.
+     */
+    async countActiveSeats(teamId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'WHERE ug.`group_id` = ? AND ug.`org_owned` = 1 ' +
+                'AND (u.`suspended` IS NULL OR u.`suspended` = 0)',
+            [teamId],
+        )) as { n: number }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
     /** Live teams this user owns. Soft-deleted ones do not count. */
     async countOwned(ownerUserId: number): Promise<number> {
         const rows = (await this.clients.db.read(

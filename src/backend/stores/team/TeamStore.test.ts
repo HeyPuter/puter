@@ -452,6 +452,75 @@ describe('TeamStore', () => {
         ).resolves.toBe(false);
     });
 
+    // -- seat counts --------------------------------------------------
+
+    // `countSeats` bounds the cap and `countActiveSeats` is the billable
+    // count, so the two must disagree exactly when a seat is suspended.
+    describe('counting seats', () => {
+        const suspend = async (userId: number) => {
+            await server.clients.db.write(
+                'UPDATE `user` SET `suspended` = 1 WHERE `id` = ?',
+                [userId],
+            );
+        };
+
+        const seatedTeam = async (seats = 0) => {
+            const team = await store.create({
+                ownerUserId: owner.id,
+                name: 'Counted',
+                handle: freeHandle(),
+            });
+            const members: { id: number }[] = [];
+            for (let i = 0; i < seats; i++) {
+                const m = await makeUser();
+                await store.addMember(team.uid, m.id, { orgOwned: true });
+                members.push(m);
+            }
+            return { team, members };
+        };
+
+        it('counts provisioned seats and active seats alike when none is suspended', async () => {
+            const { team } = await seatedTeam(3);
+            expect(await store.countSeats(team.id)).toBe(3);
+            expect(await store.countActiveSeats(team.id)).toBe(3);
+        });
+
+        it('drops a suspended seat from the active count but not from the cap', async () => {
+            // The console promises a suspended account costs nothing per
+            // account, while the seat it holds is still taken.
+            const { team, members } = await seatedTeam(3);
+            await suspend(members[0].id);
+
+            expect(await store.countActiveSeats(team.id)).toBe(2);
+            expect(await store.countSeats(team.id)).toBe(3);
+        });
+
+        it('still counts a provisioned seat that has never been activated', async () => {
+            // It holds a temporary password, not a suspension — it is paid for.
+            const { team, members } = await seatedTeam(1);
+            await server.clients.db.write(
+                'UPDATE `user` SET `requires_password_change` = 1 WHERE `id` = ?',
+                [members[0].id],
+            );
+
+            expect(await store.countActiveSeats(team.id)).toBe(1);
+        });
+
+        it('excludes the payer, who is not a seat', async () => {
+            const { team } = await seatedTeam(2);
+            const payer = await makeUser();
+            await server.stores.user.update(payer.id, { password: 'hashed' });
+            await store.addMember(team.uid, payer.id, { orgOwned: false });
+
+            expect(await store.countActiveSeats(team.id)).toBe(2);
+        });
+
+        it('is zero for a team with no seats, not an error', async () => {
+            const { team } = await seatedTeam(0);
+            expect(await store.countActiveSeats(team.id)).toBe(0);
+        });
+    });
+
     // -- pagination ---------------------------------------------------
 
     it('pages members on `id` and stops when the set is exhausted', async () => {
