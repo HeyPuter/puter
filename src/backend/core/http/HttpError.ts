@@ -98,7 +98,11 @@ export interface HttpErrorOptions {
      * expect.
      */
     code?: string;
-    /** Additional fields merged into the response body. */
+    /**
+     * Additional fields merged into the response body, and attached to the
+     * alarm as `details` when the error alarms. Everything here reaches the
+     * client, so it has to be safe to show the caller.
+     */
     fields?: Record<string, unknown>;
     /**
      * Skip the terminal alarm gate for this error. Set it only where the call

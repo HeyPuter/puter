@@ -270,10 +270,19 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         // `fake` is priced at zero throughout: an upstream throttle there is
         // expected and costs nobody anything, so the caller still gets the
         // 429 but nothing is recorded.
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
         const err = await errorFor(
             Object.assign(new Error('slow down'), { status: 429 }),
         );
         expect(err.noAlarm).toBe(true);
+        // Nothing to act on means nothing to log either.
+        expect(
+            warn.mock.calls.some((c) =>
+                String(c[0]).startsWith('[ai-chat] all routes failed'),
+            ),
+        ).toBe(false);
     });
 
     it('keeps the alarm when a paid model is the one being rate limited', async () => {

@@ -1152,6 +1152,9 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockRejectedValue(
             new Error('boom'),
         );
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
 
         let caught: HttpError | undefined;
         try {
@@ -1178,6 +1181,15 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
             provider: 'fake-chat',
             error: 'boom',
         });
+
+        // The alarm collapses every occurrence onto one message, so the
+        // per-route detail has to be logged per request or it is lost.
+        const line = warn.mock.calls
+            .map((c) => String(c[0]))
+            .find((l) => l.startsWith('[ai-chat] all routes failed'));
+        expect(line).toContain('fake-chat:fake');
+        expect(line).toContain('internal_error');
+        expect(line).toContain(JSON.stringify(attempts));
     });
 
     it('hands every fallback attempt the same messages array, reasoning artifacts intact', async () => {

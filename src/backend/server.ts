@@ -838,6 +838,14 @@ export class PuterServer {
                         alarmId,
                         `HTTP ${status} on ${req.method} ${req.originalUrl}: ${signature}`,
                         {
+                            // What the thrower attached (an AI chain's
+                            // per-provider attempts, say) rides under one key
+                            // so it can't shadow the request fields below, and
+                            // a repeat from another thrower on the same id
+                            // replaces it rather than merging into it.
+                            ...(isHttp && err.fields !== undefined
+                                ? { details: err.fields }
+                                : {}),
                             error: err instanceof Error ? err : undefined,
                             status,
                             method: req.method,
