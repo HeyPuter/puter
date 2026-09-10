@@ -2078,6 +2078,21 @@ window.initgui = async function (options) {
                     });
                 } while (!is_verified);
             }
+            // Last, matching assertVerifiedAccount's order.
+            if (whoami.requires_password_change) {
+                let changed;
+                do {
+                    changed = await UIWindowPasswordChangeRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        window_options: {
+                            is_draggable: false,
+                            cover_page: window.is_embedded,
+                        },
+                    });
+                } while (!changed);
+            }
             await window.update_auth_data(
                 whoami.token || window.auth_token,
                 whoami,
