@@ -424,9 +424,14 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
             return String(oidc().verifyState(state!)?.redirect_uri);
         };
 
-        const returnToFor = (paths: string[], path = '/') => {
+        const returnToFor = (
+            paths: string[],
+            path = '/',
+            recipientUuid?: string,
+        ) => {
             const params = new URLSearchParams();
             for (const p of paths) params.append('shared', p);
+            if (recipientUuid) params.set('user_uuid', recipientUuid);
             return `${path}?${params.toString()}`;
         };
 
@@ -460,6 +465,16 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
             ]);
         });
 
+        it('carries a valid recipient account hint with the share', async () => {
+            const recipientUuid = uuidv4();
+            const uri = await redirectUriFor(
+                returnToFor([sharedPath('Report.pdf')], '/', recipientUuid),
+            );
+            expect(new URL(uri).searchParams.get('user_uuid')).toBe(
+                recipientUuid,
+            );
+        });
+
         it('carries no more items than a share link may name', async () => {
             const paths = Array.from({ length: 25 }, (_, i) =>
                 sharedPath(`file-${i}.txt`),
@@ -481,6 +496,8 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
                 // a parameter that isn't `shared`, alone or alongside one
                 '/?x=1',
                 `${returnToFor([sharedPath('a.txt')])}&x=1`,
+                `${returnToFor([sharedPath('a.txt')])}&user_uuid=not-a-uuid`,
+                `${returnToFor([sharedPath('a.txt')])}&user_uuid=${uuidv4()}&user_uuid=${uuidv4()}`,
                 // the root is only a destination when it names something
                 '/',
                 // still no origin smuggling, share link or not
@@ -830,7 +847,7 @@ describe('OIDCController login callback', () => {
 
         const state = oidc().signState({
             provider: 'custom',
-            redirect_uri: `${TEST_ORIGIN}/?shared=${encodeURIComponent(shared)}`,
+            redirect_uri: `${TEST_ORIGIN}/?shared=${encodeURIComponent(shared)}&user_uuid=${encodeURIComponent(created.user!.uuid)}`,
         });
         vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
             access_token: 'access',
@@ -853,6 +870,7 @@ describe('OIDCController login callback', () => {
         expect(url.searchParams.get('auth_error')).toBe('1');
         expect(url.searchParams.get('action')).toBe('login');
         expect(url.searchParams.getAll('shared')).toEqual([shared]);
+        expect(url.searchParams.get('user_uuid')).toBe(created.user!.uuid);
     });
 
     it('redirects back to an /app/<name> landing after sign-in', async () => {

@@ -67,6 +67,11 @@ describe('get_oidc_return_to', () => {
         ).toBe(`/${share_search(shared_path('a.txt'), shared_path('b.txt'))}`);
     });
 
+    it('carries the intended account through the OIDC round trip', () => {
+        const search = `${share_search(shared_path('Report.pdf'))}&user_uuid=recipient`;
+        expect(at('/', search)).toBe(`/${search}`);
+    });
+
     it('leaves behind everything that is not a share link', () => {
         // a hand-edited value the backend would refuse anyway
         expect(at('/', share_search('/alice/Documents/Report.pdf'))).toBe(null);

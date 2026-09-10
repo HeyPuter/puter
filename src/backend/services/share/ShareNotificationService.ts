@@ -711,7 +711,20 @@ export class ShareNotificationService extends PuterService {
 
     /** A record's items, or its names alone when it predates the links. */
     #recordItems(record: DigestEntryRecord): DigestItem[] {
-        if (record.items?.length) return record.items;
+        if (record.items?.length) {
+            return record.items.map((item) =>
+                item.path
+                    ? {
+                          ...item,
+                          link: shareDeepLink(
+                              this.#appLink(),
+                              item.path,
+                              record.recipientUuid,
+                          ),
+                      }
+                    : item,
+            );
+        }
         return (record.names ?? []).map((name) => ({ name }));
     }
 
@@ -905,6 +918,7 @@ export class ShareNotificationService extends PuterService {
                             link: sharedViewLink(
                                 this.#appLink(),
                                 digestItemPaths(entries),
+                                first.recipientUuid,
                             ),
                             // The template composes the unsubscribe URL from
                             // the origin, so `?` and `=` stay literal instead

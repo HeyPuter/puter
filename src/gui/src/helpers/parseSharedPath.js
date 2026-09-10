@@ -19,6 +19,11 @@
 
 /** The query parameter a share link arrives on. */
 export const SHARED_PATH_PARAM = 'shared';
+export const SHARE_RECIPIENT_PARAM = 'user_uuid';
+
+// The uuid segment of a shared item's path; see the backend's `sharePathMask`.
+const UID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Take `?shared=` off the address bar so a reload doesn't act on it again.
@@ -28,6 +33,7 @@ export const SHARED_PATH_PARAM = 'shared';
 export function clear_shared_param (hash = window.location.hash) {
     const params = new URLSearchParams(window.location.search);
     params.delete(SHARED_PATH_PARAM);
+    params.delete(SHARE_RECIPIENT_PARAM);
     const rest = params.toString();
     window.history.replaceState(
         null,
@@ -36,9 +42,36 @@ export function clear_shared_param (hash = window.location.hash) {
     );
 }
 
-// The uuid segment of a shared item's path; see the backend's `sharePathMask`.
-const UID_PATTERN =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * The account named by a share-email link, or null for an ordinary or
+ * hand-edited link.
+ *
+ * @param {URLSearchParams} params
+ * @returns {string | null}
+ */
+export function shared_link_recipient_uuid (params) {
+    if ( ! params.has(SHARED_PATH_PARAM) ) return null;
+    const recipientUuid = params.get(SHARE_RECIPIENT_PARAM);
+    return recipientUuid && UID_PATTERN.test(recipientUuid)
+        ? recipientUuid
+        : null;
+}
+
+/**
+ * Return the locally saved account named by a share-email link, when switching
+ * away from the current account is necessary.
+ *
+ * @param {URLSearchParams} params
+ * @param {{ uuid?: string } | null} currentUser
+ * @param {Array<{ uuid?: string, auth_token?: string }>} loggedInUsers
+ */
+export function shared_link_account (params, currentUser, loggedInUsers) {
+    const recipientUuid = shared_link_recipient_uuid(params);
+    if ( ! recipientUuid || recipientUuid === currentUser?.uuid ) return null;
+    return loggedInUsers.find(user =>
+        user.uuid === recipientUuid && Boolean(user.auth_token)
+    ) ?? null;
+}
 
 /**
  * Read `/<owner>/<uuid>/<name>`, the form a recipient is given. `null` for

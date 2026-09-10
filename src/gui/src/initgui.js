@@ -60,6 +60,10 @@ import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
 import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
+import {
+    shared_link_account,
+    shared_link_recipient_uuid,
+} from './helpers/parseSharedPath.js';
 import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
 import { BroadcastService } from './services/BroadcastService.js';
@@ -80,6 +84,31 @@ import { deliversTokenToOpener, runsUserAppTokenExchange } from './util/popupAut
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 const postAuthActions = async (action) => {
+    const sharedLinkRecipientUuid = shared_link_recipient_uuid(
+        window.url_query_params,
+    );
+    const sharedLinkAccount = shared_link_account(
+        window.url_query_params,
+        window.user,
+        window.logged_in_users,
+    );
+    if ( sharedLinkAccount ) {
+        await window.update_auth_data(
+            sharedLinkAccount.auth_token,
+            sharedLinkAccount,
+        );
+        window.location.reload();
+        return;
+    }
+    if ( sharedLinkRecipientUuid && sharedLinkRecipientUuid !== window.user?.uuid ) {
+        await UIWindowSessionList({
+            reload_on_success: true,
+            cover_page: true,
+            has_head: false,
+            send_confirmation_code: true,
+        });
+        return;
+    }
     // Set when a popup's user-app token exchange fails. The exchange is what
     // bootstraps the app row a permission grant is written against, so an
     // action that depends on it has to report failure rather than prompt.
