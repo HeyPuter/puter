@@ -55,7 +55,9 @@
  *
  * @typedef {Object} CreateMemberOptions
  * @property {string} username The username for the new account. Must be free across all of Puter.
- * @property {string} email The address the member is reachable at. It must not already own an account.
+ * @property {string} [email] Optional. These accounts sign in by username, so an
+ *   address is not needed; supply one only to have the team's notices delivered.
+ *   If given it must not already own an account.
  */
 
 /**

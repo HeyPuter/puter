@@ -124,7 +124,6 @@ const renderAddAccount = () => {
     h += `<p class="teams-panel-hint">${i18n('teams_add_account_hint')}</p>`;
     h += '<div class="teams-form">';
     h += `<input class="teams-new-username" type="text" autocomplete="off" spellcheck="false" placeholder="${html_encode(i18n('username'))}">`;
-    h += `<input class="teams-new-email" type="email" autocomplete="off" spellcheck="false" placeholder="${html_encode(i18n('email'))}">`;
     h += `<button class="button button-primary teams-add-btn">${i18n('teams_add_account')}</button>`;
     h += '</div>';
     h += '<div class="teams-credential" style="display:none;"></div>';
@@ -310,13 +309,12 @@ const showCredential = ($el_window, username, temporaryPassword) => {
 
 const addAccount = async ($el_window) => {
     const username = $el_window.find(`${SECTION} .teams-new-username`).val().trim();
-    const email = $el_window.find(`${SECTION} .teams-new-email`).val().trim();
-    if ( ! username || ! email ) return;
+    if ( ! username ) return;
 
     const $button = $el_window.find(`${SECTION} .teams-add-btn`);
     $button.prop('disabled', true);
     try {
-        const created = await puter.teams.createMember(state.selected.uid, { username, email });
+        const created = await puter.teams.createMember(state.selected.uid, { username });
         await refresh($el_window);
         showCredential($el_window, created.username, created.temporaryPassword);
     } catch (e) {

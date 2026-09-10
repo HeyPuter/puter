@@ -193,8 +193,27 @@ describe('members', () => {
         expect(call().body).toEqual({ username: 'bob', email: 'bob@example.com' });
     });
 
-    it('refuses a member without an email without making a request', async () => {
+    it('provisions with no email, omitting the key rather than sending empty', async () => {
+        routes({ 'POST /teams/t-1/members': { username: 'bob', temporary_password: 'hunter2' } });
         await expect(teams.createMember('t-1', { username: 'bob' }))
+            .resolves.toEqual({ username: 'bob', temporaryPassword: 'hunter2' });
+        expect(call().body).toEqual({ username: 'bob' });
+    });
+
+    it('treats a blank email as absent', async () => {
+        routes({ 'POST /teams/t-1/members': { username: 'bob', temporary_password: 'hunter2' } });
+        await teams.createMember('t-1', { username: 'bob', email: '   ' });
+        expect(call().body).toEqual({ username: 'bob' });
+    });
+
+    it('refuses a non-string email without making a request', async () => {
+        await expect(teams.createMember('t-1', { username: 'bob', email: 42 }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+        expect(mockReq).not.toHaveBeenCalled();
+    });
+
+    it('still refuses a member without a username', async () => {
+        await expect(teams.createMember('t-1', {}))
             .rejects.toMatchObject({ code: 'invalid_request' });
         expect(mockReq).not.toHaveBeenCalled();
     });

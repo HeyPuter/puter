@@ -577,6 +577,73 @@ describe('TeamService', () => {
         }
     });
 
+    // PUT-1792: seats sign in by username, so an address is optional.
+    it('provisions with no email at all', async () => {
+        const { team } = await makeTeam();
+        const username = `noem_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+        });
+
+        const row = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(row?.email ?? null).toBeNull();
+        expect(created.temporaryPassword).toEqual(expect.any(String));
+    });
+
+    it('never demands confirmation, with or without an address', async () => {
+        // The gate is `requires_email_confirmation && !email_confirmed`.
+        const { team } = await makeTeam();
+        const bare = `bare_${Math.random().toString(36).slice(2, 9)}`;
+        const withEmail = `wem_${Math.random().toString(36).slice(2, 9)}`;
+
+        const a = await service.provisionAccount(team.uid, owner.id, {
+            username: bare,
+        });
+        const b = await service.provisionAccount(team.uid, owner.id, {
+            username: withEmail,
+            email: `${withEmail}@test.local`,
+        });
+
+        for (const id of [a.userId, b.userId]) {
+            const row = await server.stores.user.getByProperty('id', id, {
+                force: true,
+            });
+            expect(Boolean(row?.requires_email_confirmation)).toBe(false);
+        }
+    });
+
+    it('keeps an address when one is given', async () => {
+        const { team } = await makeTeam();
+        const username = `kept_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const row = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(row?.email).toBe(`${username}@test.local`);
+    });
+
+    it('does not collide two seats that both have no address', async () => {
+        // The uniqueness index is on the address; absent is not a value.
+        const { team } = await makeTeam();
+        for (const n of [1, 2]) {
+            await expect(
+                service.provisionAccount(team.uid, owner.id, {
+                    username: `dup${n}_${Math.random().toString(36).slice(2, 9)}`,
+                }),
+            ).resolves.toMatchObject({ username: expect.any(String) });
+        }
+    });
+
     it('refuses an invalid email', async () => {
         const { team } = await makeTeam();
         await expect(

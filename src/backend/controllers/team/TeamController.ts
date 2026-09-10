@@ -249,7 +249,7 @@ export class TeamController extends PuterController {
         const body = this.#body(req);
         const result = await this.services.team.provisionAccount(uid, userId, {
             username: this.#requireString(body.username, 'username'),
-            email: this.#requireString(body.email, 'email'),
+            email: this.#optionalString(body.email, 'email'),
         });
         // Shown once; the admin delivers it out of band.
         res.json({
@@ -424,6 +424,17 @@ export class TeamController extends PuterController {
 
     #body(req: Request): Record<string, unknown> {
         return (req.body ?? {}) as Record<string, unknown>;
+    }
+
+    /** Absent or empty means "not given"; a wrong type is still a 400. */
+    #optionalString(value: unknown, field: string): string | null {
+        if (value === undefined || value === null) return null;
+        if (typeof value !== 'string') {
+            throw new HttpError(400, `${field} must be a string`, {
+                legacyCode: 'bad_request',
+            });
+        }
+        return value.trim() === '' ? null : value;
     }
 
     #requireString(value: unknown, field: string): string {

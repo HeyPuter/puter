@@ -700,7 +700,7 @@ export class TeamService extends PuterService {
     async provisionAccount(
         teamUid: string,
         actorUserId: number,
-        input: { username: string; email: string },
+        input: { username: string; email?: string | null },
     ): Promise<{
         userId: number;
         username: string;
@@ -714,7 +714,7 @@ export class TeamService extends PuterService {
     async #provisionAccountLocked(
         teamUid: string,
         actorUserId: number,
-        input: { username: string; email: string },
+        input: { username: string; email?: string | null },
     ): Promise<{
         userId: number;
         username: string;
@@ -732,7 +732,8 @@ export class TeamService extends PuterService {
         }
 
         this.#assertUsableUsername(input.username);
-        if (!validator.isEmail(input.email)) {
+        const email = typeof input.email === 'string' ? input.email.trim() : '';
+        if (email && !validator.isEmail(email)) {
             throw new HttpError(400, 'Invalid email', {
                 legacyCode: 'bad_request',
             });
@@ -749,7 +750,7 @@ export class TeamService extends PuterService {
         }
 
         // `idx_user_owned_email` is partial and skips password-null rows.
-        if (await this.stores.user.findEmailOwner(input.email)) {
+        if (email && (await this.stores.user.findEmailOwner(email))) {
             throw new HttpError(409, 'That email is already in use', {
                 legacyCode: 'email_already_in_use',
             });
@@ -759,10 +760,10 @@ export class TeamService extends PuterService {
             username: input.username,
             uuid: uuidv4(),
             password: null,
-            email: input.email,
-            clean_email: cleanEmail(input.email),
-            // The address came from the administrator, not its holder.
-            requires_email_confirmation: true,
+            email: email || null,
+            clean_email: email ? cleanEmail(email) : null,
+            // Never demanded: the team creating the account is the trust anchor.
+            requires_email_confirmation: false,
         });
 
         await generateDefaultFsentries(this.clients.db, this.stores.user, user);

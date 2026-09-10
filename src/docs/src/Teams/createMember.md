@@ -28,9 +28,13 @@ The team's identifier.
 
 The username for the new account. Usernames come from the same pool as ordinary sign-ups, so it must be free across the whole of Puter.
 
-#### `options.email` (String) (required)
+#### `options.email` (String) (optional)
 
-The address the member is reachable at. It must not already own an account. The address came from the administrator rather than its holder, so the account is created needing email confirmation.
+Where the team's notices about this account are delivered. These accounts sign in by **username**, so an address is not needed and the form does not ask for one.
+
+Supply it only if you want `team_account_created`, `team_account_disabled` and `team_password_reset` to reach the member; if you leave it out, those notices are simply not sent and the temporary password in the return value is the only delivery. If given, it must not already own an account.
+
+The account is never asked to confirm the address — the team creating it is the trust anchor — so it can be used immediately either way. An account with no address is recoverable only through its team's owner, via `resetPassword`.
 
 ## Return value
 
@@ -53,7 +57,6 @@ Rejects with `username_already_in_use` — with free alternatives in `fields.sug
             const name = 'member' + Math.random().toString(36).slice(2, 8);
             const account = await puter.teams.createMember(team.uid, {
                 username: name,
-                email: `${name}@example.com`,
             });
             // Shown once; hand it over out of band.
             puter.print(`${account.username}: ${account.temporaryPassword}`);
