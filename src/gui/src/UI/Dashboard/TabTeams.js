@@ -19,6 +19,7 @@
 
 import UIAlert from '../UIAlert.js';
 import UIPrompt from '../UIPrompt.js';
+import teamPlanHtml from './teamPlan.js';
 import {
     annotateMembers,
     auditActionKey,
@@ -31,7 +32,7 @@ import {
 const SECTION = '.dashboard-section-teams';
 
 /** What the console last loaded, so a redraw needs no second round trip. */
-let state = { status: 'loading', teams: [], selected: null, members: [], audit: [] };
+let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], plan: null };
 
 /** In flight, so `init` and the initial-route `onActivate` don't both load. */
 let loadPromise = null;
@@ -174,6 +175,12 @@ const renderMemberView = () => {
     return h + renderAudit();
 };
 
+const renderPlan = () => teamPlanHtml({
+    plan: state.plan,
+    seats: state.members.filter(m => m.org_owned).length,
+    canBuy: window.team_billing_ui === true,
+});
+
 const renderDirectory = () => {
     const on = state.selected?.directoryEnabled === true;
     let h = '<div class="dashboard-card teams-panel">';
@@ -197,6 +204,7 @@ const renderOwnerView = () => {
     h += `<button class="button teams-rename">${i18n('teams_rename')}</button>`;
     h += '</div>';
 
+    h += renderPlan();
     h += renderDirectory();
     h += renderAddAccount();
     h += renderMembers();
@@ -245,6 +253,35 @@ const loadSelected = async () => {
     state.members = state.selected.isOwner
         ? await puter.teams.listMembers(state.selected.uid)
         : [];
+    state.plan = state.selected.isOwner ? await loadPlan(state.selected.uid) : null;
+};
+
+/** Served by a billing extension; absent is a normal answer. */
+const loadPlan = async (teamUid) => {
+    const get = async (path) => {
+        const resp = await fetch(`${window.api_origin}${path}`, {
+            headers: { Authorization: `Bearer ${puter.authToken}` },
+        });
+        return resp.ok ? resp.json() : null;
+    };
+    try {
+        const [cat, sub] = await Promise.all([
+            get('/marketplace/subscriptions/team-offerings'),
+            get(`/marketplace/teams/${encodeURIComponent(teamUid)}/subscription`),
+        ]);
+        if ( ! cat ) return { status: 'unavailable', offerings: [], current: null };
+        const offerings = Array.isArray(cat.offerings) ? cat.offerings : [];
+        const entry = sub?.subscription ?? null;
+        return {
+            status: 'ready',
+            offerings,
+            current: entry
+                ? { ...entry, name_en: offerings.find(o => o.tier === entry.tier)?.name_en }
+                : null,
+        };
+    } catch {
+        return { status: 'unavailable', offerings: [], current: null };
+    }
 };
 
 const load = async ($el_window) => {
@@ -481,6 +518,17 @@ const TabTeams = {
         $el_window.on('click', `${SECTION} .teams-create`, () => createTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-rename`, () => renameTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-delete`, () => deleteTeam($el_window));
+        // Checkout is the billing extension's job; this only says what was asked for.
+        $el_window.on('click', `${SECTION} .teams-plan-buy`, function () {
+            if ( ! state.selected ) return;
+            window.dispatchEvent(new CustomEvent('team-plan-purchase', {
+                detail: {
+                    teamUid: state.selected.uid,
+                    itemId: $(this).attr('data-item-id'),
+                    onDone: () => refresh($el_window),
+                },
+            }));
+        });
         $el_window.on('click', `${SECTION} .teams-reset`, function () {
             reissueCredential($el_window, $(this).attr('data-username'));
         });
