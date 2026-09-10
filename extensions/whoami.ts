@@ -253,6 +253,23 @@ export const handleWhoami = async (
         details.directories = directories;
     }
 
+    // The team an account belongs to, when it is one a team pays for. User
+    // actors only, and only where teams are on.
+    if (isUser && extension.config.teams_enabled === true) {
+        try {
+            const seat = await stores.team.getOrgSeat(user.id);
+            if (seat) {
+                details.team = {
+                    uid: seat.team_uid,
+                    name: seat.team_name ?? null,
+                };
+            }
+        } catch (e) {
+            // Never fail whoami over this; the account still works without it.
+            console.warn('[whoami] team lookup failed:', (e as Error).message);
+        }
+    }
+
     // Last activity
     const lastActivityTs = toUnixSeconds(user.last_activity_ts);
     if (lastActivityTs !== undefined) {

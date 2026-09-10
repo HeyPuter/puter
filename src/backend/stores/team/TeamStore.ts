@@ -53,6 +53,7 @@ export interface OrgSeatRow {
     uuid: string;
     username: string;
     team_uid: string;
+    team_name: string | null;
     owner_user_id: number;
 }
 
@@ -626,7 +627,8 @@ export class TeamStore extends PuterStore {
     async #readOrgSeat(userId: number): Promise<OrgSeatRow | null> {
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, u.`uuid`, u.`username`, ' +
-                'g.`uid` AS `team_uid`, g.`owner_user_id` ' +
+                'g.`uid` AS `team_uid`, g.`name` AS `team_name`, ' +
+                'g.`owner_user_id` ' +
                 'FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +

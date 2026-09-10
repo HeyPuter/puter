@@ -528,6 +528,7 @@ const en = {
         teams_create_team_prompt: 'What should the team be called?',
         teams_accounts: 'Accounts',
         teams_no_accounts: 'This team has no accounts yet.',
+        teams_account_of: 'This account belongs to %%',
         teams_add_account: 'Add an account',
         teams_email_optional: 'Email (optional)',
         teams_add_account_email_hint: 'If you add an address, we email the username and temporary password to it. Otherwise the password below is the only copy.',

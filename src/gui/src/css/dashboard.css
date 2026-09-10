@@ -268,6 +268,22 @@ body {
     margin-bottom: 10px;
 }
 
+.dashboard-sidebar-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dashboard-sidebar-team {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    padding-left: 34px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .dashboard-sidebar-logo {
     display: flex;
     gap: 10px;
@@ -344,7 +360,8 @@ body {
     padding: 4px 0 12px;
 }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-logo {
+.dashboard-sidebar.collapsed .dashboard-sidebar-logo,
+.dashboard-sidebar.collapsed .dashboard-sidebar-team {
     display: none;
 }
 
