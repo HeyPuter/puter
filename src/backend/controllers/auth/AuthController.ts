@@ -4816,6 +4816,7 @@ export class AuthController extends PuterController {
             phone?: string | null;
             requires_phone_verification?: number | boolean;
             requires_card_verification?: number | boolean;
+            requires_password_change?: number | boolean;
         },
     ): Promise<void> {
         const meta = {
@@ -4868,6 +4869,7 @@ export class AuthController extends PuterController {
                 phone: user.phone,
                 requires_phone_verification: user.requires_phone_verification,
                 requires_card_verification: user.requires_card_verification,
+                requires_password_change: user.requires_password_change,
                 is_temp: user.password === null && user.email === null,
                 taskbar_items,
             },

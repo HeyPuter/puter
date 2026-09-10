@@ -28,6 +28,7 @@ import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
+import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.js';
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
@@ -1796,6 +1797,20 @@ window.initgui = async function (options) {
                         },
                     });
                 } while (!is_verified);
+            }
+            // Last, matching assertVerifiedAccount's order.
+            if (whoami.requires_password_change) {
+                let changed;
+                do {
+                    changed = await UIWindowPasswordChangeRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        window_options: {
+                            is_draggable: false,
+                        },
+                    });
+                } while (!changed);
             }
             // if user is logging in using an auth token that means it's not their first ever visit to Puter.com
             // it might be their first visit to Puter on this specific device but it's not their first time ever visiting Puter.
