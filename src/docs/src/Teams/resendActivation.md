@@ -10,7 +10,7 @@ Issues a fresh one-time credential for an account that has never signed in, inva
 
 **It refuses once the account has been activated**, rejecting with `conflict`. After activation the member owns their own password, and an administrator able to replace it would be able to reach their files. An activated member resets their own password through the normal Puter flow.
 
-The credential comes back once and is not retrievable afterwards. The member is emailed a notice that the account was set up; the notice carries no credential.
+The credential comes back once and is not retrievable afterwards. If the account has an email address, the new credential is emailed to it as well; if it has none, the return value is the only copy.
 
 ## Syntax
 

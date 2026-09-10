@@ -529,6 +529,8 @@ const en = {
         teams_accounts: 'Accounts',
         teams_no_accounts: 'This team has no accounts yet.',
         teams_add_account: 'Add an account',
+        teams_email_optional: 'Email (optional)',
+        teams_add_account_email_hint: 'If you add an address, we email the username and temporary password to it. Otherwise the password below is the only copy.',
         teams_add_account_hint:
             'Puter creates the account and gives you a one-time password to pass on. The username has to be free across all of Puter.',
         teams_member_kind: 'Kind',

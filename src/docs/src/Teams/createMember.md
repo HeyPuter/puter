@@ -30,9 +30,9 @@ The username for the new account. Usernames come from the same pool as ordinary 
 
 #### `options.email` (String) (optional)
 
-Where the team's notices about this account are delivered. These accounts sign in by **username**, so an address is not needed and the form does not ask for one.
+Where this account's notices are delivered. These accounts sign in by **username**, so an address is optional.
 
-Supply it only if you want `team_account_created`, `team_account_disabled` and `team_password_reset` to reach the member; if you leave it out, those notices are simply not sent and the temporary password in the return value is the only delivery. If given, it must not already own an account.
+Give one and the member is emailed their username and temporary password directly, and later notices (`team_account_disabled`, `team_password_reset`) reach them too. Leave it out and nothing is sent — the temporary password in the return value is then the only copy, so hand it over before you lose it. If given, it must not already own an account.
 
 The account is never asked to confirm the address — the team creating it is the trust anchor — so it can be used immediately either way. An account with no address is recoverable only through its team's owner, via `resetPassword`.
 

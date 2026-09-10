@@ -938,20 +938,85 @@ describe('TeamService', () => {
 
     /** Captures what would go out, without standing up a transport. */
     const captureMail = () => {
-        const sent: { to: string; subject: string }[] = [];
+        const sent: { to: string; subject: string; html: string }[] = [];
         const client = server.clients.email as unknown as {
-            sendRaw: (o: { to?: string; subject?: string }) => Promise<unknown>;
+            sendRaw: (o: {
+                to?: string;
+                subject?: string;
+                html?: string;
+            }) => Promise<unknown>;
         };
         const original = client.sendRaw.bind(client);
         client.sendRaw = async (options) => {
             sent.push({
                 to: String(options.to ?? ''),
                 subject: String(options.subject ?? ''),
+                html: String(options.html ?? ''),
             });
             return null;
         };
         return { sent, restore: () => (client.sendRaw = original) };
     };
+
+    it('emails the credential when an address is given', async () => {
+        const { team } = await makeTeam();
+        const username = `mail_${Math.random().toString(36).slice(2, 9)}`;
+
+        const mail = captureMail();
+        let created;
+        try {
+            created = await service.provisionAccount(team.uid, owner.id, {
+                username,
+                email: `${username}@test.local`,
+            });
+        } finally {
+            mail.restore();
+        }
+
+        expect(mail.sent).toHaveLength(1);
+        expect(mail.sent[0].to).toBe(`${username}@test.local`);
+        expect(mail.sent[0].html).toContain(username);
+        // The point of the address: without it this is the only copy.
+        expect(mail.sent[0].html).toContain(created.temporaryPassword);
+    });
+
+    it('sends nothing when no address is given', async () => {
+        const { team } = await makeTeam();
+        const mail = captureMail();
+        try {
+            await service.provisionAccount(team.uid, owner.id, {
+                username: `nomail_${Math.random().toString(36).slice(2, 9)}`,
+            });
+        } finally {
+            mail.restore();
+        }
+        expect(mail.sent).toHaveLength(0);
+    });
+
+    it('emails the fresh credential on re-issue, not the old one', async () => {
+        const { team } = await makeTeam();
+        const username = `re_${Math.random().toString(36).slice(2, 9)}`;
+        const first = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const mail = captureMail();
+        let again;
+        try {
+            again = await service.reissueCredential(
+                team.uid,
+                owner.id,
+                first.userId,
+            );
+        } finally {
+            mail.restore();
+        }
+
+        expect(mail.sent).toHaveLength(1);
+        expect(mail.sent[0].html).toContain(again.temporaryPassword);
+        expect(mail.sent[0].html).not.toContain(first.temporaryPassword);
+    });
 
     it('tells a member their account was disabled', async () => {
         const { team } = await makeTeam();

@@ -788,7 +788,9 @@ export class TeamService extends PuterService {
 
         // Returned once; forced change on first use is what bounds it.
         const temporaryPassword = await this.#issueTemporaryPassword(user.id);
-        await this.#notifyUser(user, 'team_account_created', team);
+        await this.#notifyUser(user, 'team_account_created', team, {
+            temporary_password: temporaryPassword,
+        });
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {
@@ -831,7 +833,9 @@ export class TeamService extends PuterService {
         });
         const temporaryPassword =
             await this.#issueTemporaryPassword(targetUserId);
-        await this.#notifyUser(user, 'team_account_created', team);
+        await this.#notifyUser(user, 'team_account_created', team, {
+            temporary_password: temporaryPassword,
+        });
         return { temporaryPassword };
     }
 
@@ -910,22 +914,19 @@ export class TeamService extends PuterService {
         return temporaryPassword;
     }
 
-    /**
-     * A notice about something the team did to a member's account. It carries
-     * no credential, so delivery is best effort -- nothing the caller did
-     * depends on it arriving, and an address the administrator supplied may not
-     * even reach its holder.
-     */
+    /** Best effort: the admin also gets the credential in the API response. */
     async #notifyUser(
         user: UserRow | null | undefined,
         template: EmailTemplateName,
         team: TeamRow,
+        vars: Record<string, string> = {},
     ): Promise<void> {
         if (!this.clients.email || !user?.email) return;
         try {
             const sent = await this.clients.email.send(user.email, template, {
                 username: user.username,
                 team_name: team.name ?? 'Your team',
+                ...vars,
             });
             // `sendRaw` returns null with no transport rather than throwing.
             if (sent === null) {
