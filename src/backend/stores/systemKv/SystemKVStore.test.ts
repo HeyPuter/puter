@@ -352,6 +352,96 @@ describe('SystemKVStore', () => {
             );
         });
 
+        it('lists backwards without changing the unpaginated shape', async () => {
+            expect(
+                (await target.list({ as: 'keys', reverse: true }, opts)).res,
+            ).toEqual(['veg:carrot', 'fruit:banana', 'fruit:apple']);
+            expect((await target.list({ as: 'keys' }, opts)).res).toEqual([
+                'fruit:apple',
+                'fruit:banana',
+                'veg:carrot',
+            ]);
+        });
+
+        it.each([false, true])(
+            'preserves cursor direction reverse=%s',
+            async (reverse) => {
+                const first = (
+                    await target.list({ as: 'keys', limit: 1, reverse }, opts)
+                ).res as { items: string[]; cursor: string };
+                expect(first.items).toEqual([
+                    reverse ? 'veg:carrot' : 'fruit:apple',
+                ]);
+                const second = (
+                    await target.list(
+                        { as: 'keys', limit: 1, cursor: first.cursor },
+                        opts,
+                    )
+                ).res as { items: string[] };
+                expect(second.items).toEqual(['fruit:banana']);
+                await expect(
+                    target.list(
+                        { limit: 1, cursor: first.cursor, reverse: !reverse },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it('applies reverse ordering to prefix filtering, offset, and totals', async () => {
+            const result = await target.list(
+                {
+                    as: 'values',
+                    pattern: 'fruit:*',
+                    reverse: true,
+                    offset: 1,
+                    limit: 1,
+                    includeTotal: true,
+                },
+                opts,
+            );
+            expect(result.res).toMatchObject({ items: ['red'], total: 2 });
+        });
+
+        it('fills reverse pages past expired keys', async () => {
+            await target.set(
+                {
+                    key: 'fruit:blueberry',
+                    value: 'expired',
+                    expireAt: Math.floor(Date.now() / 1000) - 10,
+                },
+                opts,
+            );
+            const result = await target.list(
+                {
+                    as: 'keys',
+                    pattern: 'fruit:*',
+                    reverse: true,
+                    limit: 2,
+                    fetchUntilFull: true,
+                },
+                opts,
+            );
+            expect(result.res).toMatchObject({
+                items: ['fruit:banana', 'fruit:apple'],
+            });
+        });
+
+        it('rejects invalid reverse flags and cursor wrappers', async () => {
+            await expect(
+                target.list({ reverse: 'true' as unknown as boolean }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            for (const cursor of [
+                { reverse: true, key: 'bad' },
+                { reverse: true, key: {} },
+                { reverse: false, key: {} },
+            ]) {
+                await expect(
+                    target.list({ cursor }, opts),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            }
+        });
+
         it('returns key/value entries by default', async () => {
             const result = await target.list({}, opts);
             expect(Array.isArray(result.res)).toBe(true);
@@ -979,6 +1069,236 @@ describe('SystemKVStore', () => {
                 target.remove({ key: 'k', paths: [] }, opts),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+    });
+
+    describe('document paths', () => {
+        const rootArrayOperations: Array<[
+            string,
+            () => Promise<{ res: unknown }>,
+            unknown,
+        ]> = [
+            [
+                'incr',
+                async () =>
+                    target.incr(
+                        { key: 'root-incr', pathAndAmountMap: { '[0]': 1 } },
+                        opts,
+                    ),
+                [1],
+            ],
+            [
+                'decr',
+                async () =>
+                    target.decr(
+                        { key: 'root-decr', pathAndAmountMap: { '[0]': 1 } },
+                        opts,
+                    ),
+                [-1],
+            ],
+            [
+                'update',
+                async () =>
+                    target.update(
+                        {
+                            key: 'root-update',
+                            pathAndValueMap: { '[0]': 'zero' },
+                        },
+                        opts,
+                    ),
+                ['zero'],
+            ],
+            [
+                'add',
+                async () =>
+                    target.add(
+                        {
+                            key: 'root-add',
+                            pathAndValueMap: { '[0]': 'zero' },
+                        },
+                        opts,
+                    ),
+                [['zero']],
+            ],
+        ];
+
+        it.each(rootArrayOperations)(
+            '%s initializes a fresh root array for [0]',
+            async (_method, run, expected) => {
+                expect((await run()).res).toEqual(expected);
+            },
+        );
+
+        it('removes a root array index', async () => {
+            await target.set({ key: 'root-remove', value: ['zero'] }, opts);
+            const result = await target.remove(
+                { key: 'root-remove', paths: ['[0]'] },
+                opts,
+            );
+            expect(result.res).toEqual([]);
+        });
+
+        it('supports indexes, mixed paths, repeated indexes, and quoted keys', async () => {
+            await target.set(
+                {
+                    key: 'path-shapes',
+                    value: {
+                        a: [{ count: 1, items: [] }],
+                        some: { path: [{}, {}] },
+                        nested: [[0, 1]],
+                        'a.b': [{ 'c.d': {} }],
+                        "quote'and\\slash": {},
+                    },
+                },
+                opts,
+            );
+
+            await target.incr(
+                { key: 'path-shapes', pathAndAmountMap: { 'a[0].count': 2 } },
+                opts,
+            );
+            await target.decr(
+                { key: 'path-shapes', pathAndAmountMap: { 'a[0].count': 1 } },
+                opts,
+            );
+            await target.add(
+                { key: 'path-shapes', pathAndValueMap: { 'a[0].items': 'x' } },
+                opts,
+            );
+            await target.update(
+                {
+                    key: 'path-shapes',
+                    pathAndValueMap: {
+                        'some.path[1].to.value': 'mixed',
+                        'nested[0][1]': 'repeated',
+                        '["a.b"][0]["c.d"].value': 'dotted',
+                        "['quote\\'and\\\\slash'].value": 'escaped',
+                    },
+                },
+                opts,
+            );
+            const removed = await target.remove(
+                { key: 'path-shapes', paths: ['a[0].items[0]'] },
+                opts,
+            );
+
+            expect(removed.res).toEqual({
+                a: [{ count: 2, items: [] }],
+                some: { path: [{}, { to: { value: 'mixed' } }] },
+                nested: [[0, 'repeated']],
+                'a.b': [{ 'c.d': { value: 'dotted' } }],
+                "quote'and\\slash": { value: 'escaped' },
+            });
+        });
+
+        it(
+            'keeps distinct aliases for colliding attribute names in one operation',
+            async () => {
+                const result = await target.update(
+                    {
+                        key: 'alias-collision',
+                        pathAndValueMap: { 'a-b': 1, ab: 2 },
+                    },
+                    opts,
+                );
+                expect(result.res).toEqual({ 'a-b': 1, ab: 2 });
+            },
+        );
+
+        it('keeps legacy empty dot chunks while parsing array paths', async () => {
+            const result = await target.update(
+                {
+                    key: 'empty-dot-chunks',
+                    pathAndValueMap: { '.a..b.': 1 },
+                },
+                opts,
+            );
+            expect(result.res).toEqual({ a: { b: 1 } });
+        });
+
+        it('rejects paths with conflicting map and list parents in one operation', async () => {
+            await expect(
+                target.update(
+                    {
+                        key: 'conflicting-parent',
+                        pathAndValueMap: { 'a.b': 1, 'a[0]': 2 },
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('does not create indexed ancestors or sparse arrays', async () => {
+            await target.set({ key: 'indexed-ancestor', value: [{}] }, opts);
+            await expect(
+                target.update(
+                    {
+                        key: 'indexed-ancestor',
+                        pathAndValueMap: { '[4].x': 1 },
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ name: 'ValidationException' });
+            expect(
+                (await target.get({ key: 'indexed-ancestor' }, opts)).res,
+            ).toEqual([{}]);
+        });
+
+        it.each([
+            '[',
+            'a[',
+            'a[0',
+            'a[]',
+            'a[-1]',
+            'a[1.5]',
+            'a["unterminated]',
+            "a['unterminated]",
+            'a["x"',
+            'a[0]tail',
+        ])('rejects malformed path %s', async (path) => {
+            await expect(
+                target.update(
+                    { key: 'bad-path', pathAndValueMap: { [path]: 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it.each(['__proto__', 'constructor', 'prototype'])(
+            'rejects unsafe quoted path key %s in every path method',
+            async (unsafeKey) => {
+                const path = `["${unsafeKey}"]`;
+                await expect(
+                    target.incr(
+                        { key: 'unsafe-incr', pathAndAmountMap: { [path]: 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                await expect(
+                    target.decr(
+                        { key: 'unsafe-decr', pathAndAmountMap: { [path]: 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                await expect(
+                    target.update(
+                        { key: 'unsafe-update', pathAndValueMap: { [path]: 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                await expect(
+                    target.add(
+                        { key: 'unsafe-add', pathAndValueMap: { [path]: 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                await expect(
+                    target.remove(
+                        { key: 'unsafe-remove', paths: [path] },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
     });
 
     describe('prototype-chain safety', () => {

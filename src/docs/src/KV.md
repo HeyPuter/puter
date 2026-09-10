@@ -223,7 +223,7 @@ These Key-Value Store features are supported out of the box when using Puter.js:
 - **[`puter.kv.del()`](/KV/del/)** - Delete a key-value pair
 - **[`puter.kv.expire()`](/KV/expire/)** - Set key expiration in seconds
 - **[`puter.kv.expireAt()`](/KV/expireAt/)** - Set key expiration timestamp
-- **[`puter.kv.list()`](/KV/list/)** - List all keys
+- **[`puter.kv.list()`](/KV/list/)** - List keys in ascending or descending order
 - **[`puter.kv.flush()`](/KV/flush/)** - Clear all data
 
 ## Examples

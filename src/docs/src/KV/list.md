@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 Returns an array of all keys in the user's key-value store for the current app. If the user has no keys, the array will be empty.
 
-Results are sorted lexicographically (string order) by key.
+Results are sorted lexicographically (string order) by key, ascending by default. Pass `reverse: true` to list keys in descending order.
 
 ## Syntax
 
@@ -36,8 +36,9 @@ An object with the following optional properties:
 
 - `pattern` (String): Same as the `pattern` parameter.
 - `returnValues` (Boolean): Same as the `returnValues` parameter.
+- `reverse` (Boolean): Lists keys in descending order when `true`. Defaults to `false`. Works with full listings, pagination, and streams; by itself, it keeps the plain-array return shape.
 - `limit` (Number): Maximum number of items to return in a single call.
-- `cursor` (String): A pagination cursor from a previous call. Pass the `cursor` value returned by the previous page to fetch the next one.
+- `cursor` (String): A pagination cursor from a previous call. Pass the `cursor` value returned by the previous page to fetch the next one. The cursor preserves the listing direction; omit `reverse` to keep it, or pass the same value. A conflicting direction is rejected.
 - `offset` (Number): Skips the given number of items before the page starts. Not recommended — requests get slower and more expensive the larger the offset; prefer `cursor`. Maximum `5000`, and cannot be combined with `cursor`.
 - `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item matching the query (across all pages). The count is metered and its cost grows with the size of your store — request it once (on the first page) and avoid it in hot paths. If you only need to know whether more pages exist, check for `cursor` instead of counting.
 - `fetchUntilFull` (Boolean): A page can come back with fewer than `limit` items even when more exist (for example when expired keys are excluded). If `true`, the page is filled up to `limit` items when possible. Requires `limit`.
@@ -68,6 +69,24 @@ for await (const page of puter.kv.list({ pattern: 'log:*', stream: true })) {
 ```
 
 ## Examples
+
+<strong class="example-title">List keys in reverse order</strong>
+
+```html;kv-list-reverse
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            await puter.kv.set('reverse-demo:a', 1);
+            await puter.kv.set('reverse-demo:b', 2);
+            const keys = await puter.kv.list({ pattern: 'reverse-demo:*', reverse: true });
+            puter.print(JSON.stringify(keys));
+        })();
+    </script>
+</body>
+</html>
+```
 
 <strong class="example-title">Retrieve all keys in the user's key-value store for the current app</strong>
 

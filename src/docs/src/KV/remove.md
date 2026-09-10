@@ -4,7 +4,7 @@ description: Remove values at one or more paths from a key in the user's own key
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Remove values from an existing key by path. Paths use dot notation to target nested fields.
+Remove values from an existing key by path. Paths can target nested fields and array elements.
 
 ## Syntax
 
@@ -20,7 +20,9 @@ The key to remove values from.
 
 #### `paths` (String[]) (required)
 
-One or more dot-separated paths to remove (for example, `"profile.bio"`).
+One or more paths to remove (for example, `"profile.bio"`).
+
+Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. Removing an array element shifts later elements down by one index.
 
 ## Return value
 

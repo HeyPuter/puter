@@ -441,6 +441,7 @@ export class DDBClient extends PuterClient {
         index = '',
         consistentRead = false,
         options?: {
+            scanIndexForward?: boolean;
             beginsWith?: { key: string; value: string };
             select?: 'COUNT';
             filter?: {
@@ -497,6 +498,9 @@ export class DDBClient extends PuterClient {
                 ? { FilterExpression: options.filter.expression }
                 : {}),
             ...(options?.select ? { Select: options.select } : {}),
+            ...(options?.scanIndexForward !== undefined
+                ? { ScanIndexForward: options.scanIndexForward }
+                : {}),
             ReturnConsumedCapacity: 'TOTAL',
         });
 

@@ -29,6 +29,8 @@ When `amount` is an object: Decrements a property within an object value stored 
 - Key: the path to the property (e.g., `"user.score"`)
 - Value: the amount to decrement by
 
+Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. When a path continues through an array element (for example, `[0].score`), that element must already exist. Missing object parents are created automatically; sparse array elements are not created.
+
 ## Return Value
 
 Returns the new value of the key after the decrement operation.
