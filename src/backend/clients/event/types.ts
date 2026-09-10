@@ -294,6 +294,7 @@ export type EventMap = {
     'puter.card-verification.setup': {
         user_id: number;
         user_uid: string;
+        email?: string;
         ip?: string | null;
         // Client-supplied device fingerprint for this request, or null. Lets
         // the abuse extension cap card-verification setups per device (across
@@ -320,6 +321,7 @@ export type EventMap = {
     'puter.card-verification.confirm': {
         user_id: number;
         user_uid: string;
+        email?: string;
         setup_intent_id: string;
         enabled: boolean | null;
         verified: boolean;
