@@ -393,8 +393,7 @@ describe('concurrent claims on one email address', () => {
         expect(await countOwners(email)).toBe(1);
 
         const rejected = results.find((r) => r.status === 'rejected') as
-            | PromiseRejectedResult
-            | undefined;
+            PromiseRejectedResult | undefined;
         expect(rejected?.reason).toMatchObject({ statusCode: 400 });
     });
 
@@ -2476,7 +2475,9 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         expect(parentEntry?.isDir).toBe(true);
         const leafEntry = await server.stores.fsEntry.getEntryByPath(leaf);
         expect(leafEntry?.isDir).toBe(true);
-        expect(await grantedPermissions()).toContain(`fs:${leafEntry!.uuid}:write`);
+        expect(await grantedPermissions()).toContain(
+            `fs:${leafEntry!.uuid}:write`,
+        );
     });
 
     it('rolls back only the leaf, not auto-created intermediate directories, when a later phase fails', async () => {
@@ -2525,18 +2526,26 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         await expect(
             grant({ permission: `fs:${appDataPath}:write`, create: true }),
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
-        expect(await server.stores.fsEntry.getEntryByPath(appDataPath)).toBeFalsy();
-        expect(await server.stores.fsEntry.getEntryByPath(appDataSubdir)).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(appDataPath),
+        ).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(appDataSubdir),
+        ).toBeFalsy();
 
         const trashPath = path(`Trash/x-${rand()}`);
         await expect(
             grant({ permission: `fs:${trashPath}:write`, create: true }),
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
-        expect(await server.stores.fsEntry.getEntryByPath(trashPath)).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(trashPath),
+        ).toBeFalsy();
     });
 
     it('rejects a path more than the depth limit below home, creating nothing', async () => {
-        const deep = path(Array.from({ length: 17 }, () => `d-${rand()}`).join('/'));
+        const deep = path(
+            Array.from({ length: 17 }, () => `d-${rand()}`).join('/'),
+        );
         await expect(
             grant({ permission: `fs:${deep}:write`, create: true }),
         ).rejects.toMatchObject({
@@ -2639,24 +2648,33 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
             createMissingParents: true,
         });
         const missingPath = path(`.newmail-${rand()}`);
-        expect(await server.stores.fsEntry.getEntryByPath(missingPath)).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(missingPath),
+        ).toBeFalsy();
 
         const mkdirSpy = vi.spyOn(server.services.fs, 'mkdir');
         const touchSpy = vi.spyOn(server.services.fs, 'touch');
         try {
             await grant({
-                permissions: [`fs:${existingPath}:write`, `fs:${missingPath}:write`],
+                permissions: [
+                    `fs:${existingPath}:write`,
+                    `fs:${missingPath}:write`,
+                ],
                 create: true,
             });
             // Only the missing one is actually created.
-            expect(mkdirSpy.mock.calls.length + touchSpy.mock.calls.length).toBe(1);
+            expect(
+                mkdirSpy.mock.calls.length + touchSpy.mock.calls.length,
+            ).toBe(1);
         } finally {
             mkdirSpy.mockRestore();
             touchSpy.mockRestore();
         }
 
-        const existingEntry = await server.stores.fsEntry.getEntryByPath(existingPath);
-        const createdEntry = await server.stores.fsEntry.getEntryByPath(missingPath);
+        const existingEntry =
+            await server.stores.fsEntry.getEntryByPath(existingPath);
+        const createdEntry =
+            await server.stores.fsEntry.getEntryByPath(missingPath);
         expect(createdEntry?.isDir).toBe(true);
         const perms = await grantedPermissions();
         expect(perms).toContain(`fs:${existingEntry!.uuid}:write`);
@@ -2673,7 +2691,9 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
                 permissions: [`fs:${p}:write`, `fs:${p}:read`],
                 create: true,
             });
-            expect(mkdirSpy.mock.calls.length + touchSpy.mock.calls.length).toBe(1);
+            expect(
+                mkdirSpy.mock.calls.length + touchSpy.mock.calls.length,
+            ).toBe(1);
         } finally {
             mkdirSpy.mockRestore();
             touchSpy.mockRestore();
@@ -2694,7 +2714,9 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
             }),
         ).rejects.toMatchObject({ statusCode: 400 });
 
-        expect(await server.stores.fsEntry.getEntryByPath(goodPath)).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(goodPath),
+        ).toBeFalsy();
     });
 
     it('rolls back what phase B created when phase C fails afterward', async () => {
@@ -2726,7 +2748,9 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
 
         // Phase B created the directory; phase C then failed on the second
         // entry, and the rollback undid it.
-        expect(await server.stores.fsEntry.getEntryByPath(missingPath)).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(missingPath),
+        ).toBeFalsy();
     });
 
     it('grant/revoke parity: revoking after a `create` grant removes the row and check no longer holds it', async () => {
@@ -2738,7 +2762,9 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         expect(await checkAsApp(`fs:${p}:write`)).toBe(false);
 
         const entry = await server.stores.fsEntry.getEntryByPath(p);
-        expect(await grantedPermissions()).not.toContain(`fs:${entry!.uuid}:write`);
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${entry!.uuid}:write`,
+        );
     });
 
     it('check-permissions on a missing fs path answers false rather than 404ing, without poisoning a mixed batch', async () => {
@@ -2754,7 +2780,12 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         await inCtx(appActor, () =>
             controller.handleCheckPermissions(
                 makeReq(
-                    { permissions: [`fs:${missingPath}:write`, heldPermission] },
+                    {
+                        permissions: [
+                            `fs:${missingPath}:write`,
+                            heldPermission,
+                        ],
+                    },
                     { actor: appActor },
                 ),
                 res,
@@ -2764,7 +2795,9 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         const body = res.body as { permissions: Record<string, boolean> };
         expect(body.permissions[`fs:${missingPath}:write`]).toBe(false);
         expect(body.permissions[heldPermission]).toBe(true);
-        expect(await server.stores.fsEntry.getEntryByPath(missingPath)).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(missingPath),
+        ).toBeFalsy();
     });
 
     it('ignores `create` on a non-fs permission and grants it normally', async () => {
@@ -2777,7 +2810,10 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         for (const badCreate of ['sock', 1, {}]) {
             const p = path(`.badcreate-${rand()}`);
             await expect(
-                grant({ permission: `fs:${p}:write`, create: badCreate as never }),
+                grant({
+                    permission: `fs:${p}:write`,
+                    create: badCreate as never,
+                }),
             ).rejects.toMatchObject({
                 statusCode: 400,
                 legacyCode: 'bad_request',

@@ -2039,6 +2039,7 @@ export class AuthController extends PuterController {
         // extension always sets it (true/false) before doing any work.
         const setupEvent = {
             user_id: user.id,
+            email: user.email!,
             user_uid: user.uuid,
             ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
             device_fingerprint: req.deviceFingerprint ?? null,
@@ -2158,6 +2159,7 @@ export class AuthController extends PuterController {
         const confirmEvent = {
             user_id: user.id,
             user_uid: user.uuid,
+            email: user.email!,
             setup_intent_id,
             enabled: null as boolean | null,
             verified: false,
@@ -3308,11 +3310,11 @@ export class AuthController extends PuterController {
         // They are deliberately not rolled back if a later phase fails, so a
         // failed grant can leave empty directories inside the user's home.
         return plan.kind === 'dir'
-            ? await this.services.fs.mkdir(userId, {
+            ? await this.services.fs.mkdir(userId!, {
                   path: plan.path,
                   createMissingParents: true,
               })
-            : await this.services.fs.touch(userId, {
+            : await this.services.fs.touch(userId!, {
                   path: plan.path,
                   createMissingParents: true,
               });
@@ -3331,7 +3333,7 @@ export class AuthController extends PuterController {
         const userId = actor.user!.id;
         for (const entry of [...created].reverse()) {
             try {
-                await this.services.fs.remove(userId, {
+                await this.services.fs.remove(userId!, {
                     entry,
                     recursive: false,
                 });
