@@ -177,7 +177,9 @@ const renderMemberView = () => {
 
 const renderPlan = () => teamPlanHtml({
     plan: state.plan,
-    seats: state.members.filter(m => m.org_owned).length,
+    // The same count the accounts table shows: suspended seats are excluded,
+    // because they stop costing a per-account charge.
+    seats: membersBillingSummary(annotateMembers(state.members, state.audit)).billed,
     canBuy: window.team_billing_ui === true,
 });
 
