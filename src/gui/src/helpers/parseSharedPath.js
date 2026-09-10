@@ -49,7 +49,7 @@ export function clear_shared_param (hash = window.location.hash) {
  * @param {URLSearchParams} params
  * @returns {string | null}
  */
-export function shared_link_recipient_uuid (params) {
+export function sharedLinkRecipientUuid (params) {
     if ( ! params.has(SHARED_PATH_PARAM) ) return null;
     const recipientUuid = params.get(SHARE_RECIPIENT_PARAM);
     return recipientUuid && UID_PATTERN.test(recipientUuid)
@@ -64,9 +64,10 @@ export function shared_link_recipient_uuid (params) {
  * @param {URLSearchParams} params
  * @param {{ uuid?: string } | null} currentUser
  * @param {Array<{ uuid?: string, auth_token?: string }>} loggedInUsers
+ * @returns {{ uuid?: string, auth_token?: string } | null}
  */
-export function shared_link_account (params, currentUser, loggedInUsers) {
-    const recipientUuid = shared_link_recipient_uuid(params);
+export function sharedLinkAccount (params, currentUser, loggedInUsers) {
+    const recipientUuid = sharedLinkRecipientUuid(params);
     if ( ! recipientUuid || recipientUuid === currentUser?.uuid ) return null;
     return loggedInUsers.find(user =>
         user.uuid === recipientUuid && Boolean(user.auth_token)

@@ -61,8 +61,8 @@ import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.
 import update_mouse_position from './helpers/updateMousePosition.js';
 import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
 import {
-    shared_link_account,
-    shared_link_recipient_uuid,
+    sharedLinkAccount,
+    sharedLinkRecipientUuid,
 } from './helpers/parseSharedPath.js';
 import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
@@ -84,23 +84,23 @@ import { deliversTokenToOpener, runsUserAppTokenExchange } from './util/popupAut
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 const postAuthActions = async (action) => {
-    const sharedLinkRecipientUuid = shared_link_recipient_uuid(
+    const recipientUuid = sharedLinkRecipientUuid(
         window.url_query_params,
     );
-    const sharedLinkAccount = shared_link_account(
+    const savedSharedLinkAccount = sharedLinkAccount(
         window.url_query_params,
         window.user,
         window.logged_in_users,
     );
-    if ( sharedLinkAccount ) {
+    if ( savedSharedLinkAccount ) {
         await window.update_auth_data(
-            sharedLinkAccount.auth_token,
-            sharedLinkAccount,
+            savedSharedLinkAccount.auth_token,
+            savedSharedLinkAccount,
         );
         window.location.reload();
         return;
     }
-    if ( sharedLinkRecipientUuid && sharedLinkRecipientUuid !== window.user?.uuid ) {
+    if ( recipientUuid && recipientUuid !== window.user?.uuid ) {
         await UIWindowSessionList({
             reload_on_success: true,
             cover_page: true,

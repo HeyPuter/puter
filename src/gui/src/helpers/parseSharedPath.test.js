@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import parse_shared_path, {
-    shared_link_account,
-    shared_link_recipient_uuid,
+    sharedLinkAccount,
+    sharedLinkRecipientUuid,
 } from './parseSharedPath.js';
 
 const UID = '11111111-2222-4333-8444-555555555555';
@@ -46,7 +46,7 @@ describe('parse_shared_path', () => {
     });
 });
 
-describe('shared_link_account', () => {
+describe('sharedLinkAccount', () => {
     const currentUuid = '11111111-2222-4333-8444-555555555555';
     const recipientUuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
     const current = { uuid: currentUuid, auth_token: 'current-token' };
@@ -56,28 +56,28 @@ describe('shared_link_account', () => {
         const params = new URLSearchParams(
             `?shared=x&user_uuid=${recipientUuid}`,
         );
-        expect(shared_link_account(params, current, [current, recipient])).toBe(
+        expect(sharedLinkAccount(params, current, [current, recipient])).toBe(
             recipient,
         );
     });
 
     it('does nothing for the current, missing, or tokenless account', () => {
-        expect(shared_link_account(
+        expect(sharedLinkAccount(
             new URLSearchParams(`?shared=x&user_uuid=${currentUuid}`),
             current,
             [current, recipient],
         )).toBeNull();
-        expect(shared_link_account(
+        expect(sharedLinkAccount(
             new URLSearchParams('?shared=x&user_uuid=not-a-uuid'),
             current,
             [current, recipient],
         )).toBeNull();
-        expect(shared_link_account(
+        expect(sharedLinkAccount(
             new URLSearchParams(`?user_uuid=${recipientUuid}`),
             current,
             [current, recipient],
         )).toBeNull();
-        expect(shared_link_account(
+        expect(sharedLinkAccount(
             new URLSearchParams(`?shared=x&user_uuid=${recipientUuid}`),
             current,
             [{ ...recipient, auth_token: '' }],
@@ -85,17 +85,17 @@ describe('shared_link_account', () => {
     });
 });
 
-describe('shared_link_recipient_uuid', () => {
+describe('sharedLinkRecipientUuid', () => {
     const uuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
     it('returns a valid recipient only when it accompanies a share', () => {
-        expect(shared_link_recipient_uuid(
+        expect(sharedLinkRecipientUuid(
             new URLSearchParams(`?shared=x&user_uuid=${uuid}`),
         )).toBe(uuid);
-        expect(shared_link_recipient_uuid(
+        expect(sharedLinkRecipientUuid(
             new URLSearchParams(`?user_uuid=${uuid}`),
         )).toBeNull();
-        expect(shared_link_recipient_uuid(
+        expect(sharedLinkRecipientUuid(
             new URLSearchParams('?shared=x&user_uuid=not-a-uuid'),
         )).toBeNull();
     });
