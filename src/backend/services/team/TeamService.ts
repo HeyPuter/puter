@@ -26,6 +26,13 @@ import {
     USERNAME_REGEX,
 } from '../../controllers/auth/AuthController.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
+import { subscriptionSatisfies } from '../metering/enforcement.js';
+import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+
+// A free team is small on purpose; paying widens it. Both overridable in config.
+const FREE_SEAT_CAP = 4;
+const PAID_SEAT_CAP = 40;
+
 import type {
     EventMap,
     TeamBillingContext,
@@ -114,6 +121,20 @@ const epochSeconds = (value: unknown): number => {
 };
 
 export class TeamService extends PuterService {
+    /** Half the free plan for a seat, unless a paid tier outranks it. */
+    override async onServerStart(): Promise<void> {
+        if (this.config.teams_enabled !== true) return;
+        this.services.metering.registerDefaultSubscriptionResolver(
+            async (actor) => {
+                const userId = actor?.user?.id;
+                if (typeof userId !== 'number') return null;
+                // Cached, negatives included: almost nothing is a seat.
+                const seat = await this.stores.team.getOrgSeat(userId);
+                return seat ? ORG_SEAT_FREE_SUBSCRIPTION : null;
+            },
+        );
+    }
+
     // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
 
     /** The team owner pays, so the charge is keyed to its customer id. */
@@ -231,10 +252,34 @@ export class TeamService extends PuterService {
         return Number.isFinite(n) && n > 0 ? n : 1;
     }
 
-    /** Seats one team may provision. Adjustable without a code change. */
-    #seatCap(): number {
-        const n = Number(this.config.max_seats_per_team);
-        return Number.isFinite(n) && n > 0 ? n : 50;
+    /** Depends on whether the owner pays; `max_seats_per_team` overrides both. */
+    async #seatCap(ownerUserId: number): Promise<number> {
+        const override = Number(this.config.max_seats_per_team);
+        if (Number.isFinite(override) && override > 0) return override;
+
+        const paid = await this.#ownerPays(ownerUserId);
+        const key = paid
+            ? 'max_seats_per_team_paid'
+            : 'max_seats_per_team_free';
+        const n = Number(this.config[key]);
+        if (Number.isFinite(n) && n > 0) return n;
+        return paid ? PAID_SEAT_CAP : FREE_SEAT_CAP;
+    }
+
+    /** A resolved policy outside the free set is a plan someone is paying for. */
+    async #ownerPays(ownerUserId: number): Promise<boolean> {
+        try {
+            const owner = await this.stores.user.getById(ownerUserId);
+            if (!owner?.uuid) return false;
+            const policy = await this.services.metering.getActorSubscription({
+                user: { id: owner.id, uuid: owner.uuid },
+            } as never);
+            return subscriptionSatisfies(policy.id, true);
+        } catch (e) {
+            // Smaller cap on an unreadable plan: over-provisioning is worse.
+            console.warn('[team] seat cap plan lookup failed:', e);
+            return false;
+        }
     }
 
     /** A rejected handle is 400, a taken one 409, never an unhandled 500. */
@@ -723,7 +768,7 @@ export class TeamService extends PuterService {
         const team = await this.requireOwner(teamUid, actorUserId);
 
         // Counted, never derived from a stored total: seats come and go.
-        const cap = this.#seatCap();
+        const cap = await this.#seatCap(team.owner_user_id);
         if ((await this.stores.team.countSeats(team.id)) >= cap) {
             throw new HttpError(409, `This team is limited to ${cap} seats`, {
                 legacyCode: 'seat_limit_reached',

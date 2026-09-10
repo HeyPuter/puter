@@ -18,7 +18,17 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { subscriptionSatisfies } from '../metering/enforcement.js';
+import { REGISTERED_USER_FREE } from '../../data/subPolicies/registeredUserFreePolicy.js';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+} from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 
@@ -27,6 +37,7 @@ describe('TeamService', () => {
     let service: PuterServer['services']['team'];
     let owner: { id: number };
     let ownerUsername: string;
+    let ownerUuid: string;
 
     const makeUser = async (): Promise<{ id: number; username: string }> => {
         const username = `svc_${Math.random().toString(36).slice(2, 10)}`;
@@ -72,10 +83,13 @@ describe('TeamService', () => {
         server = await setupTestServer({
             teams_enabled: true,
             max_teams_per_user: 100,
+            max_seats_per_team: 100,
         } as never);
         service = server.services.team;
         owner = await makeUser();
-        ownerUsername = (await server.stores.user.getById(owner.id))!.username;
+        const ownerRow = (await server.stores.user.getById(owner.id))!;
+        ownerUsername = ownerRow.username;
+        ownerUuid = ownerRow.uuid;
     });
 
     afterAll(async () => {
@@ -642,6 +656,98 @@ describe('TeamService', () => {
                 }),
             ).resolves.toMatchObject({ username: expect.any(String) });
         }
+    });
+
+    describe('what a seat of a free team gets', () => {
+        const policyFor = async (userId: number, uuid: string) => {
+            server.services.metering.invalidateActorSubscription(uuid);
+            return server.services.metering.getActorSubscription({
+                user: { id: userId, uuid },
+            } as never);
+        };
+
+        it('resolves half the free plan', async () => {
+            const { team } = await makeTeam();
+            const created = await service.provisionAccount(team.uid, owner.id, {
+                username: `half_${Math.random().toString(36).slice(2, 9)}`,
+            });
+            const row = (await server.stores.user.getById(created.userId))!;
+            const seat = await policyFor(created.userId, row.uuid);
+
+            expect(seat.id).toBe('org_seat_free');
+            expect(seat.monthUsageAllowance).toBe(
+                Math.floor(REGISTERED_USER_FREE.monthUsageAllowance / 2),
+            );
+            expect(seat.monthlyStorageAllowance).toBe(
+                Math.floor(REGISTERED_USER_FREE.monthlyStorageAllowance / 2),
+            );
+        });
+
+        it('leaves anyone who is not a seat alone', async () => {
+            const plain = await policyFor(owner.id, ownerUuid);
+            expect(plain.id).not.toBe('org_seat_free');
+        });
+
+        it('still counts as free, so plan gates refuse it', async () => {
+            // Nobody paid for it; it must not satisfy `requireSubscription`.
+            expect(subscriptionSatisfies('org_seat_free', true)).toBe(false);
+        });
+    });
+
+    describe('the seat cap', () => {
+        // 0 clears the absolute override, so the plan-derived caps apply.
+        const cfg = () =>
+            (service as unknown as { config: Record<string, unknown> }).config;
+        beforeEach(() => {
+            cfg().max_seats_per_team = 0;
+        });
+        afterEach(() => {
+            cfg().max_seats_per_team = 100;
+        });
+
+        const addSeat = (teamUid: string) =>
+            service.provisionAccount(teamUid, owner.id, {
+                username: `cap_${Math.random().toString(36).slice(2, 9)}`,
+            });
+
+        // makeTeam seeds one seat, so three more reaches four.
+        const fillToFour = async (teamUid: string) => {
+            for (let i = 0; i < 3; i++) await addSeat(teamUid);
+        };
+
+        it('stops a free owner at four seats', async () => {
+            const { team } = await makeTeam();
+            await fillToFour(team.uid);
+            await expect(addSeat(team.uid)).rejects.toMatchObject({
+                statusCode: 409,
+                fields: { limit: 4 },
+            });
+        });
+
+        it('lets a paid owner past four', async () => {
+            const { team } = await makeTeam();
+            const metering = server.services.metering as unknown as {
+                registerPolicy: (p: Record<string, unknown>) => void;
+                registerSubscriptionResolver: (fn: unknown) => void;
+                invalidateActorSubscription: (uuid: string) => void;
+            };
+            // A resolver naming an unregistered policy falls back to free.
+            metering.registerPolicy({
+                id: 'business',
+                monthUsageAllowance: 4_500_000_000,
+                monthlyStorageAllowance: 2_147_483_648_000,
+            });
+            metering.registerSubscriptionResolver(
+                (actor: { user?: { id?: number } }) =>
+                    actor?.user?.id === owner.id ? 'business' : null,
+            );
+            metering.invalidateActorSubscription(ownerUuid);
+
+            await fillToFour(team.uid);
+            await expect(addSeat(team.uid)).resolves.toMatchObject({
+                username: expect.any(String),
+            });
+        });
     });
 
     it('refuses an invalid email', async () => {
