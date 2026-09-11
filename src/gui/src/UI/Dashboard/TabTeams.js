@@ -316,68 +316,18 @@ const loadPlan = async (teamUid) => {
     }
 };
 
-/** Asks which tier, then hands the purchase to the billing extension. */
-const changeSeatPlan = async ($el_window, username, uuid) => {
-    const plan = state.plan;
-    if ( ! plan || plan.status !== 'ready' ) return;
-    const current = plan.seatTiers?.[uuid] ?? null;
-    const choices = plan.offerings.filter(o => o.available && o.tier !== current);
-    if ( choices.length === 0 ) return;
-
-    const answer = await UIAlert({
-        type: 'confirm',
-        message: i18n('teams_plan_change_for', { username }),
-        buttons: [
-            ...choices.map(o => ({
-                label: `${o.name_en || o.tier} — ${o.amountPerSeat} ${o.currency}`,
-                value: o.itemId,
-            })),
-            { label: i18n('cancel'), value: 'no' },
-        ],
-        ...modalOptions($el_window),
-    });
-    if ( ! answer || answer === 'no' ) return;
-
+/** The billing extension owns the picker, so the look matches personal plans. */
+const changeSeatPlan = ($el_window, username, uuid) => {
+    if ( state.plan?.status !== 'ready' || ! uuid ) return;
     window.dispatchEvent(new CustomEvent('team-plan-purchase', {
         detail: {
             teamUid: state.selected.uid,
-            itemId: answer,
             seatUuid: uuid,
+            username,
+            currentTier: state.plan.seatTiers?.[uuid] ?? null,
             onDone: () => refresh($el_window),
         },
     }));
-};
-
-const load = async ($el_window) => {
-    // The API can be on while the interface is not; same effect as no route.
-    if ( ! window.teams_ui ) {
-        state.status = 'unavailable';
-        setTabVisible($el_window, false);
-        return paint($el_window);
-    }
-    try {
-        const teams = await puter.teams.list();
-        state.teams = teams;
-        state.selected = teams.find(t => t.uid === state.selected?.uid) ?? teams[0] ?? null;
-        await loadSelected();
-        state.status = 'ready';
-        setTabVisible($el_window, true);
-    } catch (e) {
-        // A deployment with teams off registers no `/teams` route, so the
-        // 404 is the feature gate rather than a failure worth reporting.
-        state.status = e?.code === 'not_found' ? 'unavailable' : 'error';
-        state.teams = [];
-        state.selected = null;
-        setTabVisible($el_window, false);
-    }
-    paint($el_window);
-};
-
-const refresh = ($el_window) => {
-    if ( ! loadPromise ) {
-        loadPromise = load($el_window).finally(() => { loadPromise = null; });
-    }
-    return loadPromise;
 };
 
 // -- Actions --------------------------------------------------------------
