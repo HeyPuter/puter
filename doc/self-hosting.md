@@ -26,7 +26,7 @@ Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker
 | `puter-valkey`  | `valkey/valkey:8-alpine` | Redis-compatible cache + rate-limiter                      |
 | `puter-dynamo`  | `amazon/dynamodb-local`  | KV store — table auto-created on first boot                |
 | `puter-s3`      | `rustfs/rustfs`          | S3-compatible object storage (MinIO drop-in noted in file) |
-| `puter-s3-init` | `amazon/aws-cli`         | One-shot — creates the bucket on first boot, then exits    |
+| `puter-s3-init` | `amazon/aws-cli`         | One-shot — creates the bucket and configures CORS, then exits |
 
 Optional services (compose profile `ai`, opt-in):
 
@@ -53,6 +53,9 @@ URL_SIGNATURE_SECRET=$(openssl rand -hex 64)
 cat > .env <<EOF
 HTTP_PORT=80
 # HTTPS_PORT=443     # uncomment after enabling TLS in Step 3
+
+PUTER_DOMAIN=puter.localhost
+PUTER_PROTOCOL=http
 
 MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
 MARIADB_DATABASE=puter
@@ -135,6 +138,12 @@ Replace `puter.localhost`, `site.puter.localhost`, `host.puter.localhost`, `dev.
 
 Why these knobs:
 
+- `PUTER_DOMAIN` and `PUTER_PROTOCOL` (in `.env`) — the domain and scheme (`http` or `https`) Puter and its subdomains (`api`, `app`, `site`, `dev`, `host`) serve on. Passed to `s3-init` in `docker-compose.yml` to automatically configure bucket-level CORS on RustFS (`s3.<domain>`). Direct browser uploads to presigned S3 URLs require CORS preflight (`OPTIONS`) approval from RustFS; without bucket CORS configuration, the browser blocks the upload. `s3-init` automatically configures CORS origins for `${PUTER_PROTOCOL}://${PUTER_DOMAIN}` and its required subdomains. For HTTPS deployments, set:
+    ```bash
+    PUTER_DOMAIN=example.com
+    PUTER_PROTOCOL=https
+    ```
+    This ensures CORS rules allow `https://...` origins rather than `http://...`. The `s3-init` service is idempotent: if the bucket already exists (e.g. upgrades or restarts), it detects the bucket and applies/updates the CORS policy rather than exiting early.
 - `jwt_secret_v2` — the HMAC secret Puter signs and verifies auth tokens with (`kid: 'v2'` JWT header). The pre-v2 token format is retired: a token signed with the old `jwt_secret` no longer verifies, and holders are asked to sign in again. If you are upgrading from a release that had `jwt_secret`, drop it from your config — it is ignored.
 - `env: "prod"` — the bundled `config.default.json` ships with `env: "dev"` (matches the source-tree `npm run start:gui` workflow, which expects webpack-dev-server emitting a CSS manifest). Self-host runs against pre-built static bundles, so `env: "prod"` makes the homepage emit the `/dist/bundle.min.css` `<link>` tag instead of waiting on a manifest that doesn't exist.
 - `database.migrationPaths` — Puter applies the bundled MySQL/MariaDB schema on boot. The migration files are idempotent, so it is safe to leave this configured across restarts.
@@ -193,7 +202,7 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 1. Open [caddy/Caddyfile](../caddy/Caddyfile) and uncomment the `# :443 { … }` block at the bottom.
 2. (Optional but recommended) Replace the plain `:80 { import puter_routes }` block with the `redir` version shown alongside it, to force HTTPS everywhere.
 3. In [docker-compose.yml](../docker-compose.yml), uncomment the `443:443` port mapping under the `caddy` service.
-4. In `.env`, uncomment `HTTPS_PORT=443`.
+4. In `.env`, uncomment `HTTPS_PORT=443` and set `PUTER_PROTOCOL=https` (so `s3-init` generates `https://...` CORS origins).
 5. In `config.json`, switch:
     ```json
     { "protocol": "https", "pub_port": 443 }
