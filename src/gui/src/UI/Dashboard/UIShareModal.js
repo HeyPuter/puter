@@ -31,6 +31,7 @@ import {
 } from '../../helpers/sharedBadge.js';
 import { share_outcome } from '../../helpers/shareOutcome.js';
 import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
+import { team_label, teams_for_sharing } from '../../helpers/shareTeams.js';
 
 const { html_encode } = window;
 
@@ -130,6 +131,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     // Nothing to share: an empty selection is a caller's mistake, not a dialog.
     if ( total === 0 ) return { close: () => {} };
     const items_list_id = `share-modal-items-${++modal_seq}`;
+    const teams_select_id = `share-modal-teams-${modal_seq}`;
 
     // The header names the one item, or the size of the pile with the names
     // folded into an expandable list below it.
@@ -177,6 +179,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                             <span class="share-modal-submit-label">${i18n('share')}</span>
                         </button>
                     </form>
+                    <div class="share-modal-teams" hidden></div>
                     <div class="share-modal-status" role="status" aria-live="polite"></div>
                     <h3 class="share-modal-heading">${i18n('share_who_has_access')}</h3>
                     <div class="share-modal-list" aria-busy="true">
@@ -512,6 +515,53 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }
     };
 
+    /** A team is named by uid; a person by the name the row already shows. */
+    const recipient_of = (group) => (group.teamUid ? { team: group.teamUid } : group.name);
+
+    // One grant reaching every colleague. Its own control, as on the desktop
+    // dialog: a bare string in the field above already reads as a person.
+    let teams = [];
+    (async () => {
+        teams = await teams_for_sharing();
+        if ( closed || teams.length === 0 ) return;
+        const options = teams
+            .map((team) => `<option value="${html_encode(team.uid)}">${html_encode(team_label(team))}</option>`)
+            .join('');
+        $overlay.find('.share-modal-teams').html(`
+            <label class="share-modal-teams-label" for="${teams_select_id}">${i18n('share_with_team')}</label>
+            <div class="share-modal-add-row">
+                <select class="share-modal-team-select" id="${teams_select_id}">${options}</select>
+                <select class="share-modal-team-mode" aria-label="${i18n('share_access_level')}">${options_for('read', { allow_manage })}</select>
+            </div>
+            <p class="share-modal-teams-note">${i18n('share_team_note')}</p>
+            <button type="button" class="share-modal-team-btn">${i18n('share')}</button>
+        `).prop('hidden', false);
+    })();
+
+    $overlay.on('click', '.share-modal-team-btn', async function () {
+        const team = teams.find((t) => t.uid === $overlay.find('.share-modal-team-select').val());
+        if ( ! team ) return;
+        const name = team_label(team);
+        const $btn = $(this).prop('disabled', true);
+        try {
+            const created = await grant_access(
+                { team: team.uid },
+                $overlay.find('.share-modal-team-mode').val(),
+                target_paths,
+            );
+            const granted = created?.length ?? 0;
+            show_success(granted < total
+                ? i18n('share_shared_with_partial', { recipient: name, count: granted, total })
+                : shared_message(name, total));
+            invalidate_shared_roots();
+            await refresh();
+        } catch (err) {
+            show_error(error_html(err));
+        }
+        $btn.prop('disabled', false);
+        focus_dialog();
+    });
+
     /** "Shared with ann" / "Shared with ann on 4 items". */
     const shared_message = (recipient, count) => (count === 1
         ? i18n('share_shared_with', { recipient })
@@ -583,7 +633,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( ! group || ! mode ) return;
         $(this).prop('disabled', true);
         try {
-            await grant_access(group.name, mode, group.directPaths);
+            await grant_access(recipient_of(group), mode, group.directPaths);
             show_success(group.directPaths.length > 1
                 ? i18n('share_access_updated_items', { recipient: group.name, count: group.directPaths.length })
                 : i18n('share_access_updated', { recipient: group.name }));
@@ -604,7 +654,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( ! missing.length ) return;
         $(this).prop('disabled', true);
         try {
-            const created = await grant_access(group.name, group.mode, missing);
+            const created = await grant_access(recipient_of(group), group.mode, missing);
             const granted = created?.length ?? 0;
             show_success(granted < missing.length
                 ? i18n('share_shared_with_partial', { recipient: group.name, count: granted, total: missing.length })
@@ -677,7 +727,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const revoke_paths = group.pending ? group.pendingPaths : group.directPaths;
         $(this).closest('.share-modal-row-confirm').find('button').prop('disabled', true);
         try {
-            await revoke_access(group.name, revoke_paths);
+            await revoke_access(recipient_of(group), revoke_paths);
             if ( group.pending ) {
                 show_success(i18n('share_invite_cancelled', { recipient: group.name }));
             } else {

@@ -285,12 +285,19 @@
     // deleting yours frees the slot. Default 1.
     "max_teams_per_user": 1,
     //
-    // Seats one team may provision. Each seat is a real Puter account
-    // taking a name from the global username pool, so this is what bounds a
-    // team's blast radius until per-seat billing lands. Lowering it below
-    // a team's current seat count blocks new provisioning and disables
-    // nobody. Default 50.
-    "max_seats_per_team": 50,
+    // Seats one team may provision. Each seat is a real Puter account taking a
+    // name from the global username pool, so this is what bounds a team's blast
+    // radius. The owner's plan decides which of the two applies; defaults are 4
+    // and 40. Lowering either below a team's current seat count blocks new
+    // provisioning and disables nobody.
+    "max_seats_per_team_free": 4,
+    "max_seats_per_team_paid": 40,
+    //
+    // One flat cap for every team, whatever the owner pays. Setting it
+    // overrides both of the above, so a deployment that does not sell seats can
+    // ignore plans entirely. Unset by default — leave it that way to keep the
+    // free cap meaningful.
+    // "max_seats_per_team": 50,
 
     // ── Notifications ───────────────────────────────────────────────────
     // How long a notification is kept, in days from creation. Acknowledged or

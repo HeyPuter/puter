@@ -239,12 +239,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -691,7 +686,11 @@ interface IConfigOptional {
     teams_enabled: boolean;
     /** Live teams one user may own. Default 1. */
     max_teams_per_user?: number;
-    /** Seats one team may provision. Default 50. */
+    /** Seats a team whose owner pays nothing may provision. Default 4. */
+    max_seats_per_team_free?: number;
+    /** Seats a paying owner's team may provision. Default 40. */
+    max_seats_per_team_paid?: number;
+    /** One flat cap whatever the owner pays; overrides both of the above. */
     max_seats_per_team?: number;
     /**
      * Fully-qualified externally-visible URL (protocol + domain + port).
@@ -1243,7 +1242,8 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

@@ -515,6 +515,39 @@ describe('TeamStore', () => {
             expect(await store.countActiveSeats(team.id)).toBe(2);
         });
 
+        it('lists the uuids of the seats it bills for', async () => {
+            const { team, members } = await seatedTeam(2);
+            const uuids = await store.listActiveSeatUuids(team.uid);
+            const expected = await Promise.all(
+                members.map(async (m) =>
+                    (await server.stores.user.getById(m.id))!.uuid,
+                ),
+            );
+            expect(uuids.sort()).toEqual(expected.sort());
+        });
+
+        it('leaves out a suspended seat, matching countActiveSeats', async () => {
+            const { team, members } = await seatedTeam(2);
+            await suspend(members[0].id);
+            const uuids = await store.listActiveSeatUuids(team.uid);
+            expect(uuids).toHaveLength(1);
+            expect(uuids).toHaveLength(
+                await store.countActiveSeats(team.id),
+            );
+        });
+
+        it('leaves out the payer, who is not a seat', async () => {
+            const { team } = await seatedTeam(1);
+            const payer = await makeUser();
+            await server.stores.user.update(payer.id, { password: 'hashed' });
+            await store.addMember(team.uid, payer.id, { orgOwned: false });
+            expect(await store.listActiveSeatUuids(team.uid)).toHaveLength(1);
+        });
+
+        it('is empty for an unknown team, not an error', async () => {
+            expect(await store.listActiveSeatUuids('no-such-team')).toEqual([]);
+        });
+
         it('is zero for a team with no seats, not an error', async () => {
             const { team } = await seatedTeam(0);
             expect(await store.countActiveSeats(team.id)).toBe(0);

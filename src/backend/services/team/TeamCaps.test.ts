@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { readFile } from 'node:fs/promises';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 
@@ -258,6 +259,156 @@ describe('team and seat caps', () => {
         await expect(provision(team.uid, owner.id)).resolves.toBeTruthy();
         await expect(provision(team.uid, owner.id)).rejects.toMatchObject({
             legacyCode: 'seat_limit_reached',
+        });
+    });
+
+    // Only reachable with `max_seats_per_team` unset; the override wins.
+    describe('with no configured override', () => {
+        const FREE = 4;
+
+        it('is not overridden by the shipped defaults', async () => {
+            // A flat cap in config.default.json makes the plan branch below
+            // dead code on every deployment that does not delete the key.
+            const defaults = JSON.parse(
+                await readFile(
+                    new URL('../../../../config.default.json', import.meta.url),
+                    'utf8',
+                ),
+            ) as Record<string, unknown>;
+            expect(defaults.max_seats_per_team).toBeUndefined();
+            expect(defaults.max_seats_per_team_free).toBe(FREE);
+        });
+
+        /** Runs `fn` with the override off, then puts it back. */
+        const withoutOverride = async (fn: () => Promise<void>) => {
+            const cfg = service.config as Record<string, unknown>;
+            const saved = cfg.max_seats_per_team;
+            delete cfg.max_seats_per_team;
+            try {
+                await fn();
+            } finally {
+                cfg.max_seats_per_team = saved;
+            }
+        };
+
+        const onPlan = (id: string) =>
+            vi
+                .spyOn(server.services.metering, 'getActorSubscription')
+                .mockResolvedValue({ id } as never);
+
+        const fill = async (teamUid: string, ownerId: number, n: number) => {
+            for (let i = 0; i < n; i++) await provision(teamUid, ownerId);
+        };
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('stops a free team at four seats', async () => {
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            await withoutOverride(async () => {
+                onPlan('user_free');
+                await fill(team.uid, owner.id, FREE);
+                await expect(
+                    provision(team.uid, owner.id),
+                ).rejects.toMatchObject({
+                    legacyCode: 'seat_limit_reached',
+                    fields: { limit: FREE },
+                });
+            });
+        });
+
+        it('lets a paying owner past the free cap', async () => {
+            // The upgrade path: same team, same seats, a plan that is not free.
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            await withoutOverride(async () => {
+                const plan = onPlan('user_free');
+                await fill(team.uid, owner.id, FREE);
+                await expect(
+                    provision(team.uid, owner.id),
+                ).rejects.toMatchObject({ legacyCode: 'seat_limit_reached' });
+
+                plan.mockResolvedValue({ id: 'basic' } as never);
+                await expect(
+                    provision(team.uid, owner.id),
+                ).resolves.toBeTruthy();
+            });
+        });
+
+        it('counts a seat on the free org policy as free, not as paying', async () => {
+            // A seat's own plan is free by construction; it must not read as
+            // the owner having bought something.
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            await withoutOverride(async () => {
+                onPlan('org_seat_free');
+                await fill(team.uid, owner.id, FREE);
+                await expect(
+                    provision(team.uid, owner.id),
+                ).rejects.toMatchObject({ fields: { limit: FREE } });
+            });
+        });
+
+        it('takes the per-plan config keys over the built-in numbers', async () => {
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            await withoutOverride(async () => {
+                const cfg = service.config as Record<string, unknown>;
+                cfg.max_seats_per_team_free = 1;
+                try {
+                    onPlan('user_free');
+                    await expect(
+                        provision(team.uid, owner.id),
+                    ).resolves.toBeTruthy();
+                    await expect(
+                        provision(team.uid, owner.id),
+                    ).rejects.toMatchObject({ fields: { limit: 1 } });
+                } finally {
+                    delete cfg.max_seats_per_team_free;
+                }
+            });
+        });
+
+        it('asks about the owner with a whole user, not an id/uuid stub', async () => {
+            // A resolver keyed on any other field would miss, and the cap would
+            // then depend on whether something else cached this plan first.
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            await withoutOverride(async () => {
+                const seen: Array<Record<string, unknown>> = [];
+                vi.spyOn(
+                    server.services.metering,
+                    'getActorSubscription',
+                ).mockImplementation(async (actor: never) => {
+                    seen.push(
+                        (actor as { user: Record<string, unknown> }).user,
+                    );
+                    return { id: 'user_free' } as never;
+                });
+                await provision(team.uid, owner.id);
+                expect(seen[0]).toMatchObject({
+                    id: owner.id,
+                    username: owner.username,
+                });
+            });
+        });
+
+        it('falls back to the free cap when the plan cannot be read', async () => {
+            // Over-provisioning on an unreadable plan is the worse failure.
+            const owner = await makeUser();
+            const team = await makeTeam(owner.id);
+            await withoutOverride(async () => {
+                vi.spyOn(
+                    server.services.metering,
+                    'getActorSubscription',
+                ).mockRejectedValue(new Error('metering down'));
+                await fill(team.uid, owner.id, FREE);
+                await expect(
+                    provision(team.uid, owner.id),
+                ).rejects.toMatchObject({ fields: { limit: FREE } });
+            });
         });
     });
 });

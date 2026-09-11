@@ -17,12 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ORG_SEAT_FREE } from './orgSeatFreePolicy.js';
-import { REGISTERED_USER_FREE } from './registeredUserFreePolicy.js';
-import { TEMP_USER_FREE } from './tempUserFreePolicy.js';
+/**
+ * An account its team created and pays for.
+ *
+ * whoami sends `team` only for a seat — the owner joined their own team and is
+ * never `org_owned` — so its presence is the whole test. One predicate because
+ * the surfaces that restrict a seat (billing, plan purchase, username) must
+ * agree; the backend refuses each of them regardless.
+ *
+ * @param {object} [user] - `window.user`.
+ * @returns {boolean}
+ */
+export const isOrgSeat = (user) =>
+    typeof user?.team?.uid === 'string' && user.team.uid !== '';
 
-export const SUB_POLICIES = [
-    TEMP_USER_FREE,
-    REGISTERED_USER_FREE,
-    ORG_SEAT_FREE,
-];
+/** The team's name, for telling the user who to ask. */
+export const orgSeatTeamName = (user) =>
+    (typeof user?.team?.name === 'string' && user.team.name.trim()) || null;
+
+export default isOrgSeat;

@@ -17,12 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ORG_SEAT_FREE } from './orgSeatFreePolicy.js';
-import { REGISTERED_USER_FREE } from './registeredUserFreePolicy.js';
-import { TEMP_USER_FREE } from './tempUserFreePolicy.js';
+/**
+ * The team name under the sidebar wordmark. Empty for anyone but a seat —
+ * `whoami` sets `team` only for an account a team pays for.
+ *
+ * @param {object} [user] `window.user`
+ * @returns {string} markup, or '' when there is nothing to say
+ */
+export const teamBadgeHtml = (user) => {
+    const name = user?.team?.name;
+    if ( typeof name !== 'string' || name.trim() === '' ) return '';
+    const label = window.html_encode(name);
+    const title = window.html_encode(i18n('teams_account_of', [name]));
+    return `<div class="dashboard-sidebar-team" title="${title}">${label}</div>`;
+};
 
-export const SUB_POLICIES = [
-    TEMP_USER_FREE,
-    REGISTERED_USER_FREE,
-    ORG_SEAT_FREE,
-];
+export default teamBadgeHtml;

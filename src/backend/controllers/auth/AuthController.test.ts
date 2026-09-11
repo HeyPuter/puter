@@ -5289,6 +5289,32 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('change-username: 403 for an account its team provisioned', async () => {
+        // The console lists members by username and the audit log records them
+        // by it; a self-service rename would desync both.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        // addMember refuses to adopt an account that has one.
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after!.username).toBe(seat.username);
+    });
+
     it('change-username: persists the rename and emits user.username-changed', async () => {
         const { user, actor } = await makeUserAndActor();
         const newUsername = `r_${uniq()}`;
@@ -6521,6 +6547,28 @@ describe('AuthController.handleDeleteOwnUser', () => {
             force: true,
         });
         expect(after).toBeFalsy();
+    });
+
+    it('refuses, and keeps the row, for an account its team provisioned', async () => {
+        // The team is billed for the seat and closing it is theirs to do, from
+        // the console that keeps the audit trail.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleDeleteOwnUser(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after).toBeTruthy();
     });
 
     it('emits user.delete with the uuid + stripe customer id for downstream teardown', async () => {

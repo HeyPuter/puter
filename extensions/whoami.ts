@@ -156,6 +156,8 @@ export const handleWhoami = async (
         // every app actor. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
         requires_card_verification: user.requires_card_verification,
+        // A seat reaches nothing until it replaces its admin's password.
+        requires_password_change: user.requires_password_change,
         // The SMS-to-card escape hatch: true once this user is out of SMS send
         // attempts and may verify a card instead. It has to ship from here
         // because /send-confirm-phone can no longer say so — by the time the
@@ -251,6 +253,23 @@ export const handleWhoami = async (
         details.directories = directories;
     }
 
+    // The team an account belongs to, when it is one a team pays for. User
+    // actors only, and only where teams are on.
+    if (isUser && extension.config.teams_enabled === true) {
+        try {
+            const seat = await stores.team.getOrgSeat(user.id);
+            if (seat) {
+                details.team = {
+                    uid: seat.team_uid,
+                    name: seat.team_name ?? null,
+                };
+            }
+        } catch (e) {
+            // Never fail whoami over this; the account still works without it.
+            console.warn('[whoami] team lookup failed:', (e as Error).message);
+        }
+    }
+
     // Last activity
     const lastActivityTs = toUnixSeconds(user.last_activity_ts);
     if (lastActivityTs !== undefined) {
@@ -292,8 +311,7 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        | { offering?: Record<string, unknown> }
-        | undefined;
+        { offering?: Record<string, unknown> } | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;

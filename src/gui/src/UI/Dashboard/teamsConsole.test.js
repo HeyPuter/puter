@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
     annotateMembers,
     auditActionKey,
+    auditSlice,
     canDeleteAccount,
     auditReasonKey,
     memberStatesFromAudit,
     membersBillingSummary,
+    memberPlanLabel,
     sortMembers,
 } from './teamsConsole.js';
 
@@ -163,5 +165,91 @@ describe('sortMembers', () => {
         const annotated = annotateMembers([member('zoe'), member('ann')], []);
         sortMembers(annotated);
         expect(annotated.map(m => m.username)).toEqual(['zoe', 'ann']);
+    });
+});
+
+describe('what plan a row in the accounts table shows', () => {
+    const plan = {
+        seatTiers: { 'u-1': 'team-basic', 'u-2': 'team-pro' },
+        offerings: [
+            { tier: 'team-basic', name_en: 'Team Basic' },
+            { tier: 'team-pro', name_en: 'Team Pro' },
+        ],
+    };
+
+    it('names the tier that seat is on', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' }, plan))
+            .toEqual({ kind: 'tier', name: 'Team Basic' });
+    });
+
+    it('lets two seats be on different tiers', () => {
+        // The whole point of per-seat: one team, two plans.
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-2' }, plan))
+            .toEqual({ kind: 'tier', name: 'Team Pro' });
+    });
+
+    it('falls back to the tier id when the catalogue has no name', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' },
+            { seatTiers: { 'u-1': 'team-basic' }, offerings: [] }))
+            .toEqual({ kind: 'tier', name: 'team-basic' });
+    });
+
+    it('says free for a seat nobody bought a tier for', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-9' }, plan))
+            .toEqual({ kind: 'free' });
+    });
+
+    it('says the owner is the payer, not a seat', () => {
+        expect(memberPlanLabel({ orgOwned: false, uuid: 'u-1' }, plan))
+            .toEqual({ kind: 'payer' });
+    });
+
+    it('says a suspended seat is not billed, whatever it was on', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1', disabled: true }, plan))
+            .toEqual({ kind: 'not_billed' });
+    });
+
+    it('says free when nothing is bought at all', () => {
+        for (const p of [null, undefined, { seatTiers: {} }]) {
+            expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' }, p))
+                .toEqual({ kind: 'free' });
+        }
+    });
+});
+
+describe('paging the record', () => {
+    const rows = (n) => Array.from({ length: n }, (_, i) => ({ id: i }));
+
+    it('cuts the list into pages and numbers them for the reader', () => {
+        const page = auditSlice(rows(25), 1, 10);
+        expect(page.items).toHaveLength(10);
+        expect(page.items[0].id).toBe(10);
+        expect(page).toMatchObject({ page: 1, pages: 3, from: 11, to: 20, total: 25 });
+    });
+
+    it('reports a short last page honestly', () => {
+        expect(auditSlice(rows(25), 2, 10)).toMatchObject({ from: 21, to: 25, pages: 3 });
+    });
+
+    it('clamps a page the record has shrunk past', () => {
+        // Deleting an account shortens the record; a stale page number would
+        // otherwise show an empty table with no way back.
+        const page = auditSlice(rows(5), 9, 10);
+        expect(page.page).toBe(0);
+        expect(page.items).toHaveLength(5);
+    });
+
+    it('clamps a negative or nonsensical page rather than throwing', () => {
+        expect(auditSlice(rows(5), -3, 10).page).toBe(0);
+        expect(auditSlice(rows(5), NaN, 10).page).toBe(0);
+    });
+
+    it('says 0 of 0 for an empty record, not 1 of 0', () => {
+        expect(auditSlice([], 0, 10)).toMatchObject({ from: 0, to: 0, total: 0, pages: 1 });
+        expect(auditSlice(undefined, 0, 10).items).toEqual([]);
+    });
+
+    it('never divides by a zero page size', () => {
+        expect(auditSlice(rows(3), 0, 0).items).toHaveLength(1);
     });
 });

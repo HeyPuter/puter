@@ -115,6 +115,23 @@ describe('list forms', () => {
         expect(mockReq).toHaveBeenCalledTimes(2);
     });
 
+    it('keeps the seat uuid, which the plan action is keyed on', async () => {
+        routes({ 'GET /teams/t-1/members': { items: [
+            { username: 'ann', org_owned: true, created_at: 'x', uuid: 'u-1' },
+        ] } });
+        const [member] = await teams.listMembers('t-1');
+        expect(member.uuid).toBe('u-1');
+    });
+
+    it('omits it entirely when the server withheld it', async () => {
+        // A non-owner gets no uuids; `undefined` must not become a key.
+        routes({ 'GET /teams/t-1/members': { items: [
+            { username: 'ann', org_owned: true, created_at: 'x' },
+        ] } });
+        const [member] = await teams.listMembers('t-1');
+        expect('uuid' in member).toBe(false);
+    });
+
     it('returns the page envelope when a cursor is passed', async () => {
         paged();
         const result = await teams.listMembers('t-1', { cursor: null });
@@ -193,8 +210,27 @@ describe('members', () => {
         expect(call().body).toEqual({ username: 'bob', email: 'bob@example.com' });
     });
 
-    it('refuses a member without an email without making a request', async () => {
+    it('provisions with no email, omitting the key rather than sending empty', async () => {
+        routes({ 'POST /teams/t-1/members': { username: 'bob', temporary_password: 'hunter2' } });
         await expect(teams.createMember('t-1', { username: 'bob' }))
+            .resolves.toEqual({ username: 'bob', temporaryPassword: 'hunter2' });
+        expect(call().body).toEqual({ username: 'bob' });
+    });
+
+    it('treats a blank email as absent', async () => {
+        routes({ 'POST /teams/t-1/members': { username: 'bob', temporary_password: 'hunter2' } });
+        await teams.createMember('t-1', { username: 'bob', email: '   ' });
+        expect(call().body).toEqual({ username: 'bob' });
+    });
+
+    it('refuses a non-string email without making a request', async () => {
+        await expect(teams.createMember('t-1', { username: 'bob', email: 42 }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+        expect(mockReq).not.toHaveBeenCalled();
+    });
+
+    it('still refuses a member without a username', async () => {
+        await expect(teams.createMember('t-1', {}))
             .rejects.toMatchObject({ code: 'invalid_request' });
         expect(mockReq).not.toHaveBeenCalled();
     });

@@ -191,7 +191,8 @@ Available only where a deployment has turned teams on. Every team route is bound
 | Team mutations per day              | 500          |
 | Team reads per minute               | 600          |
 | Teams one account may own           | 1            |
-| Seats one team may provision        | 50           |
+| Seats one team may provision, free owner | 4       |
+| Seats one team may provision, paying owner | 40    |
 | Member password resets per day           | 20           |
 
 A seat is a real Puter account on the ordinary tier, created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
@@ -204,7 +205,9 @@ Removing a seat for good is a separate, explicit request, and it is refused unle
 
 Lowering the seat limit never disables anyone. A team already above a reduced limit keeps every account it has and is simply refused new ones until it is back under.
 
-Both limits are per deployment (`max_teams_per_user`, `max_seats_per_team`) rather than per team, so raising them moves every team at once.
+The seat limit follows the owner's plan: a team whose owner pays nothing stops at `max_seats_per_team_free`, one whose owner is on a paid plan at `max_seats_per_team_paid`. Buying a plan raises it with no other action — the accounts already there are untouched, and the next provision simply succeeds. A deployment that does not sell seats can set `max_seats_per_team` instead, which is one flat cap whatever the owner pays and overrides both.
+
+These are per deployment (`max_teams_per_user` likewise) rather than per team, so raising one moves every team at once.
 
 A team's whole configuration is its name, its handle, and whether its directory is open to apps. In particular there is **no sharing policy**: a team cannot restrict who its members share with, by domain or otherwise, and there is no control over public links. Members share exactly as any other Puter account does.
 

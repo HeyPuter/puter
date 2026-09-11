@@ -182,10 +182,13 @@ export class TeamController extends PuterController {
     })
     async listMembers(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.requireMembership(
+        const team = await this.services.team.requireMembership(
             this.#param(req, 'uid'),
             userId,
         );
+        // Only the owner: the uuid is what billing keys a seat's plan on, and
+        // one member has no business identifying another.
+        const isOwner = team.owner_user_id === userId;
 
         const page = await this.stores.team.listMembers(
             this.#param(req, 'uid'),
@@ -202,6 +205,7 @@ export class TeamController extends PuterController {
                 username: m.username,
                 org_owned: Number(m.org_owned) === 1,
                 created_at: m.created_at,
+                ...(isOwner ? { uuid: m.uuid } : {}),
             })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         });
@@ -249,7 +253,7 @@ export class TeamController extends PuterController {
         const body = this.#body(req);
         const result = await this.services.team.provisionAccount(uid, userId, {
             username: this.#requireString(body.username, 'username'),
-            email: this.#requireString(body.email, 'email'),
+            email: this.#optionalString(body.email, 'email'),
         });
         // Shown once; the admin delivers it out of band.
         res.json({
@@ -424,6 +428,17 @@ export class TeamController extends PuterController {
 
     #body(req: Request): Record<string, unknown> {
         return (req.body ?? {}) as Record<string, unknown>;
+    }
+
+    /** Absent or empty means "not given"; a wrong type is still a 400. */
+    #optionalString(value: unknown, field: string): string | null {
+        if (value === undefined || value === null) return null;
+        if (typeof value !== 'string') {
+            throw new HttpError(400, `${field} must be a string`, {
+                legacyCode: 'bad_request',
+            });
+        }
+        return value.trim() === '' ? null : value;
     }
 
     #requireString(value: unknown, field: string): string {
