@@ -465,7 +465,10 @@ const TabHome = {
                 ? formatTrialEnd(subscription.trialEndsAt)
                 : null;
 
-            $el_window.find('.bento-plan-name').text(i18n(planName));
+            // A team tier has no translation key, so i18n would echo the id.
+            $el_window
+                .find('.bento-plan-name')
+                .text(subscription?.offering?.name_en || i18n(planName));
 
             // Reset state-dependent classes / warning each (re)render.
             const $badge = $el_window
