@@ -6,6 +6,7 @@ import {
     auditReasonKey,
     memberStatesFromAudit,
     membersBillingSummary,
+    memberPlanLabel,
     sortMembers,
 } from './teamsConsole.js';
 
@@ -163,5 +164,37 @@ describe('sortMembers', () => {
         const annotated = annotateMembers([member('zoe'), member('ann')], []);
         sortMembers(annotated);
         expect(annotated.map(m => m.username)).toEqual(['zoe', 'ann']);
+    });
+});
+
+describe('what plan a row in the accounts table shows', () => {
+    const paid = { current: { tier: 'team-basic', name_en: 'Team Basic' } };
+
+    it('names the team tier for a billed seat', () => {
+        expect(memberPlanLabel({ orgOwned: true, disabled: false }, paid))
+            .toEqual({ kind: 'tier', name: 'Team Basic' });
+    });
+
+    it('falls back to the tier id when the catalogue has no name', () => {
+        expect(memberPlanLabel({ orgOwned: true }, { current: { tier: 'team-pro' } }))
+            .toEqual({ kind: 'tier', name: 'team-pro' });
+    });
+
+    it('says the owner is the payer, not a seat', () => {
+        // They keep their own personal plan; the team tier is not theirs.
+        expect(memberPlanLabel({ orgOwned: false }, paid)).toEqual({ kind: 'payer' });
+    });
+
+    it('says a suspended seat is not billed', () => {
+        // It stops costing a per-account charge, which is what the card counts.
+        expect(memberPlanLabel({ orgOwned: true, disabled: true }, paid))
+            .toEqual({ kind: 'not_billed' });
+    });
+
+    it('says free when the team bought nothing', () => {
+        for (const plan of [null, undefined, { current: null }]) {
+            expect(memberPlanLabel({ orgOwned: true, disabled: false }, plan))
+                .toEqual({ kind: 'free' });
+        }
     });
 });

@@ -117,6 +117,25 @@ export function membersBillingSummary (annotated) {
 }
 
 /**
+ * What plan a row in the accounts table is on.
+ *
+ * `payer` is the owner, who keeps their personal plan. A suspended seat is
+ * `not_billed` -- it stops costing a per-account charge. Everyone else follows
+ * the team: its tier if it bought one, otherwise the reduced free allowance.
+ *
+ * @param {{ orgOwned: boolean, disabled: boolean }} member
+ * @param {{ current: { tier: string, name_en?: string } | null } | null} plan
+ * @returns {{ kind: 'payer'|'not_billed'|'free'|'tier', name?: string }}
+ */
+export function memberPlanLabel (member, plan) {
+    if ( ! member?.orgOwned ) return { kind: 'payer' };
+    if ( member.disabled ) return { kind: 'not_billed' };
+    const current = plan?.current;
+    if ( ! current ) return { kind: 'free' };
+    return { kind: 'tier', name: current.name_en || current.tier };
+}
+
+/**
  * The i18n key for an audit action, or `null` for one this build does not know
  * about — a new backend action must show as itself rather than as nothing.
  *

@@ -26,6 +26,7 @@ import {
     canDeleteAccount,
     auditReasonKey,
     membersBillingSummary,
+    memberPlanLabel,
     sortMembers,
 } from './teamsConsole.js';
 
@@ -72,6 +73,12 @@ const renderTeamPicker = () => {
     return h;
 };
 
+const planCell = (member) => {
+    const label = memberPlanLabel(member, state.plan);
+    if ( label.kind === 'tier' ) return html_encode(label.name);
+    return i18n(`teams_member_plan_${label.kind}`);
+};
+
 const renderMemberRow = (member) => {
     const username = html_encode(member.username);
     let h = `<tr class="teams-member-row${member.disabled ? ' teams-member-disabled' : ''}" data-username="${username}">`;
@@ -79,6 +86,7 @@ const renderMemberRow = (member) => {
     h += `<td>${i18n(member.orgOwned ? 'teams_member_provisioned' : 'teams_member_joined')}</td>`;
     h += `<td>${i18n(member.disabled ? 'teams_member_state_disabled' : 'teams_member_state_active')}</td>`;
     h += `<td>${html_encode(dateText(member.createdAt))}</td>`;
+    h += `<td>${planCell(member)}</td>`;
     h += '<td class="teams-member-actions">';
     if ( member.orgOwned ) {
         h += `<button class="button button-small teams-reset" data-username="${username}">${i18n('teams_reissue_credential')}</button>`;
@@ -110,6 +118,7 @@ const renderMembers = () => {
         h += `<th>${i18n('teams_member_kind')}</th>`;
         h += `<th>${i18n('teams_member_state')}</th>`;
         h += `<th>${i18n('teams_member_since')}</th>`;
+        h += `<th>${i18n('teams_member_plan')}</th>`;
         h += `<th>${i18n('teams_member_actions')}</th>`;
         h += '</tr></thead><tbody>';
         for ( const member of sortMembers(annotated) ) h += renderMemberRow(member);

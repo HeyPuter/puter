@@ -543,6 +543,10 @@ const en = {
         teams_add_account_email_hint: 'If you add an address, we email the username and temporary password to it. Otherwise the password below is the only copy.',
         teams_add_account_hint:
             'Puter creates the account and gives you a one-time password to pass on. The username has to be free across all of Puter.',
+        teams_member_plan: 'Plan',
+        teams_member_plan_payer: '— payer',
+        teams_member_plan_not_billed: 'Not billed',
+        teams_member_plan_free: 'Free',
         teams_member_kind: 'Kind',
         teams_member_state: 'State',
         teams_member_since: 'Added',
