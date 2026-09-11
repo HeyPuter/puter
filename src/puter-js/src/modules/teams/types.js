@@ -48,6 +48,7 @@
  * @property {boolean} orgOwned Whether the team provisioned and pays for this account, as opposed
  * to a pre-existing account that joined it.
  * @property {string} createdAt When the account joined the team, in `YYYY-MM-DDTHH:MM:SSZ` format.
+  * @property {string} [uuid] Present for the team owner only; billing keys a seat's plan on it.
  */
 
 /**

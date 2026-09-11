@@ -182,10 +182,13 @@ export class TeamController extends PuterController {
     })
     async listMembers(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.requireMembership(
+        const team = await this.services.team.requireMembership(
             this.#param(req, 'uid'),
             userId,
         );
+        // Only the owner: the uuid is what billing keys a seat's plan on, and
+        // one member has no business identifying another.
+        const isOwner = team.owner_user_id === userId;
 
         const page = await this.stores.team.listMembers(
             this.#param(req, 'uid'),
@@ -202,6 +205,7 @@ export class TeamController extends PuterController {
                 username: m.username,
                 org_owned: Number(m.org_owned) === 1,
                 created_at: m.created_at,
+                ...(isOwner ? { uuid: m.uuid } : {}),
             })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         });

@@ -115,6 +115,23 @@ describe('list forms', () => {
         expect(mockReq).toHaveBeenCalledTimes(2);
     });
 
+    it('keeps the seat uuid, which the plan action is keyed on', async () => {
+        routes({ 'GET /teams/t-1/members': { items: [
+            { username: 'ann', org_owned: true, created_at: 'x', uuid: 'u-1' },
+        ] } });
+        const [member] = await teams.listMembers('t-1');
+        expect(member.uuid).toBe('u-1');
+    });
+
+    it('omits it entirely when the server withheld it', async () => {
+        // A non-owner gets no uuids; `undefined` must not become a key.
+        routes({ 'GET /teams/t-1/members': { items: [
+            { username: 'ann', org_owned: true, created_at: 'x' },
+        ] } });
+        const [member] = await teams.listMembers('t-1');
+        expect('uuid' in member).toBe(false);
+    });
+
     it('returns the page envelope when a cursor is passed', async () => {
         paged();
         const result = await teams.listMembers('t-1', { cursor: null });

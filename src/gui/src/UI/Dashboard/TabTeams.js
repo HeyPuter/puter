@@ -330,6 +330,38 @@ const changeSeatPlan = ($el_window, username, uuid) => {
     }));
 };
 
+const load = async ($el_window) => {
+    // The API can be on while the interface is not; same effect as no route.
+    if ( ! window.teams_ui ) {
+        state.status = 'unavailable';
+        setTabVisible($el_window, false);
+        return paint($el_window);
+    }
+    try {
+        const teams = await puter.teams.list();
+        state.teams = teams;
+        state.selected = teams.find(t => t.uid === state.selected?.uid) ?? teams[0] ?? null;
+        await loadSelected();
+        state.status = 'ready';
+        setTabVisible($el_window, true);
+    } catch (e) {
+        // A deployment with teams off registers no `/teams` route, so the
+        // 404 is the feature gate rather than a failure worth reporting.
+        state.status = e?.code === 'not_found' ? 'unavailable' : 'error';
+        state.teams = [];
+        state.selected = null;
+        setTabVisible($el_window, false);
+    }
+    paint($el_window);
+};
+
+const refresh = ($el_window) => {
+    if ( ! loadPromise ) {
+        loadPromise = load($el_window).finally(() => { loadPromise = null; });
+    }
+    return loadPromise;
+};
+
 // -- Actions --------------------------------------------------------------
 
 const showError = ($el_window, e) => UIAlert({
