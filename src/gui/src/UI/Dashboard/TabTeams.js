@@ -19,7 +19,6 @@
 
 import UIAlert from '../UIAlert.js';
 import UIPrompt from '../UIPrompt.js';
-import teamPlanHtml from './teamPlan.js';
 import teamActionButton from './teamActionIcons.js';
 import {
     annotateMembers,
@@ -216,11 +215,6 @@ const renderMemberView = () => {
     return h + renderAudit();
 };
 
-const renderPlan = () => teamPlanHtml({
-    plan: state.plan,
-    canBuy: window.team_billing_ui === true,
-});
-
 const renderDirectory = () => {
     const on = state.selected?.directoryEnabled === true;
     let h = '<div class="dashboard-card teams-panel">';
@@ -244,7 +238,6 @@ const renderOwnerView = () => {
     h += `<button class="button teams-rename">${i18n('teams_rename')}</button>`;
     h += '</div>';
 
-    h += renderPlan();
     h += renderDirectory();
     h += renderAddAccount();
     h += renderMembers();
