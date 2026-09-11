@@ -72,7 +72,8 @@ const preprocessSendArgs = (args) => {
 };
 
 /**
- * Transactional email from your app (the `puter-email` driver interface).
+ * Transactional email from your app (the `puter-transactional-email` driver
+ * interface).
  *
  * Every send must be authorized by a worker: either the worker calls
  * directly (`me.puter.email.sendTransactional(...)`), or a user calls with
@@ -119,7 +120,7 @@ export class EmailModule extends PuterModule {
      * @type {EmailSendMethod}
      */
     sendTransactional = utils.makeDriverMethod({
-        iface: 'puter-email',
+        iface: 'puter-transactional-email',
         method: 'sendTransactional',
         argNames: ['to', 'subject', 'body'],
         preprocess: preprocessSendArgs,
@@ -133,8 +134,8 @@ export class EmailModule extends PuterModule {
      * @type {EmailSendMethod}
      */
     send = utils.makeDriverMethod({
-        iface: 'puter-email',
-        method: 'send',
+        iface: 'puter-transactional-email',
+        method: 'sendTransactional',
         argNames: ['to', 'subject', 'body'],
         preprocess: preprocessSendArgs,
     });
