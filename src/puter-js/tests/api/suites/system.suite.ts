@@ -167,7 +167,7 @@ export default suite('system', {
         t.assert.equal(error.code, 'not_found');
         t.assert.equal(
             error.message,
-            'Driver not found: puter-email:(no default)',
+            'Driver not found: puter-transactional-email:(no default)',
         );
     },
 
@@ -184,11 +184,12 @@ export default suite('system', {
         t.assert.equal(error.code, 'not_found');
         t.assert.equal(
             error.message,
-            'Driver not found: puter-email:(no default)',
+            'Driver not found: puter-transactional-email:(no default)',
         );
     },
 
-    // `send` is the pre-rename alias: same wire shape, same error path.
+    // `send` is the deprecated alias that now targets `sendTransactional`
+    // directly, so both hit the same iface+method and the same error path.
     'email.send and email.sendTransactional reject identically': async (t) => {
         const options = {
             to: 'nobody@example.com',
