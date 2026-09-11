@@ -12,7 +12,7 @@ import { Apps } from './modules/apps/index.js';
 import Auth from './modules/Auth.js';
 import { Debug } from './modules/Debug.js';
 import Drivers from './modules/Drivers.js';
-import Email from './modules/Email.js';
+import Email from './modules/Email/Email.js';
 import { Events } from './modules/events/index.js';
 import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';

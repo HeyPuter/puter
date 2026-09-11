@@ -1,5 +1,5 @@
-import { PuterModule } from '../lib/PuterModule.js';
-import * as utils from '../lib/utils.js';
+import { PuterModule } from '../../lib/PuterModule.js';
+import * as utils from '../../lib/utils.js';
 
 /**
  * One attachment: either inline base64 `content`, or a Puter FS reference
