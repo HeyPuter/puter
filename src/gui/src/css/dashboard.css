@@ -7955,6 +7955,31 @@ body.dashboard-mode .notifications-close-all {
     margin-bottom: 0;
 }
 
+.teams-member-actions .button-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    margin-right: 6px;
+}
+
+.teams-member-actions .button-icon svg {
+    width: 15px;
+    height: 15px;
+}
+
+/* Kept in the DOM for screen readers; the tooltip carries it visually. */
+.teams-member-actions .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
 .teams-plan-list {
     list-style: none;
     margin: 0;

@@ -20,6 +20,7 @@
 import UIAlert from '../UIAlert.js';
 import UIPrompt from '../UIPrompt.js';
 import teamPlanHtml from './teamPlan.js';
+import teamActionButton from './teamActionIcons.js';
 import {
     annotateMembers,
     auditActionKey,
@@ -89,15 +90,43 @@ const renderMemberRow = (member) => {
     h += `<td>${planCell(member)}</td>`;
     h += '<td class="teams-member-actions">';
     if ( member.orgOwned ) {
+        const forMember = { 'data-username': member.username };
         if ( window.team_billing_ui && state.plan?.status === 'ready' ) {
-            h += `<button class="button button-small teams-plan-change" data-username="${username}" data-uuid="${html_encode(member.uuid ?? '')}">${i18n('teams_plan_change')}</button>`;
+            h += teamActionButton({
+                className: 'teams-plan-change',
+                icon: 'plan',
+                label: i18n('teams_plan_change'),
+                attrs: { ...forMember, 'data-uuid': member.uuid ?? '' },
+            });
         }
-        h += `<button class="button button-small teams-reset" data-username="${username}">${i18n('teams_reissue_credential')}</button>`;
+        h += teamActionButton({
+            className: 'teams-reset',
+            icon: 'credential',
+            label: i18n('teams_reissue_credential'),
+            attrs: forMember,
+        });
         h += member.disabled
-            ? `<button class="button button-small teams-enable" data-username="${username}">${i18n('teams_enable_account')}</button>`
-            : `<button class="button button-small button-danger teams-disable" data-username="${username}">${i18n('teams_disable_account')}</button>`;
+            ? teamActionButton({
+                className: 'teams-enable',
+                icon: 'enable',
+                label: i18n('teams_enable_account'),
+                attrs: forMember,
+            })
+            : teamActionButton({
+                className: 'teams-disable',
+                icon: 'suspend',
+                label: i18n('teams_disable_account'),
+                danger: true,
+                attrs: forMember,
+            });
         if ( canDeleteAccount(member) ) {
-            h += `<button class="button button-small button-danger teams-delete-account" data-username="${username}">${i18n('teams_delete_account')}</button>`;
+            h += teamActionButton({
+                className: 'teams-delete-account',
+                icon: 'remove',
+                label: i18n('teams_delete_account'),
+                danger: true,
+                attrs: forMember,
+            });
         }
     }
     h += '</td></tr>';
