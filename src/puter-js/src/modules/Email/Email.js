@@ -129,7 +129,7 @@ export class EmailModule extends PuterModule {
     });
 
     send = async (options) => {
-        const req = await fetchUrl("/email/send", {includePuterAuth: true, body: new Blob([await compose(options)], {type: 'message/rfc822'})});
+        const req = await fetchUrl(`${this.APIOrigin}/email/send`, { method: "POST", includePuterAuth: true, body: new Blob([await compose(options)], { type: 'message/rfc822' }) });
         return await req.json();
     }
 }

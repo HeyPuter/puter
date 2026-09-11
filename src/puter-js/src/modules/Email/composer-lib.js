@@ -191,7 +191,7 @@ export async function compose({ from, to, cc, bcc, subject, replyTo, attachments
     } else {
         // Add From Block (hardcoded to puter.email for now)
         const userinfo = await puter.getUser();
-        headerLines += emlHeader('From', userinfo + '@puter.email');
+        headerLines += emlHeader('From', userinfo.username + '@puter.email');
     }
 
     const { isMultiPart, mimeType } = determineTopLevelMimeType({ attachments, text, html });
