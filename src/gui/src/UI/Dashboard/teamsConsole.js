@@ -174,3 +174,32 @@ export function sortMembers (annotated) {
         return a.username.localeCompare(b.username);
     });
 }
+
+/**
+ * One page of the record, with the numbers the pager prints. Clamps the page:
+ * deleting an account shortens the record, and a stale number would otherwise
+ * show an empty table with no way back.
+ *
+ * @template T
+ * @param {T[]} entries
+ * @param {number} page - Zero-based.
+ * @param {number} size
+ * @returns {{ items: T[], page: number, pages: number, from: number, to: number, total: number }}
+ */
+export function auditSlice (entries, page, size) {
+    const all = entries ?? [];
+    const total = all.length;
+    const perPage = size > 0 ? size : 1;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const current = Math.min(Math.max(0, Math.trunc(page) || 0), pages - 1);
+    const start = current * perPage;
+    const items = all.slice(start, start + perPage);
+    return {
+        items,
+        page: current,
+        pages,
+        from: total === 0 ? 0 : start + 1,
+        to: start + items.length,
+        total,
+    };
+}

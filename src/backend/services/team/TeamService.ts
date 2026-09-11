@@ -271,8 +271,11 @@ export class TeamService extends PuterService {
         try {
             const owner = await this.stores.user.getById(ownerUserId);
             if (!owner?.uuid) return false;
+            // The whole row, not an id/uuid stub: a resolver may key on any
+            // field, and one that misses makes the cap depend on whether
+            // something else cached this user's plan first.
             const policy = await this.services.metering.getActorSubscription({
-                user: { id: owner.id, uuid: owner.uuid },
+                user: owner,
             } as never);
             return subscriptionSatisfies(policy.id, true);
         } catch (e) {

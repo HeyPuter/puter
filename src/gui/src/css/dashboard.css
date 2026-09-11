@@ -8031,6 +8031,30 @@ body.dashboard-mode .notifications-close-all {
     margin-bottom: 0;
 }
 
+.teams-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.teams-pager-count {
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-pager-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.teams-pager-buttons .button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .teams-roster {
     list-style: none;
     margin: 0;

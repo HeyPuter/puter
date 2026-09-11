@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     annotateMembers,
     auditActionKey,
+    auditSlice,
     canDeleteAccount,
     auditReasonKey,
     memberStatesFromAudit,
@@ -213,5 +214,42 @@ describe('what plan a row in the accounts table shows', () => {
             expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' }, p))
                 .toEqual({ kind: 'free' });
         }
+    });
+});
+
+describe('paging the record', () => {
+    const rows = (n) => Array.from({ length: n }, (_, i) => ({ id: i }));
+
+    it('cuts the list into pages and numbers them for the reader', () => {
+        const page = auditSlice(rows(25), 1, 10);
+        expect(page.items).toHaveLength(10);
+        expect(page.items[0].id).toBe(10);
+        expect(page).toMatchObject({ page: 1, pages: 3, from: 11, to: 20, total: 25 });
+    });
+
+    it('reports a short last page honestly', () => {
+        expect(auditSlice(rows(25), 2, 10)).toMatchObject({ from: 21, to: 25, pages: 3 });
+    });
+
+    it('clamps a page the record has shrunk past', () => {
+        // Deleting an account shortens the record; a stale page number would
+        // otherwise show an empty table with no way back.
+        const page = auditSlice(rows(5), 9, 10);
+        expect(page.page).toBe(0);
+        expect(page.items).toHaveLength(5);
+    });
+
+    it('clamps a negative or nonsensical page rather than throwing', () => {
+        expect(auditSlice(rows(5), -3, 10).page).toBe(0);
+        expect(auditSlice(rows(5), NaN, 10).page).toBe(0);
+    });
+
+    it('says 0 of 0 for an empty record, not 1 of 0', () => {
+        expect(auditSlice([], 0, 10)).toMatchObject({ from: 0, to: 0, total: 0, pages: 1 });
+        expect(auditSlice(undefined, 0, 10).items).toEqual([]);
+    });
+
+    it('never divides by a zero page size', () => {
+        expect(auditSlice(rows(3), 0, 0).items).toHaveLength(1);
     });
 });

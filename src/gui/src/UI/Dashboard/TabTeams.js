@@ -23,6 +23,7 @@ import teamActionButton from './teamActionIcons.js';
 import {
     annotateMembers,
     auditActionKey,
+    auditSlice,
     canDeleteAccount,
     auditReasonKey,
     membersBillingSummary,
@@ -33,7 +34,11 @@ import {
 const SECTION = '.dashboard-section-teams';
 
 /** What the console last loaded, so a redraw needs no second round trip. */
-let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], plan: null };
+let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], auditPage: 0, plan: null };
+
+// Paged for reading, not fetching: member state is derived from the whole
+// record, so it is already loaded.
+const AUDIT_ROWS_PER_PAGE = 10;
 
 /** In flight, so `init` and the initial-route `onActivate` don't both load. */
 let loadPromise = null;
@@ -188,7 +193,12 @@ const renderAudit = () => {
         h += `<th>${i18n('teams_audit_account')}</th>`;
         h += `<th>${i18n('teams_audit_actor')}</th>`;
         h += '</tr></thead><tbody>';
-        for ( const entry of state.audit ) {
+        const { items, page, pages, from, to, total } = auditSlice(
+            state.audit,
+            state.auditPage,
+            AUDIT_ROWS_PER_PAGE,
+        );
+        for ( const entry of items ) {
             const actionKey = auditActionKey(entry.action);
             const reasonKey = auditReasonKey(entry.reason);
             h += '<tr>';
@@ -201,6 +211,14 @@ const renderAudit = () => {
             h += '</tr>';
         }
         h += '</tbody></table></div>';
+        if ( pages > 1 ) {
+            h += '<div class="teams-pager">';
+            h += `<span class="teams-pager-count">${i18n('teams_audit_range', { from, to, total })}</span>`;
+            h += '<span class="teams-pager-buttons">';
+            h += `<button class="button button-small teams-audit-prev"${page === 0 ? ' disabled' : ''}>${i18n('previous')}</button>`;
+            h += `<button class="button button-small teams-audit-next"${page >= pages - 1 ? ' disabled' : ''}>${i18n('next')}</button>`;
+            h += '</span></div>';
+        }
     }
     h += '</div>';
     return h;
@@ -254,7 +272,11 @@ const renderOwnerView = () => {
     let h = '<div class="dashboard-card teams-panel teams-card">';
     h += '<div class="teams-info">';
     h += `<strong>${html_encode(teamName(state.selected))}</strong>`;
-    h += `<span>${state.selected.handle ? html_encode(`@${state.selected.handle}`) : i18n('teams_no_handle')}</span>`;
+    // Nothing here sets a handle, so its absence was a label for something the
+    // owner could neither act on nor need.
+    if ( state.selected.handle ) {
+        h += `<span>${html_encode(`@${state.selected.handle}`)}</span>`;
+    }
     h += '</div>';
     h += `<button class="button teams-rename">${i18n('teams_rename')}</button>`;
     h += '</div>';
@@ -301,6 +323,8 @@ const paint = ($el_window) => {
 
 const loadSelected = async () => {
     if ( ! state.selected ) return;
+    // A fresh record starts at the top; auditSlice clamps a stale page anyway.
+    state.auditPage = 0;
     state.audit = state.selected.isOwner
         ? await puter.teams.listAudit(state.selected.uid)
         : await puter.teams.listOwnAudit(state.selected.uid);
@@ -385,11 +409,35 @@ const refresh = ($el_window) => {
 
 // -- Actions --------------------------------------------------------------
 
-const showError = ($el_window, e) => UIAlert({
-    type: 'error',
-    message: e?.message ?? i18n('error_unknown_cause'),
-    ...modalOptions($el_window),
-});
+// The plain error says what happened, not that a plan is what raises the cap.
+// The button appears only where a billing extension put the modal on the page.
+const showSeatLimit = async ($el_window, e) => {
+    const limit = e?.limit ?? e?.fields?.limit;
+    const canUpgrade = typeof window.UIUpgradeAccount === 'function';
+    let message = `<p>${limit ? i18n('teams_seat_limit', { limit }) : html_encode(e.message)}</p>`;
+    message += `<p>${i18n('teams_seat_limit_upgrade')}</p>`;
+    const answer = await UIAlert({
+        type: 'warning',
+        message,
+        buttons: canUpgrade
+            ? [
+                { label: i18n('teams_see_plans'), value: 'upgrade', type: 'primary' },
+                { label: i18n('cancel'), value: 'no' },
+            ]
+            : [{ label: i18n('ok'), value: 'no' }],
+        ...modalOptions($el_window),
+    });
+    if ( answer === 'upgrade' ) new window.UIUpgradeAccount().open_as_window();
+};
+
+const showError = ($el_window, e) => {
+    if ( e?.code === 'seat_limit_reached' ) return showSeatLimit($el_window, e);
+    return UIAlert({
+        type: 'error',
+        message: e?.message ?? i18n('error_unknown_cause'),
+        ...modalOptions($el_window),
+    });
+};
 
 const confirm = async ($el_window, message, label, kind = 'danger') => {
     const answer = await UIAlert({
@@ -581,6 +629,14 @@ const TabTeams = {
         setTabVisible($el_window, false);
 
         // Delegated, because every action redraws the panel underneath them.
+        $el_window.on('click', `${SECTION} .teams-audit-prev`, () => {
+            state.auditPage = Math.max(0, state.auditPage - 1);
+            paint($el_window);
+        });
+        $el_window.on('click', `${SECTION} .teams-audit-next`, () => {
+            state.auditPage += 1;
+            paint($el_window);
+        });
         $el_window.on('click', `${SECTION} .teams-add-btn`, () => addAccount($el_window));
         $el_window.on('click', `${SECTION} .teams-create`, () => createTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-rename`, () => renameTeam($el_window));
