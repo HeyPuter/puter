@@ -24,6 +24,7 @@ import UIWindowConfirmUserDeletion from '../Settings/UIWindowConfirmUserDeletion
 import UIWindowCopyToken from '../UIWindowCopyToken.js';
 import UIWindow from '../UIWindow.js';
 import UIProfilePictureCropModal from './UIProfilePictureCropModal.js';
+import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 
 const TabAccount = {
     id: 'account',
@@ -67,7 +68,17 @@ const TabAccount = {
         h += `<span class="username">${html_encode(window.user.username)}</span>`;
         h += '</div>';
         h += '</div>';
-        h += `<button class="button change-username">${i18n('change_username')}</button>`;
+        // A seat's name is the team's; the console and audit log key on it.
+        if ( isOrgSeat(window.user) ) {
+            const team = orgSeatTeamName(window.user);
+            h += `<span class="dashboard-settings-card-note">${
+                team
+                    ? i18n('username_set_by_team', { team })
+                    : i18n('username_set_by_team_generic')
+            }</span>`;
+        } else {
+            h += `<button class="button change-username">${i18n('change_username')}</button>`;
+        }
         h += '</div>';
 
         // Password card (only for non-temp users)
@@ -124,18 +135,20 @@ const TabAccount = {
         }
         h += '</div>';
 
-        // Danger zone
-        h += '<div class="dashboard-danger-zone">';
-        h += '<div class="dashboard-card dashboard-danger-card">';
-        h += '<div class="dashboard-danger-card-content">';
-        h += '<div class="dashboard-danger-card-info">';
-        h += `<strong>${i18n('delete_account')}</strong>`;
-        h += '<span>Permanently delete your account and all associated data. This action cannot be undone.</span>';
-        h += '</div>';
-        h += '</div>';
-        h += `<button class="button button-danger delete-account">${i18n('delete_account')}</button>`;
-        h += '</div>';
-        h += '</div>';
+        // Danger zone. A seat has none: the team owns the account.
+        if ( ! isOrgSeat(window.user) ) {
+            h += '<div class="dashboard-danger-zone">';
+            h += '<div class="dashboard-card dashboard-danger-card">';
+            h += '<div class="dashboard-danger-card-content">';
+            h += '<div class="dashboard-danger-card-info">';
+            h += `<strong>${i18n('delete_account')}</strong>`;
+            h += '<span>Permanently delete your account and all associated data. This action cannot be undone.</span>';
+            h += '</div>';
+            h += '</div>';
+            h += `<button class="button button-danger delete-account">${i18n('delete_account')}</button>`;
+            h += '</div>';
+            h += '</div>';
+        }
 
         h += '</div>'; // end settings-grid
 

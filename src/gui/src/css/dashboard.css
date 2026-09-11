@@ -2531,6 +2531,8 @@ input.share-modal-recipient:focus {
     box-shadow: 0 0 0 3px var(--select-ring);
 }
 select.share-modal-mode,
+select.share-modal-team-select,
+select.share-modal-team-mode,
 select.share-modal-row-mode {
     -webkit-appearance: none;
     appearance: none;
@@ -2552,16 +2554,21 @@ select.share-modal-row-mode {
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
 }
-select.share-modal-mode {
+select.share-modal-mode,
+select.share-modal-team-mode {
     flex-shrink: 0;
 }
 select.share-modal-mode:focus,
+select.share-modal-team-select:focus,
+select.share-modal-team-mode:focus,
 select.share-modal-row-mode:focus {
     padding: 8px 26px 8px 10px;
     border: 1px solid var(--select-color);
     box-shadow: 0 0 0 3px var(--select-ring);
 }
 select.share-modal-mode:disabled,
+select.share-modal-team-select:disabled,
+select.share-modal-team-mode:disabled,
 select.share-modal-row-mode:disabled {
     opacity: 0.55;
     cursor: default;
@@ -2572,8 +2579,67 @@ select.share-modal-row-mode:disabled {
 .device-phone input.share-modal-recipient,
 .device-phone input.share-modal-recipient:focus,
 .device-phone select.share-modal-mode,
+.device-phone select.share-modal-team-select,
+.device-phone select.share-modal-team-mode,
 .device-phone select.share-modal-row-mode {
     font-size: 16px;
+}
+
+/* Its own block under the people field, separated the way the desktop
+   dialog separates them. The button is quieter: an alternative, not the
+   main path. */
+.share-modal-teams {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.share-modal-teams-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.share-modal-teams-note {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--dashboard-text-hint);
+}
+
+.share-modal-team-select {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.share-modal-team-btn {
+    width: 100%;
+    height: 38px;
+    margin-top: 10px;
+    padding: 0 16px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: transparent;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+@media (hover: hover) {
+    .share-modal-team-btn:hover:not(:disabled) {
+        background: var(--dashboard-card-background);
+        border-color: var(--dashboard-text-hint);
+    }
+}
+
+.share-modal-team-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
 }
 
 .share-modal-submit {
@@ -6326,6 +6392,16 @@ body.myapps-reordering .myapps-tile {
     white-space: nowrap;
 }
 
+/* Sits where the card's button would, when the account may not press one. */
+.dashboard-settings-card-note {
+    flex-shrink: 0;
+    max-width: 240px;
+    text-align: right;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--dashboard-text-hint);
+}
+
 .dashboard-settings-card .button {
     flex-shrink: 0;
     color: var(--dashboard-text-primary);
@@ -7953,6 +8029,31 @@ body.dashboard-mode .notifications-close-all {
 
 .teams-empty {
     margin-bottom: 0;
+}
+
+.teams-roster {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.teams-roster-name {
+    padding: 7px 0;
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+    border-bottom: 1px solid var(--dashboard-border);
+}
+
+.teams-roster-name:last-child {
+    border-bottom: none;
+}
+
+.teams-roster-you {
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
 }
 
 .teams-member-actions .button-icon {

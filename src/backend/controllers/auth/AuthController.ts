@@ -2551,6 +2551,17 @@ export class AuthController extends PuterController {
     }
 
     async handleChangeUsername(req: Request, res: Response): Promise<void> {
+        // A provisioned account's name belongs to the team that made it: the
+        // console lists its members by username and the audit log records them
+        // by username, so a self-service rename would desync both.
+        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+            throw new HttpError(
+                403,
+                'Your team set this username. Ask a team admin to change it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
         const { new_username } = req.body ?? {};
         if (!new_username || typeof new_username !== 'string') {
             throw new HttpError(400, '`new_username` is required', {
@@ -4374,6 +4385,15 @@ export class AuthController extends PuterController {
 
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
+        // The team owns the account and is billed for it; only they may close
+        // it, through the console that keeps the audit trail.
+        if (await this.stores.team.getOrgSeat(userId)) {
+            throw new HttpError(
+                403,
+                'Your team owns this account. Ask a team admin to remove it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
         res.clearCookie('puter_revalidation');

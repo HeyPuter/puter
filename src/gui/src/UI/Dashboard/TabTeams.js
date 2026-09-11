@@ -206,13 +206,34 @@ const renderAudit = () => {
     return h;
 };
 
-/** What a member sees: their own entries, and nothing administrative. */
+/** Colleagues, by name. No state, no dates, no actions — none are theirs. */
+const renderRoster = () => {
+    let h = '<div class="dashboard-card teams-panel">';
+    h += `<h3>${i18n('teams_roster')}</h3>`;
+    h += `<p class="teams-panel-hint">${i18n('teams_roster_hint')}</p>`;
+    if ( state.members.length === 0 ) {
+        h += `<p class="teams-empty">${i18n('teams_roster_empty')}</p>`;
+    } else {
+        h += '<ul class="teams-roster">';
+        for ( const member of sortMembers(state.members) ) {
+            const you = member.username === window.user?.username;
+            h += `<li class="teams-roster-name">${html_encode(member.username)}`;
+            if ( you ) h += ` <span class="teams-roster-you">(${i18n('share_you')})</span>`;
+            h += '</li>';
+        }
+        h += '</ul>';
+    }
+    h += '</div>';
+    return h;
+};
+
+/** What a member sees: who else is here, their own entries, nothing admin. */
 const renderMemberView = () => {
     let h = '<div class="dashboard-card teams-panel">';
     h += `<h3>${i18n('teams_your_record')}</h3>`;
     h += `<p class="teams-panel-hint">${i18n('teams_your_record_hint', { team: teamName(state.selected) })}</p>`;
     h += '</div>';
-    return h + renderAudit();
+    return h + renderRoster() + renderAudit();
 };
 
 const renderDirectory = () => {
@@ -283,9 +304,9 @@ const loadSelected = async () => {
     state.audit = state.selected.isOwner
         ? await puter.teams.listAudit(state.selected.uid)
         : await puter.teams.listOwnAudit(state.selected.uid);
-    state.members = state.selected.isOwner
-        ? await puter.teams.listMembers(state.selected.uid)
-        : [];
+    // Members too: the roster is theirs to see, and the controller already
+    // withholds from them what is not.
+    state.members = await puter.teams.listMembers(state.selected.uid);
     state.plan = state.selected.isOwner ? await loadPlan(state.selected.uid) : null;
 };
 

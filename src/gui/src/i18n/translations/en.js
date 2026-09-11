@@ -80,6 +80,8 @@ const en = {
         change_profile_picture: 'Change profile picture',
         change_ui_colors: 'Change UI Colors',
         change_username: 'Change Username',
+        username_set_by_team: 'Set by {{team}}. Ask an admin to change it.',
+        username_set_by_team_generic: 'Set by your team. Ask an admin to change it.',
         revalidate_with_google: 'Re-validate with Google',
         revalidated: 'Re-validated.',
         revalidate_sign_in_popup: 'Sign in with your linked account in the popup.',
@@ -526,6 +528,9 @@ const en = {
         teams_create_team_hint:
             'A team pays for the accounts you create in it. You stay its only administrator.',
         teams_create_team_prompt: 'What should the team be called?',
+        teams_roster: 'Who else is here',
+        teams_roster_hint: 'Everyone on this team. You can share files with any of them.',
+        teams_roster_empty: 'Nobody else yet.',
         teams_accounts: 'Accounts',
         teams_no_accounts: 'This team has no accounts yet.',
         teams_account_of: 'This account belongs to %%',
