@@ -543,6 +543,11 @@ const en = {
         teams_add_account_email_hint: 'If you add an address, we email the username and temporary password to it. Otherwise the password below is the only copy.',
         teams_add_account_hint:
             'Puter creates the account and gives you a one-time password to pass on. The username has to be free across all of Puter.',
+        teams_plan_change_for: 'Which plan for {{username}}?',
+        teams_plan_per_account_hint: 'Plans are set per account, in the table below.',
+        teams_plan_on_count: '{{count}} on this plan',
+        teams_plan_assign_hint: 'Use Change plan on an account to put it on one of these.',
+        teams_plan_change: 'Change plan',
         teams_member_plan: 'Plan',
         teams_member_plan_payer: '— payer',
         teams_member_plan_not_billed: 'Not billed',

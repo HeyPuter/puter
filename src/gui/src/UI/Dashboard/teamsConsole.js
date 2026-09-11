@@ -130,9 +130,11 @@ export function membersBillingSummary (annotated) {
 export function memberPlanLabel (member, plan) {
     if ( ! member?.orgOwned ) return { kind: 'payer' };
     if ( member.disabled ) return { kind: 'not_billed' };
-    const current = plan?.current;
-    if ( ! current ) return { kind: 'free' };
-    return { kind: 'tier', name: current.name_en || current.tier };
+    // Per seat: a team can buy for some accounts and not others.
+    const tier = plan?.seatTiers?.[member.uuid];
+    if ( ! tier ) return { kind: 'free' };
+    const offering = (plan.offerings ?? []).find(o => o.tier === tier);
+    return { kind: 'tier', name: offering?.name_en || tier };
 }
 
 /**

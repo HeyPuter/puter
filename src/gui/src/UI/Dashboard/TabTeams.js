@@ -89,6 +89,9 @@ const renderMemberRow = (member) => {
     h += `<td>${planCell(member)}</td>`;
     h += '<td class="teams-member-actions">';
     if ( member.orgOwned ) {
+        if ( window.team_billing_ui && state.plan?.status === 'ready' ) {
+            h += `<button class="button button-small teams-plan-change" data-username="${username}" data-uuid="${html_encode(member.uuid ?? '')}">${i18n('teams_plan_change')}</button>`;
+        }
         h += `<button class="button button-small teams-reset" data-username="${username}">${i18n('teams_reissue_credential')}</button>`;
         h += member.disabled
             ? `<button class="button button-small teams-enable" data-username="${username}">${i18n('teams_enable_account')}</button>`
@@ -186,9 +189,6 @@ const renderMemberView = () => {
 
 const renderPlan = () => teamPlanHtml({
     plan: state.plan,
-    // The same count the accounts table shows: suspended seats are excluded,
-    // because they stop costing a per-account charge.
-    seats: membersBillingSummary(annotateMembers(state.members, state.audit)).billed,
     canBuy: window.team_billing_ui === true,
 });
 
@@ -280,19 +280,50 @@ const loadPlan = async (teamUid) => {
             get('/marketplace/subscriptions/team-offerings'),
             get(`/marketplace/teams/${encodeURIComponent(teamUid)}/subscription`),
         ]);
-        if ( ! cat ) return { status: 'unavailable', offerings: [], current: null };
-        const offerings = Array.isArray(cat.offerings) ? cat.offerings : [];
+        if ( ! cat ) return { status: 'unavailable', offerings: [], seatTiers: {} };
         const entry = sub?.subscription ?? null;
         return {
             status: 'ready',
-            offerings,
-            current: entry
-                ? { ...entry, name_en: offerings.find(o => o.tier === entry.tier)?.name_en }
-                : null,
+            offerings: Array.isArray(cat.offerings) ? cat.offerings : [],
+            seatTiers: entry?.seatTiers ?? {},
+            tierQuantities: entry?.tierQuantities ?? {},
+            subStatus: entry?.status ?? null,
         };
     } catch {
-        return { status: 'unavailable', offerings: [], current: null };
+        return { status: 'unavailable', offerings: [], seatTiers: {} };
     }
+};
+
+/** Asks which tier, then hands the purchase to the billing extension. */
+const changeSeatPlan = async ($el_window, username, uuid) => {
+    const plan = state.plan;
+    if ( ! plan || plan.status !== 'ready' ) return;
+    const current = plan.seatTiers?.[uuid] ?? null;
+    const choices = plan.offerings.filter(o => o.available && o.tier !== current);
+    if ( choices.length === 0 ) return;
+
+    const answer = await UIAlert({
+        type: 'confirm',
+        message: i18n('teams_plan_change_for', { username }),
+        buttons: [
+            ...choices.map(o => ({
+                label: `${o.name_en || o.tier} — ${o.amountPerSeat} ${o.currency}`,
+                value: o.itemId,
+            })),
+            { label: i18n('cancel'), value: 'no' },
+        ],
+        ...modalOptions($el_window),
+    });
+    if ( ! answer || answer === 'no' ) return;
+
+    window.dispatchEvent(new CustomEvent('team-plan-purchase', {
+        detail: {
+            teamUid: state.selected.uid,
+            itemId: answer,
+            seatUuid: uuid,
+            onDone: () => refresh($el_window),
+        },
+    }));
 };
 
 const load = async ($el_window) => {
@@ -530,6 +561,9 @@ const TabTeams = {
         $el_window.on('click', `${SECTION} .teams-rename`, () => renameTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-delete`, () => deleteTeam($el_window));
         // Checkout is the billing extension's job; this only says what was asked for.
+        $el_window.on('click', `${SECTION} .teams-plan-change`, function () {
+            changeSeatPlan($el_window, $(this).attr('data-username'), $(this).attr('data-uuid'));
+        });
         $el_window.on('click', `${SECTION} .teams-plan-buy`, function () {
             if ( ! state.selected ) return;
             window.dispatchEvent(new CustomEvent('team-plan-purchase', {

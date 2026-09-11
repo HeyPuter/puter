@@ -168,32 +168,49 @@ describe('sortMembers', () => {
 });
 
 describe('what plan a row in the accounts table shows', () => {
-    const paid = { current: { tier: 'team-basic', name_en: 'Team Basic' } };
+    const plan = {
+        seatTiers: { 'u-1': 'team-basic', 'u-2': 'team-pro' },
+        offerings: [
+            { tier: 'team-basic', name_en: 'Team Basic' },
+            { tier: 'team-pro', name_en: 'Team Pro' },
+        ],
+    };
 
-    it('names the team tier for a billed seat', () => {
-        expect(memberPlanLabel({ orgOwned: true, disabled: false }, paid))
+    it('names the tier that seat is on', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' }, plan))
             .toEqual({ kind: 'tier', name: 'Team Basic' });
     });
 
+    it('lets two seats be on different tiers', () => {
+        // The whole point of per-seat: one team, two plans.
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-2' }, plan))
+            .toEqual({ kind: 'tier', name: 'Team Pro' });
+    });
+
     it('falls back to the tier id when the catalogue has no name', () => {
-        expect(memberPlanLabel({ orgOwned: true }, { current: { tier: 'team-pro' } }))
-            .toEqual({ kind: 'tier', name: 'team-pro' });
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' },
+            { seatTiers: { 'u-1': 'team-basic' }, offerings: [] }))
+            .toEqual({ kind: 'tier', name: 'team-basic' });
+    });
+
+    it('says free for a seat nobody bought a tier for', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-9' }, plan))
+            .toEqual({ kind: 'free' });
     });
 
     it('says the owner is the payer, not a seat', () => {
-        // They keep their own personal plan; the team tier is not theirs.
-        expect(memberPlanLabel({ orgOwned: false }, paid)).toEqual({ kind: 'payer' });
+        expect(memberPlanLabel({ orgOwned: false, uuid: 'u-1' }, plan))
+            .toEqual({ kind: 'payer' });
     });
 
-    it('says a suspended seat is not billed', () => {
-        // It stops costing a per-account charge, which is what the card counts.
-        expect(memberPlanLabel({ orgOwned: true, disabled: true }, paid))
+    it('says a suspended seat is not billed, whatever it was on', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1', disabled: true }, plan))
             .toEqual({ kind: 'not_billed' });
     });
 
-    it('says free when the team bought nothing', () => {
-        for (const plan of [null, undefined, { current: null }]) {
-            expect(memberPlanLabel({ orgOwned: true, disabled: false }, plan))
+    it('says free when nothing is bought at all', () => {
+        for (const p of [null, undefined, { seatTiers: {} }]) {
+            expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' }, p))
                 .toEqual({ kind: 'free' });
         }
     });
