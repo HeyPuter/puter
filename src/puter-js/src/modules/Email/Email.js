@@ -126,19 +126,10 @@ export class EmailModule extends PuterModule {
         preprocess: preprocessSendArgs,
     });
 
-    /**
-     * Legacy name for {@link EmailModule.sendTransactional}; same arguments,
-     * same result.
-     *
-     * @deprecated Use `sendTransactional()`.
-     * @type {EmailSendMethod}
-     */
-    send = utils.makeDriverMethod({
-        iface: 'puter-transactional-email',
-        method: 'sendTransactional',
-        argNames: ['to', 'subject', 'body'],
-        preprocess: preprocessSendArgs,
-    });
+    send = async (options) => {
+        const req = await fetchUrl("/email/send", {includePuterAuth: true, body: new Blob([await compose(options)], {type: 'message/rfc822'})});
+        return await req.json();
+    }
 }
 
 /**
