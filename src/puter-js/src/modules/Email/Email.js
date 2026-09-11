@@ -1,3 +1,4 @@
+import { fetchUrl } from '../../lib/networkUtils.js';
 import { PuterModule } from '../../lib/PuterModule.js';
 import * as utils from '../../lib/utils.js';
 
