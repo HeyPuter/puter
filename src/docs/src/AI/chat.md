@@ -27,7 +27,7 @@ A string containing the prompt you want to complete.
 
 An object containing the following properties:
 
-- `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
+- `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page. Models sold at more than one service tier accept a tier suffix on the id — see [Service tiers](#service-tiers).
 - `provider` (String) (Optional) - Pin the request to a specific vendor, for example `openrouter` or `infron`. Without it, Puter selects a vendor for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given vendor serves.
 - `stream` (Boolean) - A boolean indicating whether you want to stream the completion. Defaults to `false`.
 - `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
@@ -114,6 +114,34 @@ In case of an error, the `Promise` will reject with an error message.
 ## Vendors
 
 We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
+
+## Service tiers
+
+Some vendors sell the same model at more than one service tier, trading latency against price. Where they do, Puter exposes each tier as its own model id: append `:flex` or `:priority` to the model name.
+
+```js
+// Default tier
+const a = await puter.ai.chat("Hello", { model: "infron:openai/gpt-6-astra" });
+
+// Same model, flex tier — cheaper, with higher and less predictable latency
+const b = await puter.ai.chat("Hello", { model: "infron:openai/gpt-6-astra:flex" });
+```
+
+A plain model id always means the model's default tier, which is the balanced one. `flex` is the cheapest and is meant for work that tolerates waiting — batch jobs, overnight runs — because requests may be held until capacity frees up. `priority` is the fastest and the most expensive.
+
+The tier named in the id is the tier the request is billed at, and the price [`puter.ai.listModels()`](/AI/listModels) reports for that id is the price you pay for it.
+
+Not every model sells every tier, and a tier can differ from its siblings in more than price — some carry a smaller context window. Each tier is listed as a separate entry, so compare them before picking one:
+
+```js
+const models = await puter.ai.listModels("infron");
+for (const m of models.filter(m => m.id.startsWith("infron:openai/gpt-6-astra"))) {
+    // Cost keys differ by vendor, so read them through input_cost_key / output_cost_key.
+    console.log(m.id, m.costs[m.input_cost_key], m.costs[m.output_cost_key], m.context);
+}
+```
+
+If a model has no tier-suffixed ids in that list, it is sold at a single tier and the plain id is the only way to call it.
 
 ## Response Normalization
 
