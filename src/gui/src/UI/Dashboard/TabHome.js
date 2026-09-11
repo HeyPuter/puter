@@ -21,6 +21,7 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { usageBudget } from './usageBudget.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
+import { isOrgSeat } from './orgSeat.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
@@ -517,6 +518,11 @@ const TabHome = {
                 // Reset the label too — otherwise it keeps saying "Manage →"
                 // after a subscription lapses/cancels.
                 $el_window.find('.bento-plan-upgrade').text('Upgrade →').show();
+            }
+
+            // A seat's plan is the team's; the link only reaches a refusal.
+            if ( isOrgSeat(window.user) ) {
+                $el_window.find('.bento-plan-upgrade').hide();
             }
 
             $el_window
