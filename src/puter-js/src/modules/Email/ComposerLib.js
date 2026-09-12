@@ -33,12 +33,12 @@
  */
 
 
-function getRFC822DateUTC(date = new Date()) {
+export function getRFC822DateUTC(date = new Date()) {
     // .toUTCString() returns: "Fri, 11 Sep 2026 21:30:00 GMT"
     return date.toUTCString().replace('GMT', '+0000');
 }
 
-function emlHeader(key, value) {
+export function emlHeader(key, value) {
     if (!isASCII(key)) {
         throw new Error("eml header key " + key + " is not valid ASCII");
     }
@@ -53,13 +53,13 @@ function emlHeader(key, value) {
         return `${key}: ${value.join(', ')}\r\n`;
     } else {
         if (!isASCII(value)) {
-            throw new Error("eml header value " + val + " is not valid ASCII");
+            throw new Error("eml header value " + value + " is not valid ASCII");
         }
         return `${key}: ${value}\r\n`;
     }
 }
 
-function determineTopLevelMimeType({ attachments = [], text, html }) {
+export function determineTopLevelMimeType({ attachments = [], text, html }) {
     const inlineAttachments = attachments.filter(a => a.cid);
     const regularAttachments = attachments.filter(a => !a.cid);
 
@@ -94,7 +94,7 @@ async function blobToBase64(blob) {
 
     return btoa(binary);
 }
-const isASCII = (str) => /^[\x20-\x7E]*$/.test(str);
+export const isASCII = (str) => /^[\x20-\x7E]*$/.test(str);
 
 
 
@@ -103,9 +103,15 @@ const isASCII = (str) => /^[\x20-\x7E]*$/.test(str);
  * 
  * @param {EmailAttachment} attachment 
  */
-async function composeAttachment({ cid, content, contentType, filename, path, uid }) {
+export async function composeAttachment({ cid, content, contentType, filename, path, uid }) {
     if (path && content) {
         throw new Error("Path and Content are mutually exclusive");
+    }
+    if (!path && !content && !uid) {
+        throw new Error("Attachment requires content, path, or uid");
+    }
+    if (uid) {
+        throw new Error("uid attachments are not supported yet");
     }
     if (contentType && !filename) {
         throw new Error("filename parameter required for contentType");
@@ -155,15 +161,17 @@ async function composeAttachment({ cid, content, contentType, filename, path, ui
     return headerLines + b64emailContent;
 }
 
-function combineParts(parts, boundary) {
-    return parts.map(part => `--${boundary}\r\n${part}`).join('') + `--${boundary}--\r\n`;
+export function combineParts(parts, boundary) {
+    // The CRLF before each delimiter belongs to the delimiter, not the part,
+    // so parts never need a trailing line break of their own.
+    return parts.map(part => `--${boundary}\r\n${part}\r\n`).join('') + `--${boundary}--\r\n`;
 }
 
 /**
  * 
  * @param {EmailComposeOptions} param0 
  */
-export async function compose({ from, to, cc, bcc, subject, replyTo, attachments, text, html }) {
+export async function compose({ from, to, cc, bcc, subject, replyTo, attachments = [], text, html }) {
     // --- Header constructing logic ---
     let headerLines = "MIME-Version: 1.0\r\n";
 
@@ -239,7 +247,6 @@ export async function compose({ from, to, cc, bcc, subject, replyTo, attachments
 
     // Inline (cid) attachments: wrap content + inline images in multipart/related.
     // If there are no regular attachments, related IS the top level (reuse boundary1).
-    // Otherwise it nests one level inside multipart/mixed with its own boundary.
     // Otherwise it nests one level inside multipart/mixed with its own boundary.
     let nextLevelPart;
     if (inlineAttachments.length > 0) {
