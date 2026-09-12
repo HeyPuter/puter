@@ -187,9 +187,14 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
             this[sRespHeaders] = resp.headers;
             this.readyState = this.constructor.HEADERS_RECEIVED;
 
+            // A bodiless response (`fetch` gives `null`, as an empty 200 from a
+            // signed storage PUT does) has no content-type to read and nothing
+            // to iterate.
+            const body = resp.body ?? [];
+
             if ( (resp.headers.get('content-type') ?? '').includes('application/x-ndjson') || this.streamRequestBadForPerformance ) {
                 let bytes = new Uint8Array();
-                for await ( const chunk of resp.body ) {
+                for await ( const chunk of body ) {
                     this.readyState = this.constructor.LOADING;
 
                     bytes = mergeUint8Arrays(bytes, chunk);
@@ -198,7 +203,7 @@ const XMLHttpRequestShim = class XMLHttpRequest extends EventTarget {
                 }
             } else {
                 const bytesChunks = [];
-                for await ( const chunk of resp.body ) {
+                for await ( const chunk of body ) {
                     bytesChunks.push(chunk);
                 }
                 parseBody.call(this, mergeUint8Arrays(...bytesChunks));
