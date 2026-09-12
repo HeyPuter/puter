@@ -30,6 +30,7 @@ import { EVENTS_DURABLE_SUBSCRIPTIONS_MAX } from '../../controllers/events/limit
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
+import { EVENT_SUBSCRIPTION_WIDTHS } from './columnWidths.js';
 import type { DurableSubscriptionInput } from './DurableSubscriptionStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -72,6 +73,14 @@ const input = (
 
 const codeOf = (code: string) => (err: unknown) =>
     isHttpError(err) && err.legacyCode === code;
+
+type GuardedColumn = keyof typeof EVENT_SUBSCRIPTION_WIDTHS;
+
+const atWidth = (column: GuardedColumn): string =>
+    'a'.repeat(EVENT_SUBSCRIPTION_WIDTHS[column].max);
+
+const overWidth = (column: GuardedColumn): string =>
+    'a'.repeat(EVENT_SUBSCRIPTION_WIDTHS[column].max + 1);
 
 beforeAll(async () => {
     env = await setupPuterTestEnv({ events: { enabled: true } } as IConfig);
@@ -264,6 +273,67 @@ describe('validation at the row write', () => {
         );
         await expect(durable().getBySubId(row.subId)).resolves.toMatchObject({
             context: 'x'.repeat(4096),
+        });
+    });
+});
+
+describe('column-width guards at the row write', () => {
+    it('accepts an `anchorUid` right at the column width', async () => {
+        await expect(
+            durable().create(input({ anchorUid: atWidth('anchorUid') })),
+        ).resolves.toMatchObject({ row: { anchorUid: atWidth('anchorUid') } });
+    });
+
+    it('refuses an `anchorUid` one character over the column width', async () => {
+        await expect(
+            durable().create(input({ anchorUid: overWidth('anchorUid') })),
+        ).rejects.toSatisfy(codeOf('events_value_too_large'));
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: 0,
+        });
+    });
+
+    it('accepts a `token` right at the column width', async () => {
+        await expect(
+            durable().create(input({ token: atWidth('token') })),
+        ).resolves.toMatchObject({ row: { token: atWidth('token') } });
+    });
+
+    it('refuses a `token` one character over the column width', async () => {
+        await expect(
+            durable().create(input({ token: overWidth('token') })),
+        ).rejects.toSatisfy(codeOf('events_value_too_large'));
+    });
+
+    it('refuses a `subject` one character over the column width', async () => {
+        await expect(
+            durable().create(input({ subject: overWidth('subject') })),
+        ).rejects.toSatisfy(codeOf('events_value_too_large'));
+    });
+
+    it('refuses an `anchorPath` one character over the column width', async () => {
+        await expect(
+            durable().create(input({ anchorPath: overWidth('anchorPath') })),
+        ).rejects.toSatisfy(codeOf('events_value_too_large'));
+    });
+
+    it('refuses an over-long `anchorPath` on reanchor and leaves the row unchanged', async () => {
+        const { row } = await durable().create(input());
+
+        await expect(
+            durable().reanchor(row, {
+                token: 'f#reanchored',
+                anchorUid,
+                anchorPath: overWidth('anchorPath'),
+                match: 'm',
+                ownerUserId: userId,
+            }),
+        ).rejects.toSatisfy(codeOf('events_value_too_large'));
+
+        await expect(durable().getBySubId(row.subId)).resolves.toMatchObject({
+            token: row.token,
+            anchorUid: row.anchorUid,
+            anchorPath: row.anchorPath,
         });
     });
 });

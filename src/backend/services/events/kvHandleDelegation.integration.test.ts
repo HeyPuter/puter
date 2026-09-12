@@ -21,14 +21,14 @@
  * An app minting a share handle on its user's data, and a grantee reading one
  * through their own app.
  *
- * The bounds are the ones sharing already puts on an app handing out its
- * user's files: the authority is the user's, the consent is a `manage:` grant
- * the user gave this app on this region, and the reach is whatever the
- * credential structurally holds — for key-value that is one namespace. What
- * these cases pin is that each of those is actually load-bearing, and that a
- * handle minted this way is in every other respect an ordinary one — including
- * for a grantee who exercises it while running as an app, which only works
- * bound to the same app the region was shared to.
+ * The bounds are the ones sharing already puts on an app handing out its user's
+ * files: the authority is the user's, the consent is a `manage:` grant the user
+ * gave this app on this region, and the reach is whatever the credential
+ * structurally holds — for key-value that is one namespace. What these cases
+ * pin is that each of those is actually load-bearing, and that a handle minted
+ * this way is in every other respect an ordinary one — including for a grantee
+ * who exercises it while running as an app, which only works bound to the same
+ * app the region was shared to.
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -100,18 +100,14 @@ const delegate = (prefix = PREFIX) =>
     permissions().grantUserAppPermission(
         owner.actor,
         appUid,
-        kvShareManagePermission(
-            kvSharePermission(owner.uuid, appUid, prefix),
-        ),
+        kvShareManagePermission(kvSharePermission(owner.uuid, appUid, prefix)),
     );
 
 const undelegate = (prefix = PREFIX) =>
     permissions().revokeUserAppPermission(
         owner.actor,
         appUid,
-        kvShareManagePermission(
-            kvSharePermission(owner.uuid, appUid, prefix),
-        ),
+        kvShareManagePermission(kvSharePermission(owner.uuid, appUid, prefix)),
     );
 
 const mint = (request: Record<string, unknown> = {}, actor = appActor) =>
@@ -205,9 +201,11 @@ describe('an app minting without consent', () => {
         await delegate('workspace:abc:');
         // A sibling region, and the parent the consent sits under: coverage
         // only ever runs downward.
-        await expect(mint({ prefix: 'workspace:other:' })).rejects.toMatchObject(
-            { legacyCode: 'events_kv_handle_not_delegated' },
-        );
+        await expect(
+            mint({ prefix: 'workspace:other:' }),
+        ).rejects.toMatchObject({
+            legacyCode: 'events_kv_handle_not_delegated',
+        });
         await expect(mint({ prefix: 'workspace:' })).rejects.toMatchObject({
             legacyCode: 'events_kv_handle_not_delegated',
         });
@@ -256,6 +254,26 @@ describe('an access token', () => {
         });
     });
 
+    it('may not mint on the account when scoped to less than its issuer holds', async () => {
+        // No app of its own, so the surface reads it as the account — which it
+        // is not: its reach is whatever manifest the user pinned it to.
+        const scopedActor = makeActor({
+            user: owner.actor.user as never,
+            accessToken: {
+                uid: `tok-${uuidv4()}`,
+                issuer: owner.actor,
+                authorized: null,
+                fullAccess: false,
+            },
+        });
+
+        await expect(
+            mint({ prefix: 'scoped-probe:' }, scopedActor),
+        ).rejects.toMatchObject({
+            legacyCode: 'events_kv_handle_owner_only',
+        });
+    });
+
     it('does not block a full-access token acting for its own user, on their own namespace', async () => {
         const patActor = makeActor({
             user: owner.actor.user as never,
@@ -290,16 +308,14 @@ describe('an app minting with consent', () => {
         // The reach cap is structural — this app addresses `v1:<user>:<app>`
         // and nothing else — so naming another namespace is refused rather
         // than minted somewhere the app cannot even write.
-        await expect(
-            mint({ appUid: 'os-global' }),
-        ).rejects.toMatchObject({
+        await expect(mint({ appUid: 'os-global' })).rejects.toMatchObject({
             legacyCode: 'events_kv_handle_outside_namespace',
         });
-        await expect(
-            mint({ appUid: `app-${uuidv4()}` }),
-        ).rejects.toMatchObject({
-            legacyCode: 'events_kv_handle_outside_namespace',
-        });
+        await expect(mint({ appUid: `app-${uuidv4()}` })).rejects.toMatchObject(
+            {
+                legacyCode: 'events_kv_handle_outside_namespace',
+            },
+        );
     });
 
     it('ignores a fabricated owner field — the owner is always the caller behind the app', async () => {
@@ -688,9 +704,9 @@ describe('an app managing what it minted', () => {
         });
         expect(appPage.items.length).toBeGreaterThan(0);
         for (const row of appPage.items) expect(row.appUid).toBe(appUid);
-        expect(
-            appPage.items.some((row) => row.appUid === 'os-global'),
-        ).toBe(false);
+        expect(appPage.items.some((row) => row.appUid === 'os-global')).toBe(
+            false,
+        );
 
         const ownerPage = await events().listKvHandles(owner.actor, {
             limit: 100,

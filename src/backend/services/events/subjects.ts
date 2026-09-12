@@ -198,6 +198,12 @@ export const notifMatchOn = (
 export const isKvToken = (token: string): boolean =>
     token.startsWith(KV_TOKEN_PREFIX);
 
+export const isFsToken = (token: string): boolean =>
+    token.startsWith(FS_TOKEN_PREFIX);
+
+export const isNotifToken = (token: string): boolean =>
+    token.startsWith(NOTIF_TOKEN_PREFIX);
+
 /**
  * The handle a stored row was made through, or `null` for one on the holder's
  * own namespace. Read off the subject rather than a column of its own: the

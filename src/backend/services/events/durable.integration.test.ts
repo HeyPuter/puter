@@ -84,12 +84,12 @@ const call = async (
 };
 
 const subscribe = (token: string, body: object = {}): Promise<ApiResponse> =>
-    call('POST', '/events/subscribe', token, { subject: `fs:${anchor}`, ...body });
+    call('POST', '/events/subscribe', token, {
+        subject: `fs:${anchor}`,
+        ...body,
+    });
 
-const listSubscriptions = (
-    token: string,
-    query = '',
-): Promise<ApiResponse> =>
+const listSubscriptions = (token: string, query = ''): Promise<ApiResponse> =>
     call('GET', `/events/subscriptions${query}`, token);
 
 const unsubscribe = (token: string, subId: string): Promise<ApiResponse> =>
@@ -127,7 +127,10 @@ const makeApp = async (
         );
     return {
         uid,
-        token: await env.server.services.auth.getUserAppToken(actor.actor!, uid),
+        token: await env.server.services.auth.getUserAppToken(
+            actor.actor!,
+            uid,
+        ),
     };
 };
 
@@ -687,18 +690,21 @@ describe('a durable row across a share', () => {
         });
         delivered.length = 0;
 
-        await fs().touch(userId, { path: `${sharedPath}/first.txt` });
-        await settle(`${sharedPath}/first.txt`);
-        expect(deliveryOf(`${sharedPath}/first.txt`)?.subId).toBe(
-            created.body.subId,
-        );
-
-        const sharedEntry =
+        // The guest is addressed the way every FS surface addresses a foreign
+        // node: the anchor stands in for everything above it.
+        const anchorEntry =
             await env.server.stores.fsEntry.getEntryByPath(sharedPath);
+        const seenAs = (name: string) =>
+            `/${username}/${anchorEntry!.uid}/shared-with-guest/${name}`;
+
+        await fs().touch(userId, { path: `${sharedPath}/first.txt` });
+        await settle(seenAs('first.txt'));
+        expect(deliveryOf(seenAs('first.txt'))?.subId).toBe(created.body.subId);
+
         await env.server.services.permission.revokeUserUserPermission(
             ownerActor,
             env.users.other.username,
-            `fs:${sharedEntry!.uid}:list`,
+            `fs:${anchorEntry!.uid}:list`,
         );
         delivered.length = 0;
 
@@ -707,6 +713,7 @@ describe('a durable row across a share', () => {
         await fs().touch(userId, { path: `${sharedPath}/second.txt` });
         await quiet();
 
+        expect(deliveryOf(seenAs('second.txt'))).toBeUndefined();
         expect(deliveryOf(`${sharedPath}/second.txt`)).toBeUndefined();
     });
 });
@@ -758,9 +765,9 @@ describe('with events switched off', () => {
 
 /**
  * The tiering the rest of this file opts out of. Seeded accounts carry no
- * email, which is exactly what the plan machinery reads as a temporary
- * account — so this block boots with plans left on and gives the account an
- * email when it wants to be a registered one.
+ * email, which is exactly what the plan machinery reads as a temporary account
+ * — so this block boots with plans left on and gives the account an email when
+ * it wants to be a registered one.
  */
 describe('what a plan lets an account hold', () => {
     let tiered: PuterTestEnv;
@@ -788,7 +795,9 @@ describe('what a plan lets an account hold', () => {
     };
 
     const subscribeTiered = (token: string) =>
-        tieredCall('/events/subscribe', token, { subject: `fs:${tieredAnchor}` });
+        tieredCall('/events/subscribe', token, {
+            subject: `fs:${tieredAnchor}`,
+        });
 
     /**
      * Move the account between the plans the caps are written against: an
@@ -880,6 +889,8 @@ describe('what a plan lets an account hold', () => {
 
         // The account itself is nowhere near its own cap, so its own session
         // may still subscribe.
-        expect((await subscribeTiered(tiered.users.user.token)).status).toBe(200);
+        expect((await subscribeTiered(tiered.users.user.token)).status).toBe(
+            200,
+        );
     });
 });

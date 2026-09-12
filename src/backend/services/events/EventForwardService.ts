@@ -522,11 +522,15 @@ export class EventForwardService extends PuterService {
      * Deliveries keep the batch's order, so a subscription's events reach its
      * socket as emitted; settles are each a row read, a queue write and a
      * drain, so they run under a concurrency bound instead.
+     *
+     * `from` is the sender the signature actually proved, not the one the body
+     * names: peers that share a secret would otherwise be able to write each
+     * other's region into this region's remote-watch index.
      */
-    async receive(batch: ForwardBatch): Promise<ForwardReply> {
+    async receive(batch: ForwardBatch, from: string): Promise<ForwardReply> {
         const items = batch.items ?? [];
         forwardReceived.add(items.length, {
-            from: batch.from ?? 'unknown',
+            from: from || 'unknown',
             to: this.region,
         });
 
@@ -548,7 +552,7 @@ export class EventForwardService extends PuterService {
                 await this.stores.eventSubscription.noteRemoteWatch(
                     item.userId,
                     item.token,
-                    batch.from,
+                    from,
                     item.op,
                 );
             } catch (err) {
@@ -578,7 +582,7 @@ export class EventForwardService extends PuterService {
                 const { matched, tokens } =
                     await this.services.events.dispatchForwarded(item);
                 sessionForward.add(1, {
-                    from: batch.from,
+                    from,
                     result: matched ? 'matched' : 'no-rows',
                 });
                 if (!matched)

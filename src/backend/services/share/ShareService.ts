@@ -3013,6 +3013,18 @@ export class ShareService extends PuterService {
         entry: FSEntry,
         mode: AclMode = 'see',
     ): Promise<void> {
+        // `manage` is a delegation right, not access: it lets the recipient
+        // re-share onward in the user's name. An app inherits the authority to
+        // share but not the authority to pass that on — and inside its own
+        // AppData the ACL short-circuit would otherwise supply every mode.
+        if (mode === MANAGE_PERM_PREFIX && actor.effectiveApp) {
+            throw new HttpError(
+                403,
+                'An app cannot grant edit & share access',
+                { legacyCode: 'cannot_delegate_manage' },
+            );
+        }
+
         // Authority to share lives with the user: they own the node, or hold a
         // `manage` grant on it. An app inherits that authority but is not the
         // one who has it, so this asks the user behind the actor.
