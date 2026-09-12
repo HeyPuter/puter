@@ -272,6 +272,7 @@ export class AuthService extends PuterService {
      * session from a user-driven one without a DB round-trip.
      */
     async createWorkerSessionToken(
+        actor: Actor,
         user: UserRow,
         workerName: string,
         meta: Record<string, unknown> = {},
@@ -280,6 +281,7 @@ export class AuthService extends PuterService {
         token: string;
         gui_token: string;
     }> {
+        this.#assertWorkerSessionMintAllowed(actor);
         if (!workerName) {
             throw new HttpError(400, 'Missing `workerName`', {
                 legacyCode: 'bad_request',
@@ -383,6 +385,22 @@ export class AuthService extends PuterService {
                 { legacyCode: 'forbidden' },
             );
         }
+    }
+
+    /**
+     * An app-less worker session token carries the account's own reach: it is a
+     * `type: 'session'` credential with no `app_uid`, so it passes the gates
+     * that keep apps and tokens out of account management. Only an actor that
+     * already holds that reach may mint one — a delegated credential binds its
+     * worker to an app instead, through `createWorkerAppToken`.
+     */
+    #assertWorkerSessionMintAllowed(actor: Actor): void {
+        if (!actor.effectiveApp && !actor.accessToken) return;
+        throw new HttpError(
+            403,
+            'A delegated credential must bind its worker to an app',
+            { legacyCode: 'forbidden' },
+        );
     }
 
     /**

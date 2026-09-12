@@ -279,6 +279,7 @@ export const createTestUser = async (
     // worker does (WorkerDriver falls back to createWorkerSessionToken).
     const { token: workerToken } =
         await server.services.auth.createWorkerSessionToken(
+            makeActor({ user }),
             user,
             'puter-test-env-worker',
         );

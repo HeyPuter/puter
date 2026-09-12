@@ -143,6 +143,17 @@ describe('who may subscribe', () => {
 
         const sub = await subscribeAs(guest, 'guest-a', `fs:${path}`);
 
+        // The uid is the whole address a recipient gets: the owner's real path
+        // names every folder above the shared one.
+        expect(sub.anchor.uid).toBeTruthy();
+        expect(sub.anchor.path).toBe('');
+    });
+
+    it('still tells an owner where their own anchor is', async () => {
+        const path = await folder(`/${owner.username}/own-anchor`);
+
+        const sub = await subscribeAs(owner, 'owner-a', `fs:${path}`);
+
         expect(sub.anchor.path).toBe(path);
     });
 
@@ -206,6 +217,36 @@ describe('delivering across an account boundary', () => {
         // hears their own.
         expect(byId.get(theirs.subId)).toMatchObject({ self: false });
         expect(byId.get(mine.subId)).toMatchObject({ self: true });
+    });
+
+    it('addresses a guest`s delivery the way every other FS surface does', async () => {
+        const shared = await folder(`/${owner.username}/private-tree`);
+        const inner = await folder(`${shared}/clients/acme`);
+        await share(inner, 'list');
+        const theirs = await subscribeAs(guest, 'guest-m', `fs:${inner}`);
+        const mine = await subscribeAs(owner, 'owner-m', `fs:${inner}`);
+        delivered.length = 0;
+
+        const written = uniquePath(inner);
+        await mkdirAsOwner(written);
+        await settle(2);
+
+        const byId = new Map(delivered.map((d) => [d.subId, d.event]));
+        const anchorUid = (
+            await env.server.stores.fsEntry.getEntryByPath(inner)
+        )?.uid;
+        const guestPath = (byId.get(theirs.subId) as { path: string }).path;
+
+        // The anchor stands in for everything above it, so the folders the
+        // owner keeps it in are not named.
+        expect(guestPath).toBe(
+            `/${owner.username}/${anchorUid}/acme/${written.split('/').pop()}`,
+        );
+        expect(guestPath).not.toContain('/clients/');
+        expect(guestPath).not.toContain('private-tree');
+
+        // The owner's own row is untouched.
+        expect(byId.get(mine.subId)).toMatchObject({ path: written });
     });
 
     it('stops delivering the moment the share is revoked', async () => {

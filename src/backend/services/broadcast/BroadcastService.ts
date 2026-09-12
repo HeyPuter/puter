@@ -46,6 +46,11 @@ interface IncomingResult {
     message?: string;
     /** Optional informational payload to include when ok===true. */
     info?: Record<string, unknown>;
+    /**
+     * The peer whose secret actually signed the request. The only trustworthy
+     * name for the sender — a body field naming one is the sender's own claim.
+     */
+    peerId?: string;
 }
 
 interface IncomingHeaders {
@@ -320,7 +325,7 @@ export class BroadcastService extends PuterService {
             };
         }
 
-        return { ok: true };
+        return { ok: true, peerId };
     }
 
     #pubsubFanout(key: string, data: unknown, meta: object): void {

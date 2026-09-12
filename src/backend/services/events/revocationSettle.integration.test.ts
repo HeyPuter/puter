@@ -83,8 +83,8 @@ const unshare = async (path: string, mode: AclMode): Promise<void> => {
 };
 
 /**
- * The real user-facing surface: `ShareService`, not the ACL/permission layer
- * it settles on top of. What the settle mechanism actually has to survive is
+ * The real user-facing surface: `ShareService`, not the ACL/permission layer it
+ * settles on top of. What the settle mechanism actually has to survive is
  * everything this service does around the grant — index-row bookkeeping,
  * authorization, delegate resolution — not just the grant itself.
  */
@@ -224,7 +224,7 @@ const clearRows = async () => {
 
 beforeAll(async () => {
     env = await setupPuterTestEnv({
-        events: { enabled: true },
+        events: { enabled: true, notificationsFoldIn: true },
         // Seeded accounts carry no email, which the plan machinery reads as a
         // temporary account — and a temporary account holds no durable rows.
         // Plans are not what these cases are about.
@@ -257,6 +257,88 @@ afterAll(async () => {
 });
 
 describe('the delivery re-check on its own', () => {
+    it.each(['account', 'app-user', 'developer'] as const)(
+        'retries an authorized %s notification backlog',
+        async (audience) => {
+            await clearRows();
+            const app =
+                audience === 'account'
+                    ? null
+                    : await makeApp(
+                          await folder(`/${owner.username}/notif-${audience}`),
+                      );
+            const appUid = app?.effectiveApp?.uid ?? null;
+            const subject = `notif:${appUid ?? owner.actor.user.uuid}:${audience}`;
+            const { sub } = await events().subscribeDurable(owner.actor, {
+                subject,
+                delivery: 'single',
+                handlerName: 'onChange',
+            });
+            await env.server.stores.pendingDelivery.enqueue(sub.subId, {
+                id: uuidv4(),
+                subject,
+                op: 'post',
+                uid: uuidv4(),
+                type: 'app.news',
+                audience,
+                appUid,
+                notification: { title: 'news' },
+                self: true,
+                ts: Date.now(),
+                seq: 0,
+            });
+
+            expect(await events().sweepPending()).toBe(1);
+            expect((await rowOf(sub.subId)).suspended_reason).toBeNull();
+            expect(
+                await env.server.stores.pendingDelivery.depth(sub.subId),
+            ).toBe(1);
+        },
+    );
+
+    it.each([false, true])(
+        'withholds queued developer notifications after ownership changes (generic: %s)',
+        async (generic) => {
+            await clearRows();
+            const app = await makeApp(
+                await folder(`/${owner.username}/notif-owner-${generic}`),
+            );
+            const appUid = app.effectiveApp!.uid;
+            const subject = `notif:${appUid}:developer`;
+            const { sub } = await events().subscribeDurable(owner.actor, {
+                subject: generic ? 'notif:developer' : subject,
+                delivery: 'single',
+                handlerName: 'onChange',
+            });
+            await env.server.stores.pendingDelivery.enqueue(sub.subId, {
+                id: uuidv4(),
+                subject,
+                op: 'post',
+                uid: uuidv4(),
+                type: 'app.news',
+                audience: 'developer',
+                appUid,
+                notification: { title: 'news' },
+                self: true,
+                ts: Date.now(),
+                seq: 0,
+            });
+            await env.server.clients.db.write(
+                'UPDATE `apps` SET `owner_user_id` = ? WHERE `uid` = ?',
+                [guest.id, appUid],
+            );
+            await env.server.stores.app.invalidateByUid(appUid);
+
+            expect(await events().sweepPending()).toBe(0);
+            expect(
+                await env.server.stores.pendingDelivery.depth(sub.subId),
+            ).toBe(0);
+            expect((await rowOf(sub.subId)).suspended_reason).toBe(
+                generic ? null : 'permission_revoked',
+            );
+        },
+    );
+
     it('stops a session subscription, and meters nothing, without any settle', async () => {
         await clearRows();
         const path = await folder(`/${owner.username}/backstop-session`);
@@ -380,6 +462,94 @@ describe('what a revoked grant settles', () => {
         expect(delivered).toEqual([]);
     });
 
+    it('reaches a row already suspended for a reason that lifts', async () => {
+        // Suspended rows hold a backlog for up to a day and come back on the
+        // next resume. A settle that only looks at live rows leaves one
+        // standing, and the resume hands over everything queued since.
+        await clearRows();
+        const path = await folder(`/${owner.username}/settle-suspended`);
+        await share(path, 'list');
+        const sub = (
+            await events().subscribeDurable(guest.actor, {
+                subject: `fs:${path}`,
+                delivery: 'single',
+                handlerName: 'onChange',
+            })
+        ).sub;
+
+        await write(uniquePath(path));
+        await vi.waitFor(
+            async () =>
+                expect(
+                    await env.server.stores.pendingDelivery.depth(sub.subId),
+                ).toBeGreaterThan(0),
+            { timeout: 5_000, interval: 25 },
+        );
+
+        expect(await events().suspendForFailures(sub.subId)).toBe(true);
+        expect((await rowOf(sub.subId)).suspended_reason).toBe('failures');
+
+        await unshare(path, 'list');
+        await suspendedRow(sub.subId);
+
+        // Re-stamped as terminal, so a resume cannot lift it, and the backlog
+        // went with the re-stamp.
+        expect(await env.server.stores.pendingDelivery.depth(sub.subId)).toBe(
+            0,
+        );
+        expect(await events().resumeForCredit(guest.id)).toBe(0);
+        expect((await rowOf(sub.subId)).suspended_reason).toBe(
+            'permission_revoked',
+        );
+    });
+
+    it('will not drain a backlog after a grant above the anchor is withdrawn', async () => {
+        // The settle narrows on the anchor's own uid and leaves an ancestor
+        // revoke to the delivery re-check. Nothing between the claim and the
+        // socket runs that check, so without one on the drain the queue keeps
+        // going out for the backlog's whole life.
+        await clearRows();
+        const shared = await folder(`/${owner.username}/settle-ancestor`);
+        const inner = await folder(`${shared}/project`);
+        await share(shared, 'list');
+
+        const sub = (
+            await events().subscribeDurable(guest.actor, {
+                subject: `fs:${inner}`,
+                delivery: 'single',
+                handlerName: 'onChange',
+            })
+        ).sub;
+
+        await write(uniquePath(inner));
+        await vi.waitFor(
+            async () =>
+                expect(
+                    await env.server.stores.pendingDelivery.depth(sub.subId),
+                ).toBeGreaterThan(0),
+            { timeout: 5_000, interval: 25 },
+        );
+
+        // On the ancestor, so the settle does not narrow to this row.
+        await unshare(shared, 'list');
+        expect((await rowOf(sub.subId)).suspended_reason).toBeNull();
+
+        delivered.length = 0;
+        await events().sweepPending();
+
+        await vi.waitFor(
+            async () =>
+                expect((await rowOf(sub.subId)).suspended_reason).toBe(
+                    'permission_revoked',
+                ),
+            { timeout: 5_000, interval: 25 },
+        );
+        expect(await env.server.stores.pendingDelivery.depth(sub.subId)).toBe(
+            0,
+        );
+        expect(delivered).toEqual([]);
+    });
+
     it('tells the holder their subscription ended, and why', async () => {
         await clearRows();
         const path = await folder(`/${owner.username}/settle-notified`);
@@ -400,8 +570,7 @@ describe('what a revoked grant settles', () => {
                     {},
                 );
                 const match = rows.find(
-                    (row: { type?: string }) =>
-                        row.type === 'app.events.ended',
+                    (row: { type?: string }) => row.type === 'app.events.ended',
                 );
                 expect(match).toBeDefined();
                 return match as { audience: string; value: unknown };
@@ -481,10 +650,16 @@ describe('what a revoked grant settles', () => {
         );
 
         const held = [
-            (await events().subscribeDurable(appActor, { subject: `fs:${one}` }))
-                .sub,
-            (await events().subscribeDurable(appActor, { subject: `fs:${two}` }))
-                .sub,
+            (
+                await events().subscribeDurable(appActor, {
+                    subject: `fs:${one}`,
+                })
+            ).sub,
+            (
+                await events().subscribeDurable(appActor, {
+                    subject: `fs:${two}`,
+                })
+            ).sub,
         ];
 
         await env.server.services.permission.revokeUserAppAll(
@@ -593,7 +768,9 @@ describe('what a revoked grant settles', () => {
         const own = `/${guest.username}/settle-scope-own`;
         await fs().mkdir(guest.id, { path: own, createMissingParents: true });
         const ownSub = (
-            await events().subscribeDurable(guest.actor, { subject: `fs:${own}` })
+            await events().subscribeDurable(guest.actor, {
+                subject: `fs:${own}`,
+            })
         ).sub;
 
         await unshare(shared, 'list');
@@ -646,10 +823,16 @@ describe('what a revoked grant settles', () => {
             `fs:${await uidOf(two)}:list`,
         );
         const held = [
-            (await events().subscribeDurable(appActor, { subject: `fs:${one}` }))
-                .sub,
-            (await events().subscribeDurable(appActor, { subject: `fs:${two}` }))
-                .sub,
+            (
+                await events().subscribeDurable(appActor, {
+                    subject: `fs:${one}`,
+                })
+            ).sub,
+            (
+                await events().subscribeDurable(appActor, {
+                    subject: `fs:${two}`,
+                })
+            ).sub,
         ];
         const before = (await endedNotifications(owner.id)).length;
 

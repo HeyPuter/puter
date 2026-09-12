@@ -68,6 +68,19 @@ const unescape_permission_component = (component: string): string => {
     return out;
 };
 
+/**
+ * Drop the leading `manage:` arms from a permission, leaving the permission
+ * they delegate over. Anchored, and only at the front: a component further in
+ * may itself be `manage`, and taking those out would name a different
+ * permission entirely.
+ */
+const stripManageArms = (permission: string): string => {
+    const arm = `${MANAGE_PERM_PREFIX}:`;
+    let out = permission;
+    while (out.startsWith(arm)) out = out.slice(arm.length);
+    return out;
+};
+
 const escape_permission_component = (component: string): string => {
     let out = '';
     for (let i = 0; i < component.length; i++) {
@@ -88,6 +101,7 @@ const escape_permission_component = (component: string): string => {
 export const PermissionUtil = {
     unescape_permission_component,
     escape_permission_component,
+    stripManageArms,
 
     split(permission: string): string[] {
         return permission.split(':').map(unescape_permission_component);

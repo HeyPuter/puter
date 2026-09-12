@@ -190,6 +190,33 @@ export class SharePathMasker {
 }
 
 /**
+ * The address to publish for a path under a shared anchor, to a holder who does
+ * not own it.
+ *
+ * The request-scoped masker is no use here: event dispatch runs outside a
+ * request, and the subscription's anchor is the share root the holder came in
+ * through anyway. A path that does not sit under the anchor — the stored anchor
+ * path goes stale when something above it is renamed — falls back to the node's
+ * own uid, which says no more than its name.
+ */
+export function maskUnderAnchor(
+    anchor: { uid: string; path: string },
+    entry: { path: string; uid: string },
+): string {
+    const owner = entry.path.split('/')[1];
+    if (!owner) return entry.path;
+    if (
+        entry.path === anchor.path ||
+        entry.path.startsWith(`${anchor.path}/`)
+    ) {
+        const root = `/${owner}/${anchor.uid}/${pathPosix.basename(anchor.path)}`;
+        return root + entry.path.slice(anchor.path.length);
+    }
+    const name = pathPosix.basename(entry.path);
+    return name ? `/${owner}/${entry.uid}/${name}` : entry.path;
+}
+
+/**
  * The masker for the current request, created on first use.
  *
  * Request-scoped rather than an argument: it would otherwise thread through

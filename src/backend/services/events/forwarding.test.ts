@@ -324,7 +324,9 @@ const makeRegion = (
                 throw new Error('peer did not answer');
             const target = regions.get(peerId);
             if (!target) throw new Error(`no such peer ${peerId}`);
-            return target.forward.receive(batch);
+            // The controller passes the peer the signature proved, not the
+            // one the body names.
+            return target.forward.receive(batch, name);
         },
     };
 
@@ -452,20 +454,21 @@ const makeRegion = (
     // tests need — the webhook backstop for a durable generation bump. The
     // rest of it (kv.mutated, permission wiring, sweep timers) is out of
     // scope here, and `services.permission` is not stubbed to support it.
-    clients.event.on(
-        'outer.pubsub.events.generationBumped',
-        ((_key: string, data: unknown, meta: unknown) => {
-            if (!(meta as { from_outside?: boolean })?.from_outside) return;
-            const { userId: bumpedUserId, durable } = (data ?? {}) as {
-                userId?: number;
-                durable?: boolean;
-            };
-            if (typeof bumpedUserId === 'number')
-                region.events.invalidateUser(bumpedUserId, {
-                    rebuild: durable === true,
-                });
-        }) as (...args: never[]) => void,
-    );
+    clients.event.on('outer.pubsub.events.generationBumped', ((
+        _key: string,
+        data: unknown,
+        meta: unknown,
+    ) => {
+        if (!(meta as { from_outside?: boolean })?.from_outside) return;
+        const { userId: bumpedUserId, durable } = (data ?? {}) as {
+            userId?: number;
+            durable?: boolean;
+        };
+        if (typeof bumpedUserId === 'number')
+            region.events.invalidateUser(bumpedUserId, {
+                rebuild: durable === true,
+            });
+    }) as (...args: never[]) => void);
     regions.set(name, region);
     return region;
 };
@@ -473,7 +476,9 @@ const makeRegion = (
 // -- Helpers ----------------------------------------------------------
 
 /** Reconstructs a pair's row from its per-region items, the way `read()` does. */
-const rowFor = (appUid: string = PRESENCE_NO_APP): { regions: Record<string, number> } => {
+const rowFor = (
+    appUid: string = PRESENCE_NO_APP,
+): { regions: Record<string, number> } => {
     const prefix = presenceItemKey(`user-${userId}`, appUid, '');
     const now = Date.now() / 1000;
     const regions: Record<string, number> = {};
@@ -502,7 +507,10 @@ const dispatch = (region: Region, node = entry()): Promise<void> =>
         ancestors: async () => ancestors(),
     });
 
-/** A session (`onLocal`) row on the shared anchor, through the real subscribe path. */
+/**
+ * A session (`onLocal`) row on the shared anchor, through the real subscribe
+ * path.
+ */
 const subscribeSession = async (
     region: Region,
     opts: {
@@ -1215,9 +1223,7 @@ describe('a row naming a region that is not a peer', () => {
         });
 
         expect(await west.forward.regionsFor(userId, null)).toEqual([]);
-        await vi.waitFor(() =>
-            expect(rowFor().regions.ghost).toBeUndefined(),
-        );
+        await vi.waitFor(() => expect(rowFor().regions.ghost).toBeUndefined());
     });
 
     it('still offers a peer alongside a non-peer name in the same row', async () => {
@@ -1254,25 +1260,28 @@ describe('receiving a batch', () => {
             },
         );
 
-        await east.forward.receive({
-            from: 'west',
-            items: ['first', 'second', 'third'].map((subId) => ({
-                kind: 'delivery' as const,
-                userId,
-                appUid: null,
-                subId,
-                event: {
-                    id: `e-${subId}`,
-                    subject: 'fs:/u7/Documents',
-                    op: 'write',
-                    uid: 'node-1',
-                    path: '/u7/Documents/notes.txt',
-                    self: true,
-                    seq: 0,
-                    ts: 1,
-                },
-            })),
-        });
+        await east.forward.receive(
+            {
+                from: 'west',
+                items: ['first', 'second', 'third'].map((subId) => ({
+                    kind: 'delivery' as const,
+                    userId,
+                    appUid: null,
+                    subId,
+                    event: {
+                        id: `e-${subId}`,
+                        subject: 'fs:/u7/Documents',
+                        op: 'write',
+                        uid: 'node-1',
+                        path: '/u7/Documents/notes.txt',
+                        self: true,
+                        seq: 0,
+                        ts: 1,
+                    },
+                })),
+            },
+            'west',
+        );
 
         expect(delivered).toEqual(['first', 'second', 'third']);
     });
@@ -1303,7 +1312,7 @@ describe('receiving a batch', () => {
         };
 
         const startedAt = Date.now();
-        await east.forward.receive(batch);
+        await east.forward.receive(batch, 'west');
         const elapsedMs = Date.now() - startedAt;
 
         // Bounded by the one slow settle running alongside the rest, not by
@@ -1546,19 +1555,22 @@ describe('a session subscription in another region', () => {
         const east = makeRegion('east', ['west'], forwardCfg);
 
         await expect(
-            east.forward.receive({
-                from: 'west',
-                items: [
-                    { kind: 'from-the-future' } as never,
-                    {
-                        kind: 'bump',
-                        userId,
-                        generation: 1,
-                        scope: 'subscription',
-                        durable: true,
-                    },
-                ],
-            }),
+            east.forward.receive(
+                {
+                    from: 'west',
+                    items: [
+                        { kind: 'from-the-future' } as never,
+                        {
+                            kind: 'bump',
+                            userId,
+                            generation: 1,
+                            scope: 'subscription',
+                            durable: true,
+                        },
+                    ],
+                },
+                'west',
+            ),
         ).resolves.toEqual({});
     });
 
@@ -1608,6 +1620,24 @@ describe('a session subscription in another region', () => {
         // East never announced (its own forwarding is off), so west has
         // nothing in its remote-watch index to forward against.
         expect(west.posts).toEqual([]);
+    });
+
+    it('attributes a watch to the peer that signed it, not the one the body names', async () => {
+        // Peers that share a webhook secret would otherwise be able to write
+        // each other's region into this one's remote-watch index.
+        const east = makeRegion('east', ['west'], forwardCfg);
+        const token = fsAnchorToken(anchorUid());
+
+        await east.forward.receive(
+            {
+                from: 'south',
+                items: [{ kind: 'watch', userId, token, op: 'add' }],
+            },
+            'west',
+        );
+
+        const { remote } = await east.subscriptions.watchedFor(userId, [token]);
+        expect(remote.get(token)).toEqual(['west']);
     });
 
     it('writes no remote-watch entry on a region that has it turned off', async () => {

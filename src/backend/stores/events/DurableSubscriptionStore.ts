@@ -31,6 +31,10 @@ import {
     type PageResult,
 } from '../../util/pagination.js';
 import { PuterStore } from '../types.js';
+import {
+    assertColumnWidths,
+    EVENT_SUBSCRIPTION_WIDTHS,
+} from './columnWidths.js';
 import type { GenerationBump } from './EventSubscriptionStore.js';
 import {
     isSubscriptionTarget,
@@ -276,6 +280,16 @@ export class DurableSubscriptionStore extends PuterStore {
             input.appUid,
         );
         this.#assertContext(input.context);
+        assertColumnWidths(EVENT_SUBSCRIPTION_WIDTHS, {
+            token: input.token,
+            appUid: input.appUid,
+            subject: input.subject,
+            anchorUid: input.anchorUid,
+            anchorPath: input.anchorPath,
+            match: input.match,
+            handlerName: input.handlerName,
+            permission: input.permission,
+        });
 
         const perUser = Math.min(
             input.limits?.perUser ?? EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
@@ -312,6 +326,7 @@ export class DurableSubscriptionStore extends PuterStore {
             suspendedReason: null,
             createdAt: nowSeconds(),
         };
+        assertColumnWidths(EVENT_SUBSCRIPTION_WIDTHS, { subId: row.subId });
 
         await this.clients.db.insert(TABLE, {
             sub_id: row.subId,
@@ -360,20 +375,30 @@ export class DurableSubscriptionStore extends PuterStore {
     async suspend(
         rows: readonly DurableSubscription[],
         reason: SuspendedReason,
+        opts: { override?: readonly SuspendedReason[] } = {},
     ): Promise<{ suspended: DurableSubscription[]; bumps: GenerationBump[] }> {
         if (rows.length === 0) return { suspended: [], bumps: [] };
 
         // One conditional write per row, so two settles racing over the same
         // rows — an unshare withdraws several grant strings in a row — each
         // learn exactly which rows they were the one to suspend.
+        //
+        // `override` re-stamps a row already out of service for one of the
+        // named reasons, so a revocation reaches it and its backlog is purged
+        // rather than waiting for a resume that must never come.
+        const override = opts.override ?? [];
+        const condition = override.length
+            ? '(`suspended_at` IS NULL OR `suspended_reason` IN ' +
+              `(${override.map(() => '?').join(', ')}))`
+            : '`suspended_at` IS NULL';
         const at = nowSeconds();
         const suspended: DurableSubscription[] = [];
         for (const row of rows) {
             const written = await this.clients.db.write(
                 `UPDATE \`${TABLE}\` SET \`suspended_at\` = ?, ` +
                     '`suspended_reason` = ? ' +
-                    'WHERE `sub_id` = ? AND `suspended_at` IS NULL',
-                [at, reason, row.subId],
+                    `WHERE \`sub_id\` = ? AND ${condition}`,
+                [at, reason, row.subId, ...override],
             );
             if (written.anyRowsAffected)
                 suspended.push({
@@ -442,6 +467,13 @@ export class DurableSubscriptionStore extends PuterStore {
         row: DurableSubscription,
         next: ReanchorInput,
     ): Promise<{ row: DurableSubscription; bumps: GenerationBump[] }> {
+        assertColumnWidths(EVENT_SUBSCRIPTION_WIDTHS, {
+            token: next.token,
+            anchorUid: next.anchorUid,
+            anchorPath: next.anchorPath,
+            match: next.match,
+        });
+
         await this.clients.db.write(
             `UPDATE \`${TABLE}\` SET \`token\` = ?, \`anchor_uid\` = ?, ` +
                 '`anchor_path` = ?, `match` = ?, `owner_user_id` = ? ' +
@@ -601,15 +633,20 @@ export class DurableSubscriptionStore extends PuterStore {
      * index the listing and the quota use — passing `appUid` narrows to one
      * app's rows, which is what a grant made to that app can have authorized.
      *
+     * `includeSuspended` also returns rows already out of service. A revocation
+     * needs them: the three resumable reasons hold a backlog, and a row skipped
+     * here comes back in service on the next resume and hands it over.
+     *
      * Bounded by the per-account quota, so the whole set fits one read.
      */
     async listActiveForHolder(
         holderUserId: number,
         appUid: string | null,
+        opts: { includeSuspended?: boolean } = {},
     ): Promise<DurableSubscription[]> {
         const where = [
             '`holder_user_id` = ?',
-            '`suspended_at` IS NULL',
+            ...(opts.includeSuspended ? [] : ['`suspended_at` IS NULL']),
             this.#unexpiredClause(),
         ];
         const params: unknown[] = [holderUserId, nowSeconds()];

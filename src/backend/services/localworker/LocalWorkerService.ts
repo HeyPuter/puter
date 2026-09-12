@@ -246,6 +246,7 @@ export class LocalWorkerService extends PuterService {
             );
         } else {
             const session = await this.services.auth.createWorkerSessionToken(
+                ownerActor,
                 ownerUser,
                 workerName,
             );

@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { type Actor, userRelatedActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { KV_SHARE_HANDLE_WIDTHS } from '../../stores/events/columnWidths.js';
 import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
 import {
     MANAGE_PERM_PREFIX,
@@ -58,7 +59,7 @@ import {
 export const KV_SHARE_PERMISSION_PREFIX = 'kv-share';
 
 /** Width of the `app_uid` column the handle row stores its namespace in. */
-export const KV_SHARE_APP_UID_MAX_LENGTH = 40;
+export const KV_SHARE_APP_UID_MAX_LENGTH = KV_SHARE_HANDLE_WIDTHS.appUid.max;
 
 export const mintKvHandleId = (): string =>
     `${KV_HANDLE_PREFIX}${randomUUID()}`;
@@ -144,6 +145,11 @@ export const assertShareablePrefix = (keyPrefix: unknown): string => {
         throw invalidPrefix('`prefix` must be a string');
     if (keyPrefix.includes('*') || keyPrefix.includes('?'))
         throw invalidPrefix('A share prefix is a key prefix, not a pattern');
+    // `escape_permission_component` escapes `:` as `\C` but leaves `\` alone,
+    // so a prefix carrying one desynchronizes the stored `key_prefix` from the
+    // permission string and the share silently never fires.
+    if (keyPrefix.includes('\\'))
+        throw invalidPrefix('A share prefix may not contain a backslash');
     // Normalizing drops empty segments, so `a::b:` would silently become a
     // grant on `a:b:` — a region other than the one asked for. Refused rather
     // than rewritten; only the trailing delimiter is optional.

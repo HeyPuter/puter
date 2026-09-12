@@ -110,15 +110,15 @@ export interface ForwardBump {
 }
 
 export type ForwardItem =
-    | ForwardDelivery
-    | ForwardAck
-    | ForwardWatch
-    | ForwardEvent
-    | ForwardBump;
+    ForwardDelivery | ForwardAck | ForwardWatch | ForwardEvent | ForwardBump;
 
 /** One batch, as a peer receives it. */
 export interface ForwardBatch {
-    /** Sending region, so the receiver can address a reply. */
+    /**
+     * Sending region, so the receiver can address a reply. Informational only
+     * on the receiving side — it is the sender's own claim, and the signed
+     * peer-id header is what the receiver acts on.
+     */
     from: string;
     items: ForwardItem[];
 }
@@ -323,7 +323,7 @@ const isGapMarker = (item: ForwardItem): boolean =>
  */
 const shed = (queue: PeerQueue, count: number): ForwardItem[] => {
     const dropped: ForwardItem[] = [];
-    for (let i = 0; i < queue.items.length && dropped.length < count; ) {
+    for (let i = 0; i < queue.items.length && dropped.length < count;) {
         if (isGapMarker(queue.items[i])) {
             i++;
             continue;
@@ -346,7 +346,7 @@ const shed = (queue: PeerQueue, count: number): ForwardItem[] => {
 const shedBytes = (queue: PeerQueue, maxBytesHeld: number): ForwardItem[] => {
     const dropped: ForwardItem[] = [];
     let remaining = queue.bytes;
-    for (let i = 0; i < queue.items.length && remaining > maxBytesHeld; ) {
+    for (let i = 0; i < queue.items.length && remaining > maxBytesHeld;) {
         if (isGapMarker(queue.items[i])) {
             i++;
             continue;

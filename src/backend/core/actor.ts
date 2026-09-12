@@ -137,6 +137,21 @@ export const isAccessTokenActor = (
 };
 
 /**
+ * Whether this actor holds its user's own account reach: a plain session, or a
+ * full-access token, which carries exactly that.
+ *
+ * Read this — not `effectiveApp === null` — wherever "no app" is about to be
+ * read as "the account". A scoped access token carries no app either, so that
+ * test admits a credential confined to a subset of its issuer's permissions to
+ * surfaces meant for the account itself. Unresolved answers no, so an actor
+ * that skipped `makeActor` is denied rather than admitted.
+ */
+export const isAccountContext = (actor: Actor | undefined | null): boolean => {
+    if (!actor || actor.effectiveApp !== null) return false;
+    return !actor.accessToken || actor.accessToken.fullAccess === true;
+};
+
+/**
  * Stable identifier for an actor. Used as a cache key (e.g., permission scan
  * cache) and for cycle detection.
  */

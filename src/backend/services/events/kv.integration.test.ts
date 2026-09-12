@@ -321,6 +321,19 @@ describe('the cross-app gate against real grants', () => {
     });
 });
 
+describe('the app slot in a `kv:` subject, from a plain account session', () => {
+    it('refuses an app slot too long to store rather than truncate the anchor', async () => {
+        await clearRows();
+        const subject = `kv:${'a'.repeat(4000)}:key`;
+
+        // No app on this actor, so the cross-app gate never runs — the store's
+        // own width guard is what stands between this and a truncated anchor.
+        await expect(
+            subscribeDurable(subject, env.users.user.token),
+        ).rejects.toMatchObject({ legacyCode: 'events_value_too_large' });
+    });
+});
+
 describe('the writer never pays for the subscriber', () => {
     it('completes the write when the dispatcher throws', async () => {
         const dispatch = vi
