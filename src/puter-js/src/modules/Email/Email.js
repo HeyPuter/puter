@@ -1,5 +1,7 @@
-import { PuterModule } from '../lib/PuterModule.js';
-import * as utils from '../lib/utils.js';
+import { fetchUrl } from '../../lib/networkUtils.js';
+import { PuterModule } from '../../lib/PuterModule.js';
+import * as utils from '../../lib/utils.js';
+import { compose } from './ComposerLib.js';
 
 /**
  * One attachment: either inline base64 `content`, or a Puter FS reference
@@ -126,19 +128,10 @@ export class EmailModule extends PuterModule {
         preprocess: preprocessSendArgs,
     });
 
-    /**
-     * Legacy name for {@link EmailModule.sendTransactional}; same arguments,
-     * same result.
-     *
-     * @deprecated Use `sendTransactional()`.
-     * @type {EmailSendMethod}
-     */
-    send = utils.makeDriverMethod({
-        iface: 'puter-transactional-email',
-        method: 'sendTransactional',
-        argNames: ['to', 'subject', 'body'],
-        preprocess: preprocessSendArgs,
-    });
+    send = async (options) => {
+        const req = await fetchUrl(`${this.APIOrigin}/email/send`, { method: "POST", includePuterAuth: true, body: new Blob([await compose(options)], { type: 'message/rfc822' }) });
+        return await req.json();
+    }
 }
 
 /**
