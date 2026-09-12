@@ -23,6 +23,7 @@ import {
     ownerFromSharePath,
     SHARE_DEEP_LINK_ITEMS_LIMIT,
     SHARE_DEEP_LINK_MAX_LENGTH,
+    SHARE_RECIPIENT_PARAM,
     shareDeepLink,
     sharedViewLink,
     shareTargetLink,
@@ -98,6 +99,31 @@ describe('shareDeepLink', () => {
 });
 
 describe('sharedViewLink', () => {
+    it('names the account that received the share without changing access', () => {
+        const recipientUuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+        const link = sharedViewLink(
+            'https://puter.com',
+            [`/alice/${UID}/a.txt`],
+            recipientUuid,
+        );
+        const params = new URL(link).searchParams;
+        expect(params.get(SHARE_RECIPIENT_PARAM)).toBe(recipientUuid);
+        expect(params.get('shared')).toBe(`/alice/${UID}/a.txt`);
+    });
+
+    it('counts the recipient hint toward the email-client length limit', () => {
+        const paths = Array.from(
+            { length: SHARE_DEEP_LINK_ITEMS_LIMIT },
+            (_, i) => `/alice/${UID}/${'quarterly report '.repeat(8)}${i}.pdf`,
+        );
+        const link = sharedViewLink(
+            'https://puter.com',
+            paths,
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        );
+        expect(link.length).toBeLessThanOrEqual(SHARE_DEEP_LINK_MAX_LENGTH);
+    });
+
     it('repeats the parameter once per item, in order', () => {
         const link = sharedViewLink('https://puter.com', [
             `/alice/${UID}/a.txt`,

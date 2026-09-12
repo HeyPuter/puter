@@ -17,7 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import parse_shared_path, { SHARED_PATH_PARAM } from './parseSharedPath.js';
+import parse_shared_path, {
+    SHARED_PATH_PARAM,
+    SHARE_RECIPIENT_PARAM,
+    sharedLinkRecipientUuid,
+} from './parseSharedPath.js';
 
 /**
  * Where to send the user after a successful login/signup started from the
@@ -99,5 +103,9 @@ export const get_oidc_return_to = () => {
 
     const params = new URLSearchParams();
     for ( const value of shared ) params.append(SHARED_PATH_PARAM, value);
+    const recipientUuid = sharedLinkRecipientUuid(
+        new URLSearchParams(window.location.search ?? ''),
+    );
+    if ( recipientUuid ) params.set(SHARE_RECIPIENT_PARAM, recipientUuid);
     return `${path}?${params.toString()}`;
 };

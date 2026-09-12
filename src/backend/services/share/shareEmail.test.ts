@@ -270,7 +270,8 @@ describe('share email', () => {
         const confirmed = await post('/confirm-email', token, { code });
         expect(await confirmed.json()).toMatchObject({ email_confirmed: true });
 
-        return { username, email, token };
+        const row = await env.server.stores.user.getByUsername(username);
+        return { username, email, token, uuid: row!.uuid };
     };
 
     it('emails an invite to an address with no account', async () => {
@@ -360,7 +361,7 @@ describe('share email', () => {
         expect(openPuterHref(mail.html)).toBe(
             `${env.origin}/?shared=${encodeURIComponent(
                 `/${owner.username}/${first.uid}/${first.name}`,
-            )}`,
+            )}&user_uuid=${encodeURIComponent(recipient.uuid)}`,
         );
         expect(mail.html).toContain(recipient.username);
 
@@ -493,7 +494,7 @@ describe('share email', () => {
 
         const mail = await waitForMail({ to: recipient.email });
         const masked = `/${owner.username}/${file.uid}/${file.name}`;
-        const link = `?shared=${encodeURIComponent(masked)}`;
+        const link = `?shared=${encodeURIComponent(masked)}&user_uuid=${encodeURIComponent(recipient.uuid)}`;
         expect(mail.html).toContain(link);
         // Linked, not merely mentioned.
         expect(mail.html).toContain(`${link}"`);
