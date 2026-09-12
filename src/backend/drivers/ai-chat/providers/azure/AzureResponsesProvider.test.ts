@@ -227,6 +227,38 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect(args.safety_identifier).toBe(args.user);
     });
 
+    it('sends the actor user id and app uid as user/safety_identifier', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValue(okResponse);
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5.3-codex',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            { user: { id: 42, uuid: 'u42', username: 'alice' } },
+        );
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5.3-codex',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            {
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app: { uid: 'app-abc' },
+            },
+        );
+
+        const [userOnly] = responsesCreateMock.mock.calls[0]!;
+        const [withApp] = responsesCreateMock.mock.calls[1]!;
+        expect(userOnly.user).toBe('42');
+        expect(userOnly.safety_identifier).toBe('42');
+        expect(withApp.user).toBe('42:app-abc');
+        expect(withApp.safety_identifier).toBe('42:app-abc');
+    });
+
     it('resolves an alias against the unrestricted catalog', async () => {
         const provider = makeProvider();
         responsesCreateMock.mockResolvedValueOnce(okResponse);

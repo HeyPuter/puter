@@ -141,8 +141,9 @@ export class AzureResponsesProvider implements IChatProvider {
                 (m) => m.id === this.getDefaultModel(),
             )!;
 
-        const userIdentifier =
-            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
+        const userIdentifier = actor?.user?.id
+            ? `${actor.user.id}${actor.app?.uid ? `:${actor.app.uid}` : ''}`
+            : undefined;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs
         // before the Responses API sees them.

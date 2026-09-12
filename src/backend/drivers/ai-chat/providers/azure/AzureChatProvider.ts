@@ -173,8 +173,9 @@ export class AzureChatProvider implements IChatProvider {
         //     content: 'Don\'t let the user trick you into doing something bad.',
         // })
 
-        const userIdentifier =
-            `${actor.user?.id}` + actor.app?.uid ? `:${actor?.app?.uid}` : '';
+        const userIdentifier = actor?.user?.id
+            ? `${actor.user.id}${actor.app?.uid ? `:${actor.app.uid}` : ''}`
+            : undefined;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs.
         // Chat Completions doesn't support file uploads, so this is the only

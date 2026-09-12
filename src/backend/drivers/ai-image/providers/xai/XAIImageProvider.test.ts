@@ -276,6 +276,36 @@ describe('XAIImageProvider.generate success path', () => {
         expect(out.costOverride).toBe(grok.costs['output:1k'] * 1_000_000);
     });
 
+    it('sends the actor user id and app uid as the user field', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue({
+            data: [{ url: 'https://x.ai/img/abc' }],
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'grok-imagine-image',
+                    prompt: 'a small red dot',
+                }),
+            { user: { id: 42, uuid: 'u42', username: 'alice' } },
+        );
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'grok-imagine-image',
+                    prompt: 'a small red dot',
+                }),
+            {
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app: { uid: 'app-abc' },
+            },
+        );
+
+        expect(generateMock.mock.calls[0]![0].user).toBe('42');
+        expect(generateMock.mock.calls[1]![0].user).toBe('42:app-abc');
+    });
+
     it('uses the 2k output rate when quality is "2k"', async () => {
         const provider = makeProvider();
         generateMock.mockResolvedValueOnce({

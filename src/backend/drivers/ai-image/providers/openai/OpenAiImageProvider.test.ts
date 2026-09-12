@@ -249,6 +249,38 @@ describe('OpenAiImageProvider.generate output extraction', () => {
 
         expect(result).toBe('data:image/png;base64,AAAA');
     });
+
+    it('sends the actor user id and app uid as the user field', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue(
+            gptResponse([{ url: 'https://oai.example/img.png' }]),
+        );
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gpt-image-1-mini',
+                    prompt: 'hi',
+                    ratio: { w: 1024, h: 1024 },
+                }),
+            { user: { id: 42, uuid: 'u42', username: 'alice' } },
+        );
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gpt-image-1-mini',
+                    prompt: 'hi',
+                    ratio: { w: 1024, h: 1024 },
+                }),
+            {
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app: { uid: 'app-abc' },
+            },
+        );
+
+        expect(generateMock.mock.calls[0]![0].user).toBe('42');
+        expect(generateMock.mock.calls[1]![0].user).toBe('42:app-abc');
+    });
 });
 
 // ── input_images / edit endpoint ───────────────────────────────────
