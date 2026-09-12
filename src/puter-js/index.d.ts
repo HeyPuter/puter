@@ -90,7 +90,7 @@ export type {
     EmailAttachment,
     EmailSendOptions,
     EmailSendResult,
-} from './types/modules/Email.js';
+} from './types/modules/Email/Email.js';
 
 // -- puter.events --
 export type {
