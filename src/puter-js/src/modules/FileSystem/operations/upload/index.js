@@ -6,7 +6,7 @@
 import * as utils from '../../../../lib/utils.js';
 import getAbsolutePathForApp from '../../utils/getAbsolutePathForApp.js';
 import { promptIfStorageLimitError } from '../storageLimitPrompt.js';
-import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SIGNED_BATCH_SUPPORTED_ENVS, SPACE_CHECK_MIN_BYTES } from './constants.js';
+import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SPACE_CHECK_MIN_BYTES } from './constants.js';
 import { normalizeUploadEntries, separateFilesAndDirs } from './entries.js';
 import { generateThumbnails } from './thumbnails.js';
 import { performSignedBatchUpload } from './signedBatchUpload.js';
@@ -169,7 +169,6 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         const signedBatchWriteAllowed = signedBatchWriteCapability !== false;
 
         const shouldAttemptSignedBatchWrite = (
-            SIGNED_BATCH_SUPPORTED_ENVS.includes(puter.env) &&
             !options.shortcutTo &&
             (files.length > 0 || signedDirectories.length > 0) &&
             signedBatchWriteAllowed
