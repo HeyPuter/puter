@@ -270,6 +270,47 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
+    it('sends the actor user id and app uid as user/safety_identifier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValue(baseCompletion);
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5-nano',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            { user: { id: 42, uuid: 'u42', username: 'alice' } },
+        );
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5-nano',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            {
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app: { uid: 'app-abc' },
+            },
+        );
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5-nano',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        const [userOnly] = createMock.mock.calls[0]!;
+        const [withApp] = createMock.mock.calls[1]!;
+        const [system] = createMock.mock.calls[2]!;
+        expect(userOnly.user).toBe('42');
+        expect(userOnly.safety_identifier).toBe('42');
+        expect(withApp.user).toBe('42:app-abc');
+        expect(withApp.safety_identifier).toBe('42:app-abc');
+        expect(system.user).toBeUndefined();
+        expect(system.safety_identifier).toBeUndefined();
+    });
+
     it('resolves the namespaced GPT-6 Astra alias', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);

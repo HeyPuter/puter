@@ -261,6 +261,47 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
+    it('sends the actor user id and app uid as user/safety_identifier', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValue(baseResponse);
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'o3-pro',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            { user: { id: 42, uuid: 'u42', username: 'alice' } },
+        );
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'o3-pro',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            {
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app: { uid: 'app-abc' },
+            },
+        );
+        await withTestActor(() =>
+            provider.complete({
+                model: 'o3-pro',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        const [userOnly] = responsesCreateMock.mock.calls[0]!;
+        const [withApp] = responsesCreateMock.mock.calls[1]!;
+        const [system] = responsesCreateMock.mock.calls[2]!;
+        expect(userOnly.user).toBe('42');
+        expect(userOnly.safety_identifier).toBe('42');
+        expect(withApp.user).toBe('42:app-abc');
+        expect(withApp.safety_identifier).toBe('42:app-abc');
+        expect(system.user).toBeUndefined();
+        expect(system.safety_identifier).toBeUndefined();
+    });
+
     it('unravels function tools into the flat Responses API shape', async () => {
         const { provider } = makeProvider();
         responsesCreateMock.mockResolvedValueOnce(baseResponse);

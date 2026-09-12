@@ -401,6 +401,38 @@ describe('AzureChatProvider.complete request shape', () => {
         expect(args.safety_identifier).toBe(args.user);
     });
 
+    it('sends the actor user id and app uid as user/safety_identifier', async () => {
+        const provider = makeProvider();
+        createMock.mockResolvedValue(okCompletion);
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-4o',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            { user: { id: 42, uuid: 'u42', username: 'alice' } },
+        );
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-4o',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            {
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app: { uid: 'app-abc' },
+            },
+        );
+
+        const [userOnly] = createMock.mock.calls[0]!;
+        const [withApp] = createMock.mock.calls[1]!;
+        expect(userOnly.user).toBe('42');
+        expect(userOnly.safety_identifier).toBe('42');
+        expect(withApp.user).toBe('42:app-abc');
+        expect(withApp.safety_identifier).toBe('42:app-abc');
+    });
+
     it('strips safety_identifier for Grok deployments, which 400 on unknown args', async () => {
         const provider = makeProvider();
         createMock.mockResolvedValueOnce(okCompletion);

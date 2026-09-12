@@ -176,8 +176,9 @@ export class OpenAiImageProvider implements IImageProvider {
         }
 
         const actor = Context.get('actor');
-        const userIdentifier =
-            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
+        const userIdentifier = actor?.user?.id
+            ? `${actor.user.id}${actor.app?.uid ? `:${actor.app.uid}` : ''}`
+            : undefined;
 
         const estimatedPromptTokenCount =
             this.#estimatePromptTokenCount(prompt);
