@@ -210,12 +210,12 @@ export async function compose({ from, to, cc, bcc, subject, replyTo, attachments
         return headerLines + (text || html);
     }
 
-    const textLeaf = () => emlHeader('Content-Type', 'text/plain; charset=UTF-8') + '\r\n' + text;
-    const htmlLeaf = () => emlHeader('Content-Type', 'text/html; charset=UTF-8') + '\r\n' + html;
+    const textLeaf =  emlHeader('Content-Type', 'text/plain; charset=UTF-8') + '\r\n' + text;
+    const htmlLeaf = emlHeader('Content-Type', 'text/html; charset=UTF-8') + '\r\n' + html;
 
     // No attachments at all -> top level IS multipart/alternative; text/html sit directly under boundary1.
     if (attachments.length === 0) {
-        return headerLines + combineParts([textLeaf(), htmlLeaf()], boundary1);
+        return headerLines + combineParts([textLeaf, htmlLeaf], boundary1);
     }
 
     const inlineAttachments = attachments.filter(a => a.cid);
@@ -230,11 +230,11 @@ export async function compose({ from, to, cc, bcc, subject, replyTo, attachments
     if (text && html) {
         const altBoundary = crypto.randomUUID();
         contentPart = emlHeader('Content-Type', `multipart/alternative; boundary="${altBoundary}"`) + "\r\n";
-        contentPart += combineParts([textLeaf(), htmlLeaf()], altBoundary);
+        contentPart += combineParts([textLeaf, htmlLeaf], altBoundary);
     } else if (text) {
-        contentPart = textLeaf();
+        contentPart = textLeaf;
     } else if (html) {
-        contentPart = htmlLeaf();
+        contentPart = htmlLeaf;
     }
 
     // Inline (cid) attachments: wrap content + inline images in multipart/related.

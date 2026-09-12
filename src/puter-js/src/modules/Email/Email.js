@@ -1,7 +1,7 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
 import { PuterModule } from '../../lib/PuterModule.js';
 import * as utils from '../../lib/utils.js';
-import { compose } from './composer-lib.js';
+import { compose } from './ComposerLib.js';
 
 /**
  * One attachment: either inline base64 `content`, or a Puter FS reference
