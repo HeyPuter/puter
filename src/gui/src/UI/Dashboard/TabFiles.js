@@ -146,6 +146,10 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async init ($el_window) {
+        // Before the awaits below: renderDirectory (reached through a route
+        // change or a socket event) reads it, and would otherwise throw with
+        // renderingDirectory already set, blocking every later navigation.
+        this.$el_window = $el_window;
         this.showSpinner();
         const _this = this;
         window.dashboard_object = _this;
@@ -277,21 +281,35 @@ const TabFiles = {
         this.typeSearchTerm = '';
         this.typeSearchTimeout = null;
         this.selectModeActive = false;
-        // Preference reads are best-effort: the tab renders with the
-        // defaults rather than not rendering at all.
-        this.currentView = await puter.kv.get('view_mode').catch(() => null) || 'list';
+        // Preference reads are best-effort (the tab renders with the defaults
+        // rather than not at all) and independent of each other, so they go
+        // out together: awaited one by one they cost four round-trips before
+        // the first listing could even start.
+        const [savedView, savedSortColumn, savedSortDirection, savedWidths] = await Promise.all([
+            puter.kv.get('view_mode').catch(() => null),
+            puter.kv.get('sort_column').catch(() => null),
+            puter.kv.get('sort_direction').catch(() => null),
+            puter.kv.get('column_widths').catch(() => null),
+        ]);
+        this.currentView = savedView || 'list';
 
         // Sorting state
-        this.sortColumn = await puter.kv.get('sort_column').catch(() => null) || 'name';
-        this.sortDirection = await puter.kv.get('sort_direction').catch(() => null) || 'asc';
+        this.sortColumn = savedSortColumn || 'name';
+        this.sortDirection = savedSortDirection || 'asc';
 
-        // Column widths state (for resizing)
-        const savedWidths = await puter.kv.get('column_widths').catch(() => null);
-        this.columnWidths = savedWidths ? JSON.parse(savedWidths) : {
+        // Column widths state (for resizing). A corrupt saved value falls back
+        // to the defaults instead of taking the whole tab down with it.
+        this.columnWidths = {
             name: null, // auto/flex
             size: 100,
             modified: 120,
         };
+        try {
+            const parsedWidths = savedWidths ? JSON.parse(savedWidths) : null;
+            if ( parsedWidths && typeof parsedWidths === 'object' ) {
+                this.columnWidths = { ...this.columnWidths, ...parsedWidths };
+            }
+        } catch { /* keep the defaults */ }
 
         // Add touch-device class on touch-FIRST devices only (coarse pointer,
         // no hover — which also catches iPads whose UA claims macOS).
@@ -549,9 +567,6 @@ const TabFiles = {
                 }
             }
         });
-
-        // Store reference to $el_window for later use (must be before createHeaderEventListeners)
-        this.$el_window = $el_window;
 
         this.createHeaderEventListeners($el_window);
         this.createSelectionActionListeners($el_window);
@@ -2175,9 +2190,9 @@ const TabFiles = {
      * sets ascending order. Persists settings and re-renders the directory.
      *
      * @param {string} column - Column name to sort by ('name', 'size', or 'modified')
-     * @returns {Promise<void>}
+     * @returns {void}
      */
-    async handleSort (column) {
+    handleSort (column) {
         if ( this.sortColumn === column ) {
             this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
@@ -2185,13 +2200,15 @@ const TabFiles = {
             this.sortDirection = 'asc';
         }
 
-        await puter.kv.set('sort_column', this.sortColumn)
-            .catch(err => console.warn('Could not save sort_column:', err));
-        await puter.kv.set('sort_direction', this.sortDirection)
-            .catch(err => console.warn('Could not save sort_direction:', err));
-
         this.updateSortIndicators();
         this.renderDirectory(this.currentPath);
+
+        // Persisting is best-effort and must not hold up the re-sort: awaited,
+        // the two writes added two round-trips before anything moved.
+        puter.kv.set('sort_column', this.sortColumn)
+            .catch(err => console.warn('Could not save sort_column:', err));
+        puter.kv.set('sort_direction', this.sortDirection)
+            .catch(err => console.warn('Could not save sort_direction:', err));
     },
 
     /**
