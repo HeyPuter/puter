@@ -4983,7 +4983,12 @@ const TabFiles = {
      * Shows loading spinner over files section
      */
     showSpinner () {
-        if ( this.loading ) return;
+        const files = document.querySelector('.directory-contents .files');
+        if ( ! files ) return;
+        // Guard on the overlay itself rather than on a flag: clearing the
+        // listing takes the overlay with it, and a flag left set meant the
+        // first directory load ran with no spinner at all.
+        if ( files.querySelector('.files-loading-overlay') ) return;
         this.loading = true;
 
         const overlay = document.createElement('div');
@@ -4995,7 +5000,7 @@ const TabFiles = {
             </div>
         `;
 
-        document.querySelector('.directory-contents .files').appendChild(overlay);
+        files.appendChild(overlay);
         setTimeout(() => {
             overlay.style.opacity = 1;
         }, 100);
