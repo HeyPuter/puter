@@ -714,10 +714,17 @@ const TabFiles = {
                 if ( $selectedRows.length > 0 ) {
                     e.preventDefault();
                     e.stopPropagation();
+                    // One listing, so only the first selected folder can be
+                    // entered. renderDirectory already drops the later calls,
+                    // but every pushNavHistory landed in history, leaving Back
+                    // and Forward pointing at folders that were never shown.
+                    let entered = false;
                     $selectedRows.each(function () {
                         const isDir = $(this).attr('data-is_dir') === '1';
                         const itemPath = $(this).attr('data-path');
                         if ( isDir ) {
+                            if ( entered ) return;
+                            entered = true;
                             _this.pushNavHistory(itemPath);
                             _this.renderDirectory(itemPath);
                         } else {
