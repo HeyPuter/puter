@@ -499,6 +499,27 @@ export class PuterPeerServer extends EventTarget {
                     );
                 }
             };
+
+            connection.peerconnection.onconnectionstatechange = () => {
+                if (connection.peerconnection.connectionState === 'failed') {
+                    connection.peerconnection.restartIce();
+                }
+            }
+
+            connection.peerconnection.onnegotiationneeded = async () => {
+                const offer = await connection.createOffer();
+                this.#wsconn.send(
+                    JSON.stringify({
+                        server: {
+                            offer: {
+                                id: uuid,
+                                offer,
+                            },
+                        },
+                    }),
+                );
+            };
+
             this.dispatchEvent(
                 new PuterPeerServerConnectionEvent(
                     connection,
@@ -523,6 +544,8 @@ export class PuterPeerServer extends EventTarget {
             if ( ! connection ) {
                 return;
             }
+
+            // server is polite, so take the client's offer even if we just made one
             await connection.setRemoteDescription(
                 new RTCSessionDescription(data.server.offer.offer),
             );
@@ -539,6 +562,27 @@ export class PuterPeerServer extends EventTarget {
                     }),
                 );
             }
+        }
+
+        if (data.server.answer) {
+            let uuid = data.server.answer.id;
+            let connection = this.connections.get(uuid);
+            if (!connection) {
+                return;
+            }
+            await connection.setRemoteDescription(
+                new RTCSessionDescription(data.server.answer.answer),
+            );
+        }
+
+        if (data.server.disconnected) {
+            let uuid = data.server.disconnected.id;
+            let connection = this.connections.get(uuid);
+            if (!connection) {
+                return;
+            }
+            connection.close();
+            this.connections.delete(uuid);
         }
     }
 
@@ -614,7 +658,6 @@ export class PuterPeerConnection extends EventTarget {
             }
             this.#bufferedMessages = [];
             this.dispatchEvent(new PuterPeerConnectionOpenEvent());
-            this.#closews();
         };
         this.#datachannel.onclose = () => {
             this.#doclose(undefined, undefined);
@@ -686,6 +729,22 @@ export class PuterPeerConnection extends EventTarget {
             );
         };
 
+        let makingOffer = false;
+        this.peerconnection.onnegotiationneeded = async () => {
+            makingOffer = true;
+            try {
+                const offer = await this.createOffer();
+                this.#sendOffer(offer);
+            } catch ( e ) { console.error(e) }
+            makingOffer = false;
+        };
+
+        this.peerconnection.onconnectionstatechange = () => {
+            if (this.peerconnection.connectionState === 'failed') {
+                this.peerconnection.restartIce();
+            }
+        }
+
         this.#wsconn.onmessage = async (evt) => {
             let msg;
             try {
@@ -695,7 +754,17 @@ export class PuterPeerConnection extends EventTarget {
             }
             if ( ! msg ) return;
             if ( msg.answer ) {
-                this.setRemoteDescription(msg.answer.answer);
+                await this.setRemoteDescription(msg.answer.answer);
+            }
+            if (msg.offer) {
+                const conflict = makingOffer || this.peerconnection.signalingState !== 'stable';
+                if (conflict) {
+                    // client impolite: ignore incoming offer if we're making one
+                    return;
+                }
+                await this.setRemoteDescription(msg.offer.offer);
+                const answer = await this.createAnswer();
+                this.#sendAnswer(answer);
             }
             if ( msg.candidate ) {
                 this.addIceCandidate(msg.candidate.candidate);
@@ -706,17 +775,12 @@ export class PuterPeerConnection extends EventTarget {
                     this.room = msg.connect.room;
                     await this.#adoptRelayedGrant(msg.connect.grant, options);
                     if ( this.closed ) return;
-                    const offer = await this.createOffer();
-                    if ( this.#wsconn?.readyState !== 1 ) return;
-                    this.#wsconn.send(
-                        JSON.stringify({
-                            client: {
-                                offer: {
-                                    offer,
-                                },
-                            },
-                        }),
-                    );
+                    makingOffer = true;
+                    try {
+                        const offer = await this.createOffer();
+                        if ( this.#wsconn?.readyState === 1 ) this.#sendOffer(offer);
+                    } catch ( e ) { console.error(e) }
+                    makingOffer = false;
                 } else {
                     this.#doclose(undefined, signallerError(msg.connect.error, msg.connect.code));
                 }
@@ -831,6 +895,42 @@ export class PuterPeerConnection extends EventTarget {
             return;
         }
         this.#datachannel.send(message);
+    }
+
+    /**
+     * Sends an SDP offer to the peer. Used by servers to send offers to clients.
+     *
+     * @param {RTCSessionDescriptionInit} offer
+     * @returns {void}
+     */
+    #sendOffer( offer ) {
+        this.#wsconn.send(
+            JSON.stringify({
+                client: {
+                    offer: {
+                        offer,
+                    },
+                },
+            }),
+        );
+    }
+
+    /**
+     * Sends an SDP answer to the peer. Used by clients to send answers to servers.
+     *
+     * @param {RTCSessionDescriptionInit} answer
+     * @returns {void}
+     */
+    #sendAnswer( answer ) {
+        this.#wsconn.send(
+            JSON.stringify({
+                client: {
+                    answer: {
+                        answer,
+                    },
+                },
+            }),
+        );
     }
 }
 
