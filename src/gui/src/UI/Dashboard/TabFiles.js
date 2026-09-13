@@ -1288,8 +1288,13 @@ const TabFiles = {
 
         // Upload input element
         fileInput.onchange = async (e) => {
-            const files = e.target.files;
-            if ( !files || files.length === 0 ) return;
+            // Snapshot the picked files and clear the input at once: the
+            // FileList is live, and a value left in place means picking the
+            // same file again fires no change event, so an upload that failed,
+            // was cancelled, or was blocked could not be retried.
+            const files = Array.from(e.target.files || []);
+            fileInput.value = '';
+            if ( files.length === 0 ) return;
             if ( _this.currentPath === window.shared_path ) return;
 
             let upload_progress_window;
@@ -1351,9 +1356,6 @@ const TabFiles = {
                     window.show_save_account_notice_if_needed();
                     // remove from active_uploads
                     delete window.active_uploads[opid];
-                    // Clear the input value to allow uploading the same file again
-                    fileInput.value = '';
-                    document.querySelector('form').reset();
                     // refresh, then highlight the uploaded items
                     await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                     _this.selectUploadedRows(files);
