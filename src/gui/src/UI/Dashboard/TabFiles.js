@@ -2434,9 +2434,21 @@ const TabFiles = {
         }
 
         const sortedContents = this.sortFiles(directoryContents);
-        // allSettled so one item that fails to render can't reject the batch,
-        // which would skip cleanup and leave the tab stuck (renderingDirectory).
-        await Promise.allSettled(sortedContents.map(file => this.renderItem(file)));
+        // Icons resolve at different speeds (weblinks and .app files read
+        // theirs from the file) and a row is appended once its icon lands, so
+        // resolve every icon first and append in sorted order. allSettled so
+        // one failure can't reject the batch and leave renderingDirectory stuck.
+        const iconResults = await Promise.allSettled(sortedContents.map(file => item_icon(file)));
+        for ( let i = 0; i < sortedContents.length; i++ ) {
+            const iconResult = iconResults[i].status === 'fulfilled'
+                ? iconResults[i].value
+                : { image: window.icons['file.svg'], type: 'icon' };
+            try {
+                await this.renderItem(sortedContents[i], iconResult);
+            } catch ( err ) {
+                console.error('Failed to render item:', err);
+            }
+        }
 
         this.applyColumnWidths();
         this.updateFooterStats();
@@ -2545,9 +2557,11 @@ const TabFiles = {
      * it to the files container, then attaches event listeners.
      *
      * @param {Object} file - The file/folder object from the filesystem API
+     * @param {{ image: string, type: string }} [iconResult] - A pre-resolved
+     *     icon (see renderDirectory); looked up here when omitted
      * @returns {void}
      */
-    async renderItem (file) {
+    async renderItem (file, iconResult = null) {
         // For trashed items, use original_name from metadata if available
         const item_id = window.global_element_id++;
         // metadata is a client-writable, untrusted string stored verbatim, so
@@ -2568,7 +2582,7 @@ const TabFiles = {
         const is_shortcut = file.is_shortcut ? 1 : 0;
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
-        const iconResult = await item_icon(file);
+        if ( ! iconResult ) iconResult = await item_icon(file);
         const icon = `<img src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         // A dot-file only reaches this point when the preference reveals it;
