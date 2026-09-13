@@ -1822,16 +1822,19 @@ const TabFiles = {
      * Updates header action buttons based on current folder context.
      *
      * Shows/hides new folder, upload, and empty trash buttons as appropriate.
+     * Neither Trash nor the Shared view (a query, not a directory) can have
+     * anything created or uploaded into it, so those two buttons stay out
+     * there rather than opening a picker whose files would be dropped.
      *
      * @param {boolean} isTrashFolder - Whether the current folder is the Trash
      * @returns {void}
      */
     updateActionButtons (isTrashFolder) {
         const $pathActions = this.$el_window.find('.path-actions');
+        const canCreate = ! isTrashFolder && this.currentPath !== window.shared_path;
+        $pathActions.find('.new-folder-btn, .upload-btn').toggle(canCreate);
 
         if ( isTrashFolder ) {
-            $pathActions.find('.new-folder-btn, .upload-btn').hide();
-
             if ( $pathActions.find('.empty-trash-btn').length === 0 ) {
                 const emptyTrashBtn = $(`<button class="path-action-btn empty-trash-btn" title="${i18n('empty_trash')}">${icons.trash}</button>`);
                 $pathActions.append(emptyTrashBtn);
@@ -1841,7 +1844,6 @@ const TabFiles = {
             }
             $pathActions.find('.empty-trash-btn').show();
         } else {
-            $pathActions.find('.new-folder-btn, .upload-btn').show();
             $pathActions.find('.empty-trash-btn').hide();
         }
     },
