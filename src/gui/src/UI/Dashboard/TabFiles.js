@@ -40,7 +40,7 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/listAllShared.js';
-import { can_share, remember_shared_roots } from '../../helpers/sharedAccess.js';
+import { can_restructure, can_share, remember_shared_roots } from '../../helpers/sharedAccess.js';
 import { parent_path_for, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
 
 const { html_encode, SelectionArea } = window;
@@ -796,8 +796,14 @@ const TabFiles = {
                             await window.refresh_trash_state();
                         }
                     } else {
-                        // Move to trash
-                        await window.move_items($selectedRows.toArray(), window.trash_path);
+                        // Trashing sends an item to its owner's trash, which a
+                        // shared root or read-only share can't do (the server
+                        // answers Forbidden) — skip those rows, as the context
+                        // menu leaves Delete out for them.
+                        const rows = await _this.restructurableRows($selectedRows.toArray());
+                        if ( rows.length > 0 ) {
+                            await window.move_items(rows, window.trash_path);
+                        }
                     }
                 }
                 return false;
@@ -841,14 +847,19 @@ const TabFiles = {
                 if ( $selectedRows.length > 0 ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.clipboard = [];
-                    window.clipboard_op = 'move';
-                    $selectedRows.each(function () {
-                        window.clipboard.push({
-                            path: $(this).attr('data-path'),
-                            uid: $(this).attr('data-uid'),
-                        });
-                    });
+                    // Cutting is a move: rows that can't be moved (see the
+                    // Delete key above) would only fail on paste.
+                    const rows = await _this.restructurableRows($selectedRows.toArray());
+                    if ( rows.length > 0 ) {
+                        window.clipboard = [];
+                        window.clipboard_op = 'move';
+                        for ( const row of rows ) {
+                            window.clipboard.push({
+                                path: $(row).attr('data-path'),
+                                uid: $(row).attr('data-uid'),
+                            });
+                        }
+                    }
                 }
                 return false;
             }
@@ -1451,11 +1462,12 @@ const TabFiles = {
         });
 
         // Cut button
-        $actions.find('.cut-btn').on('click', function () {
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+        $actions.find('.cut-btn').on('click', async function () {
+            const rows = await _this.restructurableRows(document.querySelectorAll('.files-tab .row.selected'));
+            if ( rows.length === 0 ) return;
             window.clipboard_op = 'move';
             window.clipboard = [];
-            selectedRows.forEach(row => {
+            rows.forEach(row => {
                 window.clipboard.push({
                     path: $(row).attr('data-path'),
                     uid: $(row).attr('data-uid'),
@@ -1498,7 +1510,10 @@ const TabFiles = {
                     await window.refresh_trash_state();
                 }
             } else {
-                window.move_items(Array.from(selectedRows), window.trash_path);
+                const rows = await _this.restructurableRows(selectedRows);
+                if ( rows.length > 0 ) {
+                    window.move_items(rows, window.trash_path);
+                }
             }
             $actions.removeClass('visible');
         });
@@ -1551,7 +1566,28 @@ const TabFiles = {
                 if ( this._shareCheckToken !== token ) return;
                 $actions.find('.share-btn').toggle(may_share);
             });
+            // Cut and Delete move items, which a shared root or a read-only
+            // share can't be — same wait-for-the-answer treatment as Share.
+            $actions.find('.cut-btn, .delete-btn').hide();
+            this.restructurableRows(selectedRows).then((rows) => {
+                if ( this._shareCheckToken !== token ) return;
+                $actions.find('.cut-btn, .delete-btn').toggle(rows.length === selectedRows.length);
+            });
         }
+    },
+
+    /**
+     * The rows the user may move or trash: their own items, plus items inside
+     * a shared folder they hold write on. A shared root or a read-only share
+     * stays where its owner put it (see can_restructure).
+     *
+     * @param {NodeList|Array<HTMLElement>} rows - The selected row elements
+     * @returns {Promise<HTMLElement[]>}
+     */
+    async restructurableRows (rows) {
+        const list = Array.from(rows);
+        const answers = await Promise.all(list.map((row) => can_restructure($(row).attr('data-path'))));
+        return list.filter((_row, i) => answers[i]);
     },
 
     /**
@@ -4147,20 +4183,27 @@ const TabFiles = {
             items.push('-');
         }
 
+        // Cut and Delete move items, which a shared root or a read-only share
+        // can't be (the server answers Forbidden) — offered only when the whole
+        // selection may move, as the single-item menu does.
+        const mayRestructure = (await _this.restructurableRows(selectedRows)).length === selectedRows.length;
+
         // Cut
-        items.push({
-            html: `${i18n('cut')}`,
-            onClick: function () {
-                window.clipboard_op = 'move';
-                window.clipboard = [];
-                selectedRows.forEach(row => {
-                    window.clipboard.push({
-                        path: $(row).attr('data-path'),
-                        uid: $(row).attr('data-uid'),
+        if ( mayRestructure ) {
+            items.push({
+                html: `${i18n('cut')}`,
+                onClick: function () {
+                    window.clipboard_op = 'move';
+                    window.clipboard = [];
+                    selectedRows.forEach(row => {
+                        window.clipboard.push({
+                            path: $(row).attr('data-path'),
+                            uid: $(row).attr('data-uid'),
+                        });
                     });
-                });
-            },
-        });
+                },
+            });
+        }
 
         // Copy
         if ( ! anyTrashed ) {
@@ -4176,10 +4219,9 @@ const TabFiles = {
             });
         }
 
-        items.push('-');
-
         // Delete
         if ( anyTrashed ) {
+            items.push('-');
             items.push({
                 html: i18n('delete_permanently'),
                 onClick: async function () {
@@ -4199,7 +4241,8 @@ const TabFiles = {
                 },
             });
         }
-        else {
+        else if ( mayRestructure ) {
+            items.push('-');
             items.push({
                 html: `${i18n('delete')}`,
                 onClick: function () {
