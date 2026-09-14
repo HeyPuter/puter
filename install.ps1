@@ -20,19 +20,21 @@
 # compose file + brings the stack up. Set PUTER_FORCE=1 to overwrite.
 #
 # Tunable env vars (or pass as -Parameters when running the file directly):
-#   PUTER_DIR     install directory                       (default: ./puter-selfhosted)
-#   PUTER_URL     base URL to fetch docker-compose.yml    (default: GitHub raw, main branch)
-#   PUTER_DOMAIN  domain Puter will serve on              (default: puter.localhost)
-#   PUTER_PORT    HTTP port for Caddy                     (default: 80)
-#   PUTER_FORCE   set to 1 to overwrite existing .env / config.json
+#   PUTER_DIR       install directory                       (default: ./puter-selfhosted)
+#   PUTER_URL       base URL to fetch docker-compose.yml    (default: GitHub raw, main branch)
+#   PUTER_DOMAIN    domain Puter will serve on              (default: puter.localhost)
+#   PUTER_PORT      HTTP port for Caddy                     (default: 80)
+#   PUTER_PROTOCOL  public scheme: http | https             (default: http)
+#   PUTER_FORCE     set to 1 to overwrite existing .env / config.json
 
 [CmdletBinding()]
 param(
-    [string]$PuterDir    = $(if ($env:PUTER_DIR)    { $env:PUTER_DIR }         else { 'puter-selfhosted' }),
-    [string]$PuterUrl    = $(if ($env:PUTER_URL)    { $env:PUTER_URL }         else { 'https://raw.githubusercontent.com/HeyPuter/puter/main' }),
-    [string]$PuterDomain = $(if ($env:PUTER_DOMAIN) { $env:PUTER_DOMAIN }      else { 'puter.localhost' }),
-    [int]   $PuterPort   = $(if ($env:PUTER_PORT)   { [int]$env:PUTER_PORT }   else { 80 }),
-    [switch]$Force       = $($env:PUTER_FORCE -eq '1')
+    [string]$PuterDir      = $(if ($env:PUTER_DIR)      { $env:PUTER_DIR }         else { 'puter-selfhosted' }),
+    [string]$PuterUrl      = $(if ($env:PUTER_URL)      { $env:PUTER_URL }         else { 'https://raw.githubusercontent.com/HeyPuter/puter/main' }),
+    [string]$PuterDomain   = $(if ($env:PUTER_DOMAIN)   { $env:PUTER_DOMAIN }      else { 'puter.localhost' }),
+    [int]   $PuterPort     = $(if ($env:PUTER_PORT)     { [int]$env:PUTER_PORT }   else { 80 }),
+    [string]$PuterProtocol = $(if ($env:PUTER_PROTOCOL) { $env:PUTER_PROTOCOL }   else { 'http' }),
+    [switch]$Force         = $($env:PUTER_FORCE -eq '1')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -125,6 +127,8 @@ if ($writeConfig) {
 HTTP_PORT=$PuterPort
 # HTTPS_PORT=443     # uncomment after enabling TLS in caddy/Caddyfile
 #                    # (see "Step 3 — TLS" in doc/self-hosting.md)
+PUTER_DOMAIN=$PuterDomain
+PUTER_PROTOCOL=$PuterProtocol
 
 MARIADB_ROOT_PASSWORD=$mariadbRootPw
 MARIADB_DATABASE=puter
@@ -140,7 +144,7 @@ S3_BUCKET=puter-local
     Write-Log 'writing puter/config/config.json'
     $config = [ordered]@{
         domain                         = $PuterDomain
-        protocol                       = 'http'
+        protocol                       = $PuterProtocol
         pub_port                       = $PuterPort
         env                            = 'prod'
         static_hosting_domain          = "site.$PuterDomain"
@@ -178,7 +182,7 @@ S3_BUCKET=puter-local
         s3 = [ordered]@{
             s3Config = [ordered]@{
                 endpoint        = 'http://s3:9000'
-                publicEndpoint  = "http://s3.$PuterDomain"
+                publicEndpoint  = "${PuterProtocol}://s3.$PuterDomain"
                 accessKeyId     = 'puter'
                 secretAccessKey = $s3SecretKey
                 region          = 'us-east-1'
@@ -206,6 +210,6 @@ Write-Log 'stack starting. first boot takes ~30s while MariaDB initialises.'
 Write-Log 'follow puter logs:'
 Write-Log "    cd $PuterDir; docker compose logs -f puter"
 Write-Log ''
-Write-Log "open http://${PuterDomain}:${PuterPort} once the puter container is healthy."
+Write-Log "open ${PuterProtocol}://${PuterDomain}:${PuterPort} once the puter container is healthy."
 Write-Log 'first-boot admin password is logged once — grab it with:'
 Write-Log "    cd $PuterDir; docker compose logs puter | Select-String password"
