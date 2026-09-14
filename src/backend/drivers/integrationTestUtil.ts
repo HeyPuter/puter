@@ -30,8 +30,10 @@
  * a test file.
  */
 
+import { expect } from 'vitest';
+
 import type { Actor } from '../core/actor.js';
-import { SYSTEM_ACTOR } from '../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
 import type { MeteringService } from '../services/metering/MeteringService.js';
 
@@ -85,3 +87,58 @@ export const withTestActor = <T>(
     Promise.resolve(
         runWithContext({ actor, requestId: 'integration-test' }, fn),
     );
+
+/**
+ * The four actor shapes provider tests exercise: a direct user session, the
+ * user's own app, an app-issued access token (attributed through
+ * `effectiveApp`), and the system actor. Shared so identifiers are tested
+ * identically across providers instead of copied per suite.
+ */
+export const makeActorMatrix = (): Actor[] => {
+    const user = { id: 42, uuid: 'u42', username: 'alice' };
+    const app = { uid: 'app-abc' };
+    return [
+        makeActor({ user }),
+        makeActor({ user, app }),
+        makeActor({
+            user,
+            accessToken: { uid: 'tok-1', issuer: makeActor({ user, app }) },
+        }),
+        SYSTEM_ACTOR,
+    ];
+};
+
+/**
+ * Asserts the four mock calls recorded from driving `makeActorMatrix()` through
+ * a provider carry the expected identifier: full uuid, uuid+app, uuid+app via
+ * access token, and undefined for the system actor. Pass `extraFields` for
+ * providers that also send the same identifier under other field names (e.g.
+ * `safety_identifier`, `user_id`, `prompt_cache_key`).
+ */
+export const assertActorMatrixIdentifiers = (
+    calls: unknown[][],
+    extraFields?: string | string[],
+): void => {
+    type Call = Record<string, unknown>;
+    const [userOnly] = calls[0]! as [Call];
+    const [withApp] = calls[1]! as [Call];
+    const [tokenWithApp] = calls[2]! as [Call];
+    const [system] = calls[3]! as [Call];
+
+    expect(userOnly.user).toBe('puter-u42');
+    expect(withApp.user).toBe('puter-u42-app-abc');
+    expect(tokenWithApp.user).toBe('puter-u42-app-abc');
+    expect(system.user).toBeUndefined();
+
+    const fields = extraFields
+        ? Array.isArray(extraFields)
+            ? extraFields
+            : [extraFields]
+        : [];
+    for (const field of fields) {
+        expect(userOnly[field]).toBe('puter-u42');
+        expect(withApp[field]).toBe('puter-u42-app-abc');
+        expect(tokenWithApp[field]).toBe('puter-u42-app-abc');
+        expect(system[field]).toBeUndefined();
+    }
+};

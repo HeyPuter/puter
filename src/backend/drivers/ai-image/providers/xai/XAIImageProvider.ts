@@ -28,6 +28,7 @@ import type {
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { assertInputImageString } from '../../inputImage.js';
+import { aiUserIdentifier } from '../../../util/aiUserIdentifier.js';
 
 const DEFAULT_MODEL = 'grok-imagine-image';
 // xAI's Grok Imagine edit endpoint accepts up to 3 source images per request.
@@ -94,8 +95,7 @@ export class XAIImageProvider implements IImageProvider {
         const aspectRatio = this.#aspectRatio(ratio);
 
         const actor = Context.get('actor');
-        const userIdentifier =
-            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
+        const userIdentifier = aiUserIdentifier(actor);
 
         const outputPriceInCents = selectedModel.costs[`output:${resolution}`];
         const mediaInputPriceInCents = selectedModel.costs.media_input ?? 0;
@@ -116,14 +116,15 @@ export class XAIImageProvider implements IImageProvider {
         }
 
         const response = hasInputImages
-            ? await this.#edit(
-                  selectedModel.id,
+            ? await this.#edit({
+                  modelId: selectedModel.id,
                   prompt,
-                  input_images!,
-                  input_image_mime_type,
+                  inputImages: input_images!,
+                  mimeHint: input_image_mime_type,
                   resolution,
                   aspectRatio,
-              )
+                  user: userIdentifier,
+              })
             : ((await this.#client.images.generate({
                   model: selectedModel.id,
                   prompt,
@@ -171,14 +172,24 @@ export class XAIImageProvider implements IImageProvider {
     // rejects). We reuse the SDK client's auth + baseURL via its low-level
     // post(). Input images are passed as `{ type: 'image_url', url }` objects;
     // a single object for one image, an array for multiple.
-    async #edit(
-        modelId: string,
-        prompt: string,
-        inputImages: string[],
-        mimeHint: string | undefined,
-        resolution: string,
-        aspectRatio: string | undefined,
-    ): Promise<XaiImageResponse> {
+    async #edit(params: {
+        modelId: string;
+        prompt: string;
+        inputImages: string[];
+        mimeHint: string | undefined;
+        resolution: string;
+        aspectRatio: string | undefined;
+        user: string | undefined;
+    }): Promise<XaiImageResponse> {
+        const {
+            modelId,
+            prompt,
+            inputImages,
+            mimeHint,
+            resolution,
+            aspectRatio,
+            user,
+        } = params;
         const refs = inputImages.map((img) => this.#toImageRef(img, mimeHint));
         const body: Record<string, unknown> = {
             model: modelId,
@@ -187,6 +198,7 @@ export class XAIImageProvider implements IImageProvider {
             resolution,
         };
         if (aspectRatio) body.aspect_ratio = aspectRatio;
+        if (user) body.user = user;
         return (await this.#client.post('/images/edits', {
             body,
         })) as XaiImageResponse;

@@ -44,7 +44,11 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    assertActorMatrixIdentifiers,
+    makeActorMatrix,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { OpenAiImageProvider } from './OpenAiImageProvider.js';
 
@@ -251,6 +255,29 @@ describe('OpenAiImageProvider.generate output extraction', () => {
     });
 });
 
+describe('OpenAiImageProvider.generate user identifier', () => {
+    it('sends the actor uuid and effective app uid as the user field', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue({
+            data: [{ url: 'https://oai.example/img.png' }],
+        });
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'gpt-image-1-mini',
+                        prompt: 'hi',
+                        ratio: { w: 1024, h: 1024 },
+                    }),
+                actor,
+            );
+        }
+
+        assertActorMatrixIdentifiers(generateMock.mock.calls);
+    });
+});
+
 // ── input_images / edit endpoint ───────────────────────────────────
 
 describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
@@ -290,6 +317,25 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
         // Two input images → array of uploadables.
         expect(Array.isArray(sent.image)).toBe(true);
         expect(sent.image).toHaveLength(2);
+    });
+
+    it('sends the actor user identifier on the edit request like generation does', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gpt-image-1',
+                    prompt: 'add a hat',
+                    ratio: { w: 1024, h: 1024 },
+                    input_images: [PNG],
+                }),
+            makeActorMatrix()[1],
+        );
+
+        const sent = editMock.mock.calls[0]![0];
+        expect(sent.user).toBe('puter-u42-app-abc');
     });
 
     it('meters an :input line at the image_input token rate when the edit response reports image tokens', async () => {

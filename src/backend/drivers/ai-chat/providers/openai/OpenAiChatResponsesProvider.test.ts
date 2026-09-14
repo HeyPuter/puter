@@ -48,7 +48,11 @@ import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    assertActorMatrixIdentifiers,
+    makeActorMatrix,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
@@ -259,6 +263,27 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(args.input).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_output_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
+    });
+
+    it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValue(baseResponse);
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'o3-pro',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+        }
+
+        assertActorMatrixIdentifiers(responsesCreateMock.mock.calls, [
+            'safety_identifier',
+            'prompt_cache_key',
+        ]);
     });
 
     it('unravels function tools into the flat Responses API shape', async () => {
