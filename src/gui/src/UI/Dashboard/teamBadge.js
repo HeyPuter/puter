@@ -28,7 +28,8 @@ export const teamBadgeHtml = (user) => {
     const name = user?.team?.name;
     if ( typeof name !== 'string' || name.trim() === '' ) return '';
     const label = window.html_encode(name);
-    const title = window.html_encode(i18n('teams_account_of', [name]));
+    // i18n encodes by default; encoding twice shows entities in the tooltip.
+    const title = window.html_encode(i18n('teams_account_of', [name], false));
     return `<div class="dashboard-sidebar-team" title="${title}">${label}</div>`;
 };
 

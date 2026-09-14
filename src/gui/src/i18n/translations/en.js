@@ -527,6 +527,7 @@ const en = {
         teams_create_team_hint:
             'A team pays for the accounts you create in it. You stay its only administrator.',
         teams_create_team_prompt: 'What should the team be called?',
+        email_needed_to_create_token: 'This account has no email address, which tokens require.',
         teams_audit_range: '{{from}}–{{to}} of {{total}}',
         previous: 'Previous',
         next: 'Next',

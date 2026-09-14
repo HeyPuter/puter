@@ -195,7 +195,9 @@ Available only where a deployment has turned teams on. Every team route is bound
 | Seats one team may provision, paying owner | 40    |
 | Member password resets per day           | 20           |
 
-A seat is a real Puter account on the ordinary tier, created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
+A seat is a real Puter account created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
+
+A seat whose team pays for no tier is on the `org_seat_free` plan: **half** the ordinary free allowance, usage and rate caps alike (a free account's `bySubscription` caps apply to every free plan). Without this, provisioning seats would mint full free tiers nobody pays for. A seat on a paid team tier gets that tier's allowance.
 
 A reset returns a temporary password once and never again. It stops working 24 hours after it is issued, so an unused reset expires rather than becoming a standing credential; after that the administrator has to issue a new one. Until the member replaces it, every authenticated request from that account fails with `password_change_required` — signing in works, but nothing else does until they choose their own password.
 

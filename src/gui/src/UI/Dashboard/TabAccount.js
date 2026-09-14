@@ -127,9 +127,13 @@ const TabAccount = {
         if ( window.user?.email_confirmed ) {
             h += `<button class="button copy-auth-token">${i18n('create_token')}</button>`;
         } else {
+            // "Verify your email" is a dead end for an account with none.
+            const tokenHint = window.user?.email
+                ? i18n('verify_email_to_create_token')
+                : i18n('email_needed_to_create_token');
             // Disabled buttons have `pointer-events: none`, so the tooltip
             // lives on a wrapping span that still receives hover.
-            h += `<span title="${html_encode(i18n('verify_email_to_create_token'))}" style="cursor: not-allowed;">`;
+            h += `<span title="${html_encode(tokenHint)}" style="cursor: not-allowed;">`;
             h += `<button class="button copy-auth-token" disabled>${i18n('create_token')}</button>`;
             h += '</span>';
         }

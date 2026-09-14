@@ -5006,6 +5006,32 @@ describe('AuthController password recovery', () => {
         expect(after!.pass_recovery_token).toBeTruthy();
     });
 
+    it('send-pass-recovery-email: refuses a team seat, and writes no token', async () => {
+        // The seat's address is admin-supplied and unverified; recovery there
+        // would be a takeover channel. Its recovery is the admin's reset.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        const res = makeRes();
+        await controller.handleSendPassRecoveryEmail(
+            makeReq({ username: seat.username }),
+            res,
+        );
+        expect((res.body as { message: string }).message).toMatch(
+            /If that account exists/i,
+        );
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after!.pass_recovery_token).toBeFalsy();
+    });
+
     it('verify-pass-recovery-token: 400 on missing token', async () => {
         await expect(
             controller.handleVerifyPassRecoveryToken(makeReq({}), makeRes()),
@@ -5251,6 +5277,26 @@ describe('AuthController user-protected mutations (validation paths)', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change-email: 403 for an account its team provisioned', async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeEmail(
+                makeReq({ new_email: `moved_${uniq()}@example.com` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
     });
 
     it('change-username: 403 for an account its team provisioned', async () => {

@@ -18,6 +18,7 @@
  */
 
 import check_password_strength from '../helpers/checkPasswordStrength.js';
+import { fetchWithSessionCookieRetry } from '../util/sessionAuth.js';
 import UIWindow from './UIWindow.js';
 
 /** Resolves true once a seat replaces the password its administrator chose. */
@@ -43,6 +44,12 @@ function UIWindowPasswordChangeRequired (options) {
         h += '<input id="pcr-confirm" class="pcr-confirm" type="password" autocomplete="new-password" />';
         h += `<button type="submit" class="button button-block button-primary pcr-btn" style="margin-top:16px;">${i18n('change_password')}</button>`;
         h += '</form>';
+        // The gate loops; a lost temporary password needs a way out.
+        if ( options.logout_in_footer ) {
+            h += '<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">';
+            h += `<span class="pcr-log-out" style="cursor:pointer; text-decoration:underline;">${i18n('log_out')}</span>`;
+            h += '</div>';
+        }
         h += '</div>';
 
         const el_window = await UIWindow({
@@ -87,6 +94,12 @@ function UIWindowPasswordChangeRequired (options) {
             $(el_window).find('.pcr-current, .pcr-new, .pcr-confirm').attr('disabled', false);
         };
 
+        $(el_window).find('.pcr-log-out').on('click', function () {
+            window.logout();
+            $(el_window).close();
+            resolve(false);
+        });
+
         $(el_window).find('form').on('submit', async function (e) {
             e.preventDefault();
             const current_password = $(el_window).find('.pcr-current').val();
@@ -112,16 +125,22 @@ function UIWindowPasswordChangeRequired (options) {
             $(el_window).find('.pcr-btn').addClass('disabled');
             $(el_window).find('.pcr-current, .pcr-new, .pcr-confirm').attr('disabled', true);
 
+            // The route is cookie-gated and this gate can open before the
+            // session cookie exists; the wrapper mints it and retries once.
+            const send = () => fetch(`${origin}/user-protected/change-password`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    password: current_password,
+                    new_pass: new_password,
+                }),
+            });
             let res;
             try {
-                res = await fetch(`${origin}/user-protected/change-password`, {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        password: current_password,
-                        new_pass: new_password,
-                    }),
+                res = await fetchWithSessionCookieRetry(send, {
+                    origin,
+                    authToken: options.auth_token ?? window.auth_token,
                 });
             } catch (err) {
                 return fail(err?.message || 'Request failed');

@@ -289,7 +289,9 @@
     // name from the global username pool, so this is what bounds a team's blast
     // radius. The owner's plan decides which of the two applies; defaults are 4
     // and 40. Lowering either below a team's current seat count blocks new
-    // provisioning and disables nobody.
+    // provisioning and disables nobody. Deployments upgrading from the old flat
+    // default of 50: without a billing extension every owner reads as free, so
+    // set `max_seats_per_team` to keep the old behavior.
     "max_seats_per_team_free": 4,
     "max_seats_per_team_paid": 40,
     //

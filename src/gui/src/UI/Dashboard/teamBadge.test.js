@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-globalThis.i18n = (key, args) => `${key}:${(args ?? []).join(',')}`;
-globalThis.window = { html_encode: (v) => String(v).replace(/</g, '&lt;') };
+// Mirrors the real i18n: encodes unless the third argument is false.
+globalThis.i18n = (key, args, encode = true) => {
+    const raw = `${key}:${(args ?? []).join(',')}`;
+    return encode ? raw.replace(/&/g, '&amp;') : raw;
+};
+globalThis.window = { html_encode: (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;') };
 
 const { teamBadgeHtml } = await import('./teamBadge.js');
 
@@ -33,4 +37,10 @@ describe('the sidebar team badge', () => {
         const h = teamBadgeHtml({ team: { name: 'Acme' } });
         expect(h).toContain('teams_account_of:Acme');
     });
+});
+
+it('does not double-encode the tooltip', () => {
+    const h = teamBadgeHtml({ team: { uid: 't-1', name: 'R&D' } });
+    expect(h).toContain('title="teams_account_of:R&amp;D"');
+    expect(h).not.toContain('&amp;amp;');
 });

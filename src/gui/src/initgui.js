@@ -1806,10 +1806,14 @@ window.initgui = async function (options) {
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
+                        logout_in_footer: true,
+                        auth_token: query_param_auth_token,
                         window_options: {
                             is_draggable: false,
                         },
                     });
+                    // false = logged out; stop looping on a dead session.
+                    if (changed === false && !window.auth_token) return;
                 } while (!changed);
             }
             // if user is logging in using an auth token that means it's not their first ever visit to Puter.com
@@ -2086,11 +2090,13 @@ window.initgui = async function (options) {
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
+                        logout_in_footer: true,
                         window_options: {
                             is_draggable: false,
                             cover_page: window.is_embedded,
                         },
                     });
+                    if (changed === false && !window.auth_token) return;
                 } while (!changed);
             }
             await window.update_auth_data(

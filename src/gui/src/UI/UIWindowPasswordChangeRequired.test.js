@@ -58,6 +58,62 @@ describe('the forced password-change gate', () => {
         fields['.pcr-confirm'] = 'ChosenPass1!';
     });
 
+    it('mints the session cookie and retries when the first submit 401s', async () => {
+        globalThis.window.auth_token = 'tok-1';
+        const rejected = {
+            ok: false,
+            status: 401,
+            clone: () => ({ json: async () => ({ code: 'session_required' }) }),
+            json: async () => ({ code: 'session_required' }),
+        };
+        globalThis.fetch
+            .mockResolvedValueOnce(rejected)                       // first submit
+            .mockResolvedValueOnce({ ok: true, json: async () => ({}) }) // sync-cookie
+            .mockResolvedValueOnce({ ok: true });                  // retried submit
+        UIWindowPasswordChangeRequired({});
+        await new Promise((r) => setTimeout(r));
+        await submit();
+        const urls = globalThis.fetch.mock.calls.map(([u]) => String(u));
+        expect(urls.some((u) => u.includes('/session/sync-cookie'))).toBe(true);
+        expect(state.closed).toBe(1);
+    });
+
+    it('offers a way out: the footer logout closes the gate', async () => {
+        let clickHandler = null;
+        const prevFind = globalThis.$;
+        globalThis.$ = () => ({
+            find: (sel) => ({
+                val: () => fields[sel],
+                on: (evt, fn) => {
+                    if (evt === 'submit') submitHandler = fn;
+                    if (evt === 'click' && sel === '.pcr-log-out') clickHandler = fn;
+                },
+                html: () => ({ fadeIn: () => {} }),
+                hide: () => {},
+                fadeIn: () => {},
+                addClass: () => {},
+                removeClass: () => {},
+                attr: () => {},
+                get: () => [undefined],
+            }),
+            close: () => { state.closed++; },
+        });
+        globalThis.window.logout = vi.fn();
+        const resolved = UIWindowPasswordChangeRequired({ logout_in_footer: true });
+        await new Promise((r) => setTimeout(r));
+        expect(state.el.body).toContain('pcr-log-out');
+        clickHandler();
+        expect(globalThis.window.logout).toHaveBeenCalled();
+        await expect(resolved).resolves.toBe(false);
+        globalThis.$ = prevFind;
+    });
+
+    it('renders no logout link unless the caller asks for one', async () => {
+        UIWindowPasswordChangeRequired({});
+        await new Promise((r) => setTimeout(r));
+        expect(state.el.body).not.toContain('pcr-log-out');
+    });
+
     it('posts to the one route the gate lets through, with credentials', async () => {
         globalThis.fetch.mockResolvedValue({ ok: true });
         const gate = UIWindowPasswordChangeRequired({ show_close_button: false });
