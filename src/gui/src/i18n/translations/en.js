@@ -540,6 +540,8 @@ const en = {
         teams_billed_per_account: "Billed per account, per month, on the team's invoice",
         teams_upgrade_to: 'Upgrade to %%',
         teams_switch_to: 'Switch to %%',
+        teams_switch_to_free: 'Switch to Free',
+        teams_cancel_keeps_until: 'Done. The plan stays active until the end of the period it was paid for, then the account moves to Free.',
         teams_audit_range: '{{from}}–{{to}} of {{total}}',
         previous: 'Previous',
         next: 'Next',
