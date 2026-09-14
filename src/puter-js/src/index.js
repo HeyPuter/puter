@@ -28,7 +28,7 @@ import { Teams } from './modules/teams/index.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
-import Peer from './modules/Peer.js';
+import Peer from './modules/Peer/index.js';
 import { registerComponents } from './ui/registerComponents.js';
 
 class SimpleLogger {
