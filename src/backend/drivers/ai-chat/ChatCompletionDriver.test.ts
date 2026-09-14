@@ -738,6 +738,41 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         });
     }
 
+    it('rejects subscriber-only models for a team seat on the free org plan', async () => {
+        // `org_seat_free` pays nothing, so it must not reach a paid model —
+        // the gate checks every free plan, not two named ones.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'subonly-seat',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 100, 'output-tokens': 100 },
+                max_tokens: 8192,
+                subscriberOnly: true,
+            },
+        ]);
+        const d = await makeDriver();
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            1_000_000,
+        );
+        vi.spyOn(
+            server.services.metering,
+            'getActorSubscription',
+        ).mockResolvedValue({ id: 'org_seat_free' } as never);
+
+        await expect(
+            withTestActor(() =>
+                d.complete({
+                    model: 'subonly-seat',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'permission_denied',
+        });
+    });
+
     it('rejects subscriber-only models for the default free subscription', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {

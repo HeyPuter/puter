@@ -406,6 +406,51 @@ describe('rateLimitGate — bySubscription overrides', () => {
         expect(await runGate(opts, paidReq)).toBeUndefined();
     });
 
+    it('holds a free plan the spec never named to the free cap', async () => {
+        // A team seat resolves to `org_seat_free`; no driver enumerates it, and
+        // falling through to `limit` would outrank an ordinary free account.
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async () => ({ id: 'org_seat_free' }),
+            },
+        });
+        const opts = {
+            limit: 100,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: 'rl-sub-orgseat',
+        };
+        const req = () => ({
+            actor: { user: { id: 7, uuid: 'seat' } },
+            headers: {},
+        });
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(isHttpError(await runGate(opts, req()))).toBe(true);
+    });
+
+    it('still gives a paid plan the base when it names no cap of its own', async () => {
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async () => ({ id: 'some-paid-tier' }),
+            },
+        });
+        const opts = {
+            limit: 2,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: 'rl-sub-paid-unlisted',
+        };
+        const req = () => ({
+            actor: { user: { id: 8, uuid: 'paid2' } },
+            headers: {},
+        });
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(isHttpError(await runGate(opts, req()))).toBe(true);
+    });
+
     it('falls back to the base `limit` when metering throws', async () => {
         configureRateLimit({
             metering: {
