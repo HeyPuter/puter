@@ -33,6 +33,8 @@ If `path` is not absolute, it will be resolved relative to the app's root direct
 
 Who to share with. A string containing `@` is treated as an email address, and any other string as a username. You can also pass `{ email }` or `{ username }`, or an array to share with several people at once.
 
+Where the deployment has [Teams](/Teams/), pass `{ team: uid }` to share with every member of a team the caller belongs to — including anyone added to it later. There is no string form for a team: a bare string is always read as an email or username.
+
 #### `mode` (String) (optional)
 
 How much access to grant. Defaults to `'read'`.
