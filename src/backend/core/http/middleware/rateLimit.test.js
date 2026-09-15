@@ -1506,6 +1506,20 @@ describe('consumeRouteRateLimit', () => {
         expect(await consumeRouteRateLimit(reqFor(2), opts)).toBe(true);
     });
 
+    it('charges every window of an array spec, and any refusal refuses', async () => {
+        // The array form routes use (burst + sustained); the tightest bites.
+        const specs = [
+            { limit: 5, window: 60_000, key: 'user', scope: uniqueScope() },
+            { limit: 2, window: 60_000, key: 'user', scope: uniqueScope() },
+        ];
+        const req = { actor: { user: { id: 9 } }, headers: {} };
+        expect(await consumeRouteRateLimit(req, specs)).toBe(true);
+        expect(await consumeRouteRateLimit(req, specs)).toBe(true);
+        expect(await consumeRouteRateLimit(req, specs)).toBe(false);
+        // The refusing window really was the second one, not the first.
+        expect(await consumeRouteRateLimit(req, specs[0])).toBe(true);
+    });
+
     it('applies bySubscription overrides via the wired metering service', async () => {
         configureRateLimit({
             metering: {

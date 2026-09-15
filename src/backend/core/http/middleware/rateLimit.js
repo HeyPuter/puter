@@ -722,8 +722,15 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
  * budget. This resolves the key and the per-subscription limit exactly as the
  * gate does — same spec in, same bucket out — so a handler can charge a second
  * scope conditionally. Returns true if allowed; fails open on backend error.
+ * Takes the array form too; windows charge in order, no refund on refusal.
  */
 export async function consumeRouteRateLimit(req, spec) {
+    if (Array.isArray(spec)) {
+        for (const window of spec) {
+            if (!(await consumeRouteRateLimit(req, window))) return false;
+        }
+        return true;
+    }
     const {
         window: windowMs,
         key: strategy = 'fingerprint',
