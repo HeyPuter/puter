@@ -8,6 +8,22 @@ export class PuterPeerServerConnectionEvent extends Event {
     }
 }
 
+export class PuterPeerServerReconnectEvent extends Event {
+    inviteCode;
+    constructor (inviteCode) {
+        super('reconnect');
+        this.inviteCode = inviteCode;
+    }
+}
+
+export class PuterPeerServerCloseEvent extends Event {
+    reason;
+    constructor (reason) {
+        super('close');
+        this.reason = reason;
+    }
+}
+
 export class PuterPeerConnectionMessageEvent extends Event {
     data;
     constructor (message) {
@@ -35,5 +51,39 @@ export class PuterPeerConnectionErrorEvent extends Event {
     constructor (error) {
         super('error');
         this.error = error;
+    }
+}
+
+export class PuterPeerMediaEvent extends Event {
+    name;
+    stream;
+    track;
+    constructor (name, stream, track) {
+        super('media');
+        this.name = name;
+        this.stream = stream;
+        this.track = track;
+    }
+}
+
+export class PuterPeerMediaEndedEvent extends Event {
+    name;
+    stream;
+    constructor (name, stream) {
+        super('mediaended');
+        this.name = name;
+        this.stream = stream;
+    }
+}
+
+export class PuterPeerLinkStateEvent extends Event {
+    state;
+    attempt;
+    of;
+    constructor (state, { attempt, of } = {}) {
+        super('linkstate');
+        this.state = state;
+        this.attempt = attempt;
+        this.of = of;
     }
 }

@@ -189,14 +189,18 @@ export type { PTLSSocket } from './types/modules/networking/PTLS.js';
 
 // -- puter.peer --
 export type {
-    PuterPeerConnection,
     PuterPeerDescription,
     PuterPeerIceCandidate,
     PuterPeerMessage,
     PuterPeerOptions,
-    PuterPeerServer,
     PuterPeerUser,
-} from './types/modules/Peer.js';
+} from './types/modules/Peer/types.js';
+export type { PuterPeerConnection } from './types/modules/Peer/PuterPeerConnection.js';
+export type { PuterPeerServer } from './types/modules/Peer/PuterPeerServer.js';
+export type {
+    PuterPeerEncoding,
+    PuterPeerPublishOptions,
+} from './types/modules/Peer/tracks.js';
 
 // -- puter.perms --
 export type {
@@ -281,7 +285,7 @@ export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSCo
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
 export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;
 export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
-export type Peer = InstanceType<import('./types/modules/Peer.js').PeerConstructor>;
+export type Peer = InstanceType<import('./types/modules/Peer/index.js').PeerConstructor>;
 export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
 export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsConstructor>;
 export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;

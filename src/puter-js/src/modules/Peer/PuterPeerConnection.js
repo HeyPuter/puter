@@ -1,14 +1,17 @@
 import { PerfectNegotiator } from './PerfectNegotiator.js';
+import { TrackPublisher } from './tracks.js';
 import { ClientSignallingChannel } from './signalling.js';
 import {
     PuterPeerConnectionCloseEvent,
     PuterPeerConnectionErrorEvent,
     PuterPeerConnectionMessageEvent,
     PuterPeerConnectionOpenEvent,
+    PuterPeerLinkStateEvent,
 } from './events.js';
 
-/** @typedef {import('../../../types/modules/peer').PuterPeerMessage} PuterPeerMessage */
-/** @typedef {import('../../../types/modules/peer').PuterPeerOptions} PuterPeerOptions */
+/** @typedef {import('./types.js').PuterPeerMessage} PuterPeerMessage */
+/** @typedef {import('./types.js').PuterPeerOptions} PuterPeerOptions */
+/** @typedef {import('./tracks.js').PuterPeerPublishOptions} PuterPeerPublishOptions */
 
 /** How many times ICE may be restarted before the connection is given up on. */
 const ICE_RESTART_LIMIT = 3;
@@ -24,15 +27,28 @@ export class PuterPeerConnection extends EventTarget {
     /**
      * Information about the user who created the server.
      *
-     * @type {import('../../../types/modules/peer').PuterPeerUser | undefined}
+     * @type {import('./types.js').PuterPeerUser | undefined}
      */
     owner;
+
+    /** @type {string | undefined} */
+    room;
     connected = false;
     closed = false;
+
+    /**
+     * How the media path is doing, which is more than the transport's own
+     * state says: 'unstable' is a wobble nothing is being done about yet,
+     * 'recovering' is an ICE restart actually in flight.
+     *
+     * @type {'connecting' | 'connected' | 'unstable' | 'recovering' | 'closed'}
+     */
+    linkState = 'connecting';
 
     #peerConfig;
     #channel;
     #negotiator;
+    #tracks;
     #datachannel;
     #bufferedMessages = [];
     #iceRestarts = 0;
@@ -74,14 +90,21 @@ export class PuterPeerConnection extends EventTarget {
             this.#doclose(undefined, evt.error);
         };
 
+        this.#tracks = new TrackPublisher(this.peerconnection, this);
+
         this.#negotiator = new PerfectNegotiator(this.peerconnection, this.#channel, {
             polite,
             onerror: (error) => this.dispatchEvent(new PuterPeerConnectionErrorEvent(error)),
+            localNames: () => this.#tracks.localNames(),
+            onRemoteNames: (names) => this.#tracks.applyRemoteNames(names),
         });
 
         this.peerconnection.onconnectionstatechange = () => this.#onConnectionState();
 
-        this.#channel.onsignal = (signal) => this.#onSignal(signal);
+        this.#channel.onoffer = (description, names) => this.#negotiator.acceptOffer(description, names);
+        this.#channel.onanswer = (description, names) => this.#negotiator.acceptAnswer(description, names);
+        this.#channel.oncandidate = (candidate) => this.#negotiator.acceptCandidate(candidate);
+        this.#channel.onbye = (reason) => this.#onBye(reason);
         this.#channel.onpeergone = (reason) => this.#onPeerGone(reason);
         this.#channel.onunusable = () => this.#onSignallingLost();
     }
@@ -95,13 +118,37 @@ export class PuterPeerConnection extends EventTarget {
      * @returns {Promise<void>}
      */
     async connect ( invitecode, options = {} ) {
-        this.#channel.onattached = (owner) => {
+        this.#channel.onattached = async (owner, grant, room) => {
             this.owner = owner;
+            this.room = room;
+            await this.#adoptRelayedGrant(grant, options);
+            if ( this.closed ) return;
             // The connecting side makes the opening offer.
             this.#negotiator.start();
         };
         this.#channel.onrejected = (error) => this.#doclose(undefined, error);
         await this.#channel.open(invitecode, options);
+    }
+
+    /**
+     * Redeems a relay grant left by the host before making the first offer.
+     *
+     * @param {string | undefined} grant
+     * @param {PuterPeerOptions} options
+     */
+    async #adoptRelayedGrant (grant, options) {
+        if ( ! grant || ! options.anonToken || options.turnGrant || options.iceServers ) return;
+        if ( typeof this.#peerConfig.iceServersFor !== 'function' ) return;
+        try {
+            const iceServers = await this.#peerConfig.iceServersFor({ turnGrant: grant });
+            if ( this.closed || ! iceServers ) return;
+            this.peerconnection.setConfiguration({
+                iceTransportPolicy: this.#peerConfig.forceRelay ? 'relay' : 'all',
+                iceServers,
+            });
+        } catch (error) {
+            console.warn('Unable to use the host’s relays. Some connections may fail.', error);
+        }
     }
 
     /**
@@ -114,14 +161,10 @@ export class PuterPeerConnection extends EventTarget {
         this.#negotiator.enable();
     }
 
-    /** @param {import('./signalling.js').PeerSignal} signal */
-    #onSignal ( signal ) {
-        if ( signal.bye ) {
-            this.#peerGone = true;
-            this.#doclose(signal.bye.reason, undefined);
-            return;
-        }
-        this.#negotiator.accept(signal);
+    /** The peer said goodbye, so there is nothing to recover. */
+    #onBye ( reason ) {
+        this.#peerGone = true;
+        this.#doclose(reason, undefined);
     }
 
     /**
@@ -150,9 +193,15 @@ export class PuterPeerConnection extends EventTarget {
         switch ( this.peerconnection.connectionState ) {
             case 'connected':
                 this.#iceRestarts = 0;
+                this.#setLinkState('connected');
                 break;
             // 'disconnected' is transient: ICE either recovers by itself or
-            // escalates to 'failed', which is where recovery belongs.
+            // escalates to 'failed', which is where recovery belongs. Nothing
+            // is done about it, but a watcher is told, because frozen video
+            // starts here rather than at 'failed'.
+            case 'disconnected':
+                this.#setLinkState('unstable');
+                break;
             case 'failed':
                 this.#recover();
                 break;
@@ -160,6 +209,18 @@ export class PuterPeerConnection extends EventTarget {
                 this.#doclose(undefined, undefined);
                 break;
         }
+    }
+
+    /**
+     * @param {'connecting' | 'connected' | 'unstable' | 'recovering' | 'closed'} state
+     * @param {{ attempt?: number, of?: number }} [detail]
+     */
+    #setLinkState ( state, detail ) {
+        // Each restart attempt is worth announcing, so only the quiet states
+        // are deduplicated.
+        if ( this.linkState === state && state !== 'recovering' ) return;
+        this.linkState = state;
+        this.dispatchEvent(new PuterPeerLinkStateEvent(state, detail));
     }
 
     /**
@@ -181,6 +242,7 @@ export class PuterPeerConnection extends EventTarget {
 
         this.#recovering = true;
         this.#iceRestarts++;
+        this.#setLinkState('recovering', { attempt: this.#iceRestarts, of: ICE_RESTART_LIMIT });
         try {
             await this.#negotiator.restartIce();
         } catch {
@@ -195,7 +257,9 @@ export class PuterPeerConnection extends EventTarget {
         this.closed = true;
         this.connected = false;
 
+        this.#setLinkState('closed');
         this.#negotiator.stop();
+        this.#tracks.close();
 
         // Say goodbye while signalling is still up. An explicit hangup is the
         // only thing that separates a peer that left from one that broke, and
@@ -263,6 +327,62 @@ export class PuterPeerConnection extends EventTarget {
      */
     async addIceCandidate ( candidate ) {
         await this.peerconnection.addIceCandidate(candidate);
+    }
+
+    /**
+     * Media currently being sent, by name.
+     *
+     * @returns {Map<string, MediaStream | null>}
+     */
+    get publications () {
+        return this.#tracks.publications;
+    }
+
+    /**
+     * Media arriving from the peer, by the name they published it under. Each
+     * name keeps one stream for as long as it is published, so a `<video>`
+     * pointed at it once keeps working as tracks come and go.
+     *
+     * @returns {Map<string, MediaStream>}
+     */
+    get media () {
+        return this.#tracks.media;
+    }
+
+    /**
+     * Sends media to the peer under `name`, which is the name they receive it
+     * with. Publishing a name again swaps its tracks in place and costs no
+     * renegotiation, so muting or switching camera is cheap.
+     *
+     * @param {string} name
+     * @param {MediaStream | MediaStreamTrack | null} source
+     * @param {PuterPeerPublishOptions} [options]
+     * @returns {void}
+     */
+    publish ( name, source, options ) {
+        this.#tracks.publish(name, source, options);
+    }
+
+    /**
+     * Stops sending the media published under `name`.
+     *
+     * @param {string} name
+     * @returns {void}
+     */
+    unpublish ( name ) {
+        this.#tracks.unpublish(name);
+    }
+
+    /**
+     * Changes the encoding limits on published media. Applied immediately and
+     * re-applied after every later negotiation.
+     *
+     * @param {string} name
+     * @param {PuterPeerPublishOptions} options
+     * @returns {void}
+     */
+    configure ( name, options ) {
+        this.#tracks.configure(name, options);
     }
 
     /**

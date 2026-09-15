@@ -47,7 +47,9 @@ export class FakePeerConnection {
 
     channels = [];
     candidates = [];
+    transceivers = [];
     restarts = 0;
+    #listeners = new Map();
     /** Set to make the next setLocalDescription reject. */
     failLocalDescription = false;
 
@@ -56,11 +58,48 @@ export class FakePeerConnection {
         FakePeerConnection.instances.push(this);
     }
 
+    addEventListener (type, fn) {
+        if ( ! this.#listeners.has(type) ) this.#listeners.set(type, new Set());
+        this.#listeners.get(type).add(fn);
+    }
+
+    removeEventListener (type, fn) {
+        this.#listeners.get(type)?.delete(fn);
+    }
+
+    /** Fires both the `on*` property and any addEventListener handlers. */
+    fire (type, event = {}) {
+        this[`on${type}`]?.(event);
+        for ( const fn of this.#listeners.get(type) ?? [] ) fn(event);
+    }
+
+    getTransceivers () {
+        return this.transceivers;
+    }
+
+    addTrack (track, stream) {
+        const sender = new FakeSender(track);
+        this.transceivers.push({ sender, mid: String(this.transceivers.length) });
+        this.fire('negotiationneeded');
+        return sender;
+    }
+
+    removeTrack (sender) {
+        sender.track = null;
+        sender.removed = true;
+        this.fire('negotiationneeded');
+    }
+
+    /** Test hook: deliver a remote track the way a negotiation would. */
+    receiveTrack (track, mid) {
+        this.fire('track', { track, transceiver: { mid }, streams: [] });
+    }
+
     createDataChannel (label, options) {
         const channel = new FakeDataChannel(label, options);
         this.channels.push(channel);
         // A first data channel raises the negotiation-needed flag.
-        queueMicrotask(() => this.onnegotiationneeded?.());
+        queueMicrotask(() => this.fire('negotiationneeded'));
         return channel;
     }
 
@@ -74,6 +113,7 @@ export class FakePeerConnection {
             ?? ( this.signalingState === 'have-remote-offer' ? 'answer' : 'offer' );
         this.localDescription = description ?? { type, sdp: `sdp-${type}-${++sdpSeq}` };
         this.signalingState = type === 'offer' ? 'have-local-offer' : 'stable';
+        this.fire('signalingstatechange');
     }
 
     async setRemoteDescription (description) {
@@ -86,6 +126,7 @@ export class FakePeerConnection {
             }
             this.remoteDescription = description;
             this.signalingState = 'have-remote-offer';
+            this.fire('signalingstatechange');
             return;
         }
         if ( this.signalingState !== 'have-local-offer' ) {
@@ -93,6 +134,7 @@ export class FakePeerConnection {
         }
         this.remoteDescription = description;
         this.signalingState = 'stable';
+        this.fire('signalingstatechange');
     }
 
     async addIceCandidate (candidate) {
@@ -104,7 +146,7 @@ export class FakePeerConnection {
 
     restartIce () {
         this.restarts++;
-        queueMicrotask(() => this.onnegotiationneeded?.());
+        queueMicrotask(() => this.fire('negotiationneeded'));
     }
 
     close () {
@@ -115,7 +157,37 @@ export class FakePeerConnection {
     /** Test hook: drive `connectionState` the way the browser would. */
     setConnectionState (state) {
         this.connectionState = state;
-        this.onconnectionstatechange?.();
+        this.fire('connectionstatechange');
+    }
+}
+
+/** A sender whose encoding parameters a test can inspect. */
+export class FakeSender {
+    removed = false;
+    #params = { encodings: [{}] };
+
+    constructor (track) {
+        this.track = track;
+    }
+
+    async replaceTrack (track) {
+        this.track = track;
+    }
+
+    getParameters () {
+        return this.#params;
+    }
+
+    async setParameters (params) {
+        this.#params = params;
+    }
+
+    get encoding () {
+        return this.#params.encodings[0];
+    }
+
+    get degradationPreference () {
+        return this.#params.degradationPreference;
     }
 }
 
@@ -142,33 +214,28 @@ export class LoopbackChannel extends SignallingChannel {
         this._alive = false;
     }
 
-    sendOffer (description) {
-        this.#post({ offer: { offer: description } }, { description });
+    sendOffer (description, names) {
+        this.#post({ offer: { offer: description, names } });
     }
 
-    sendAnswer (description) {
-        this.#post({ answer: { answer: description } }, { description });
+    sendAnswer (description, names) {
+        this.#post({ answer: { answer: description, names } });
     }
 
     sendCandidate (candidate) {
-        this.#post({ candidate: { candidate } }, { candidate });
+        this.#post({ candidate: { candidate } });
     }
 
     sendBye (reason) {
-        this.#post({ bye: { reason } }, { bye: { reason } });
+        this.#post({ bye: { reason } });
     }
 
-    /** Records what went on the wire, and hands the peer what it would decode. */
-    #post (payload, signal) {
+    /** Records the wire payload, then hands it to the peer to read as one. */
+    #post (payload) {
         if ( this.failSend ) throw new Error('signalling send failed');
         if ( ! this._alive ) return;
         this.delivered.push(payload);
-        this.peer?.deliver(signal);
-    }
-
-    /** Hands a signal to the connection on this end. */
-    deliver (signal) {
-        this.onsignal(signal);
+        this.peer?.receive(payload);
     }
 
     close () {

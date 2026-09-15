@@ -2,19 +2,40 @@ import { fetchUrl } from '../../lib/networkUtils.js';
 import { PuterModule } from '../../lib/PuterModule.js';
 import { PuterPeerConnection } from './PuterPeerConnection.js';
 import { PuterPeerServer } from './PuterPeerServer.js';
+import { isRoomName } from './signalling.js';
 
-/** @typedef {import('../../../types/modules/peer').PuterPeerOptions} PuterPeerOptions */
+/** @typedef {import('./types.js').PuterPeerOptions} PuterPeerOptions */
 
 export { PuterPeerServer } from './PuterPeerServer.js';
 export { PuterPeerConnection } from './PuterPeerConnection.js';
 
-class Peer extends PuterModule {
+export class PeerModule extends PuterModule {
     #signallerUrl;
     #turnServers;
     #fallbackIceServers;
     #turnTTL;
     #turnStartedAt;
     #turnFailed;
+    #turnSource;
+
+    /**
+     * Creates a grant that lets guests without a Puter session use the
+     * Puter-managed relays.
+     *
+     * @returns {Promise<{ grant: string, expiresAt: number }>}
+     */
+    async createGuestGrant () {
+        const response = await fetchUrl(`${this.APIOrigin}/peer/turn-grant`, {
+            method: 'POST',
+            includePuterAuth: true,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if ( ! response.ok ) throw new Error('Failed to create a guest grant.');
+        return await response.json();
+    }
 
     /**
      * Fetches TURN relay credentials ahead of time so connections start
@@ -22,19 +43,35 @@ class Peer extends PuterModule {
      * it resolves either way: if relays can't be loaded, connecting falls back
      * to the default ICE servers.
      *
+     * @param {{ turnGrant?: string }} [options]
      * @returns {Promise<void>}
      */
-    async ensureTurnRelays () {
+    async ensureTurnRelays (options = {}) {
+        const source = options.turnGrant ? `grant:${options.turnGrant}` : 'session';
+        if ( source !== this.#turnSource ) {
+            this.#turnSource = source;
+            this.#turnServers = undefined;
+            this.#turnFailed = false;
+        }
+
         if ( this.#turnFailed ) return;
         if ( this.#turnServers && Date.now() - this.#turnStartedAt < this.#turnTTL * 1000 ) return;
 
-        const response = await fetchUrl(`${this.APIOrigin}/peer/generate-turn`, {
-            method: 'POST',
-            includePuterAuth: true,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
+        const response = options.turnGrant
+            ? await fetchUrl(`${this.APIOrigin}/peer/guest-turn`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ grant: options.turnGrant }),
+            })
+            : await fetchUrl(`${this.APIOrigin}/peer/generate-turn`, {
+                method: 'POST',
+                includePuterAuth: true,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
 
         if ( ! response.ok ) {
             this.#turnFailed = true;
@@ -67,26 +104,23 @@ class Peer extends PuterModule {
         }
     }
 
+    async #iceServersFor (options) {
+        if ( options?.iceServers ) return options.iceServers;
+        await this.ensureTurnRelays(options ?? {});
+        if ( this.#turnServers ) return this.#turnServers;
+        console.warn('Unable to use TURN relays. Some connections may fail.');
+        return this.#fallbackIceServers;
+    }
+
     async #resolvePeerConfig (options) {
         await this.#loadMetadata();
-        let iceServers;
-        if ( options?.iceServers ) {
-            iceServers = options.iceServers;
-        } else {
-            await this.ensureTurnRelays();
-            if ( this.#turnServers ) {
-                iceServers = this.#turnServers;
-            } else {
-                iceServers = this.#fallbackIceServers;
-                console.warn('Unable to use TURN relays. Some connections may fail.');
-            }
-        }
-
+        const iceServers = await this.#iceServersFor(options);
         return {
             authToken: this.authToken,
             iceServers,
             signallerUrl: this.#signallerUrl,
-            forceRelay: options?.forceRelay
+            forceRelay: options?.forceRelay,
+            iceServersFor: (relayOptions) => this.#iceServersFor(relayOptions),
         };
     }
 
@@ -98,6 +132,9 @@ class Peer extends PuterModule {
      * @returns {Promise<PuterPeerServer>}
      */
     async serve (options) {
+        if ( options?.name !== undefined && ! isRoomName(options.name) ) {
+            throw new TypeError('Room names are 3-64 lowercase letters, digits and hyphens, not starting or ending with a hyphen.');
+        }
         if ( !options?.anonToken ) await this.#authenticateForPeerAction('create a server');
         const peerConfig = await this.#resolvePeerConfig(options);
         const server = new PuterPeerServer(peerConfig);
@@ -124,4 +161,14 @@ class Peer extends PuterModule {
     }
 }
 
+/**
+ * @typedef {import('../../lib/types.js').OmitMembers<
+ *     typeof PeerModule,
+ *     'puter' | 'authToken'
+ * >} PeerConstructor
+ */
+
+export const Peer = /** @type {PeerConstructor} */ (PeerModule);
+
+export { isRoomName } from './signalling.js';
 export default Peer;
