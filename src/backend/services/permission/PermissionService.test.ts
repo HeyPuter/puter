@@ -161,6 +161,14 @@ describe('PermissionService.getHigherPermissions', () => {
         expect(higher).toEqual(expect.arrayContaining(['a:b:c', 'a:b', 'a']));
     });
 
+    it('drops the bare fs parents, which no grant may hold', async () => {
+        const service = createPermissionService();
+        const higher = await service.getHigherPermissions('fs:some-uuid:write');
+        expect(higher).toContain('fs:some-uuid:write');
+        expect(higher).not.toContain('fs:some-uuid');
+        expect(higher).not.toContain('fs');
+    });
+
     it('expands via registered exploders when the parent matches', async () => {
         const service = createPermissionService();
         service.registerExploder({

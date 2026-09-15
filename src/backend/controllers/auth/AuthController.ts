@@ -2295,6 +2295,14 @@ export class AuthController extends PuterController {
             return;
         }
 
+        // A seat's address is admin-supplied and never verified, so whoever
+        // holds that inbox could take the seat over. Its recovery channel is
+        // the team admin's password reset, not this one.
+        if (await this.stores.team.getOrgSeat(user.id)) {
+            res.json({ message: genericMessage });
+            return;
+        }
+
         const pass_recovery_token = uuidv4();
         await this.stores.user.update(user.id, { pass_recovery_token });
 
@@ -2553,6 +2561,17 @@ export class AuthController extends PuterController {
     }
 
     async handleChangeUsername(req: Request, res: Response): Promise<void> {
+        // A provisioned account's name belongs to the team that made it: the
+        // console lists its members by username and the audit log records them
+        // by username, so a self-service rename would desync both.
+        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+            throw new HttpError(
+                403,
+                'Your team set this username. Ask a team admin to change it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
         const { new_username } = req.body ?? {};
         if (!new_username || typeof new_username !== 'string') {
             throw new HttpError(400, '`new_username` is required', {
@@ -2619,6 +2638,16 @@ export class AuthController extends PuterController {
     }
 
     async handleChangeEmail(req: Request, res: Response): Promise<void> {
+        // The address is where admin-issued credentials and team notices go;
+        // same reasoning as the username and deletion guards above.
+        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+            throw new HttpError(
+                403,
+                'Your team set this address. Ask a team admin to change it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
         const { new_email } = req.body ?? {};
         if (!new_email || typeof new_email !== 'string') {
             throw new HttpError(400, '`new_email` is required', {
@@ -4376,6 +4405,15 @@ export class AuthController extends PuterController {
 
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
+        // The team owns the account and is billed for it; only they may close
+        // it, through the console that keeps the audit trail.
+        if (await this.stores.team.getOrgSeat(userId)) {
+            throw new HttpError(
+                403,
+                'Your team owns this account. Ask a team admin to remove it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
         res.clearCookie('puter_revalidation');
@@ -4818,6 +4856,7 @@ export class AuthController extends PuterController {
             phone?: string | null;
             requires_phone_verification?: number | boolean;
             requires_card_verification?: number | boolean;
+            requires_password_change?: number | boolean;
         },
     ): Promise<void> {
         const meta = {
@@ -4856,6 +4895,20 @@ export class AuthController extends PuterController {
             console.warn('[auth] taskbar_items resolution failed:', e);
         }
 
+        // Same shape as whoami: no-reload logins store this payload as
+        // window.user verbatim, and every seat restriction keys on `team`.
+        let team: { uid: string; name: string | null } | undefined;
+        if (this.config.teams_enabled === true) {
+            try {
+                const seat = await this.stores.team.getOrgSeat(user.id);
+                if (seat) {
+                    team = { uid: seat.team_uid, name: seat.team_name ?? null };
+                }
+            } catch (e) {
+                console.warn('[auth] team lookup failed:', e);
+            }
+        }
+
         // Response body gets the GUI token (client never sees session token)
         res.json({
             proceed: true,
@@ -4870,7 +4923,9 @@ export class AuthController extends PuterController {
                 phone: user.phone,
                 requires_phone_verification: user.requires_phone_verification,
                 requires_card_verification: user.requires_card_verification,
+                requires_password_change: user.requires_password_change,
                 is_temp: user.password === null && user.email === null,
+                ...(team ? { team } : {}),
                 taskbar_items,
             },
         });
