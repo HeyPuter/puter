@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PuterPeerConnection, PuterPeerServer, isRoomName } from './Peer.js';
+import { PuterPeerConnection, PuterPeerServer, isRoomName } from './Peer/index.js';
 
 /*
  * Room names and the signaller-side plumbing around them: a server that
@@ -58,8 +58,12 @@ class FakeRTCPeerConnection {
         this.config = config;
         this.configurations = [];
         this.onicecandidate = null;
+        this.signalingState = 'stable';
+        this.connectionState = 'new';
+        this.localDescription = null;
         FakeRTCPeerConnection.instances.push(this);
     }
+    addEventListener () {}
     createDataChannel () {
         return { onmessage: null, onopen: null, onclose: null, onerror: null, close () {}, send () {} };
     }
@@ -69,7 +73,10 @@ class FakeRTCPeerConnection {
     async createOffer () {
         return { type: 'offer', sdp: 'v=0' };
     }
-    async setLocalDescription () {}
+    async setLocalDescription (description) {
+        this.localDescription = description ?? await this.createOffer();
+        this.signalingState = 'have-local-offer';
+    }
     async setRemoteDescription () {}
     async addIceCandidate () {}
     close () {}

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { fetchUrlMock } = vi.hoisted(() => ({ fetchUrlMock: vi.fn() }));
 vi.mock('../lib/networkUtils.js', () => ({ fetchUrl: fetchUrlMock }));
 
-const { PeerModule } = await import('./Peer.js');
+const { PeerModule } = await import('./Peer/index.js');
 
 const API_ORIGIN = 'https://api.test';
 
@@ -240,8 +240,11 @@ class FakeRTCPeerConnection {
 
     constructor (config) {
         this.config = config;
+        this.signalingState = 'stable';
         FakeRTCPeerConnection.latest = this;
     }
+
+    addEventListener () {}
 
     createDataChannel () {
         return {

@@ -31,7 +31,7 @@ const makeConnection = async ({ connected = true } = {}) => {
     conn.addEventListener('error', (e) => errors.push(e.error));
 
     // The opening exchange: the connecting side offers, this side answers.
-    channel.deliver({ description: { type: 'offer', sdp: 'opening-offer' } });
+    channel.onoffer({ type: 'offer', sdp: 'opening-offer' });
     await flush();
 
     if ( connected ) pc.channels[0].open();
@@ -42,7 +42,7 @@ const makeConnection = async ({ connected = true } = {}) => {
 /** Answers whatever offer the connection just made, settling negotiation. */
 const answerOffer = async ( channel ) => {
     await flush();
-    channel.deliver({ description: { type: 'answer', sdp: 'answer-sdp' } });
+    channel.onanswer({ type: 'answer', sdp: 'answer-sdp' });
     await flush();
 };
 
@@ -168,7 +168,7 @@ describe('hangups', () => {
     it('reports the reason a peer gave for hanging up', async () => {
         const { conn, channel, closes } = await makeConnection();
 
-        channel.deliver({ bye: { reason: 'user left the room' } });
+        channel.onbye('user left the room');
         await flush();
 
         expect(conn.closed).toBe(true);
@@ -178,9 +178,73 @@ describe('hangups', () => {
     it('does not bounce a goodbye back at a peer that just said one', async () => {
         const { channel } = await makeConnection();
 
-        channel.deliver({ bye: { reason: 'bye' } });
+        channel.onbye('bye');
         await flush();
 
         expect(channel.delivered.filter((s) => s.bye)).toEqual([]);
+    });
+});
+
+describe('link state', () => {
+    it('reports a wobble it is not acting on', async () => {
+        const { conn, pc, closes } = await makeConnection();
+        const seen = [];
+        conn.addEventListener('linkstate', (e) => seen.push(e.state));
+
+        pc.setConnectionState('disconnected');
+        await flush();
+
+        expect(seen).toEqual(['unstable']);
+        expect(pc.restarts).toBe(0);
+        expect(conn.linkState).toBe('unstable');
+        expect(closes).toEqual([]);
+    });
+
+    it('reports each restart attempt, and the budget it is spending', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        const seen = [];
+        conn.addEventListener('linkstate', (e) => seen.push([e.state, e.attempt, e.of]));
+
+        pc.setConnectionState('failed');
+        await answerOffer(channel);
+        pc.setConnectionState('failed');
+        await answerOffer(channel);
+
+        expect(seen).toEqual([
+            ['recovering', 1, 3],
+            ['recovering', 2, 3],
+        ]);
+        expect(conn.linkState).toBe('recovering');
+    });
+
+    it('reports coming back, and forgets the attempts', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        const seen = [];
+        conn.addEventListener('linkstate', (e) => seen.push([e.state, e.attempt]));
+
+        pc.setConnectionState('failed');
+        await answerOffer(channel);
+        pc.setConnectionState('connected');
+        await flush();
+        pc.setConnectionState('failed');
+        await answerOffer(channel);
+
+        expect(seen).toEqual([
+            ['recovering', 1],
+            ['connected', undefined],
+            ['recovering', 1],
+        ]);
+    });
+
+    it('settles on closed', async () => {
+        const { conn, channel } = await makeConnection();
+        const seen = [];
+        conn.addEventListener('linkstate', (e) => seen.push(e.state));
+
+        channel.onbye('done');
+        await flush();
+
+        expect(seen).toEqual(['closed']);
+        expect(conn.linkState).toBe('closed');
     });
 });

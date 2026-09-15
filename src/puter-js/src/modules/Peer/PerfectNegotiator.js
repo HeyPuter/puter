@@ -1,5 +1,3 @@
-/** @typedef {import('./signalling.js').PeerSignal} PeerSignal */
-
 /** How long a renegotiation offer may go unanswered before the peer counts as gone. */
 export const DEFAULT_ANSWER_TIMEOUT = 8000;
 
@@ -19,6 +17,8 @@ export class PerfectNegotiator {
     #channel;
     #polite;
     #onerror;
+    #localNames;
+    #onRemoteNames;
 
     #makingOffer = false;
     #ignoreOffer = false;
@@ -31,13 +31,20 @@ export class PerfectNegotiator {
     /**
      * @param {RTCPeerConnection} peerconnection
      * @param {import('./signalling.js').SignallingChannel} channel
-     * @param {{ polite: boolean, onerror: (error: Error) => void }} options
+     * @param {{
+     *   polite: boolean,
+     *   onerror: (error: Error) => void,
+     *   localNames?: () => Record<string, string>,
+     *   onRemoteNames?: (names: Record<string, string>) => void,
+     * }} options
      */
-    constructor ( peerconnection, channel, { polite, onerror } ) {
+    constructor ( peerconnection, channel, { polite, onerror, localNames, onRemoteNames } ) {
         this.#pc = peerconnection;
         this.#channel = channel;
         this.#polite = polite;
         this.#onerror = onerror;
+        this.#localNames = localNames ?? (() => ({}));
+        this.#onRemoteNames = onRemoteNames ?? (() => {});
 
         this.#pc.onnegotiationneeded = () => this.#enqueue(() => this.#offer());
         this.#pc.onicecandidate = ({ candidate }) => {
@@ -72,13 +79,32 @@ export class PerfectNegotiator {
     }
 
     /**
-     * Applies a signal from the peer, one at a time and in arrival order.
+     * Applies an offer from the peer. Offers are the only signal that can
+     * collide, since an answer only ever replies to an offer we made.
      *
-     * @param {PeerSignal} signal
+     * @param {RTCSessionDescriptionInit} description
+     * @param {Record<string, string>} [names]
      * @returns {Promise<void>}
      */
-    accept ( signal ) {
-        return this.#enqueue(() => this.#apply(signal));
+    acceptOffer ( description, names ) {
+        return this.#enqueue(() => this.#applyOffer(description, names));
+    }
+
+    /**
+     * @param {RTCSessionDescriptionInit} description
+     * @param {Record<string, string>} [names]
+     * @returns {Promise<void>}
+     */
+    acceptAnswer ( description, names ) {
+        return this.#enqueue(() => this.#applyAnswer(description, names));
+    }
+
+    /**
+     * @param {RTCIceCandidateInit} candidate
+     * @returns {Promise<void>}
+     */
+    acceptCandidate ( candidate ) {
+        return this.#enqueue(() => this.#applyCandidate(candidate));
     }
 
     /**
@@ -125,7 +151,7 @@ export class PerfectNegotiator {
         try {
             this.#makingOffer = true;
             await this.#pc.setLocalDescription();
-            this.#channel.sendOffer(this.#pc.localDescription);
+            this.#channel.sendOffer(this.#pc.localDescription, this.#localNames());
         } catch ( e ) {
             this.#onerror(e);
         } finally {
@@ -133,42 +159,57 @@ export class PerfectNegotiator {
         }
     }
 
-    /** @param {PeerSignal} signal */
-    async #apply ( { description, candidate } ) {
+    async #applyOffer ( description, names ) {
         const pc = this.#pc;
         if ( pc.signalingState === 'closed' ) return;
+
+        const collision = this.#makingOffer || pc.signalingState !== 'stable';
+        // Only the impolite side may ignore an offer. The polite side rolls
+        // its own back inside setRemoteDescription and answers instead.
+        this.#ignoreOffer = ! this.#polite && collision;
+        if ( this.#ignoreOffer ) return;
+
         try {
-            if ( description ) {
-                const collision = description.type === 'offer'
-                    && ( this.#makingOffer || pc.signalingState !== 'stable' );
-
-                // Only the impolite side may ignore an offer. The polite side
-                // rolls its own back inside setRemoteDescription and answers.
-                this.#ignoreOffer = ! this.#polite && collision;
-                if ( this.#ignoreOffer ) return;
-
-                await pc.setRemoteDescription(description);
-                await this.#flushCandidates();
-                if ( description.type === 'offer' ) {
-                    await pc.setLocalDescription();
-                    this.#channel.sendAnswer(pc.localDescription);
-                }
-                if ( pc.signalingState === 'stable' ) this.#settle();
-                return;
-            }
-
-            if ( candidate ) {
-                // A candidate that overtakes the description it belongs to has
-                // nothing to attach to yet, so hold it rather than drop it.
-                if ( ! pc.remoteDescription ) {
-                    this.#pendingCandidates.push(candidate);
-                    return;
-                }
-                await this.#addCandidate(candidate);
-            }
+            await this.#adopt(description, names);
+            await pc.setLocalDescription();
+            this.#channel.sendAnswer(pc.localDescription, this.#localNames());
+            if ( pc.signalingState === 'stable' ) this.#settle();
         } catch ( e ) {
             this.#onerror(e);
         }
+    }
+
+    async #applyAnswer ( description, names ) {
+        const pc = this.#pc;
+        if ( pc.signalingState === 'closed' ) return;
+        try {
+            await this.#adopt(description, names);
+            if ( pc.signalingState === 'stable' ) this.#settle();
+        } catch ( e ) {
+            this.#onerror(e);
+        }
+    }
+
+    /**
+     * Names go on before the description, because ontrack fires while one is
+     * being applied and a track has to be named by then.
+     */
+    async #adopt ( description, names ) {
+        if ( names ) this.#onRemoteNames(names);
+        await this.#pc.setRemoteDescription(description);
+        await this.#flushCandidates();
+    }
+
+    async #applyCandidate ( candidate ) {
+        const pc = this.#pc;
+        if ( pc.signalingState === 'closed' ) return;
+        // A candidate that overtakes the description it belongs to has nothing
+        // to attach to yet, so hold it rather than drop it.
+        if ( ! pc.remoteDescription ) {
+            this.#pendingCandidates.push(candidate);
+            return;
+        }
+        await this.#addCandidate(candidate);
     }
 
     async #addCandidate ( candidate ) {

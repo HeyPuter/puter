@@ -25,7 +25,9 @@ const makePair = () => {
             polite: isPolite,
             onerror: (error) => side.errors.push(error),
         });
-        side.channel.onsignal = (signal) => side.negotiator.accept(signal);
+        side.channel.onoffer = (d, n) => side.negotiator.acceptOffer(d, n);
+        side.channel.onanswer = (d, n) => side.negotiator.acceptAnswer(d, n);
+        side.channel.oncandidate = (c) => side.negotiator.acceptCandidate(c);
     }
 
     return { impolite, polite };
@@ -101,7 +103,7 @@ describe('PerfectNegotiator candidates', () => {
         polite.negotiator.start();
 
         // Both arrive in the same tick, candidate first.
-        impolite.negotiator.accept({ candidate: { candidate: 'late' } });
+        impolite.negotiator.acceptCandidate({ candidate: 'late' });
         await flush();
 
         expect(impolite.pc.candidates).toHaveLength(1);
@@ -117,8 +119,8 @@ describe('PerfectNegotiator candidates', () => {
 
         // A second offer from the polite side, colliding with one of ours.
         impolite.pc.signalingState = 'have-local-offer';
-        impolite.negotiator.accept({ description: { type: 'offer', sdp: 'ignored' } });
-        impolite.negotiator.accept({ candidate: { candidate: 'orphan' } });
+        impolite.negotiator.acceptOffer({ type: 'offer', sdp: 'ignored' });
+        impolite.negotiator.acceptCandidate({ candidate: 'orphan' });
         await flush();
 
         expect(impolite.errors).toEqual([]);

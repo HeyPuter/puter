@@ -1,44 +1,37 @@
-/**
- * An inbound signal. Only arriving messages need this shape - a sender
- * always knows what it is sending, so it names the message directly.
- *
- * @typedef {{
- *   description?: RTCSessionDescriptionInit,
- *   candidate?: RTCIceCandidateInit,
- *   bye?: { reason?: string },
- * }} PeerSignal
- */
+const ROOM_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
+const INVITE_CODE_RE = /^[A-Z0-9]{0,4}-[0-9A-F]{6}$/;
 
 /**
- * Maps a relayed envelope back onto a negotiation signal. Envelopes from a
- * peer server also carry the connection id, which is not part of the signal.
+ * Whether a string is a room name rather than a generated invite code.
  *
- * @param {Record<string, Record<string, unknown>>} envelope
- * @returns {PeerSignal | null}
+ * @param {string} value
+ * @returns {boolean}
  */
-export function decodeSignal ( envelope ) {
-    if ( envelope.offer ) return { description: envelope.offer.offer };
-    if ( envelope.answer ) return { description: envelope.answer.answer };
-    if ( envelope.candidate ) {
-        // End-of-candidates arrives as an explicit null from older peers.
-        return envelope.candidate.candidate
-            ? { candidate: envelope.candidate.candidate }
-            : null;
-    }
-    if ( envelope.bye ) return { bye: { reason: envelope.bye.reason } };
-    return null;
+export function isRoomName (value) {
+    return typeof value === 'string' && ROOM_NAME_RE.test(value) && !INVITE_CODE_RE.test(value);
 }
 
 /**
- * The connection a relayed envelope belongs to. Every signal a peer server
- * receives is addressed, because one socket carries all of its clients.
- *
- * @param {Record<string, Record<string, unknown>>} envelope
- * @returns {string | undefined}
+ * @param {string} signallerUrl
+ * @param {string | undefined} room
+ * @returns {string}
  */
-export function signalTarget ( envelope ) {
-    const payload = envelope.offer ?? envelope.answer ?? envelope.candidate ?? envelope.bye;
-    return payload?.id;
+export function signallerUrlFor (signallerUrl, room) {
+    if ( ! room ) return signallerUrl;
+    const url = new URL(signallerUrl);
+    url.searchParams.set('room', room);
+    return url.toString();
+}
+
+/**
+ * @param {string} message
+ * @param {string} [code]
+ * @returns {Error & { code?: string }}
+ */
+export function signallerError (message, code) {
+    const error = /** @type {Error & { code?: string }} */ (new Error(message));
+    if ( code ) error.code = code;
+    return error;
 }
 
 /**
@@ -46,10 +39,20 @@ export function signalTarget ( envelope ) {
  * `PuterPeerConnection` owns the WebRTC state machine and reaches its peer
  * only through this, so serving and connecting differ in nothing but which
  * envelope their signals travel in.
+ *
+ * Subclasses supply `alive`, `close()`, and one send method per message:
+ * `sendOffer(description, names)`, `sendAnswer(description, names)`,
+ * `sendCandidate(candidate)` and `sendBye(reason)`.
  */
 export class SignallingChannel {
-    /** @type {(signal: PeerSignal) => void} */
-    onsignal = () => {};
+    /** @type {(description: RTCSessionDescriptionInit, names?: Record<string, string>) => void} */
+    onoffer = () => {};
+    /** @type {(description: RTCSessionDescriptionInit, names?: Record<string, string>) => void} */
+    onanswer = () => {};
+    /** @type {(candidate: RTCIceCandidateInit) => void} */
+    oncandidate = () => {};
+    /** @type {(reason?: string) => void} */
+    onbye = () => {};
     /** Peer's signalling session ended. Evidence it hung up, never proof. */
     /** @type {(reason?: string) => void} */
     onpeergone = () => {};
@@ -57,34 +60,25 @@ export class SignallingChannel {
     /** @type {() => void} */
     onunusable = () => {};
 
-    /** @returns {boolean} whether a signal sent right now would get through */
-    get alive () {
-        return false;
-    }
-
-    /** @param {RTCSessionDescriptionInit} _description @returns {void} */
-    sendOffer ( _description ) {}
-
-    /** @param {RTCSessionDescriptionInit} _description @returns {void} */
-    sendAnswer ( _description ) {}
-
-    /** @param {RTCIceCandidateInit} _candidate @returns {void} */
-    sendCandidate ( _candidate ) {}
-
-    /** @param {string} [_reason] @returns {void} */
-    sendBye ( _reason ) {}
-
-    /** @returns {void} */
-    close () {}
-
     /**
-     * Hands a signal to the connection on this end.
+     * Reads one relayed envelope and calls the handler for what it holds.
+     * A peer server's envelopes also carry the connection id, which is
+     * routing rather than signal, and is ignored here.
      *
-     * @param {PeerSignal} signal
+     * @param {Record<string, Record<string, unknown>>} envelope
      * @returns {void}
      */
-    deliver ( signal ) {
-        this.onsignal(signal);
+    receive ( envelope ) {
+        // `names` is absent from a peer that publishes no named media; an
+        // empty object from one publishing none. The two are not the same.
+        if ( envelope.offer ) return this.onoffer(envelope.offer.offer, envelope.offer.names);
+        if ( envelope.answer ) return this.onanswer(envelope.answer.answer, envelope.answer.names);
+        if ( envelope.candidate ) {
+            // End-of-candidates arrives as an explicit null from older peers.
+            if ( envelope.candidate.candidate ) this.oncandidate(envelope.candidate.candidate);
+            return;
+        }
+        if ( envelope.bye ) return this.onbye(envelope.bye.reason);
     }
 }
 
@@ -93,7 +87,7 @@ export class SignallingChannel {
  */
 export class ClientSignallingChannel extends SignallingChannel {
     /** Handshake accepted; carries the peer server's owner. */
-    /** @type {(owner: import('../../../types/modules/peer').PuterPeerUser) => void} */
+    /** @type {(owner: import('./types.js').PuterPeerUser, grant?: string, room?: string) => void | Promise<void>} */
     onattached = () => {};
     /** @type {(error: Error) => void} */
     onrejected = () => {};
@@ -117,11 +111,12 @@ export class ClientSignallingChannel extends SignallingChannel {
      * `onrejected`.
      *
      * @param {string} invitecode
-     * @param {import('../../../types/modules/peer').PuterPeerOptions} [options]
+     * @param {import('./types.js').PuterPeerOptions} [options]
      * @returns {Promise<void>}
      */
     async open ( invitecode, options = {} ) {
-        const ws = new WebSocket(this.#peerConfig.signallerUrl);
+        const room = ! options.port && isRoomName(invitecode) ? invitecode : undefined;
+        const ws = new WebSocket(signallerUrlFor(this.#peerConfig.signallerUrl, room));
         this.#ws = ws;
 
         await new Promise((resolve, reject) => {
@@ -149,12 +144,12 @@ export class ClientSignallingChannel extends SignallingChannel {
         );
     }
 
-    sendOffer ( description ) {
-        this.#post({ offer: { offer: description } });
+    sendOffer ( description, names ) {
+        this.#post({ offer: { offer: description, names } });
     }
 
-    sendAnswer ( description ) {
-        this.#post({ answer: { answer: description } });
+    sendAnswer ( description, names ) {
+        this.#post({ answer: { answer: description, names } });
     }
 
     sendCandidate ( candidate ) {
@@ -183,7 +178,7 @@ export class ClientSignallingChannel extends SignallingChannel {
         this.#ws = null;
     }
 
-    #onMessage ( evt ) {
+    async #onMessage ( evt ) {
         let msg;
         try {
             msg = JSON.parse(evt.data).client;
@@ -195,9 +190,9 @@ export class ClientSignallingChannel extends SignallingChannel {
         if ( msg.connect ) {
             if ( msg.connect.success ) {
                 this.#attached = true;
-                this.onattached(msg.connect.owner);
+                return this.onattached(msg.connect.owner, msg.connect.grant, msg.connect.room);
             } else {
-                this.onrejected(new Error(msg.connect.error));
+                return this.onrejected(signallerError(msg.connect.error, msg.connect.code));
             }
             return;
         }
@@ -205,9 +200,7 @@ export class ClientSignallingChannel extends SignallingChannel {
             this.onpeergone(msg.disconnect.reason);
             return;
         }
-
-        const signal = decodeSignal(msg);
-        if ( signal ) this.deliver(signal);
+        this.receive(msg);
     }
 
     #onClosed () {
@@ -241,12 +234,12 @@ export class ServerSignallingChannel extends SignallingChannel {
 
     // Every payload a peer server sends carries the connection id, since one
     // socket carries all of its clients.
-    sendOffer ( description ) {
-        this.#post({ offer: { offer: description, id: this.#id } });
+    sendOffer ( description, names ) {
+        this.#post({ offer: { offer: description, names, id: this.#id } });
     }
 
-    sendAnswer ( description ) {
-        this.#post({ answer: { answer: description, id: this.#id } });
+    sendAnswer ( description, names ) {
+        this.#post({ answer: { answer: description, names, id: this.#id } });
     }
 
     sendCandidate ( candidate ) {
@@ -262,12 +255,7 @@ export class ServerSignallingChannel extends SignallingChannel {
         this.#server.relay(payload);
     }
 
-    /** @param {string} [reason] */
-    peerGone ( reason ) {
-        this.onpeergone(reason);
-    }
+    /** Nothing to close: the socket belongs to the server, not this channel. */
+    close () {}
 
-    unusable () {
-        this.onunusable();
-    }
 }
