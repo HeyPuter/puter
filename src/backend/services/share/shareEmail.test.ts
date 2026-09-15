@@ -543,19 +543,18 @@ describe('share email', () => {
         expect(mail.text).toContain(`Open Puter: ${href}`);
     });
 
-    it('names the issuing app and stamps it on the links', async () => {
-        const owner = env.users.user;
-        const recipient = await signUpAndConfirm(uninvitedAddress());
-        sent = [];
-
-        const file = await makeFile(owner, 'via-app');
-        // An app of the owner's, with reach over the file, sharing as them.
+    /** An app of `owner`'s with reach over `file`, and a token to share as them. */
+    const makeSharingApp = async (
+        owner: { username: string },
+        file: { uid: string },
+        title: string,
+    ) => {
         const user = await env.server.stores.user.getByUsername(owner.username);
         const actor = makeActor({ user: user! });
         const app = await env.server.stores.app.create(
             {
                 name: `mail-app-${crypto.randomUUID().slice(0, 8)}`,
-                title: 'Mail App',
+                title,
                 index_url: 'https://mail-app.test/',
             },
             { ownerUserId: user!.id },
@@ -571,6 +570,16 @@ describe('share email', () => {
             actor,
             app.uid,
         );
+        return { ...app, token };
+    };
+
+    it('names the issuing app and stamps it on the links', async () => {
+        const owner = env.users.user;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const file = await makeFile(owner, 'via-app');
+        const { token, ...app } = await makeSharingApp(owner, file, 'Mail App');
 
         await shareWith({ token }, recipient.email, [{ uid: file.uid }]);
 
@@ -590,6 +599,33 @@ describe('share email', () => {
         const invite = await waitForMail({ to: invitee });
         expect(invite.html).toContain('via Mail App');
         expect(invite.html).not.toContain('shared_app=');
+    });
+
+    it('keeps the app off the button when the digest is not all its doing', async () => {
+        const appSender = env.users.user;
+        const plainSender = env.users.admin;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const viaApp = await makeFile(appSender, 'mixed-app');
+        const plain = await makeFile(plainSender, 'mixed-plain');
+        const app = await makeSharingApp(appSender, viaApp, 'Mixer');
+        await withDigestWindow(env, DIGEST_WINDOW_SECONDS, async () => {
+            await shareWith({ token: app.token }, recipient.email, [
+                { uid: viaApp.uid },
+            ]);
+            await shareWith(plainSender, recipient.email, [{ uid: plain.uid }]);
+        });
+
+        const mail = await waitForMail({ to: recipient.email });
+        await sleep(SETTLE_MS);
+        expect(mailTo(recipient.email)).toHaveLength(1);
+        // The app's own line and item link keep their attribution...
+        expect(mail.html).toContain('via Mixer');
+        expect(mail.html).toContain(`&shared_app=${app.name}`);
+        // ...but the button speaks for the whole mail, so it names no app.
+        const href = openPuterHref(mail.html);
+        expect(new URL(href!).searchParams.get('shared_app')).toBeNull();
     });
 
     // Nothing to route to yet, so the names stay plain and the call to action
