@@ -3282,8 +3282,8 @@ export class AuthController extends PuterController {
     /**
      * Whether a granted `fs:` path permission needs its target created before
      * the grant can resolve, and if so where and what kind. Null when there is
-     * nothing to create: `create` was not requested, the entry does not name an
-     * `fs:` path, it is a `manage:` grant, or the path already exists.
+     * nothing to create: `create` is `false`, the entry does not name an `fs:`
+     * path, it is a `manage:` grant, or the path already exists.
      *
      * Side-effect-free, like `#prepareAppDataGrant` above — a pre-grant hook
      * run in the same validation loop, so a bad entry elsewhere in the list
@@ -3397,7 +3397,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
-        // 400 on a bad value, before anything else runs.
+        // 400 on a bad value, before anything else runs. Absent means create.
         const create = parseCreateFlag(req.body?.create);
 
         // Validate every entry before writing or creating anything, so a bad

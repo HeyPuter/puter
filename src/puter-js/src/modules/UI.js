@@ -1822,7 +1822,8 @@ export class UIModule extends EventListener {
      *
      * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
      *   `create`: for an `fs:` permission naming a path that doesn't exist,
-     *   create it server-side after the user approves. See `puter.perms.request`.
+     *   create it server-side after the user approves. Defaults to `true`;
+     *   `false` opts out, `'dir'`/`'file'` force the kind. See `puter.perms.request`.
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
      *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
@@ -1911,9 +1912,9 @@ export class UIModule extends EventListener {
             const query = requested
                 .map(p => `permission=${encodeURIComponent(p)}`)
                 .join('&');
-            // Left out entirely when absent, so the URL is byte-identical to
-            // before this option existed.
-            const create_param = create ? `&create=${encodeURIComponent(create === true ? 'true' : create)}` : '';
+            // Left out when absent so the GUI applies its default; an explicit
+            // `false` has to travel, or the popup would create anyway.
+            const create_param = create === undefined ? '' : `&create=${encodeURIComponent(String(create))}`;
             const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}${create_param}`;
 
             // Guards against settling more than once across the message,

@@ -691,10 +691,10 @@ const postAuthActions = async (action) => {
         // denial below is reported as usual.
         const origin = window.openerOrigin;
         // Only these literal values are meaningful; anything else (including
-        // absent) means no create request, the same default the grant
-        // endpoint applies.
+        // absent) leaves the dialog's default, which is to create.
         const raw_create = window.url_query_params.get('create');
         const create = raw_create === 'true' ? true
+            : raw_create === 'false' ? false
             : (raw_create === 'dir' || raw_create === 'file') ? raw_create
             : undefined;
 

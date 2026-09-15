@@ -2403,11 +2403,11 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
     const path = (name: string) => `/${user.username}/${name}`;
     const rand = () => uuidv4().slice(0, 6);
 
-    it('creates a missing directory, grants it, and a subsequent check reports it held', async () => {
+    it('creates a missing directory by default, grants it, and a subsequent check reports it held', async () => {
         const p = path(`.mail-${rand()}`);
         expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
 
-        await grant({ permission: `fs:${p}:write`, create: true });
+        await grant({ permission: `fs:${p}:write` });
 
         const entry = await server.stores.fsEntry.getEntryByPath(p);
         expect(entry?.isDir).toBe(true);
@@ -2453,10 +2453,10 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         ).toBe(true);
     });
 
-    it('without `create`, a missing path still 404s and nothing is created', async () => {
+    it('`create: false` opts out: a missing path 404s and nothing is created', async () => {
         const p = path(`missing-${rand()}`);
         await expect(
-            grant({ permission: `fs:${p}:write` }),
+            grant({ permission: `fs:${p}:write`, create: false }),
         ).rejects.toMatchObject({
             statusCode: 404,
             legacyCode: 'subject_does_not_exist',
@@ -2633,7 +2633,7 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
     it('does not apply `create` to a `manage:` grant — 404 unchanged, nothing created', async () => {
         const p = path(`manage-missing-${rand()}`);
         await expect(
-            grant({ permission: `manage:fs:${p}:write`, create: true }),
+            grant({ permission: `manage:fs:${p}:write` }),
         ).rejects.toMatchObject({
             statusCode: 404,
             legacyCode: 'subject_does_not_exist',

@@ -121,7 +121,7 @@ The SDK allows five seconds for each separate signed thumbnail transfer. A faile
 | Filesystem entries a `create` grant may bring into existence per request | 4 |
 | Path depth a `create` grant may provision below the home directory | 16 components |
 
-The last two apply only to [`create`](/Perms/request/#creating-a-path-on-request) on a raw `fs:` permission request. Missing intermediate directories are created along with the requested path.
+The last two apply to a raw `fs:` permission request whose path doesn't exist yet, which is [created on approval](/Perms/request/#creating-a-path-on-request) unless `create: false` is passed. Missing intermediate directories are created along with the requested path.
 
 ### WebDAV
 
