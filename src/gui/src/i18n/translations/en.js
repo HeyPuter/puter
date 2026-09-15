@@ -477,10 +477,10 @@ const en = {
         blocked_senders: 'Blocked people',
         blocked_senders_summary: 'People who can’t share with you',
         blocked_senders_note:
-            'Blocked people can’t share anything new with you. What they already shared stays until you remove it.',
+            'Blocked people can’t share anything new with you, and anything they share through a team you’re in stays hidden from you. What they already shared directly stays until you remove it.',
         blocked_all: 'Don’t let anyone share with me',
         blocked_all_note:
-            'Refuses every new share, whoever it’s from. What’s already shared with you stays.',
+            'Refuses every new share, whoever it’s from. What’s already shared with you stays, and shares made to a team you belong to still arrive — block the sender, or leave the team.',
         blocked_all_on: 'New shares are now refused from everyone',
         blocked_all_off: 'You’re accepting shares again',
         blocked_add: 'Block someone',
