@@ -20,6 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
 import { encodeCursor, decodeCursor } from '../../util/pagination';
+import { notBlockedSql } from '../userBlock/UserBlockStore';
 import { PuterStore } from '../types';
 
 /** Default page size for the keyset listings. */
@@ -309,15 +310,28 @@ export class ShareStore extends PuterStore {
      */
     async listByFsentrySubtree(fsentryId) {
         const rows = await this.clients.db.read(
-            'WITH RECURSIVE `subtree`(`id`) AS (' +
-                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
-                'UNION ALL ' +
-                'SELECT `f`.`id` FROM `fsentries` `f` ' +
-                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
-                ') ' +
+            this.#subtreeCte() +
                 'SELECT `share`.* FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 'WHERE `share`.`holder_user_id` IS NOT NULL ' +
+                'ORDER BY `share`.`id`',
+            [fsentryId],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Team-held rows on a directory or anything beneath it. What a revoked
+     * issuer re-shared to _teams_; `listByFsentrySubtree` only sees holders.
+     *
+     * @param {number} fsentryId
+     */
+    async listGroupSharesBySubtree(fsentryId) {
+        const rows = await this.clients.db.read(
+            this.#subtreeCte() +
+                'SELECT `share`.* FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
+                'WHERE `share`.`holder_group_id` IS NOT NULL ' +
                 'ORDER BY `share`.`id`',
             [fsentryId],
         );
@@ -364,9 +378,7 @@ export class ShareStore extends PuterStore {
                 `WHERE \`share\`.\`fsentry_id\` IN (${placeholders}) ` +
                 'AND `share`.`holder_group_id` IS NOT NULL ' +
                 'AND `g`.`deleted_at` IS NULL ' +
-                'AND NOT EXISTS (SELECT 1 FROM `user_block` `ub` ' +
-                'WHERE `ub`.`blocker_user_id` = `ug`.`user_id` ' +
-                'AND `ub`.`blocked_user_id` = `share`.`issuer_user_id`) ' +
+                `AND ${notBlockedSql('`ug`.`user_id`', '`share`.`issuer_user_id`')} ` +
                 'ORDER BY `share`.`id`',
             fsentryIds,
         );
@@ -386,12 +398,7 @@ export class ShareStore extends PuterStore {
      */
     async listIssuerIdsBySubtree(fsentryId) {
         const rows = await this.clients.db.read(
-            'WITH RECURSIVE `subtree`(`id`) AS (' +
-                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
-                'UNION ALL ' +
-                'SELECT `f`.`id` FROM `fsentries` `f` ' +
-                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
-                ') ' +
+            this.#subtreeCte() +
                 'SELECT DISTINCT `share`.`issuer_user_id` FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id`',
             [fsentryId],
@@ -836,12 +843,7 @@ export class ShareStore extends PuterStore {
         // dialects disagree on. The gap between the two only ever leaves an
         // invite standing, and the claim path re-checks authority anyway.
         const rows = await this.clients.db.read(
-            'WITH RECURSIVE `subtree`(`id`) AS (' +
-                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
-                'UNION ALL ' +
-                'SELECT `f`.`id` FROM `fsentries` `f` ' +
-                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
-                ') ' +
+            this.#subtreeCte() +
                 'SELECT `share`.`uid` FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 // Group rows also have no holder user; deleting one here would
@@ -914,13 +916,21 @@ export class ShareStore extends PuterStore {
 
     // -- Internals ----------------------------------------------------
 
+    /** The recursive walk of a directory's row ids, by parent linkage. */
+    #subtreeCte() {
+        return (
+            'WITH RECURSIVE `subtree`(`id`) AS (' +
+            'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
+            'UNION ALL ' +
+            'SELECT `f`.`id` FROM `fsentries` `f` ' +
+            'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
+            ') '
+        );
+    }
+
     /** Group rows only exist for teams, so no kind guard is needed here. */
     #issuerNotBlockedSql() {
-        return (
-            'NOT EXISTS (SELECT 1 FROM `user_block` `ub` ' +
-            'WHERE `ub`.`blocker_user_id` = ? ' +
-            'AND `ub`.`blocked_user_id` = `share`.`issuer_user_id`)'
-        );
+        return notBlockedSql('?', '`share`.`issuer_user_id`');
     }
 
     /** @param {number} [limit] */

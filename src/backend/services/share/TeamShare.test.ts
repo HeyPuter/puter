@@ -610,8 +610,10 @@ describe('sharing with a team', () => {
         expect(rows.some((r) => r.holderTeam?.uid === fx.a.uid)).toBe(true);
     });
 
-    // -- the recipient block list (PUT-1813) ----------------------------
-    // Enforced where delivery is derived per member: listing, grant, fan-out.
+    // -- the recipient block list ---------------------------------------
+    // A block suspends delivery only — listing, count, fan-out, telling. The
+    // grant and the authority graph stay whole, or a reversible block turns
+    // into permanent revocations downstream.
 
     const block = (blocker: FixtureUser, blocked: FixtureUser) =>
         fx.env.server.stores.userBlock.create(blocker.userId, blocked.userId);
@@ -642,13 +644,13 @@ describe('sharing with a team', () => {
             expect(after.items.map((i) => i.entryUid)).not.toContain(file.uid);
             expect(after.total).toBe(before.total);
 
-            // The block refuses access, not just the listing row.
+            // The grant itself stands — nothing is revoked by a block.
             const perms =
                 await fx.env.server.stores.permission.readUserGroupPerms(
                     blockingSeat.userId,
                     [`fs:${file.uid}:read`],
                 );
-            expect(perms).toHaveLength(0);
+            expect(perms).toHaveLength(1);
 
             // The rest of the team is unaffected.
             const others = (await inbox(otherSeat.userId)).items;
@@ -720,7 +722,38 @@ describe('sharing with a team', () => {
         }
     });
 
-    // -- unshare sweeps by rows, not by a member page (PUT-1813) --------
+    it('leaves a blocked member their authority, so they can still withdraw', async () => {
+        const seat = fx.a.seats[0];
+        const file = await makeFile(fx.a.owner.userId);
+        await shareWithTeam(
+            fx.a.owner.userId,
+            file.path,
+            { team: fx.a.uid },
+            'manage',
+        );
+        await shares().share(await actorFor(seat.userId), {
+            path: file.path,
+            recipient: { username: fx.outsider.username },
+            mode: 'read',
+        } as never);
+
+        await block(seat, fx.a.owner);
+        try {
+            // Authority must survive the block, or what they granted becomes
+            // theirs to keep but not theirs to take back.
+            await shares().unshare(await actorFor(seat.userId), {
+                path: file.path,
+                recipient: { username: fx.outsider.username },
+            } as never);
+            expect(
+                (await inbox(fx.outsider.userId)).items.map((i) => i.entryUid),
+            ).not.toContain(file.uid);
+        } finally {
+            await unblock(seat, fx.a.owner);
+        }
+    });
+
+    // -- unshare sweeps by rows, not by a member page --------------------
 
     it('sweeps a member re-share on team unshare', async () => {
         const seat = fx.a.seats[0];
@@ -820,5 +853,78 @@ describe('sharing with a team', () => {
         );
         expect(members).toContain(seat.userId);
         expect(members).not.toContain(fx.outsider.userId);
+    });
+
+    it('sweeps a member re-share made to another team', async () => {
+        const seat = fx.a.seats[0];
+        // The seat belongs to both teams, so it may re-share A's file into B.
+        await fx.env.server.stores.team.addMember(fx.b.uid, seat.userId, {
+            orgOwned: false,
+        });
+        const file = await makeFile(fx.a.owner.userId);
+        await shareWithTeam(
+            fx.a.owner.userId,
+            file.path,
+            { team: fx.a.uid },
+            'manage',
+        );
+        await shares().share(await actorFor(seat.userId), {
+            path: file.path,
+            recipient: { team: fx.b.uid },
+            mode: 'read',
+        } as never);
+        expect(
+            (await inbox(fx.b.seats[0].userId)).items.map((i) => i.entryUid),
+        ).toContain(file.uid);
+
+        await shares().unshare(await actorFor(fx.a.owner.userId), {
+            path: file.path,
+            recipient: { team: fx.a.uid },
+        } as never);
+
+        // Left standing, team B's grant is dormant and springs back whenever
+        // the seat requalifies — the row and the grant both have to go.
+        expect(
+            await fx.env.server.stores.permission.readUserGroupPerms(
+                fx.b.seats[0].userId,
+                [`fs:${file.uid}:read`],
+            ),
+        ).toHaveLength(0);
+        const entry = await fx.env.server.stores.fsEntry.getEntryByUuid(
+            file.uid,
+        );
+        expect(
+            await fx.env.server.stores.share.listGroupSharesByFsentry(
+                entry!.id,
+            ),
+        ).toHaveLength(0);
+    });
+
+    it('keeps member re-shares while another issuer still grants the team', async () => {
+        const [m1, m2] = fx.a.seats;
+        const file = await makeFile(fx.a.owner.userId);
+        await shareWithTeam(
+            fx.a.owner.userId,
+            file.path,
+            { team: fx.a.uid },
+            'manage',
+        );
+        // Two grants back the team; m2's re-share rests on either of them.
+        await shareWithTeam(m1.userId, file.path, { team: fx.a.uid });
+        await shares().share(await actorFor(m2.userId), {
+            path: file.path,
+            recipient: { username: fx.outsider.username },
+            mode: 'read',
+        } as never);
+
+        // m1 withdraws only their own grant; the owner's still delivers.
+        await shares().unshare(await actorFor(m1.userId), {
+            path: file.path,
+            recipient: { team: fx.a.uid },
+        } as never);
+
+        expect(
+            (await inbox(fx.outsider.userId)).items.map((i) => i.entryUid),
+        ).toContain(file.uid);
     });
 });

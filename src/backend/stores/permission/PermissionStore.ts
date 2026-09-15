@@ -29,7 +29,6 @@ import {
 } from '../../services/permission/consts';
 import { kv } from '../../util/kvSingleton';
 import { decodeCursor, encodeCursor } from '../../util/pagination';
-import { TEAM_KIND } from '../team/TeamStore';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -979,6 +978,9 @@ export class PermissionStore extends PuterStore {
      * Reads group permissions granted to groups the user is a member of, for a
      * given set of permission strings. Result already joined against
      * `jct_user_group` so callers don't need group membership resolution.
+     * Deliberately blind to the block list: this reading also answers authority
+     * checks that gate permanent revocations, and a block only suspends
+     * delivery (which the share listings and fan-out filter themselves).
      */
     async readUserGroupPerms(
         userId: number,
@@ -993,24 +995,11 @@ export class PermissionStore extends PuterStore {
             'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
                 'JOIN `group` g ON g.`id` = ug.group_id ' +
-                `WHERE ug.user_id = ? AND g.\`deleted_at\` IS NULL AND ${permClause} ` +
-                this.#notBlockedByHolderSql(),
-            [userId, ...permissions, TEAM_KIND],
+                `WHERE ug.user_id = ? AND g.\`deleted_at\` IS NULL AND ${permClause}`,
+            [userId, ...permissions],
         );
         return rows.map((row) =>
             this.#decodeExtra<LinkedUserGroupPermRow>(row),
-        );
-    }
-
-    /**
-     * Skips team rows whose issuer the member blocked; seeded groups (NULL
-     * kind) untouched.
-     */
-    #notBlockedByHolderSql(): string {
-        return (
-            'AND (g.`kind` IS NULL OR g.`kind` <> ? OR NOT EXISTS (' +
-            'SELECT 1 FROM `user_block` ub WHERE ub.`blocker_user_id` = ug.`user_id` ' +
-            'AND ub.`blocked_user_id` = p.`user_id`))'
         );
     }
 
@@ -1062,9 +1051,8 @@ export class PermissionStore extends PuterStore {
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE ug.\`user_id\` IN (${holders.map(() => '?').join(', ')}) ` +
                 'AND g.`deleted_at` IS NULL ' +
-                `AND p.\`permission\` IN (${perms.map(() => '?').join(', ')}) ` +
-                this.#notBlockedByHolderSql(),
-            [...holders, ...perms, TEAM_KIND],
+                `AND p.\`permission\` IN (${perms.map(() => '?').join(', ')})`,
+            [...holders, ...perms],
         );
         return rows as unknown as Array<{
             holder_user_id: number;

@@ -61,8 +61,9 @@ await puter.fs.share({ path, recipient: { team: team.uid }, mode: 'read' });
 ```
 
 A member who has blocked the sharer is the one exception: while the block
-stands, that member neither sees nor can open anything the sharer put into the
-team, and the sharer is not told.
+stands, nothing that sharer puts into the team is listed or announced to that
+member, and the sharer is not told. The underlying grant is untouched, so
+lifting the block restores the member's view.
 
 See [`puter.fs.share()`](/FS/share/) for the full sharing API.
 
