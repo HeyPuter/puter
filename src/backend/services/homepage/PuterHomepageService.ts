@@ -230,8 +230,8 @@ export class PuterHomepageService extends PuterService {
                 this.config.disable_user_signup ||
                 this.config.gui_params?.disable_temp_users,
             ),
-            // Off until the teams UI ships; the API can be on without it.
-            teams_ui: this.config.gui_params?.teams_ui === true,
+            // Deployment-wide switch, or per user via the domain allowlist.
+            teams_ui: await this.#teamsUiFor(actor),
             domain: this.config.domain,
             env,
             api_base_url: this.config.api_base_url,
@@ -431,6 +431,27 @@ export class PuterHomepageService extends PuterService {
     <h1>${encode(String(message), { mode: 'nonAsciiPrintable' })}</h1>
 </body>
 </html>`;
+    }
+
+    /**
+     * The deployment-wide switch shows the teams UI to everyone; otherwise a
+     * signed-in user on the domain allowlist (or already in a team) gets it.
+     * The API gates real access either way — this only decides the render.
+     */
+    async #teamsUiFor(actor: Actor | null): Promise<boolean> {
+        if (this.config.gui_params?.teams_ui === true) return true;
+        const domains = this.config.teams_allowed_email_domains;
+        if (!Array.isArray(domains) || domains.length === 0) return false;
+        const user = actor?.user;
+        if (typeof user?.id !== 'number') return false;
+        try {
+            return await this.services.team.teamsAvailableTo(
+                user.id,
+                user.email ?? null,
+            );
+        } catch {
+            return false;
+        }
     }
 
     #originFromRequest(req: Request): string {

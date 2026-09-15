@@ -301,8 +301,9 @@
     // free cap meaningful.
     // "max_seats_per_team": 50,
     //
-    // Staged rollout: only these email domains may create a team or see the
-    // tab. Members of an existing team always pass. Unset means everyone.
+    // Staged rollout: only these email domains may create a team, and the tab
+    // renders for them even with `gui_params.teams_ui` off. Members of an
+    // existing team always pass. Unset means everyone, gated by `teams_ui`.
     // "teams_allowed_email_domains": ["puter.com"],
 
     // ── Notifications ───────────────────────────────────────────────────
