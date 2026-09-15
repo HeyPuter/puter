@@ -26,6 +26,8 @@ export type {
     PuterEnvironment,
     RequestCallbacks,
     ToolSchema,
+    UpgradeReason,
+    UpgradeRequestDetails,
 } from './types/lib/types.js';
 export type { default as APICallLogger } from './types/lib/APICallLogger.js';
 

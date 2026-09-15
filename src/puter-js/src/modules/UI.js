@@ -1455,13 +1455,18 @@ export class UIModule extends EventListener {
     }
 
     /**
-     * Asks the desktop to show its upgrade flow.
+     * Asks the desktop to show its upgrade flow. `details` say what was
+     * refused and why, so the desktop can explain the suggestion; the SDK
+     * fills them in when a call is refused for want of credit, a plan, or
+     * storage.
      *
+     * @param {import('../lib/types.js').UpgradeRequestDetails} [details]
      * @returns {Promise<unknown>}
      */
-    requestUpgrade () {
+    requestUpgrade (details) {
+        const { reason, method, message } = details ?? {};
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestUpgrade', resolve, { });
+            this.#postMessageWithCallback('requestUpgrade', resolve, { reason, method, message });
         });
     };
 

@@ -1,5 +1,6 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
 import { PuterModule } from '../../lib/PuterModule.js';
+import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
 import * as utils from '../../lib/utils.js';
 import { compose } from './ComposerLib.js';
 
@@ -126,11 +127,33 @@ export class EmailModule extends PuterModule {
         method: 'sendTransactional',
         argNames: ['to', 'subject', 'body'],
         preprocess: preprocessSendArgs,
+        upgradePrompt: {
+            method: 'puter.email.sendTransactional',
+            subscriptionMessage: 'Sending email from an app requires a subscription.',
+        },
     });
 
+    /**
+     * Sends a message from the user's own mailbox. Resolves with the response
+     * body as the server sent it, error bodies included; a refusal that an
+     * upgrade would clear also prompts the user.
+     *
+     * @param {Record<string, unknown>} options Message fields for the composer.
+     * @returns {Promise<unknown>}
+     */
     send = async (options) => {
         const req = await fetchUrl(`${this.APIOrigin}/email/send`, { method: "POST", includePuterAuth: true, body: new Blob([await compose(options)], { type: 'message/rfc822' }) });
-        return await req.json();
+        const result = await req.json();
+        if ( ! req.ok ) {
+            promptIfUpgradeRequired(
+                result && typeof result === 'object' ? { ...result, status: req.status } : { status: req.status },
+                {
+                    method: 'puter.email.send',
+                    subscriptionMessage: 'Sending email to addresses outside Puter requires a subscription.',
+                },
+            );
+        }
+        return result;
     }
 }
 

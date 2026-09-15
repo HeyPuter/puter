@@ -89,6 +89,28 @@ const isWorkersSourcePath = (urlPath: string): boolean =>
         .split('/')
         .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
 
+/**
+ * Suggested value for `config.hosting_csp`. Not applied unless configured.
+ *
+ * Sources stay wide open because hosted sites legitimately pull from anywhere,
+ * and `'unsafe-inline'` stays because most hosted apps use inline script. What
+ * it withholds is `'unsafe-eval'` — the capability a stale library needs to
+ * reach `new Function`, which is how CVE-2024-4367 turns a crafted PDF into
+ * script execution in the viewer app's own origin.
+ *
+ * Apps that genuinely need eval (some wasm glue, some template engines) will
+ * break under this, which is why it ships as a suggestion rather than a
+ * default. Roll it out with `hosting_csp_report_only` first and read the
+ * violation reports before enforcing.
+ */
+export const RECOMMENDED_HOSTING_CSP = [
+    'default-src * data: blob:',
+    "script-src * data: blob: 'unsafe-inline'",
+    "style-src * data: blob: 'unsafe-inline'",
+    "object-src 'none'",
+    "base-uri 'self'",
+].join('; ');
+
 const SUBDOMAIN_404 = `<div style="font-size: 20px;
         text-align: center;
         height: calc(100vh);
@@ -587,7 +609,23 @@ export const createPuterSiteMiddleware = (
 
         // Fire-and-forget signal for downstream extensions
         const mimeBase = mime.split(';', 1)[0].trim().toLowerCase();
-        if (mimeBase === 'text/html' || mimeBase === 'application/xhtml+xml') {
+        const isActiveDocument =
+            mimeBase === 'text/html' || mimeBase === 'application/xhtml+xml';
+
+        // Only active documents carry a CSP — it does nothing for an image or
+        // a stylesheet, and every header we set here ships to third-party apps
+        // we don't control. Off unless `hosting_csp` is configured; see
+        // RECOMMENDED_HOSTING_CSP.
+        if (config.hosting_csp && isActiveDocument) {
+            res.setHeader(
+                config.hosting_csp_report_only
+                    ? 'Content-Security-Policy-Report-Only'
+                    : 'Content-Security-Policy',
+                config.hosting_csp,
+            );
+        }
+
+        if (isActiveDocument) {
             try {
                 const requestUrl = (req.originalUrl || '/').startsWith('/')
                     ? req.originalUrl || '/'
