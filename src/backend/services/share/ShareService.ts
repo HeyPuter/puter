@@ -30,7 +30,7 @@ import {
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserUserAuditFilter } from '../../stores/permission/PermissionStore';
-import { MEMBER_PAGE_CAP, type TeamRow } from '../../stores/team/TeamStore';
+import { type TeamRow } from '../../stores/team/TeamStore';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
 import {
@@ -2193,7 +2193,9 @@ export class ShareService extends PuterService {
      * asking the user to rebuild it.
      *
      * `updateMetadata` merges rather than replaces, and refreshes the cached
-     * row, so the switch bites on the very next share.
+     * row, so the switch bites on the very next share. Deliberately does not
+     * gate team-delivered shares; blocking the sender, or leaving the team,
+     * does.
      */
     async setBlockAllSenders(
         actor: Actor,
@@ -2207,9 +2209,11 @@ export class ShareService extends PuterService {
     }
 
     /**
-     * Refuse further shares from `username`. Existing shares stand: access
-     * someone already has is theirs until it is withdrawn, and a control
-     * labelled "block" silently revoking it would be a surprise.
+     * Refuse further shares from `username`. Existing direct shares stand:
+     * access someone already has is theirs until it is withdrawn, and a control
+     * labelled "block" silently revoking it would be a surprise. Team-delivered
+     * shares are derived per member on every read, so those are suspended while
+     * the block stands — nothing revoked, unblock restores.
      */
     async blockSender(
         actor: Actor,
@@ -2226,6 +2230,8 @@ export class ShareService extends PuterService {
             blockerId,
             target.id,
         );
+        // Group-delivered access changed, so cached scans must not outlive it.
+        if (created) await this.#bumpBlockerCache(actor);
         return { username: target.username as string, created };
     }
 
@@ -2240,7 +2246,21 @@ export class ShareService extends PuterService {
             blockerId,
             target.id,
         );
+        if (unblocked) await this.#bumpBlockerCache(actor);
         return { username: target.username as string, unblocked };
+    }
+
+    /** A block gates team-delivered access, so it has to bite immediately. */
+    async #bumpBlockerCache(actor: Actor): Promise<void> {
+        const username = actor.user?.username;
+        if (!username) return;
+        try {
+            await this.services.permission.bumpPermissionCacheForUsernames([
+                username,
+            ]);
+        } catch {
+            // The TTL still bounds a stale reading; the block itself is saved.
+        }
     }
 
     /**
@@ -2589,16 +2609,19 @@ export class ShareService extends PuterService {
 
         // Whatever a member re-shared goes with them, as on the user path, and
         // first: clearing the group grant would strip the `manage` it needs.
+        // Swept by the rows that exist, not by a capped member page.
         let revoked = 0;
-        const members = await this.stores.team.listMembers(team.uid, {
-            limit: MEMBER_PAGE_CAP,
-        });
         const issuerSet = new Set(issuers);
-        for (const member of members.items) {
-            const memberId = Number(member.user_id);
-            // The owner's own grants do not derive from this one, and an
-            // issuer's are handled by the revoke loop below.
-            if (memberId === entry.userId || issuerSet.has(memberId)) continue;
+        const candidates = (
+            await this.stores.share.listIssuerIdsBySubtree(entry.id)
+        ).filter(
+            // The owner and the issuers are handled by the revoke loop below.
+            (id: number) => id !== entry.userId && !issuerSet.has(id),
+        );
+        for (const memberId of await this.stores.team.memberIdsAmong(
+            team.uid,
+            candidates,
+        )) {
             revoked += await this.#revokeDownstream(me, entry, memberId);
         }
 

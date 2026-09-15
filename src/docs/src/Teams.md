@@ -60,6 +60,10 @@ including anyone added later. Pass the team's `uid` as the recipient:
 await puter.fs.share({ path, recipient: { team: team.uid }, mode: 'read' });
 ```
 
+A member who has blocked the sharer is the one exception: while the block
+stands, that member neither sees nor can open anything the sharer put into the
+team, and the sharer is not told.
+
 See [`puter.fs.share()`](/FS/share/) for the full sharing API.
 
 ## Pagination

@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Actor } from '../../core/actor';
 import {
     setupTwoTeams,
+    type FixtureUser,
     type TwoTeams,
 } from '../../testFixtures/twoTeams.js';
 
@@ -55,16 +56,22 @@ describe('sharing with a team', () => {
         return { path, uid };
     };
 
-    /** A directory and a file inside it, both as real fsentry rows. */
+    /** A directory and a file inside it, parent-linked as real rows are. */
     const makeNestedFile = async (ownerId: number) => {
         const owner = await fx.env.server.stores.user.getById(ownerId);
         const dirUid = crypto.randomUUID();
         const dirName = `d_${dirUid.slice(0, 8)}`;
         const dirPath = `/${owner!.username}/${dirName}`;
-        const insert = (uid: string, name: string, path: string, isDir: boolean) =>
+        const insert = (
+            uid: string,
+            name: string,
+            path: string,
+            isDir: boolean,
+            parentId: number | null = null,
+        ) =>
             fx.env.server.clients.db.write(
-                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) ' +
-                    'VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`) ' +
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [
                     uid,
                     name,
@@ -72,12 +79,21 @@ describe('sharing with a team', () => {
                     ownerId,
                     fx.env.server.clients.db.booleanValue(isDir),
                     Math.floor(Date.now() / 1000),
+                    parentId,
                 ],
             );
         await insert(dirUid, dirName, dirPath, true);
+        const dirEntry =
+            await fx.env.server.stores.fsEntry.getEntryByUuid(dirUid);
         const fileUid = crypto.randomUUID();
         const fileName = `f_${fileUid.slice(0, 8)}.txt`;
-        await insert(fileUid, fileName, `${dirPath}/${fileName}`, false);
+        await insert(
+            fileUid,
+            fileName,
+            `${dirPath}/${fileName}`,
+            false,
+            dirEntry!.id,
+        );
         return { dirPath, dirUid, fileUid };
     };
 
@@ -592,5 +608,217 @@ describe('sharing with a team', () => {
             { uid: fileUid },
         );
         expect(rows.some((r) => r.holderTeam?.uid === fx.a.uid)).toBe(true);
+    });
+
+    // -- the recipient block list (PUT-1813) ----------------------------
+    // Enforced where delivery is derived per member: listing, grant, fan-out.
+
+    const block = (blocker: FixtureUser, blocked: FixtureUser) =>
+        fx.env.server.stores.userBlock.create(blocker.userId, blocked.userId);
+    const unblock = (blocker: FixtureUser, blocked: FixtureUser) =>
+        fx.env.server.stores.userBlock.deleteByPair(
+            blocker.userId,
+            blocked.userId,
+        );
+
+    it('does not deliver a team share to a member who blocked the sender', async () => {
+        const [blockingSeat, otherSeat] = fx.a.seats;
+        await block(blockingSeat, fx.a.owner);
+        try {
+            const before = await shares().listSharedWithMe(
+                await actorFor(blockingSeat.userId),
+                { limit: 100, includeTotal: true },
+            );
+            const file = await makeFile(fx.a.owner.userId);
+            await shareWithTeam(fx.a.owner.userId, file.path, {
+                team: fx.a.uid,
+            });
+
+            // Neither the listing entry nor the count moves for the blocker.
+            const after = await shares().listSharedWithMe(
+                await actorFor(blockingSeat.userId),
+                { limit: 100, includeTotal: true },
+            );
+            expect(after.items.map((i) => i.entryUid)).not.toContain(file.uid);
+            expect(after.total).toBe(before.total);
+
+            // The block refuses access, not just the listing row.
+            const perms =
+                await fx.env.server.stores.permission.readUserGroupPerms(
+                    blockingSeat.userId,
+                    [`fs:${file.uid}:read`],
+                );
+            expect(perms).toHaveLength(0);
+
+            // The rest of the team is unaffected.
+            const others = (await inbox(otherSeat.userId)).items;
+            expect(others.map((i) => i.entryUid)).toContain(file.uid);
+        } finally {
+            await unblock(blockingSeat, fx.a.owner);
+        }
+    });
+
+    it('suspends delivery on block and restores it on unblock', async () => {
+        const seat = fx.a.seats[0];
+        const file = await makeFile(fx.a.owner.userId);
+        await shareWithTeam(fx.a.owner.userId, file.path, { team: fx.a.uid });
+        expect((await inbox(seat.userId)).items.map((i) => i.entryUid)).toContain(
+            file.uid,
+        );
+
+        await block(seat, fx.a.owner);
+        try {
+            expect(
+                (await inbox(seat.userId)).items.map((i) => i.entryUid),
+            ).not.toContain(file.uid);
+        } finally {
+            await unblock(seat, fx.a.owner);
+        }
+
+        // Nothing was revoked, so lifting the block needs no re-share.
+        expect((await inbox(seat.userId)).items.map((i) => i.entryUid)).toContain(
+            file.uid,
+        );
+    });
+
+    it('keeps a blocked member out of the live-event fan-out', async () => {
+        const [blockingSeat, otherSeat] = fx.a.seats;
+        const file = await makeFile(fx.a.owner.userId);
+        await shareWithTeam(fx.a.owner.userId, file.path, { team: fx.a.uid });
+        const entry = await fx.env.server.stores.fsEntry.getEntryByUuid(
+            file.uid,
+        );
+
+        await block(blockingSeat, fx.a.owner);
+        try {
+            // Pushing changes to them would tell them what the block hides.
+            const rows =
+                await fx.env.server.stores.share.listGroupReachingMembers([
+                    entry.id,
+                ]);
+            const reached = rows.map((r) => Number(r.holder_user_id));
+            expect(reached).not.toContain(blockingSeat.userId);
+            expect(reached).toContain(otherSeat.userId);
+        } finally {
+            await unblock(blockingSeat, fx.a.owner);
+        }
+    });
+
+    it('only suspends the blocked pair, not the member\'s other shares', async () => {
+        const seat = fx.a.seats[0];
+        const peerFile = await makeFile(fx.a.seats[1].userId);
+        await shareWithTeam(fx.a.seats[1].userId, peerFile.path, {
+            team: fx.a.uid,
+        });
+
+        await block(seat, fx.a.owner);
+        try {
+            const items = (await inbox(seat.userId)).items;
+            expect(items.map((i) => i.entryUid)).toContain(peerFile.uid);
+        } finally {
+            await unblock(seat, fx.a.owner);
+        }
+    });
+
+    // -- unshare sweeps by rows, not by a member page (PUT-1813) --------
+
+    it('sweeps a member re-share on team unshare', async () => {
+        const seat = fx.a.seats[0];
+        const file = await makeFile(fx.a.owner.userId);
+        // `manage` is what lets a member re-share in the first place.
+        await shareWithTeam(
+            fx.a.owner.userId,
+            file.path,
+            { team: fx.a.uid },
+            'manage',
+        );
+        await shares().share(await actorFor(seat.userId), {
+            path: file.path,
+            recipient: { username: fx.outsider.username },
+            mode: 'read',
+        } as never);
+        expect(
+            (await inbox(fx.outsider.userId)).items.map((i) => i.entryUid),
+        ).toContain(file.uid);
+
+        await shares().unshare(await actorFor(fx.a.owner.userId), {
+            path: file.path,
+            recipient: { team: fx.a.uid },
+        } as never);
+
+        // The re-share rested on the group grant and goes with it.
+        expect(
+            (await inbox(fx.outsider.userId)).items.map((i) => i.entryUid),
+        ).not.toContain(file.uid);
+    });
+
+    it('sweeps a member\'s unclaimed invite on team unshare', async () => {
+        const seat = fx.a.seats[0];
+        const file = await makeFile(fx.a.owner.userId);
+        await shareWithTeam(
+            fx.a.owner.userId,
+            file.path,
+            { team: fx.a.uid },
+            'manage',
+        );
+        const invited = `invitee_${Math.random().toString(36).slice(2, 8)}@test.local`;
+        await shares().share(await actorFor(seat.userId), {
+            path: file.path,
+            recipient: { email: invited },
+            mode: 'read',
+        } as never);
+        expect(
+            await fx.env.server.stores.share.listPendingByEmail(invited),
+        ).toHaveLength(1);
+
+        await shares().unshare(await actorFor(fx.a.owner.userId), {
+            path: file.path,
+            recipient: { team: fx.a.uid },
+        } as never);
+
+        // The invite rests on the same authority the unshare withdrew.
+        expect(
+            await fx.env.server.stores.share.listPendingByEmail(invited),
+        ).toHaveLength(0);
+    });
+
+    it('finds every issuer in the subtree, and filters them to members', async () => {
+        const { dirPath, dirUid, fileUid } = await makeNestedFile(
+            fx.a.owner.userId,
+        );
+        const seat = fx.a.seats[0];
+        await shareWithTeam(
+            fx.a.owner.userId,
+            dirPath,
+            { team: fx.a.uid },
+            'manage',
+        );
+        // A re-share on the nested file, visible only if the walk descends.
+        const fileEntry = await fx.env.server.stores.fsEntry.getEntryByUuid(
+            fileUid,
+        );
+        await fx.env.server.stores.share.upsertActive({
+            issuerUserId: seat.userId,
+            holderUserId: fx.outsider.userId,
+            fsentryId: fileEntry!.id,
+            mode: 'read',
+        });
+
+        const dirEntry = await fx.env.server.stores.fsEntry.getEntryByUuid(
+            dirUid,
+        );
+        const issuers = await fx.env.server.stores.share.listIssuerIdsBySubtree(
+            dirEntry!.id,
+        );
+        expect(issuers).toContain(fx.a.owner.userId);
+        expect(issuers).toContain(seat.userId);
+
+        // The outsider issued nothing and is no member; both fall out here.
+        const members = await fx.env.server.stores.team.memberIdsAmong(
+            fx.a.uid,
+            [...issuers, fx.outsider.userId],
+        );
+        expect(members).toContain(seat.userId);
+        expect(members).not.toContain(fx.outsider.userId);
     });
 });

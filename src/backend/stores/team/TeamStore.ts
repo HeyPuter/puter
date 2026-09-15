@@ -367,6 +367,26 @@ export class TeamStore extends PuterStore {
         return (await this.getMembership(teamUid, userId)) !== null;
     }
 
+    /**
+     * Which of `userIds` belong to this team; bounded by its input, no page
+     * cap.
+     */
+    async memberIdsAmong(
+        teamUid: string,
+        userIds: number[],
+    ): Promise<number[]> {
+        const ids = [...new Set(userIds)].filter((id) => Number.isFinite(id));
+        if (ids.length === 0) return [];
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`user_id` FROM `jct_user_group` ug ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE g.\`uid\` = ? AND g.${this.#live()} ` +
+                `AND ug.\`user_id\` IN (${ids.map(() => '?').join(', ')})`,
+            [teamUid, TEAM_KIND, ...ids],
+        )) as { user_id: number }[];
+        return rows.map((row) => Number(row.user_id));
+    }
+
     /** A team's members, keyset-paginated on `id` per doc/pagination.md. */
     async listMembers(
         teamUid: string,

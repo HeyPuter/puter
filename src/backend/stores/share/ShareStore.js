@@ -86,18 +86,22 @@ export class ShareStore extends PuterStore {
         const afterId = this.#afterId(cursor);
         const groups = [...new Set(groupIds)].filter(Boolean);
 
-        // Same keyset page: `ORDER BY id` holds whatever the holder is.
+        // Same keyset page: `ORDER BY id` holds whatever the holder is. The
+        // group arm skips issuers this holder blocked.
         const holderClause = groups.length
-            ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
+            ? `(\`holder_user_id\` = ? OR (\`holder_group_id\` IN (${groups
                   .map(() => '?')
-                  .join(', ')}))`
+                  .join(', ')}) AND ${this.#issuerNotBlockedSql()}))`
             : '`holder_user_id` = ?';
+        const holderParams = groups.length
+            ? [holderUserId, ...groups, holderUserId]
+            : [holderUserId];
 
         // One extra row tells us whether another page exists.
         const rows = await this.clients.db.read(
             `SELECT * FROM \`share\` WHERE ${holderClause} AND \`id\` > ? ` +
                 'ORDER BY `id` LIMIT ?',
-            [holderUserId, ...groups, afterId, size + 1],
+            [...holderParams, afterId, size + 1],
         );
 
         const hasMore = rows.length > size;
@@ -352,13 +356,18 @@ export class ShareStore extends PuterStore {
     async listGroupReachingMembers(fsentryIds) {
         if (fsentryIds.length === 0) return [];
         const placeholders = fsentryIds.map(() => '?').join(', ');
+        // A member who blocked the issuer is not pushed that issuer's shares.
         const rows = await this.clients.db.read(
             'SELECT `share`.*, `ug`.`user_id` AS `member_user_id` FROM `share` ' +
                 'JOIN `jct_user_group` `ug` ON `ug`.`group_id` = `share`.`holder_group_id` ' +
                 'JOIN `group` `g` ON `g`.`id` = `share`.`holder_group_id` ' +
                 `WHERE \`share\`.\`fsentry_id\` IN (${placeholders}) ` +
                 'AND `share`.`holder_group_id` IS NOT NULL ' +
-                'AND `g`.`deleted_at` IS NULL ORDER BY `share`.`id`',
+                'AND `g`.`deleted_at` IS NULL ' +
+                'AND NOT EXISTS (SELECT 1 FROM `user_block` `ub` ' +
+                'WHERE `ub`.`blocker_user_id` = `ug`.`user_id` ' +
+                'AND `ub`.`blocked_user_id` = `share`.`issuer_user_id`) ' +
+                'ORDER BY `share`.`id`',
             fsentryIds,
         );
         // Shaped as a holder row, so the caller's fan-out needs no group branch.
@@ -366,6 +375,28 @@ export class ShareStore extends PuterStore {
             ...this.#normalizeRow(r),
             holder_user_id: Number(r.member_user_id),
         }));
+    }
+
+    /**
+     * Everyone who issued any share row (active, pending or team-held) on a
+     * directory or anything beneath it.
+     *
+     * @param {number} fsentryId
+     * @returns {Promise<number[]>}
+     */
+    async listIssuerIdsBySubtree(fsentryId) {
+        const rows = await this.clients.db.read(
+            'WITH RECURSIVE `subtree`(`id`) AS (' +
+                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
+                'UNION ALL ' +
+                'SELECT `f`.`id` FROM `fsentries` `f` ' +
+                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
+                ') ' +
+                'SELECT DISTINCT `share`.`issuer_user_id` FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id`',
+            [fsentryId],
+        );
+        return rows.map((row) => Number(row.issuer_user_id));
     }
 
     /**
@@ -401,14 +432,17 @@ export class ShareStore extends PuterStore {
      */
     async countByHolder(holderUserId, { groupIds = [] } = {}) {
         const groups = [...new Set(groupIds)].filter(Boolean);
+        // Group arm filtered as `listByHolder` is, or the total overcounts.
         const holderClause = groups.length
-            ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
+            ? `(\`holder_user_id\` = ? OR (\`holder_group_id\` IN (${groups
                   .map(() => '?')
-                  .join(', ')}))`
+                  .join(', ')}) AND ${this.#issuerNotBlockedSql()}))`
             : '`holder_user_id` = ?';
         const rows = await this.clients.db.read(
             `SELECT COUNT(*) AS \`count\` FROM \`share\` WHERE ${holderClause}`,
-            [holderUserId, ...groups],
+            groups.length
+                ? [holderUserId, ...groups, holderUserId]
+                : [holderUserId],
         );
         return Number(rows[0]?.count ?? 0);
     }
@@ -879,6 +913,15 @@ export class ShareStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
+
+    /** Group rows only exist for teams, so no kind guard is needed here. */
+    #issuerNotBlockedSql() {
+        return (
+            'NOT EXISTS (SELECT 1 FROM `user_block` `ub` ' +
+            'WHERE `ub`.`blocker_user_id` = ? ' +
+            'AND `ub`.`blocked_user_id` = `share`.`issuer_user_id`)'
+        );
+    }
 
     /** @param {number} [limit] */
     #pageSize(limit) {
