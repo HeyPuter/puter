@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // The ten newest messages in the inbox. Listing reads the mailbox
+            // folder only, so no message is downloaded.
+            const page = await puter.email.list({ limit: 10 });
+            if (page.items.length === 0) {
+                puter.print('Inbox is empty');
+                return;
+            }
+            for (const message of page.items) {
+                puter.print(`${message.date}  ${message.subject}<br>`);
+            }
+            if (page.cursor) puter.print('More messages available.');
+        })();
+    </script>
+</body>
+</html>
