@@ -21,6 +21,7 @@ import type { RouteRateLimit } from '../../core/http/types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    FREE_SUBSCRIPTION_IDS,
 } from '../../services/metering/consts.js';
 
 // -- Shared event limits ---------------------------------------------
@@ -61,14 +62,18 @@ const tiered = (paid: number, free: number, temp: number): TieredLimit => ({
     },
 });
 
-/** The cap one plan sees. An unresolved plan is held to the base. */
+/** The cap one plan sees; an unlisted free plan takes the free one, not `limit`. */
 export const limitFor = (
     tier: TieredLimit,
     subscriptionId: string | null,
-): number =>
-    (subscriptionId === null
-        ? undefined
-        : tier.bySubscription[subscriptionId]) ?? tier.limit;
+): number => {
+    if (subscriptionId === null) return tier.limit;
+    const own = tier.bySubscription[subscriptionId];
+    if (typeof own === 'number') return own;
+    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
+        ? (tier.bySubscription[DEFAULT_FREE_SUBSCRIPTION] ?? tier.limit)
+        : tier.limit;
+};
 
 /**
  * What a plan-tiered quota resolves to: what an account may hold, and what one

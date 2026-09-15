@@ -17,12 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ORG_SEAT_FREE } from './orgSeatFreePolicy.js';
+import { ORG_SEAT_FREE_SUBSCRIPTION } from '../../services/metering/consts.js';
 import { REGISTERED_USER_FREE } from './registeredUserFreePolicy.js';
-import { TEMP_USER_FREE } from './tempUserFreePolicy.js';
 
-export const SUB_POLICIES = [
-    TEMP_USER_FREE,
-    REGISTERED_USER_FREE,
-    ORG_SEAT_FREE,
-];
+/** Half the free plan, so a team cannot mint full free tiers by provisioning. */
+export const ORG_SEAT_FREE = {
+    id: ORG_SEAT_FREE_SUBSCRIPTION,
+    monthUsageAllowance: Math.floor(
+        REGISTERED_USER_FREE.monthUsageAllowance / 2,
+    ),
+    monthlyStorageAllowance: Math.floor(
+        REGISTERED_USER_FREE.monthlyStorageAllowance / 2,
+    ),
+};

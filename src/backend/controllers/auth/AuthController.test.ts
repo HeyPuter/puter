@@ -5042,6 +5042,32 @@ describe('AuthController password recovery', () => {
         expect(after!.pass_recovery_token).toBeTruthy();
     });
 
+    it('send-pass-recovery-email: refuses a team seat, and writes no token', async () => {
+        // The seat's address is admin-supplied and unverified; recovery there
+        // would be a takeover channel. Its recovery is the admin's reset.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        const res = makeRes();
+        await controller.handleSendPassRecoveryEmail(
+            makeReq({ username: seat.username }),
+            res,
+        );
+        expect((res.body as { message: string }).message).toMatch(
+            /If that account exists/i,
+        );
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after!.pass_recovery_token).toBeFalsy();
+    });
+
     it('verify-pass-recovery-token: 400 on missing token', async () => {
         await expect(
             controller.handleVerifyPassRecoveryToken(makeReq({}), makeRes()),
@@ -5287,6 +5313,52 @@ describe('AuthController user-protected mutations (validation paths)', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change-email: 403 for an account its team provisioned', async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeEmail(
+                makeReq({ new_email: `moved_${uniq()}@example.com` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('change-username: 403 for an account its team provisioned', async () => {
+        // The console lists members by username and the audit log records them
+        // by it; a self-service rename would desync both.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        // addMember refuses to adopt an account that has one.
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after!.username).toBe(seat.username);
     });
 
     it('change-username: persists the rename and emits user.username-changed', async () => {
@@ -6521,6 +6593,28 @@ describe('AuthController.handleDeleteOwnUser', () => {
             force: true,
         });
         expect(after).toBeFalsy();
+    });
+
+    it('refuses, and keeps the row, for an account its team provisioned', async () => {
+        // The team is billed for the seat and closing it is theirs to do, from
+        // the console that keeps the audit trail.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleDeleteOwnUser(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after).toBeTruthy();
     });
 
     it('emits user.delete with the uuid + stripe customer id for downstream teardown', async () => {

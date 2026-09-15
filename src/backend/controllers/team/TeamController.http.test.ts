@@ -235,6 +235,52 @@ describe('team endpoints over HTTP', () => {
         expect(member?.org_owned).toBe(true);
     });
 
+    it('gives seat uuids to the owner and to nobody else', async () => {
+        // Built through the service, not the wire: provisioning shares a
+        // rate-limit budget with the seat tests below, and one more HTTP
+        // provision here 429s them.
+        const owner = (await env.server.stores.user.getByUsername(
+            env.users.user.username,
+        ))!;
+        const slug0 = Math.random().toString(36).slice(2, 9);
+        const team = await env.server.services.team.createTeam(owner.id, {
+            name: 'Acme',
+            handle: `uuidt-${slug0}`,
+        });
+        const memberUsername = `seat_${slug0}`;
+        await env.server.services.team.provisionAccount(team.uid, owner.id, {
+            username: memberUsername,
+        });
+
+        const owned = (await (
+            await call('GET', `/teams/${team.uid}/members`, env.users.user.token)
+        ).json()) as { items: { username: string; uuid?: string }[] };
+        const seat = owned.items.find((m) => m.username === memberUsername);
+        // Billing keys a seat's plan on this, so the owner cannot act without it.
+        expect(seat?.uuid).toEqual(expect.any(String));
+
+        // A throwaway member, not the shared fixture: joining a team is
+        // permanent and would follow `other` into every later test.
+        const slug = Math.random().toString(36).slice(2, 9);
+        const joiner = await env.server.stores.user.create({
+            username: `joiner_${slug}`,
+            uuid: crypto.randomUUID(),
+            password: 'hashed',
+            email: `joiner_${slug}@test.local`,
+        });
+        await env.server.stores.team.addMember(team.uid, joiner.id, {
+            orgOwned: false,
+        });
+        const { token } =
+            await env.server.services.auth.createSessionToken(joiner);
+
+        const seen = (await (
+            await call('GET', `/teams/${team.uid}/members`, token)
+        ).json()) as { items: { uuid?: string }[] };
+        expect(seen.items.length).toBeGreaterThan(0);
+        for (const m of seen.items) expect(m.uuid).toBeUndefined();
+    });
+
     // -- provisioning over the wire -----------------------------------
 
     it('never returns the activation link to the administrator', async () => {

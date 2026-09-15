@@ -351,9 +351,11 @@ support@puter.com immediately.
         subject: 'Your {{team_name}} account on Puter',
         html: `
 <p>Hi there,</p>
-<p>{{team_name}} has created a Puter account for you: <b>{{username}}</b>.
-They will send you a temporary password separately; you will be asked to
-choose your own the first time you sign in.</p>
+<p>{{team_name}} has created a Puter account for you.</p>
+<p>Username: <b>{{username}}</b><br>
+Temporary password: <b>{{temporary_password}}</b></p>
+<p>You will be asked to choose your own password the first time you sign in.
+This temporary one stops working then, and it expires on its own if unused.</p>
 <p>What this means:</p>
 <ul>
 <li>This account belongs to {{team_name}}. They pay for it and can close it.</li>

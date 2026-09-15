@@ -29,12 +29,13 @@ type EmitAndWait = (key: string, event: unknown, meta: unknown) => unknown;
 const makeService = (
     config: Record<string, unknown> = {},
     emitAndWait: EmitAndWait = async () => undefined,
+    services: Record<string, unknown> = {},
 ) => {
     const args = [
         { env: 'prod', domain: 'puter.test', ...config },
         { event: { emitAndWait: vi.fn(emitAndWait) } },
         {},
-        {},
+        services,
     ] as unknown as ConstructorParameters<typeof PuterHomepageService>;
     return new PuterHomepageService(...args);
 };
@@ -54,6 +55,7 @@ const render = async (
     req: Request = makeReq(),
     meta: Record<string, unknown> = { title: 'Puter' },
     launchOptions: Record<string, unknown> = {},
+    actor: unknown = null,
 ): Promise<string> => {
     let sent = '';
     const res = {
@@ -61,7 +63,11 @@ const render = async (
             sent = html;
         },
     } as unknown as Response;
-    await service.send({ req, res }, meta as never, launchOptions as never);
+    await service.send(
+        { req, res, actor } as never,
+        meta as never,
+        launchOptions as never,
+    );
     return sent;
 };
 
@@ -231,6 +237,40 @@ describe('PuterHomepageService — gui() parameters', () => {
                 await render(makeService({ captcha: { enabled: true } })),
             ).captchaRequired,
         ).toEqual({ login: true, signup: true });
+    });
+
+    it('shows the teams UI to everyone with the deployment switch on', async () => {
+        const on = makeService({ gui_params: { teams_ui: true } });
+        expect(guiParamsOf(await render(on)).teams_ui).toBe(true);
+        expect(guiParamsOf(await render(makeService())).teams_ui).toBe(false);
+    });
+
+    it('shows the teams UI per user on the domain allowlist, switch off', async () => {
+        const teamsAvailableTo = vi.fn(async () => true);
+        const service = makeService(
+            { teams_allowed_email_domains: ['puter.com'] },
+            undefined,
+            { team: { teamsAvailableTo } },
+        );
+
+        const staff = { user: { id: 7, email: 'j@puter.com' } };
+        expect(
+            guiParamsOf(await render(service, makeReq(), undefined, {}, staff))
+                .teams_ui,
+        ).toBe(true);
+        expect(teamsAvailableTo).toHaveBeenCalledWith(7, 'j@puter.com');
+
+        // Anonymous renders hide it; the API decides real access anyway.
+        expect(guiParamsOf(await render(service)).teams_ui).toBe(false);
+
+        teamsAvailableTo.mockResolvedValueOnce(false);
+        expect(
+            guiParamsOf(
+                await render(service, makeReq(), undefined, {}, {
+                    user: { id: 9, email: 'x@gmail.com' },
+                }),
+            ).teams_ui,
+        ).toBe(false);
     });
 
     it('advertises notification events only with the fold-in switched on', async () => {

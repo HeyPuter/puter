@@ -19,19 +19,26 @@
 
 import UIAlert from '../UIAlert.js';
 import UIPrompt from '../UIPrompt.js';
+import teamActionButton from './teamActionIcons.js';
 import {
     annotateMembers,
     auditActionKey,
+    auditSlice,
     canDeleteAccount,
     auditReasonKey,
     membersBillingSummary,
+    memberPlanLabel,
     sortMembers,
 } from './teamsConsole.js';
 
 const SECTION = '.dashboard-section-teams';
 
 /** What the console last loaded, so a redraw needs no second round trip. */
-let state = { status: 'loading', teams: [], selected: null, members: [], audit: [] };
+let state = { status: 'loading', teams: [], selected: null, members: [], audit: [], auditPage: 0, plan: null };
+
+// Paged for reading, not fetching: member state is derived from the whole
+// record, so it is already loaded.
+const AUDIT_ROWS_PER_PAGE = 10;
 
 /** In flight, so `init` and the initial-route `onActivate` don't both load. */
 let loadPromise = null;
@@ -71,6 +78,12 @@ const renderTeamPicker = () => {
     return h;
 };
 
+const planCell = (member) => {
+    const label = memberPlanLabel(member, state.plan);
+    if ( label.kind === 'tier' ) return html_encode(label.name);
+    return i18n(`teams_member_plan_${label.kind}`);
+};
+
 const renderMemberRow = (member) => {
     const username = html_encode(member.username);
     let h = `<tr class="teams-member-row${member.disabled ? ' teams-member-disabled' : ''}" data-username="${username}">`;
@@ -78,14 +91,46 @@ const renderMemberRow = (member) => {
     h += `<td>${i18n(member.orgOwned ? 'teams_member_provisioned' : 'teams_member_joined')}</td>`;
     h += `<td>${i18n(member.disabled ? 'teams_member_state_disabled' : 'teams_member_state_active')}</td>`;
     h += `<td>${html_encode(dateText(member.createdAt))}</td>`;
+    h += `<td>${planCell(member)}</td>`;
     h += '<td class="teams-member-actions">';
     if ( member.orgOwned ) {
-        h += `<button class="button button-small teams-reset" data-username="${username}">${i18n('teams_reissue_credential')}</button>`;
+        const forMember = { 'data-username': member.username };
+        if ( window.team_billing_ui && state.plan?.status === 'ready' ) {
+            h += teamActionButton({
+                className: 'teams-plan-change',
+                icon: 'plan',
+                label: i18n('teams_plan_change'),
+                attrs: { ...forMember, 'data-uuid': member.uuid ?? '' },
+            });
+        }
+        h += teamActionButton({
+            className: 'teams-reset',
+            icon: 'credential',
+            label: i18n('teams_reissue_credential'),
+            attrs: forMember,
+        });
         h += member.disabled
-            ? `<button class="button button-small teams-enable" data-username="${username}">${i18n('teams_enable_account')}</button>`
-            : `<button class="button button-small button-danger teams-disable" data-username="${username}">${i18n('teams_disable_account')}</button>`;
+            ? teamActionButton({
+                className: 'teams-enable',
+                icon: 'enable',
+                label: i18n('teams_enable_account'),
+                attrs: forMember,
+            })
+            : teamActionButton({
+                className: 'teams-disable',
+                icon: 'suspend',
+                label: i18n('teams_disable_account'),
+                danger: true,
+                attrs: forMember,
+            });
         if ( canDeleteAccount(member) ) {
-            h += `<button class="button button-small button-danger teams-delete-account" data-username="${username}">${i18n('teams_delete_account')}</button>`;
+            h += teamActionButton({
+                className: 'teams-delete-account',
+                icon: 'remove',
+                label: i18n('teams_delete_account'),
+                danger: true,
+                attrs: forMember,
+            });
         }
     }
     h += '</td></tr>';
@@ -109,6 +154,7 @@ const renderMembers = () => {
         h += `<th>${i18n('teams_member_kind')}</th>`;
         h += `<th>${i18n('teams_member_state')}</th>`;
         h += `<th>${i18n('teams_member_since')}</th>`;
+        h += `<th>${i18n('teams_member_plan')}</th>`;
         h += `<th>${i18n('teams_member_actions')}</th>`;
         h += '</tr></thead><tbody>';
         for ( const member of sortMembers(annotated) ) h += renderMemberRow(member);
@@ -122,9 +168,10 @@ const renderAddAccount = () => {
     let h = '<div class="dashboard-card teams-panel">';
     h += `<h3>${i18n('teams_add_account')}</h3>`;
     h += `<p class="teams-panel-hint">${i18n('teams_add_account_hint')}</p>`;
+    h += `<p class="teams-panel-hint">${i18n('teams_add_account_email_hint')}</p>`;
     h += '<div class="teams-form">';
     h += `<input class="teams-new-username" type="text" autocomplete="off" spellcheck="false" placeholder="${html_encode(i18n('username'))}">`;
-    h += `<input class="teams-new-email" type="email" autocomplete="off" spellcheck="false" placeholder="${html_encode(i18n('email'))}">`;
+    h += `<input class="teams-new-email" type="email" autocomplete="off" spellcheck="false" placeholder="${html_encode(i18n('teams_email_optional'))}">`;
     h += `<button class="button button-primary teams-add-btn">${i18n('teams_add_account')}</button>`;
     h += '</div>';
     h += '<div class="teams-credential" style="display:none;"></div>';
@@ -146,7 +193,12 @@ const renderAudit = () => {
         h += `<th>${i18n('teams_audit_account')}</th>`;
         h += `<th>${i18n('teams_audit_actor')}</th>`;
         h += '</tr></thead><tbody>';
-        for ( const entry of state.audit ) {
+        const { items, page, pages, from, to, total } = auditSlice(
+            state.audit,
+            state.auditPage,
+            AUDIT_ROWS_PER_PAGE,
+        );
+        for ( const entry of items ) {
             const actionKey = auditActionKey(entry.action);
             const reasonKey = auditReasonKey(entry.reason);
             h += '<tr>';
@@ -159,18 +211,47 @@ const renderAudit = () => {
             h += '</tr>';
         }
         h += '</tbody></table></div>';
+        if ( pages > 1 ) {
+            h += '<div class="teams-pager">';
+            h += `<span class="teams-pager-count">${i18n('teams_audit_range', { from, to, total })}</span>`;
+            h += '<span class="teams-pager-buttons">';
+            h += `<button class="button button-small teams-audit-prev"${page === 0 ? ' disabled' : ''}>${i18n('previous')}</button>`;
+            h += `<button class="button button-small teams-audit-next"${page >= pages - 1 ? ' disabled' : ''}>${i18n('next')}</button>`;
+            h += '</span></div>';
+        }
     }
     h += '</div>';
     return h;
 };
 
-/** What a member sees: their own entries, and nothing administrative. */
+/** Colleagues, by name. No state, no dates, no actions — none are theirs. */
+const renderRoster = () => {
+    let h = '<div class="dashboard-card teams-panel">';
+    h += `<h3>${i18n('teams_roster')}</h3>`;
+    h += `<p class="teams-panel-hint">${i18n('teams_roster_hint')}</p>`;
+    if ( state.members.length === 0 ) {
+        h += `<p class="teams-empty">${i18n('teams_roster_empty')}</p>`;
+    } else {
+        h += '<ul class="teams-roster">';
+        for ( const member of sortMembers(state.members) ) {
+            const you = member.username === window.user?.username;
+            h += `<li class="teams-roster-name">${html_encode(member.username)}`;
+            if ( you ) h += ` <span class="teams-roster-you">(${i18n('share_you')})</span>`;
+            h += '</li>';
+        }
+        h += '</ul>';
+    }
+    h += '</div>';
+    return h;
+};
+
+/** What a member sees: who else is here, their own entries, nothing admin. */
 const renderMemberView = () => {
     let h = '<div class="dashboard-card teams-panel">';
     h += `<h3>${i18n('teams_your_record')}</h3>`;
     h += `<p class="teams-panel-hint">${i18n('teams_your_record_hint', { team: teamName(state.selected) })}</p>`;
     h += '</div>';
-    return h + renderAudit();
+    return h + renderRoster() + renderAudit();
 };
 
 const renderDirectory = () => {
@@ -191,7 +272,11 @@ const renderOwnerView = () => {
     let h = '<div class="dashboard-card teams-panel teams-card">';
     h += '<div class="teams-info">';
     h += `<strong>${html_encode(teamName(state.selected))}</strong>`;
-    h += `<span>${state.selected.handle ? html_encode(`@${state.selected.handle}`) : i18n('teams_no_handle')}</span>`;
+    // Nothing here sets a handle, so its absence was a label for something the
+    // owner could neither act on nor need.
+    if ( state.selected.handle ) {
+        h += `<span>${html_encode(`@${state.selected.handle}`)}</span>`;
+    }
     h += '</div>';
     h += `<button class="button teams-rename">${i18n('teams_rename')}</button>`;
     h += '</div>';
@@ -238,12 +323,56 @@ const paint = ($el_window) => {
 
 const loadSelected = async () => {
     if ( ! state.selected ) return;
+    // A fresh record starts at the top; auditSlice clamps a stale page anyway.
+    state.auditPage = 0;
     state.audit = state.selected.isOwner
         ? await puter.teams.listAudit(state.selected.uid)
         : await puter.teams.listOwnAudit(state.selected.uid);
-    state.members = state.selected.isOwner
-        ? await puter.teams.listMembers(state.selected.uid)
-        : [];
+    // Members too: the roster is theirs to see, and the controller already
+    // withholds from them what is not.
+    state.members = await puter.teams.listMembers(state.selected.uid);
+    state.plan = state.selected.isOwner ? await loadPlan(state.selected.uid) : null;
+};
+
+/** Served by a billing extension; absent is a normal answer. */
+const loadPlan = async (teamUid) => {
+    const get = async (path) => {
+        const resp = await fetch(`${window.api_origin}${path}`, {
+            headers: { Authorization: `Bearer ${puter.authToken}` },
+        });
+        return resp.ok ? resp.json() : null;
+    };
+    try {
+        const [cat, sub] = await Promise.all([
+            get('/marketplace/subscriptions/team-offerings'),
+            get(`/marketplace/teams/${encodeURIComponent(teamUid)}/subscription`),
+        ]);
+        if ( ! cat ) return { status: 'unavailable', offerings: [], seatTiers: {} };
+        const entry = sub?.subscription ?? null;
+        return {
+            status: 'ready',
+            offerings: Array.isArray(cat.offerings) ? cat.offerings : [],
+            seatTiers: entry?.seatTiers ?? {},
+            tierQuantities: entry?.tierQuantities ?? {},
+            subStatus: entry?.status ?? null,
+        };
+    } catch {
+        return { status: 'unavailable', offerings: [], seatTiers: {} };
+    }
+};
+
+/** The billing extension owns the picker, so the look matches personal plans. */
+const changeSeatPlan = ($el_window, username, uuid) => {
+    if ( state.plan?.status !== 'ready' || ! uuid ) return;
+    window.dispatchEvent(new CustomEvent('team-plan-purchase', {
+        detail: {
+            teamUid: state.selected.uid,
+            seatUuid: uuid,
+            username,
+            currentTier: state.plan.seatTiers?.[uuid] ?? null,
+            onDone: () => refresh($el_window),
+        },
+    }));
 };
 
 const load = async ($el_window) => {
@@ -280,11 +409,35 @@ const refresh = ($el_window) => {
 
 // -- Actions --------------------------------------------------------------
 
-const showError = ($el_window, e) => UIAlert({
-    type: 'error',
-    message: e?.message ?? i18n('error_unknown_cause'),
-    ...modalOptions($el_window),
-});
+// The plain error says what happened, not that a plan is what raises the cap.
+// The button appears only where a billing extension put the modal on the page.
+const showSeatLimit = async ($el_window, e) => {
+    const limit = e?.limit ?? e?.fields?.limit;
+    const canUpgrade = typeof window.UIUpgradeAccount === 'function';
+    let message = `<p>${limit ? i18n('teams_seat_limit', { limit }) : html_encode(e.message)}</p>`;
+    message += `<p>${i18n('teams_seat_limit_upgrade')}</p>`;
+    const answer = await UIAlert({
+        type: 'warning',
+        message,
+        buttons: canUpgrade
+            ? [
+                { label: i18n('teams_see_plans'), value: 'upgrade', type: 'primary' },
+                { label: i18n('cancel'), value: 'no' },
+            ]
+            : [{ label: i18n('ok'), value: 'no' }],
+        ...modalOptions($el_window),
+    });
+    if ( answer === 'upgrade' ) new window.UIUpgradeAccount().open_as_window();
+};
+
+const showError = ($el_window, e) => {
+    if ( e?.code === 'seat_limit_reached' ) return showSeatLimit($el_window, e);
+    return UIAlert({
+        type: 'error',
+        message: e?.message ?? i18n('error_unknown_cause'),
+        ...modalOptions($el_window),
+    });
+};
 
 const confirm = async ($el_window, message, label, kind = 'danger') => {
     const answer = await UIAlert({
@@ -310,13 +463,17 @@ const showCredential = ($el_window, username, temporaryPassword) => {
 
 const addAccount = async ($el_window) => {
     const username = $el_window.find(`${SECTION} .teams-new-username`).val().trim();
+    if ( ! username ) return;
+    // With an address the credential is emailed too; without it, only shown here.
     const email = $el_window.find(`${SECTION} .teams-new-email`).val().trim();
-    if ( ! username || ! email ) return;
 
     const $button = $el_window.find(`${SECTION} .teams-add-btn`);
     $button.prop('disabled', true);
     try {
-        const created = await puter.teams.createMember(state.selected.uid, { username, email });
+        const created = await puter.teams.createMember(state.selected.uid, {
+            username,
+            ...(email ? { email } : {}),
+        });
         await refresh($el_window);
         showCredential($el_window, created.username, created.temporaryPassword);
     } catch (e) {
@@ -472,10 +629,32 @@ const TabTeams = {
         setTabVisible($el_window, false);
 
         // Delegated, because every action redraws the panel underneath them.
+        $el_window.on('click', `${SECTION} .teams-audit-prev`, () => {
+            state.auditPage = Math.max(0, state.auditPage - 1);
+            paint($el_window);
+        });
+        $el_window.on('click', `${SECTION} .teams-audit-next`, () => {
+            state.auditPage += 1;
+            paint($el_window);
+        });
         $el_window.on('click', `${SECTION} .teams-add-btn`, () => addAccount($el_window));
         $el_window.on('click', `${SECTION} .teams-create`, () => createTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-rename`, () => renameTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-delete`, () => deleteTeam($el_window));
+        // Checkout is the billing extension's job; this only says what was asked for.
+        $el_window.on('click', `${SECTION} .teams-plan-change`, function () {
+            changeSeatPlan($el_window, $(this).attr('data-username'), $(this).attr('data-uuid'));
+        });
+        $el_window.on('click', `${SECTION} .teams-plan-buy`, function () {
+            if ( ! state.selected ) return;
+            window.dispatchEvent(new CustomEvent('team-plan-purchase', {
+                detail: {
+                    teamUid: state.selected.uid,
+                    itemId: $(this).attr('data-item-id'),
+                    onDone: () => refresh($el_window),
+                },
+            }));
+        });
         $el_window.on('click', `${SECTION} .teams-reset`, function () {
             reissueCredential($el_window, $(this).attr('data-username'));
         });

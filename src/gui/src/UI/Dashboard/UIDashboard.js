@@ -53,6 +53,7 @@ import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
 import TabSecurity from './TabSecurity.js';
 import TabTeams from './TabTeams.js';
+import teamBadgeHtml from './teamBadge.js';
 
 // Registry of built-in tabs
 const builtinTabs = [
@@ -119,7 +120,10 @@ async function UIDashboard (options) {
         h += '<div class="dashboard-sidebar hide-scrollbar">';
             // Sidebar header with logo and collapse toggle
             h += '<div class="dashboard-sidebar-header">';
-                h += `<div class="dashboard-sidebar-logo"><img class="dashboard-sidebar-logo-light" src="${window.icons['logo.svg']}" alt="Puter"><img class="dashboard-sidebar-logo-dark" src="${window.icons['logo-white.svg']}" alt="Puter"><span>Puter</span></div>`;
+                h += '<div class="dashboard-sidebar-brand">';
+                    h += `<div class="dashboard-sidebar-logo"><img class="dashboard-sidebar-logo-light" src="${window.icons['logo.svg']}" alt="Puter"><img class="dashboard-sidebar-logo-dark" src="${window.icons['logo-white.svg']}" alt="Puter"><span>Puter</span></div>`;
+                    h += teamBadgeHtml(window.user);
+                h += '</div>';
                 h += '<button class="dashboard-sidebar-collapse-toggle">';
                     h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}">`;
                     h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}">`;
