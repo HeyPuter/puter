@@ -27,6 +27,7 @@ import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    ORG_SEAT_FREE_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
 import {
     EVENTS_BROADCAST_DELIVERY_LIMIT,
@@ -56,6 +57,23 @@ describe('the tiered subscription quotas', () => {
 
     it.each(tiers)('%s gives a temporary account none', (_name, tier) => {
         expect(tier.bySubscription[DEFAULT_TEMP_SUBSCRIPTION]).toBe(0);
+    });
+
+    it('holds a free plan nobody enumerated to the free cap, not the paid one', () => {
+        // A team seat resolves to `org_seat_free`, which no tier names. Falling
+        // through to `limit` would give it more than an ordinary free account.
+        for (const tier of tiers.map(([, t]) => t)) {
+            expect(limitFor(tier, ORG_SEAT_FREE_SUBSCRIPTION)).toBe(
+                tier.bySubscription[DEFAULT_FREE_SUBSCRIPTION],
+            );
+        }
+    });
+
+    it('still holds an unresolved or paid plan to the base', () => {
+        for (const tier of tiers.map(([, t]) => t)) {
+            expect(limitFor(tier, null)).toBe(tier.limit);
+            expect(limitFor(tier, 'some-paid-tier')).toBe(tier.limit);
+        }
     });
 
     it('keeps what one app may take below what the account may hold', () => {

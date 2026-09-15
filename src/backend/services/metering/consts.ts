@@ -32,6 +32,7 @@ export const PERIOD_ESCAPE = '_dot_';
 export const MONTHLY_CHARGE_CLAIM = 'monthlyChargesApplied';
 export const DEFAULT_FREE_SUBSCRIPTION = 'user_free';
 export const DEFAULT_TEMP_SUBSCRIPTION = 'temp_free';
+export const ORG_SEAT_FREE_SUBSCRIPTION = 'org_seat_free';
 
 /**
  * The policies an account holds without paying for anything. Everything else —
@@ -44,6 +45,7 @@ export const DEFAULT_TEMP_SUBSCRIPTION = 'temp_free';
 export const FREE_SUBSCRIPTION_IDS: ReadonlySet<string> = new Set([
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    ORG_SEAT_FREE_SUBSCRIPTION,
 ]);
 
 // WARNING: DO NOT USE THESE IN PROD

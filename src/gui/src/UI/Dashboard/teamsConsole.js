@@ -117,6 +117,27 @@ export function membersBillingSummary (annotated) {
 }
 
 /**
+ * What plan a row in the accounts table is on.
+ *
+ * `payer` is the owner, who keeps their personal plan. A suspended seat is
+ * `not_billed` -- it stops costing a per-account charge. Everyone else follows
+ * the team: its tier if it bought one, otherwise the reduced free allowance.
+ *
+ * @param {{ orgOwned: boolean, disabled: boolean }} member
+ * @param {{ current: { tier: string, name_en?: string } | null } | null} plan
+ * @returns {{ kind: 'payer'|'not_billed'|'free'|'tier', name?: string }}
+ */
+export function memberPlanLabel (member, plan) {
+    if ( ! member?.orgOwned ) return { kind: 'payer' };
+    if ( member.disabled ) return { kind: 'not_billed' };
+    // Per seat: a team can buy for some accounts and not others.
+    const tier = plan?.seatTiers?.[member.uuid];
+    if ( ! tier ) return { kind: 'free' };
+    const offering = (plan.offerings ?? []).find(o => o.tier === tier);
+    return { kind: 'tier', name: offering?.name_en || tier };
+}
+
+/**
  * The i18n key for an audit action, or `null` for one this build does not know
  * about — a new backend action must show as itself rather than as nothing.
  *
@@ -152,4 +173,33 @@ export function sortMembers (annotated) {
         if ( a.orgOwned !== b.orgOwned ) return a.orgOwned ? -1 : 1;
         return a.username.localeCompare(b.username);
     });
+}
+
+/**
+ * One page of the record, with the numbers the pager prints. Clamps the page:
+ * deleting an account shortens the record, and a stale number would otherwise
+ * show an empty table with no way back.
+ *
+ * @template T
+ * @param {T[]} entries
+ * @param {number} page - Zero-based.
+ * @param {number} size
+ * @returns {{ items: T[], page: number, pages: number, from: number, to: number, total: number }}
+ */
+export function auditSlice (entries, page, size) {
+    const all = entries ?? [];
+    const total = all.length;
+    const perPage = size > 0 ? size : 1;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const current = Math.min(Math.max(0, Math.trunc(page) || 0), pages - 1);
+    const start = current * perPage;
+    const items = all.slice(start, start + perPage);
+    return {
+        items,
+        page: current,
+        pages,
+        from: total === 0 ? 0 : start + 1,
+        to: start + items.length,
+        total,
+    };
 }

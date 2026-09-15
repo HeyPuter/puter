@@ -166,6 +166,17 @@ export const PermissionUtil = {
 };
 
 /**
+ * Whether a permission names an fs entry but no access mode. `fs:<uid>` is a
+ * parent of `fs:<uid>:<mode>`, so one answers every mode over the entry and
+ * everything under it. Nothing grants one deliberately, so both the grant path
+ * and the check path treat it as invalid rather than as a wildcard.
+ */
+export const isBareFsPermission = (permission: string): boolean => {
+    const parts = PermissionUtil.split(permission);
+    return parts[0] === 'fs' && parts.length < 3;
+};
+
+/**
  * Check whether a reading includes any terminal node (an `option`, or a `path`
  * that itself transitively terminates).
  */

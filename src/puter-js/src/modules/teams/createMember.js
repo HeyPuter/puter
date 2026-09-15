@@ -10,6 +10,9 @@ import { req, requireSegment } from './lib/req.js';
  * The returned password is shown once and is not retrievable afterwards —
  * deliver it out of band. The member must change it at first sign-in.
  *
+ * `email` is optional; these accounts sign in by username. Without one the
+ * account is only recoverable through its team's admin.
+ *
  * @this {import('./index.js').TeamsModule}
  * @param {string} uid
  * @param {import('./types.js').CreateMemberOptions} options
@@ -20,12 +23,14 @@ export async function createMember (uid, options) {
     if ( typeof options?.username !== 'string' || options.username.trim() === '' ) {
         throw new PuterJSError('`username` is required', 'invalid_request');
     }
-    if ( typeof options?.email !== 'string' || options.email.trim() === '' ) {
-        throw new PuterJSError('`email` is required', 'invalid_request');
+    if ( options?.email !== undefined && options.email !== null
+        && typeof options.email !== 'string' ) {
+        throw new PuterJSError('`email` must be a string', 'invalid_request');
     }
 
+    const email = typeof options?.email === 'string' ? options.email.trim() : '';
     const result = /** @type {Record<string, unknown>} */ (await req(this.puter, 'POST', `/teams/${segment}/members`, {
-        body: { username: options.username, email: options.email },
+        body: { username: options.username, ...(email ? { email } : {}) },
         operation: 'createMember',
     }));
     return {

@@ -122,6 +122,27 @@ export default suite('teams', {
         t.assert.equal(member!.orgOwned, true);
     },
 
+    'createMember needs no email, and the owner sees each seat uuid': async (t) => {
+        const team = await makeTeam(t, 'no-email');
+        const username = `tsn${tag()}`;
+        const created = (await t.puter.teams.createMember(team.uid, {
+            username,
+        })) as { username: string; temporaryPassword: string };
+        t.assert.equal(created.username, username);
+        t.assert.ok(created.temporaryPassword.length > 0, 'credential still issued');
+
+        const members = (await t.puter.teams.listMembers(team.uid)) as Array<{
+            username: string; orgOwned: boolean; uuid?: string;
+        }>;
+        const member = members.find((m) => m.username === username);
+        t.assert.ok(!!member, 'the emailless seat should be a member');
+        // The uuid is what billing keys a seat's plan on; owner-only.
+        t.assert.ok(
+            typeof member!.uuid === 'string' && member!.uuid.length > 0,
+            'the owner should see the seat uuid',
+        );
+    },
+
     'createMember with a taken username rejects': async (t) => {
         const team = await makeTeam(t, 'taken');
         await t.assert.rejects(

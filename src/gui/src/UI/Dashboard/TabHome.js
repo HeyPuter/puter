@@ -21,6 +21,7 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { usageBudget } from './usageBudget.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
+import { isOrgSeat } from './orgSeat.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
@@ -465,7 +466,10 @@ const TabHome = {
                 ? formatTrialEnd(subscription.trialEndsAt)
                 : null;
 
-            $el_window.find('.bento-plan-name').text(i18n(planName));
+            // A team tier has no translation key, so i18n would echo the id.
+            $el_window
+                .find('.bento-plan-name')
+                .text(subscription?.offering?.name_en || i18n(planName));
 
             // Reset state-dependent classes / warning each (re)render.
             const $badge = $el_window
@@ -514,6 +518,11 @@ const TabHome = {
                 // Reset the label too — otherwise it keeps saying "Manage →"
                 // after a subscription lapses/cancels.
                 $el_window.find('.bento-plan-upgrade').text('Upgrade →').show();
+            }
+
+            // A seat's plan is the team's; the link only reaches a refusal.
+            if ( isOrgSeat(window.user) ) {
+                $el_window.find('.bento-plan-upgrade').hide();
             }
 
             $el_window

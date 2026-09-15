@@ -48,6 +48,7 @@ beforeAll(async () => {
             create_shortcut: true,
             payment_bypass: true,
         },
+        teams_enabled: true,
     } as never);
 });
 
@@ -66,6 +67,81 @@ const seedUser = async () => {
 };
 
 describe('whoami extension — handleWhoami', () => {
+    // The sidebar label needs this at boot, which is why it rides whoami
+    // rather than a call of its own.
+    describe('the team an account belongs to', () => {
+        // A seat is created, never adopted, so it must have no password.
+        const seedSeat = async () => {
+            const slug = Math.random().toString(36).slice(2, 8);
+            return server.stores.user.create({
+                username: `wseat_${slug}`,
+                uuid: uuidv4(),
+                password: null,
+                email: null,
+            });
+        };
+
+        const seatOf = async (teamName: string) => {
+            const owner = await seedUser();
+            const seat = await seedSeat();
+            const team = await server.stores.team.create({
+                ownerUserId: owner.id as number,
+                name: teamName,
+                handle: `wt-${Math.random().toString(36).slice(2, 9)}`,
+            });
+            await server.stores.team.addMember(team.uid, seat.id as number, {
+                orgOwned: true,
+            });
+            return { seat, team };
+        };
+
+        it('names the team for a seat', async () => {
+            const { seat, team } = await seatOf('Acme Corp');
+            const { res, captured } = makeRes();
+
+            await runWithContext(
+                { actor: { user: { uuid: seat.uuid, id: seat.id as number } } },
+                () => handleWhoami(makeReq(), res),
+            );
+
+            expect((captured.body as { team?: unknown }).team).toEqual({
+                uid: team.uid,
+                name: 'Acme Corp',
+            });
+        });
+
+        it('says nothing for an account that is not a seat', async () => {
+            const user = await seedUser();
+            const { res, captured } = makeRes();
+
+            await runWithContext(
+                { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+                () => handleWhoami(makeReq(), res),
+            );
+
+            expect(captured.body).not.toHaveProperty('team');
+        });
+
+        it('withholds it from an app actor', async () => {
+            // Same class as the phone number: a seat's employer is not an
+            // app's business.
+            const { seat } = await seatOf('Acme Corp');
+            const { res, captured } = makeRes();
+
+            await runWithContext(
+                {
+                    actor: {
+                        user: { uuid: seat.uuid, id: seat.id as number },
+                        app: { uid: 'app-1' },
+                    },
+                },
+                () => handleWhoami(makeReq(), res),
+            );
+
+            expect(captured.body).not.toHaveProperty('team');
+        });
+    });
+
     it('returns 401 when no actor is on the context', async () => {
         const { res, captured } = makeRes();
 

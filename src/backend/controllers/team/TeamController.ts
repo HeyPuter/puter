@@ -85,6 +85,7 @@ export class TeamController extends PuterController {
     })
     async createTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
+        await this.#requireTeamsAvailable(req, userId);
         const body = this.#body(req);
 
         const team = await this.services.team.createTeam(userId, {
@@ -105,6 +106,7 @@ export class TeamController extends PuterController {
     })
     async listTeams(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
+        await this.#requireTeamsAvailable(req, userId);
         const teams = await this.stores.team.listTeamsForUser(userId);
         res.json({
             items: teams.map((t) =>
@@ -182,10 +184,13 @@ export class TeamController extends PuterController {
     })
     async listMembers(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.requireMembership(
+        const team = await this.services.team.requireMembership(
             this.#param(req, 'uid'),
             userId,
         );
+        // Only the owner: the uuid is what billing keys a seat's plan on, and
+        // one member has no business identifying another.
+        const isOwner = team.owner_user_id === userId;
 
         const page = await this.stores.team.listMembers(
             this.#param(req, 'uid'),
@@ -202,6 +207,7 @@ export class TeamController extends PuterController {
                 username: m.username,
                 org_owned: Number(m.org_owned) === 1,
                 created_at: m.created_at,
+                ...(isOwner ? { uuid: m.uuid } : {}),
             })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         });
@@ -249,7 +255,7 @@ export class TeamController extends PuterController {
         const body = this.#body(req);
         const result = await this.services.team.provisionAccount(uid, userId, {
             username: this.#requireString(body.username, 'username'),
-            email: this.#requireString(body.email, 'email'),
+            email: this.#optionalString(body.email, 'email'),
         });
         // Shown once; the admin delivers it out of band.
         res.json({
@@ -349,8 +355,8 @@ export class TeamController extends PuterController {
     async deleteMember(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
-        // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        // Authority first (anti-oracle); deleted team included, see the service.
+        await this.services.team.requireOwnedTeam(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
         await this.services.team.deleteMember(uid, userId, target);
@@ -406,6 +412,18 @@ export class TeamController extends PuterController {
         };
     }
 
+    /**
+     * The domain-allowlist gate, on the two routes that enter the feature. Same
+     * 404 as a teams-off deployment; other routes bound by membership.
+     */
+    async #requireTeamsAvailable(req: Request, userId: number): Promise<void> {
+        const email = (
+            req.actor as { user?: { email?: string | null } } | undefined
+        )?.user?.email;
+        if (await this.services.team.teamsAvailableTo(userId, email)) return;
+        throw new HttpError(404, 'Not found', { legacyCode: 'not_found' });
+    }
+
     #requireUserId(req: Request): number {
         const id = (req.actor as { user?: { id?: number } } | undefined)?.user
             ?.id;
@@ -424,6 +442,17 @@ export class TeamController extends PuterController {
 
     #body(req: Request): Record<string, unknown> {
         return (req.body ?? {}) as Record<string, unknown>;
+    }
+
+    /** Absent or empty means "not given"; a wrong type is still a 400. */
+    #optionalString(value: unknown, field: string): string | null {
+        if (value === undefined || value === null) return null;
+        if (typeof value !== 'string') {
+            throw new HttpError(400, `${field} must be a string`, {
+                legacyCode: 'bad_request',
+            });
+        }
+        return value.trim() === '' ? null : value;
     }
 
     #requireString(value: unknown, field: string): string {

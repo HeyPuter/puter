@@ -119,6 +119,54 @@ describe('aggregateShares', () => {
 
         expect(groups.map((g) => g.name)).toEqual(['ann']);
     });
+
+    it('gives a team a row of its own, named and keyed on the team', () => {
+        // A team share names no holder; without this it would be dropped as a
+        // grant that names nobody and the share would vanish from the list.
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [grant(null, 'read', {
+                holderTeam: { uid: 't-1', name: 'Acme', handle: 'acme' },
+            })]],
+        ]));
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            key: 'team:t-1',
+            name: 'Acme',
+            teamUid: 't-1',
+            mode: 'read',
+        });
+    });
+
+    it('falls back to the handle, then the uid, for an unnamed team', () => {
+        // Whatever team_label says, so a team reads the same here as it does
+        // in the desktop dialog's access list.
+        const named = (team) => aggregateShares(['/me/a'], new Map([
+            ['/me/a', [grant(null, 'read', { holderTeam: team })]],
+        ]))[0].name;
+
+        expect(named({ uid: 't-1', name: null, handle: 'acme' })).toBe('acme');
+        expect(named({ uid: 't-1', name: null, handle: null })).toBe('t-1');
+    });
+
+    it('keeps a team and a person of the same name apart', () => {
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [
+                grant('ann', 'read'),
+                grant(null, 'write', { holderTeam: { uid: 't-1', name: 'ann' } }),
+            ]],
+        ]));
+
+        expect(groups.map((g) => g.key)).toEqual(['user:ann', 'team:t-1']);
+    });
+
+    it('leaves teamUid null on a person, so their row still shares by name', () => {
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [grant('ann', 'read')]],
+        ]));
+
+        expect(groups[0].teamUid).toBe(null);
+    });
 });
 
 describe('missingPathsFor', () => {

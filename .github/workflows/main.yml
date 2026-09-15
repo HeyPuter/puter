@@ -31,7 +31,7 @@ jobs:
           git reset --hard main
       - name: Create/Update PR
         if: steps.find-pr.outputs.number == ''
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: Update release branch
