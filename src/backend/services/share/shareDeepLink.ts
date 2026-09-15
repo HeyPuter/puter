@@ -26,6 +26,7 @@
 
 /** The query parameter the GUI routes on. */
 export const SHARE_DEEP_LINK_PARAM = 'shared';
+export const SHARE_RECIPIENT_PARAM = 'user_uuid';
 
 export interface ShareTarget {
     /** The entry's own name, which the masked path's last segment must be. */
@@ -75,12 +76,19 @@ export const SHARE_DEEP_LINK_MAX_LENGTH = 2000;
  * the uuid, so a rename is recoverable and there is no second copy to disagree
  * with the first. With no paths the link still lands on Shared.
  */
-export const sharedViewLink = (origin: string, paths: string[]): string => {
+export const sharedViewLink = (
+    origin: string,
+    paths: string[],
+    recipientUuid?: string,
+): string => {
     const base = `${origin.replace(/\/+$/, '')}/?`;
+    const recipient = recipientUuid
+        ? `&${SHARE_RECIPIENT_PARAM}=${encodeURIComponent(recipientUuid)}`
+        : '';
     // The first items that fit, in order — never a later one over an
     // earlier, so what is highlighted reads as the top of the list.
     const params: string[] = [];
-    let length = base.length;
+    let length = base.length + recipient.length;
     for (const path of new Set(paths)) {
         if (params.length === SHARE_DEEP_LINK_ITEMS_LIMIT) break;
         const param = `${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`;
@@ -92,13 +100,17 @@ export const sharedViewLink = (origin: string, paths: string[]): string => {
     }
     return (
         base +
-        (params.length === 0 ? `${SHARE_DEEP_LINK_PARAM}=` : params.join('&'))
+        (params.length === 0 ? `${SHARE_DEEP_LINK_PARAM}=` : params.join('&')) +
+        recipient
     );
 };
 
 /** A link that opens `path`: the Shared view with that one item highlighted. */
-export const shareDeepLink = (origin: string, path: string): string =>
-    sharedViewLink(origin, [path]);
+export const shareDeepLink = (
+    origin: string,
+    path: string,
+    recipientUuid?: string,
+): string => sharedViewLink(origin, [path], recipientUuid);
 
 /** The link for a target, or `null` when it isn't addressable. */
 export const shareTargetLink = (

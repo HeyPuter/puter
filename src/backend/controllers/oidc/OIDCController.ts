@@ -18,6 +18,7 @@
  */
 
 import crypto from 'node:crypto';
+import { validate as validateUuid } from 'uuid';
 import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
@@ -27,6 +28,7 @@ import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
 import {
     SHARE_DEEP_LINK_ITEMS_LIMIT,
     SHARE_DEEP_LINK_PARAM,
+    SHARE_RECIPIENT_PARAM,
 } from '../../services/share/shareDeepLink.js';
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
@@ -98,9 +100,18 @@ function isWhitelistedReturnPath(path: string): boolean {
  * text, so a hand-edited one is refused rather than reflected back into the
  * browser.
  */
-function sharedPathsFromReturnQuery(query: string): string[] | null {
+function sharedReturnQuery(query: string): {
+    paths: string[];
+    recipientUuid?: string;
+} | null {
     const paths: string[] = [];
+    let recipientUuid: string | undefined;
     for (const [key, value] of new URLSearchParams(query)) {
+        if (key === SHARE_RECIPIENT_PARAM) {
+            if (recipientUuid || !validateUuid(value)) return null;
+            recipientUuid = value;
+            continue;
+        }
         if (key !== SHARE_DEEP_LINK_PARAM) return null;
         const parsed = parseMaskedSharePath(value);
         // The segment after the uuid is the shared item itself. A mask without
@@ -116,7 +127,7 @@ function sharedPathsFromReturnQuery(query: string): string[] | null {
             paths.push(value);
         }
     }
-    return paths;
+    return { paths, recipientUuid };
 }
 
 /**
@@ -135,15 +146,19 @@ function sanitizeReturnTo(raw: string): string | null {
 
     const shared =
         separator === -1
-            ? []
-            : sharedPathsFromReturnQuery(raw.slice(separator + 1));
+            ? { paths: [] }
+            : sharedReturnQuery(raw.slice(separator + 1));
     if (shared === null) return null;
     // The root is only a destination when it names something: on its own it is
     // where the flow already lands.
-    if (shared.length === 0) return path === '/' ? null : path;
+    if (shared.paths.length === 0) return path === '/' ? null : path;
 
     const params = new URLSearchParams();
-    for (const value of shared) params.append(SHARE_DEEP_LINK_PARAM, value);
+    for (const value of shared.paths)
+        params.append(SHARE_DEEP_LINK_PARAM, value);
+    if (shared.recipientUuid) {
+        params.set(SHARE_RECIPIENT_PARAM, shared.recipientUuid);
+    }
     return `${path}?${params.toString()}`;
 }
 
@@ -175,12 +190,15 @@ function buildErrorRedirectUrl(
     // its success reloads it, so they have to be on it to survive.
     let pagePath = '/';
     let sharedPaths: string[] = [];
+    let shareRecipientUuid: string | undefined;
     if (typeof stateDecoded?.redirect_uri === 'string') {
         try {
             const stateUrl = new URL(stateDecoded.redirect_uri);
             if (isWhitelistedReturnPath(stateUrl.pathname)) {
                 pagePath = stateUrl.pathname;
-                sharedPaths = sharedPathsFromReturnQuery(stateUrl.search) ?? [];
+                const shared = sharedReturnQuery(stateUrl.search);
+                sharedPaths = shared?.paths ?? [];
+                shareRecipientUuid = shared?.recipientUuid;
             }
         } catch {
             // unparsable redirect_uri: fall back to the root page
@@ -224,6 +242,9 @@ function buildErrorRedirectUrl(
     }
     for (const path of sharedPaths) {
         params.append(SHARE_DEEP_LINK_PARAM, path);
+    }
+    if (shareRecipientUuid) {
+        params.set(SHARE_RECIPIENT_PARAM, shareRecipientUuid);
     }
     return `${base}${pagePath}?${params.toString()}`;
 }
