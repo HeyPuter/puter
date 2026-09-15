@@ -16,6 +16,8 @@ import {
     CHARGE_EXPIRY_SECS,
     GLOW_SETUP_URL,
     LATE_SETTLEMENT_GRACE_SECS,
+    RATES_CACHE_MS,
+    resetRatesCache,
     handleCreateCharge,
     handleGetCharge,
     handleGetChargeQr,
@@ -70,6 +72,10 @@ const fake = {
     commentAllowed: 255,
     invoiceRequests: [] as URL[],
     counter: 0,
+    // Fake Yadio: the BTC price table fiat charges are quoted from.
+    rates: { USD: 100_000, EUR: 80_000 } as Record<string, number>,
+    ratesDown: false,
+    ratesRequests: 0,
 };
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -80,6 +86,11 @@ const jsonResponse = (status: number, body: unknown) =>
 
 const fakeFetch = async (input: unknown): Promise<globalThis.Response> => {
     const url = new URL(String(input));
+    if (url.hostname === 'api.yadio.io') {
+        fake.ratesRequests++;
+        if (fake.ratesDown) return new globalThis.Response('<html>503</html>', { status: 503 });
+        return jsonResponse(200, { BTC: { BTC: 1, ...fake.rates }, base: 'BTC', timestamp: Date.now() });
+    }
     if (url.hostname !== 'breez.tips') throw new Error(`unexpected host ${url.hostname}`);
 
     const wellKnown = url.pathname.match(/^\/\.well-known\/lnurlp\/([^/]+)$/);
@@ -130,6 +141,11 @@ afterEach(() => {
     fake.verifyDown = false;
     fake.commentAllowed = 255;
     fake.invoiceRequests = [];
+    fake.rates = { USD: 100_000, EUR: 80_000 };
+    fake.ratesDown = false;
+    fake.ratesRequests = 0;
+    resetRatesCache();
+    vi.useRealTimers();
 });
 
 /** Rewrites the stored record so its expiry lies `secondsAgo` in the past. */
@@ -275,6 +291,96 @@ describe('payments extension', () => {
             expect(request.searchParams.get('amount')).toBe('250000');
             expect(request.searchParams.get('expiry')).toBe(String(CHARGE_EXPIRY_SECS));
             expect(request.searchParams.get('comment')).toBe('Coffee');
+        });
+
+        it('prices a charge in fiat at the current rate, rounded up, and records the quote', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            // 4.99 USD at 100,000 USD/BTC is 4,990 sats exactly; 0.000015 BTC
+            // worth of EUR (1.2 EUR at 80,000) is 1,500 sats; 1.23456 USD is
+            // 1234.56 sats and must round up to 1235.
+            const out = await call(
+                handleCreateCharge,
+                asUser(user),
+                makeReq({ body: { amount: 4.99, currency: 'usd', description: 'Plan' } }),
+            );
+            expect(out.status).toBe(201);
+            expect(out.body).toMatchObject({
+                amountSats: 4990,
+                fiat: { amount: 4.99, currency: 'USD', rate: 100_000 },
+            });
+            expect(fake.invoiceRequests[0].searchParams.get('amount')).toBe('4990000');
+
+            const eur = await call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1.2, currency: 'EUR' } }));
+            expect(eur.body).toMatchObject({ amountSats: 1500, fiat: { currency: 'EUR', rate: 80_000 } });
+
+            const rounded = await call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1.23456, currency: 'USD' } }));
+            expect((rounded.body as { amountSats: number }).amountSats).toBe(1235);
+        });
+
+        it('leaves fiat null on a sats-priced charge', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            const out = await call(handleCreateCharge, asUser(user), makeReq({ body: { amountSats: 10 } }));
+            expect((out.body as { fiat: unknown }).fiat).toBeNull();
+            expect(fake.ratesRequests).toBe(0);
+        });
+
+        it('rejects a fiat price that is malformed, mixed with sats, or in an unknown currency', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            for (const body of [
+                { amount: 0, currency: 'USD' },
+                { amount: -1, currency: 'USD' },
+                { amount: '4.99', currency: 'USD' },
+                { amount: Number.NaN, currency: 'USD' },
+                { amountSats: 10, amount: 1, currency: 'USD' },
+                { currency: 'USD' },
+            ]) {
+                await expect(
+                    call(handleCreateCharge, asUser(user), makeReq({ body })),
+                ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_amount' });
+            }
+            for (const body of [
+                { amount: 1 },
+                { amount: 1, currency: 'dollars' },
+                { amount: 1, currency: 'XXX' },
+            ]) {
+                await expect(
+                    call(handleCreateCharge, asUser(user), makeReq({ body })),
+                ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_currency' });
+            }
+            // Nothing reached breez.tips for any of these.
+            expect(fake.invoiceRequests).toHaveLength(0);
+        });
+
+        it('fails a fiat charge loudly when the rate source is down, never at a stale price', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            fake.ratesDown = true;
+            await expect(
+                call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1, currency: 'USD' } })),
+            ).rejects.toMatchObject({ statusCode: 502, code: 'exchange_rate_unavailable' });
+            // Sats-priced charges do not depend on the rate source.
+            const out = await call(handleCreateCharge, asUser(user), makeReq({ body: { amountSats: 10 } }));
+            expect(out.status).toBe(201);
+        });
+
+        it('caches the rate table for a minute and refreshes it afterwards', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            vi.useFakeTimers({ toFake: ['Date'] });
+            const create = () =>
+                call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1, currency: 'USD' } }));
+            await create();
+            await create();
+            expect(fake.ratesRequests).toBe(1);
+
+            fake.rates = { USD: 200_000 };
+            vi.advanceTimersByTime(RATES_CACHE_MS + 1);
+            const out = await create();
+            expect(fake.ratesRequests).toBe(2);
+            expect(out.body).toMatchObject({ amountSats: 500, fiat: { rate: 200_000 } });
         });
 
         it('accepts a per-charge breez.tips address and refuses other domains', async () => {

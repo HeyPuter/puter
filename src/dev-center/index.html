@@ -247,7 +247,7 @@
 
             <h2 style="font-size:16px; margin-top:24px;">3. Charge from your app</h2>
             <pre style="font-size:13px; background:#f4f4f6; padding:12px; border-radius:6px; width: 410px; overflow:auto;">const paid = await puter.payments.checkout({
-    amountSats: 1000,
+    amount: 4.99, currency: 'USD', // or amountSats: 1000
     description: 'Pro upgrade',
 });</pre>
             <p style="font-size:13px;">Payers can use any Lightning wallet, including Cash App. See the

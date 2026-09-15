@@ -18,6 +18,15 @@ const stores = extension.import('store');
 export const LNURL_DOMAIN = 'breez.tips';
 export const GLOW_SETUP_URL = 'https://breez.technology/glow/';
 const CASHAPP_LIGHTNING_URL = 'https://cash.app/launch/lightning/';
+/**
+ * Where fiat amounts are converted. Yadio publishes the BTC price in every ISO
+ * 4217 currency; the same source Glow Pay prices in.
+ */
+export const RATES_URL = 'https://api.yadio.io/exrates/BTC';
+const RATES_HOST = 'api.yadio.io';
+/** A fiat-priced charge is quoted at a rate at most this old. */
+export const RATES_CACHE_MS = 60_000;
+const SATS_PER_BTC = 100_000_000;
 
 /** How long an invoice stays payable. Mirrors the LNURL `expiry` parameter. */
 export const CHARGE_EXPIRY_SECS = 300;
@@ -45,6 +54,16 @@ const indexKey = (developerUuid: string, createdMs: number, id: string) =>
 
 export type ChargeStatus = 'pending' | 'completed' | 'expired';
 
+/** How a charge was priced when it was created in a fiat currency. */
+export interface FiatAmount {
+    /** The amount in `currency`, as the app passed it. */
+    amount: number;
+    /** ISO 4217 code, uppercase. */
+    currency: string;
+    /** The price of 1 BTC in `currency` used to compute `amountSats`. */
+    rate: number;
+}
+
 export interface ChargeRecord {
     id: string;
     developerUuid: string;
@@ -52,6 +71,8 @@ export interface ChargeRecord {
     payerUuid: string;
     lightningAddress: string;
     amountSats: number;
+    /** Absent on charges created before fiat pricing existed. */
+    fiat?: FiatAmount | null;
     description: string | null;
     metadata: Record<string, unknown> | null;
     invoice: string;
@@ -193,6 +214,122 @@ const checkSettled = async (verifyUrl: string): Promise<boolean> => {
     return body.settled === true;
 };
 
+// -- Exchange rates (Yadio) ---------------------------------------------------
+
+interface RatesSnapshot {
+    /** BTC price per currency code. */
+    rates: Record<string, number>;
+    fetchedAt: number;
+}
+
+let ratesCache: RatesSnapshot | null = null;
+let ratesInFlight: Promise<RatesSnapshot> | null = null;
+
+const ratesUnavailable = (message: string, cause?: unknown) =>
+    new HttpError(502, message, {
+        code: 'exchange_rate_unavailable',
+        cause,
+        noAlarm: true,
+    });
+
+const fetchRates = async (): Promise<RatesSnapshot> => {
+    const target = new URL(RATES_URL);
+    if (target.protocol !== 'https:' || target.hostname !== RATES_HOST) {
+        throw ratesUnavailable('Invalid exchange rate service URL');
+    }
+    let resp: globalThis.Response;
+    try {
+        resp = await fetch(RATES_URL, {
+            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        });
+    } catch (cause) {
+        throw ratesUnavailable('Exchange rate service unreachable', cause);
+    }
+    if (!resp.ok) {
+        throw ratesUnavailable('Exchange rate service error');
+    }
+    let body: { BTC?: Record<string, unknown> };
+    try {
+        body = (await resp.json()) as { BTC?: Record<string, unknown> };
+    } catch (cause) {
+        throw ratesUnavailable('Invalid exchange rate response', cause);
+    }
+    const table = body?.BTC;
+    if (!table || typeof table !== 'object') {
+        throw ratesUnavailable('Invalid exchange rate response');
+    }
+    const rates: Record<string, number> = {};
+    for (const [code, price] of Object.entries(table)) {
+        if (code === 'BTC') continue;
+        if (typeof price === 'number' && Number.isFinite(price) && price > 0) {
+            rates[code.toUpperCase()] = price;
+        }
+    }
+    if (Object.keys(rates).length === 0) {
+        throw ratesUnavailable('Invalid exchange rate response');
+    }
+    return { rates, fetchedAt: Date.now() };
+};
+
+/**
+ * The current BTC price table, refreshed at most once a minute. Concurrent
+ * callers share one upstream request. A stale table is never served past the
+ * cache window: with the rate source down, fiat pricing fails rather than
+ * quoting an old price.
+ */
+export const getRates = async (): Promise<RatesSnapshot> => {
+    if (ratesCache && Date.now() - ratesCache.fetchedAt < RATES_CACHE_MS) {
+        return ratesCache;
+    }
+    if (!ratesInFlight) {
+        ratesInFlight = fetchRates()
+            .then((snapshot) => {
+                ratesCache = snapshot;
+                return snapshot;
+            })
+            .finally(() => {
+                ratesInFlight = null;
+            });
+    }
+    return ratesInFlight;
+};
+
+/** Test hook: forgets the cached price table. */
+export const resetRatesCache = () => {
+    ratesCache = null;
+    ratesInFlight = null;
+};
+
+/**
+ * Converts a fiat amount to satoshis at the current rate, rounded up so the
+ * developer never receives less than the price they set.
+ */
+const quoteFiat = async (
+    amount: number,
+    currency: string,
+): Promise<{ amountSats: number; fiat: FiatAmount }> => {
+    const { rates } = await getRates();
+    const rate = rates[currency];
+    if (rate === undefined) {
+        throw new HttpError(400, `currency ${currency} is not supported`, {
+            code: 'invalid_currency',
+        });
+    }
+    // Binary floating point makes 4.99 * 1e8 / 100000 come out a hair above
+    // 4990; shave that noise off before rounding up so an exact price stays
+    // exact and only a real fraction of a satoshi rounds up.
+    const exact = (amount * SATS_PER_BTC) / rate;
+    const amountSats = Math.ceil(exact - 1e-6);
+    if (amountSats < 1 || amountSats > 100_000_000_000) {
+        throw new HttpError(
+            400,
+            'amount converts to an unsupported number of satoshis',
+            { code: 'invalid_amount' },
+        );
+    }
+    return { amountSats, fiat: { amount, currency, rate } };
+};
+
 // -- Validation ---------------------------------------------------------------
 
 const ADDRESS_RE = /^[a-z0-9][a-z0-9._-]{0,63}@breez\.tips$/;
@@ -230,6 +367,50 @@ const parseAmountSats = (value: unknown): number => {
         });
     }
     return value;
+};
+
+const CURRENCY_RE = /^[A-Za-z]{3}$/;
+
+/**
+ * A charge is priced either in satoshis (`amountSats`) or in a fiat currency
+ * (`amount` + `currency`), never both.
+ */
+type PriceInput =
+    | { kind: 'sats'; amountSats: number }
+    | { kind: 'fiat'; amount: number; currency: string };
+
+const parsePrice = (body: Record<string, unknown>): PriceInput => {
+    const hasSats = body.amountSats !== undefined;
+    const hasFiat = body.amount !== undefined || body.currency !== undefined;
+    if (hasSats && hasFiat) {
+        throw new HttpError(
+            400,
+            'pass either amountSats or amount with currency, not both',
+            { code: 'invalid_amount' },
+        );
+    }
+    if (!hasFiat) {
+        return { kind: 'sats', amountSats: parseAmountSats(body.amountSats) };
+    }
+    const amount = body.amount;
+    if (
+        typeof amount !== 'number' ||
+        !Number.isFinite(amount) ||
+        amount <= 0 ||
+        amount > 1_000_000_000_000
+    ) {
+        throw new HttpError(400, 'amount must be a positive number', {
+            code: 'invalid_amount',
+        });
+    }
+    if (typeof body.currency !== 'string' || !CURRENCY_RE.test(body.currency)) {
+        throw new HttpError(
+            400,
+            'currency must be a three-letter ISO 4217 code, like USD',
+            { code: 'invalid_currency' },
+        );
+    }
+    return { kind: 'fiat', amount, currency: body.currency.toUpperCase() };
 };
 
 const parseDescription = (value: unknown): string | null => {
@@ -391,6 +572,7 @@ const toWire = (charge: ChargeRecord) => ({
     id: charge.id,
     status: charge.status,
     amountSats: charge.amountSats,
+    fiat: charge.fiat ?? null,
     description: charge.description,
     metadata: charge.metadata,
     lightningAddress: charge.lightningAddress,
@@ -444,7 +626,7 @@ export const handleUpdateSettings = async (req: Request, res: Response) => {
 export const handleCreateCharge = async (req: Request, res: Response) => {
     const actor = requireActor();
     const body = req.body ?? {};
-    const amountSats = parseAmountSats(body.amountSats);
+    const price = parsePrice(body);
     const description = parseDescription(body.description);
     const metadata = parseMetadata(body.metadata);
 
@@ -478,6 +660,13 @@ export const handleCreateCharge = async (req: Request, res: Response) => {
         lightningAddress = settings.lightningAddress;
     }
 
+    // Quote the fiat price right before the invoice is requested so the rate
+    // stored on the charge is the one the invoice was actually made at.
+    const { amountSats, fiat } =
+        price.kind === 'fiat'
+            ? await quoteFiat(price.amount, price.currency)
+            : { amountSats: price.amountSats, fiat: null };
+
     const info = await fetchLnurlPayInfo(lightningAddress);
     const amountMsats = amountSats * 1000;
     if (amountMsats < info.minSendable || amountMsats > info.maxSendable) {
@@ -497,6 +686,7 @@ export const handleCreateCharge = async (req: Request, res: Response) => {
         payerUuid: actor.user.uuid as string,
         lightningAddress,
         amountSats,
+        fiat,
         description,
         metadata,
         invoice: invoice.pr,

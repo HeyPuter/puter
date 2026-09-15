@@ -14,6 +14,20 @@ const escapeHtml = (value) =>
     })[c]);
 
 const formatSats = (sats) => `${new Intl.NumberFormat().format(sats)} sats`;
+const formatFiat = ({ amount, currency }) =>
+    new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+
+/**
+ * The amount block: a fiat-priced charge leads with the fiat price and shows
+ * the satoshis it converted to underneath; a sats-priced one shows sats only.
+ */
+const amountHtml = (charge) => {
+    if ( !charge.fiat ) {
+        return `<p class="amount">${escapeHtml(formatSats(charge.amountSats))}</p>`;
+    }
+    return `<p class="amount">${escapeHtml(formatFiat(charge.fiat))}</p>`
+        + `<p class="amount-sats">${escapeHtml(formatSats(charge.amountSats))}</p>`;
+};
 
 const formatCountdown = (ms) => {
     const total = Math.max(0, Math.floor(ms / 1000));
@@ -42,6 +56,7 @@ const STYLE = `
     .title { font-size: 16px; font-weight: 500; color: #333; margin: 0 0 4px; }
     .desc { font-size: 13px; margin: 0 0 12px; word-break: break-word; }
     .amount { font-size: 22px; font-weight: 600; color: #333; margin: 0 0 14px; }
+    .amount + .amount-sats { font-size: 13px; color: #8a8a94; margin: -10px 0 14px; }
     .qr { width: 220px; height: 220px; margin: 0 auto 6px; display: block; }
     .qr svg { width: 100%; height: 100%; display: block; }
     .qr.loading { background: #f4f4f6; border-radius: 6px; }
@@ -101,7 +116,7 @@ export function renderCheckout (puter, charge, { title, getCharge }) {
                 <div class="card">
                     <p class="title">${escapeHtml(heading)}</p>
                     ${charge.description ? `<p class="desc">${escapeHtml(charge.description)}</p>` : ''}
-                    <p class="amount">${escapeHtml(formatSats(charge.amountSats))}</p>
+                    ${amountHtml(charge)}
                     <div class="qr loading"></div>
                     <p class="expires">Expires in <span class="countdown"></span></p>
                     <p class="status"></p>

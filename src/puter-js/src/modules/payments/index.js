@@ -29,12 +29,37 @@ const METHODS = [
 const req = (puter, method, route, opts = {}) =>
     apiRequest(puter, method, route, { service: 'payments', ...opts });
 
+const CURRENCY_RE = /^[a-z]{3}$/i;
+
+/**
+ * Checks the price options and returns the request body. A charge is priced
+ * in satoshis (`amountSats`) or in a fiat currency (`amount` + `currency`),
+ * never both; the server does the conversion.
+ */
 const validateCreateOptions = (options) => {
-    const amountSats = options?.amountSats;
-    if ( typeof amountSats !== 'number' || !Number.isInteger(amountSats) || amountSats < 1 ) {
-        throw new PuterJSError('`amountSats` must be a positive integer', 'invalid_amount');
+    const hasSats = options?.amountSats !== undefined;
+    const hasFiat = options?.amount !== undefined || options?.currency !== undefined;
+    if ( hasSats && hasFiat ) {
+        throw new PuterJSError('pass either `amountSats` or `amount` with `currency`, not both', 'invalid_amount');
     }
-    const body = { amountSats };
+    const body = {};
+    if ( hasFiat ) {
+        const { amount, currency } = options;
+        if ( typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0 ) {
+            throw new PuterJSError('`amount` must be a positive number', 'invalid_amount');
+        }
+        if ( typeof currency !== 'string' || !CURRENCY_RE.test(currency) ) {
+            throw new PuterJSError('`currency` must be a three-letter ISO 4217 code, like USD', 'invalid_currency');
+        }
+        body.amount = amount;
+        body.currency = currency.toUpperCase();
+    } else {
+        const amountSats = options?.amountSats;
+        if ( typeof amountSats !== 'number' || !Number.isInteger(amountSats) || amountSats < 1 ) {
+            throw new PuterJSError('`amountSats` must be a positive integer', 'invalid_amount');
+        }
+        body.amountSats = amountSats;
+    }
     if ( options.description !== undefined ) body.description = options.description;
     if ( options.metadata !== undefined ) body.metadata = options.metadata;
     if ( options.lightningAddress !== undefined && options.lightningAddress !== null ) {
@@ -65,8 +90,10 @@ export class PaymentsModule extends PuterModule {
     }
 
     /**
-     * Creates a charge: a Lightning invoice for `amountSats` paying into the
-     * developer's `breez.tips` address (or `lightningAddress` when given).
+     * Creates a charge: a Lightning invoice paying into the developer's
+     * `breez.tips` address (or `lightningAddress` when given). Price it in
+     * satoshis with `amountSats`, or in a fiat currency with `amount` and
+     * `currency`; the server converts at the current rate.
      *
      * @param {CreateChargeOptions} options
      * @returns {Promise<Charge>}

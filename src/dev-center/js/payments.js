@@ -4,6 +4,16 @@
 
 const STATUS_LABELS = { pending: 'Pending', completed: 'Paid', expired: 'Expired' };
 
+const format_sats = (sats) => `${new Intl.NumberFormat().format(sats)} sats`;
+
+/** "$4.99 (6,512 sats)" for a fiat-priced charge, "1,000 sats" otherwise. */
+function format_charge_amount (charge) {
+    if ( !charge.fiat ) return format_sats(charge.amountSats);
+    const fiat = new Intl.NumberFormat(undefined, { style: 'currency', currency: charge.fiat.currency })
+        .format(charge.fiat.amount);
+    return `${fiat} (${format_sats(charge.amountSats)})`;
+}
+
 function render_charges (charges) {
     if ( charges.length === 0 ) {
         $('#payments-charges').hide();
@@ -14,7 +24,7 @@ function render_charges (charges) {
     for ( const charge of charges ) {
         rows += `<tr>
             <td>${html_encode(new Date(charge.createdAt).toLocaleString())}</td>
-            <td>${html_encode(new Intl.NumberFormat().format(charge.amountSats))} sats</td>
+            <td>${html_encode(format_charge_amount(charge))}</td>
             <td><span class="payments-status payments-status-${html_encode(charge.status)}">${html_encode(STATUS_LABELS[charge.status] ?? charge.status)}</span></td>
             <td>${html_encode(charge.description ?? '')}</td>
             <td>${html_encode(charge.lightningAddress)}</td>

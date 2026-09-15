@@ -8,7 +8,10 @@
  * @property {string} id The charge's unique identifier.
  * @property {'pending' | 'completed' | 'expired'} status Whether the invoice is still payable,
  * was paid, or ran out of time.
- * @property {number} amountSats The amount in satoshis.
+ * @property {number} amountSats The amount in satoshis. For a fiat-priced charge this is
+ * the converted amount the invoice was issued for.
+ * @property {FiatAmount | null} fiat How the charge was priced when it was created in a
+ * fiat currency, or `null` when it was priced in satoshis.
  * @property {string | null} description Free text shown to the payer, or `null`.
  * @property {Record<string, unknown> | null} metadata Whatever the app attached at creation, or `null`.
  * @property {string} lightningAddress The `breez.tips` address the charge pays into.
@@ -21,10 +24,23 @@
  */
 
 /**
- * Options for `Payments.createCharge()`.
+ * A fiat price and the exchange rate it was converted at.
+ *
+ * @typedef {Object} FiatAmount
+ * @property {number} amount The amount in `currency`, as passed at creation.
+ * @property {string} currency ISO 4217 code, uppercase, such as `USD`.
+ * @property {number} rate The price of 1 BTC in `currency` the charge was quoted at.
+ */
+
+/**
+ * Options for `Payments.createCharge()`. Price the charge either in satoshis with
+ * `amountSats`, or in a fiat currency with `amount` and `currency`; not both.
  *
  * @typedef {Object} CreateChargeOptions
- * @property {number} amountSats The amount in satoshis, a positive integer.
+ * @property {number} [amountSats] The amount in satoshis, a positive integer.
+ * @property {number} [amount] The amount in `currency`, a positive number. Converted to
+ * satoshis at the current rate when the charge is created, rounded up.
+ * @property {string} [currency] ISO 4217 code, such as `USD` or `EUR`. Required with `amount`.
  * @property {string} [description] Free text shown to the payer, at most 255 characters.
  * @property {string} [lightningAddress] A `breez.tips` address to pay into instead of the
  * developer's configured default. Only honored outside an app (a worker, an API token, the

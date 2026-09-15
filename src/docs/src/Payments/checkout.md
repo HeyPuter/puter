@@ -6,6 +6,8 @@ platforms: [websites, apps]
 
 Creates a charge and shows a checkout window with a QR code, an **Open in wallet** link, a **Pay with Cash App** button, and a copyable invoice. The promise resolves with the completed charge once the payment settles. Browser environments only.
 
+A charge priced with `amount` and `currency` shows the fiat price as the headline, with the satoshis it converted to underneath. A charge priced with `amountSats` shows satoshis only.
+
 ## Syntax
 
 ```js
@@ -31,11 +33,11 @@ A `Promise` that resolves to the completed [charge](/Payments/getCharge/#return-
 - `charge_expired` when the invoice runs out before it is paid. The error carries `chargeId`.
 - Anything [`createCharge()`](/Payments/createCharge/#return-value) rejects with, such as `lightning_address_not_configured`.
 
-<div class="info"><strong>Verify before you deliver.</strong> The window runs in the payer's browser, so the resolved promise is a convenience for the UI, not proof. Before handing over anything valuable, read the charge from a <a href="/Workers/">worker</a> or your own server with <a href="/Payments/getCharge/">getCharge()</a> and check <code>status</code>, <code>amountSats</code> and <code>lightningAddress</code>.</div>
+<div class="info"><strong>Verify before you deliver.</strong> The window runs in the payer's browser, so the resolved promise is a convenience for the UI, not proof. Before handing over anything valuable, read the charge from a <a href="/Workers/">worker</a> or your own server with <a href="/Payments/getCharge/">getCharge()</a> and check <code>status</code>, <code>lightningAddress</code> and the price (<code>amountSats</code>, or <code>fiat.amount</code> and <code>fiat.currency</code>).</div>
 
 ## Examples
 
-<strong class="example-title">Charge 1000 sats for an upgrade</strong>
+<strong class="example-title">Charge $4.99 for an upgrade</strong>
 
 ```html;payments-checkout-example
 <html>
@@ -45,7 +47,8 @@ A `Promise` that resolves to the completed [charge](/Payments/getCharge/#return-
         (async () => {
             try {
                 const charge = await puter.payments.checkout({
-                    amountSats: 1000,
+                    amount: 4.99,
+                    currency: 'USD',
                     description: 'Pro upgrade',
                     metadata: { plan: 'pro' },
                 });

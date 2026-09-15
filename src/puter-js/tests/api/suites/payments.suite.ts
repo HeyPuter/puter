@@ -29,6 +29,29 @@ export default suite('payments', {
         );
     },
 
+    'createCharge rejects a bad fiat price before reaching the server': async (t) => {
+        await t.assert.rejects(
+            () => t.puter.payments.createCharge({ amount: 0, currency: 'USD' }),
+            'a zero fiat amount should reject',
+        );
+        await t.assert.rejects(
+            () => t.puter.payments.createCharge({ amount: 1 }),
+            'a fiat amount without a currency should reject',
+        );
+        await t.assert.rejects(
+            () => t.puter.payments.createCharge({ amount: 1, currency: 'dollars' }),
+            'a currency that is not a three-letter code should reject',
+        );
+        await t.assert.rejects(
+            () => t.puter.payments.createCharge({ amountSats: 100, amount: 1, currency: 'USD' }),
+            'sats and fiat together should reject',
+        );
+        await t.assert.rejects(
+            () => (t.puter.payments.createCharge as (o: unknown) => Promise<unknown>)({ description: 'no price' }),
+            'no price at all should reject',
+        );
+    },
+
     'createCharge without a configured address reports how to set one up': async (t) => {
         try {
             await t.puter.payments.createCharge({ amountSats: 100 });
