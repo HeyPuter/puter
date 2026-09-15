@@ -23,10 +23,18 @@ const CASHAPP_LIGHTNING_URL = 'https://cash.app/launch/lightning/';
  * 4217 currency; the same source Glow Pay prices in.
  */
 export const RATES_URL = 'https://api.yadio.io/exrates/BTC';
-const RATES_HOST = 'api.yadio.io';
 /** A fiat-priced charge is quoted at a rate at most this old. */
 export const RATES_CACHE_MS = 60_000;
-const SATS_PER_BTC = 100_000_000;
+/**
+ * Yadio stamps each table with when it was computed; one older than this is a
+ * frozen upstream, not a price.
+ */
+export const RATES_MAX_AGE_MS = 15 * 60_000;
+/** After a failed fetch, fiat pricing fails fast for this long before retrying. */
+export const RATES_RETRY_AFTER_MS = 5_000;
+/** Yadio answers in well under a second; do not hold a checkout for longer. */
+const RATES_TIMEOUT_MS = 3_000;
+const MSATS_PER_BTC = 100_000_000_000;
 
 /** How long an invoice stays payable. Mirrors the LNURL `expiry` parameter. */
 export const CHARGE_EXPIRY_SECS = 300;
@@ -71,8 +79,7 @@ export interface ChargeRecord {
     payerUuid: string;
     lightningAddress: string;
     amountSats: number;
-    /** Absent on charges created before fiat pricing existed. */
-    fiat?: FiatAmount | null;
+    fiat: FiatAmount | null;
     description: string | null;
     metadata: Record<string, unknown> | null;
     invoice: string;
@@ -224,6 +231,7 @@ interface RatesSnapshot {
 
 let ratesCache: RatesSnapshot | null = null;
 let ratesInFlight: Promise<RatesSnapshot> | null = null;
+let ratesFailedAt = 0;
 
 const ratesUnavailable = (message: string, cause?: unknown) =>
     new HttpError(502, message, {
@@ -232,15 +240,17 @@ const ratesUnavailable = (message: string, cause?: unknown) =>
         noAlarm: true,
     });
 
+interface RatesBody {
+    BTC?: Record<string, unknown>;
+    /** When Yadio computed the table, Unix milliseconds. */
+    timestamp?: unknown;
+}
+
 const fetchRates = async (): Promise<RatesSnapshot> => {
-    const target = new URL(RATES_URL);
-    if (target.protocol !== 'https:' || target.hostname !== RATES_HOST) {
-        throw ratesUnavailable('Invalid exchange rate service URL');
-    }
     let resp: globalThis.Response;
     try {
         resp = await fetch(RATES_URL, {
-            signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+            signal: AbortSignal.timeout(RATES_TIMEOUT_MS),
         });
     } catch (cause) {
         throw ratesUnavailable('Exchange rate service unreachable', cause);
@@ -248,15 +258,21 @@ const fetchRates = async (): Promise<RatesSnapshot> => {
     if (!resp.ok) {
         throw ratesUnavailable('Exchange rate service error');
     }
-    let body: { BTC?: Record<string, unknown> };
+    let body: RatesBody;
     try {
-        body = (await resp.json()) as { BTC?: Record<string, unknown> };
+        body = (await resp.json()) as RatesBody;
     } catch (cause) {
         throw ratesUnavailable('Invalid exchange rate response', cause);
     }
     const table = body?.BTC;
     if (!table || typeof table !== 'object') {
         throw ratesUnavailable('Invalid exchange rate response');
+    }
+    if (
+        typeof body.timestamp !== 'number' ||
+        Date.now() - body.timestamp > RATES_MAX_AGE_MS
+    ) {
+        throw ratesUnavailable('Exchange rate table is stale');
     }
     const rates: Record<string, number> = {};
     for (const [code, price] of Object.entries(table)) {
@@ -275,17 +291,26 @@ const fetchRates = async (): Promise<RatesSnapshot> => {
  * The current BTC price table, refreshed at most once a minute. Concurrent
  * callers share one upstream request. A stale table is never served past the
  * cache window: with the rate source down, fiat pricing fails rather than
- * quoting an old price.
+ * quoting an old price, and keeps failing fast for a few seconds so a degraded
+ * source is not hammered once per charge.
  */
 export const getRates = async (): Promise<RatesSnapshot> => {
-    if (ratesCache && Date.now() - ratesCache.fetchedAt < RATES_CACHE_MS) {
+    const now = Date.now();
+    if (ratesCache && now - ratesCache.fetchedAt < RATES_CACHE_MS) {
         return ratesCache;
+    }
+    if (now - ratesFailedAt < RATES_RETRY_AFTER_MS) {
+        throw ratesUnavailable('Exchange rate service unavailable');
     }
     if (!ratesInFlight) {
         ratesInFlight = fetchRates()
             .then((snapshot) => {
                 ratesCache = snapshot;
                 return snapshot;
+            })
+            .catch((err) => {
+                ratesFailedAt = Date.now();
+                throw err;
             })
             .finally(() => {
                 ratesInFlight = null;
@@ -294,15 +319,19 @@ export const getRates = async (): Promise<RatesSnapshot> => {
     return ratesInFlight;
 };
 
-/** Test hook: forgets the cached price table. */
+/** Test hook: forgets the cached price table and any recent failure. */
 export const resetRatesCache = () => {
     ratesCache = null;
     ratesInFlight = null;
+    ratesFailedAt = 0;
 };
 
 /**
  * Converts a fiat amount to satoshis at the current rate, rounded up so the
- * developer never receives less than the price they set.
+ * developer never receives less than the price they set. Works in integer
+ * millisatoshis, the Lightning quantum, so an exact price stays exact without a
+ * float epsilon. Whether the result is payable is the address's call
+ * (min/maxSendable), checked by the caller.
  */
 const quoteFiat = async (
     amount: number,
@@ -315,16 +344,15 @@ const quoteFiat = async (
             code: 'invalid_currency',
         });
     }
-    // Binary floating point makes 4.99 * 1e8 / 100000 come out a hair above
-    // 4990; shave that noise off before rounding up so an exact price stays
-    // exact and only a real fraction of a satoshi rounds up.
-    const exact = (amount * SATS_PER_BTC) / rate;
-    const amountSats = Math.ceil(exact - 1e-6);
-    if (amountSats < 1 || amountSats > 100_000_000_000) {
+    const msats = Math.round((amount * MSATS_PER_BTC) / rate);
+    const amountSats = Math.ceil(msats / 1000);
+    if (!Number.isSafeInteger(amountSats) || amountSats < 1) {
         throw new HttpError(
             400,
-            'amount converts to an unsupported number of satoshis',
-            { code: 'invalid_amount' },
+            'amount converts to an unpayable number of satoshis',
+            {
+                code: 'invalid_amount',
+            },
         );
     }
     return { amountSats, fiat: { amount, currency, rate } };
@@ -369,6 +397,7 @@ const parseAmountSats = (value: unknown): number => {
     return value;
 };
 
+/** Kept identical to the SDK's client-side check in puter-js payments/index.js. */
 const CURRENCY_RE = /^[A-Za-z]{3}$/;
 
 /**
@@ -379,9 +408,17 @@ type PriceInput =
     | { kind: 'sats'; amountSats: number }
     | { kind: 'fiat'; amount: number; currency: string };
 
+/** Fraction digits a currency is quoted in (2 for USD, 0 for JPY, 3 for KWD). */
+const minorUnitDigits = (currency: string): number =>
+    new Intl.NumberFormat('en', {
+        style: 'currency',
+        currency,
+    }).resolvedOptions().maximumFractionDigits;
+
 const parsePrice = (body: Record<string, unknown>): PriceInput => {
-    const hasSats = body.amountSats !== undefined;
-    const hasFiat = body.amount !== undefined || body.currency !== undefined;
+    // `null` means absent, as it does for every other optional field here.
+    const hasSats = body.amountSats != null;
+    const hasFiat = body.amount != null || body.currency != null;
     if (hasSats && hasFiat) {
         throw new HttpError(
             400,
@@ -393,12 +430,7 @@ const parsePrice = (body: Record<string, unknown>): PriceInput => {
         return { kind: 'sats', amountSats: parseAmountSats(body.amountSats) };
     }
     const amount = body.amount;
-    if (
-        typeof amount !== 'number' ||
-        !Number.isFinite(amount) ||
-        amount <= 0 ||
-        amount > 1_000_000_000_000
-    ) {
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
         throw new HttpError(400, 'amount must be a positive number', {
             code: 'invalid_amount',
         });
@@ -410,7 +442,18 @@ const parsePrice = (body: Record<string, unknown>): PriceInput => {
             { code: 'invalid_currency' },
         );
     }
-    return { kind: 'fiat', amount, currency: body.currency.toUpperCase() };
+    const currency = body.currency.toUpperCase();
+    // The payer sees the price formatted in the currency's minor units; an
+    // amount finer than that would display as one price and charge another.
+    const digits = minorUnitDigits(currency);
+    if (Number(amount.toFixed(digits)) !== amount) {
+        throw new HttpError(
+            400,
+            `amount has more than ${digits} decimal places, which ${currency} does not have`,
+            { code: 'invalid_amount' },
+        );
+    }
+    return { kind: 'fiat', amount, currency };
 };
 
 const parseDescription = (value: unknown): string | null => {
@@ -512,9 +555,13 @@ const saveCharge = async (
     await kvSet(chargeKey(charge.id), charge, expireAt);
 };
 
+/** Records written before fiat pricing existed lack the field. */
+const fromStored = (raw: Partial<ChargeRecord> | null): ChargeRecord | null =>
+    raw ? ({ ...raw, fiat: raw.fiat ?? null } as ChargeRecord) : null;
+
 const loadCharge = async (id: string): Promise<ChargeRecord | null> => {
     if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id)) return null;
-    return kvGet<ChargeRecord>(chargeKey(id));
+    return fromStored(await kvGet<Partial<ChargeRecord>>(chargeKey(id)));
 };
 
 // -- Charge lifecycle ---------------------------------------------------------
@@ -572,7 +619,7 @@ const toWire = (charge: ChargeRecord) => ({
     id: charge.id,
     status: charge.status,
     amountSats: charge.amountSats,
-    fiat: charge.fiat ?? null,
+    fiat: charge.fiat,
     description: charge.description,
     metadata: charge.metadata,
     lightningAddress: charge.lightningAddress,
@@ -660,19 +707,22 @@ export const handleCreateCharge = async (req: Request, res: Response) => {
         lightningAddress = settings.lightningAddress;
     }
 
-    // Quote the fiat price right before the invoice is requested so the rate
-    // stored on the charge is the one the invoice was actually made at.
-    const { amountSats, fiat } =
+    // The quote and the address lookup are independent; only the invoice
+    // request needs both.
+    const [{ amountSats, fiat }, info] = await Promise.all([
         price.kind === 'fiat'
-            ? await quoteFiat(price.amount, price.currency)
-            : { amountSats: price.amountSats, fiat: null };
-
-    const info = await fetchLnurlPayInfo(lightningAddress);
+            ? quoteFiat(price.amount, price.currency)
+            : Promise.resolve({ amountSats: price.amountSats, fiat: null }),
+        fetchLnurlPayInfo(lightningAddress),
+    ]);
     const amountMsats = amountSats * 1000;
     if (amountMsats < info.minSendable || amountMsats > info.maxSendable) {
+        const range = `between ${Math.ceil(info.minSendable / 1000)} and ${Math.floor(info.maxSendable / 1000)} sats`;
         throw new HttpError(
             400,
-            `amountSats must be between ${Math.ceil(info.minSendable / 1000)} and ${Math.floor(info.maxSendable / 1000)}`,
+            fiat
+                ? `${fiat.amount} ${fiat.currency} converts to ${amountSats} sats; this address accepts ${range}`
+                : `amountSats must be ${range}`,
             { code: 'amount_out_of_range' },
         );
     }
@@ -761,10 +811,10 @@ export const handleListCharges = async (req: Request, res: Response) => {
     const ids = page.items.filter((id): id is string => typeof id === 'string');
     const records = ids.length
         ? ((await stores.kv.get({ key: ids.map(chargeKey) }))
-              .res as (ChargeRecord | null)[])
+              .res as (Partial<ChargeRecord> | null)[])
         : [];
     const charges = await refreshMany(
-        records.filter((c): c is ChargeRecord => !!c),
+        records.map(fromStored).filter((c): c is ChargeRecord => !!c),
     );
 
     res.json({

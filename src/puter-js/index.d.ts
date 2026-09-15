@@ -225,6 +225,7 @@ export type {
     ChargePage,
     CheckoutOptions,
     CreateChargeOptions,
+    FiatAmount,
     ListChargesOptions,
     PaymentSettings,
     WaitForPaymentOptions,

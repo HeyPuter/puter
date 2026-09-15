@@ -22,7 +22,7 @@ The amount in satoshis. A positive integer.
 
 #### `options.amount` (Number)
 
-The price in `currency`. A positive number, such as `4.99`. It is converted to satoshis at the current rate when the charge is created and rounded up to the next satoshi, so you never receive less than the price you set. The invoice is fixed in satoshis from then on; the fiat value is not re-quoted if the rate moves while the payer is deciding.
+The price in `currency`. A positive number with no more decimals than the currency has (`4.99` for USD, `500` for JPY), so the price the payer sees is exactly the price converted. It is converted to satoshis at the current rate when the charge is created and rounded up to the next satoshi at millisatoshi precision, the finest Lightning has, so you never receive less than the price you set. The invoice is fixed in satoshis from then on; the fiat value is not re-quoted if the rate moves while the payer is deciding.
 
 #### `options.currency` (String)
 
@@ -59,18 +59,18 @@ A `Promise` that resolves to a charge object:
 
 Rejects with:
 
-- `invalid_amount`, `invalid_description`, `invalid_metadata`: the option failed validation. `invalid_amount` is also raised when both `amountSats` and `amount` are passed, or neither.
+- `invalid_amount`, `invalid_description`, `invalid_metadata`: the option failed validation. `invalid_amount` is also raised when both `amountSats` and `amount` are passed, or neither, or when `amount` has more decimals than `currency` allows.
 - `invalid_currency`: `currency` is not a three-letter code, or no exchange rate is published for it.
-- `exchange_rate_unavailable`: the rate source could not be reached, so a fiat price cannot be converted right now. Charges priced in `amountSats` are unaffected.
+- `exchange_rate_unavailable`: the rate source could not be reached, or the table it served was stale, so a fiat price cannot be converted right now. Charges priced in `amountSats` are unaffected.
 - `invalid_lightning_address`: not a `breez.tips` address.
 - `lightning_address_override_forbidden`: `lightningAddress` was passed from an app.
 - `lightning_address_not_configured`: the developer has not linked a Glow wallet yet. The error carries `glowSetupUrl`.
 - `lightning_address_not_found`: the address does not exist on `breez.tips`.
-- `amount_out_of_range`: outside what the address accepts.
+- `amount_out_of_range`: outside what the address accepts. For a fiat price the message names the amount and the satoshis it converted to.
 - `lightning_verify_unsupported`, `lightning_service_unavailable`: `breez.tips` could not issue a verifiable invoice right now.
 - `too_many_requests`: more than 30 charges per minute from one account.
 
-<div class="info"><strong>Verify before you deliver.</strong> A charge created in the browser is created by the payer's session, so its <code>amountSats</code>, <code>description</code> and <code>metadata</code> are whatever that client sent. Before handing over anything valuable, read the charge from code the payer cannot tamper with (a <a href="/Workers/">worker</a> or your own server) with <a href="/Payments/getCharge/">getCharge()</a>, and check <code>status</code>, <code>lightningAddress</code> and the price against what you expected: <code>amountSats</code> for a sats-priced charge, or <code>fiat.amount</code> and <code>fiat.currency</code> for a fiat-priced one.</div>
+<div class="info"><strong>Verify before you deliver.</strong> A charge created in the browser is created by the payer's session, so its price (<code>amountSats</code>, or <code>amount</code> and <code>currency</code>), <code>description</code> and <code>metadata</code> are whatever that client sent, and so is the choice between the two ways of pricing. Before handing over anything valuable, read the charge from code the payer cannot tamper with (a <a href="/Workers/">worker</a> or your own server) with <a href="/Payments/getCharge/">getCharge()</a>, check that <code>status</code> is <code>completed</code> and <code>lightningAddress</code> is yours, and check <code>amountSats</code>, the only field that reflects what was actually invoiced, against what your item is worth: for a fiat price, at least <code>Math.ceil(price * 1e8 / rate)</code> with a rate you trust (the charge's <code>fiat.rate</code> is fine if you also require <code>fiat</code> to be non-null with your <code>currency</code>). Never branch on whether <code>fiat</code> is present: a payer can create a sats-priced charge for 1 sat instead.</div>
 
 ## Examples
 

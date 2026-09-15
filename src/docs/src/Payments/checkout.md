@@ -33,7 +33,7 @@ A `Promise` that resolves to the completed [charge](/Payments/getCharge/#return-
 - `charge_expired` when the invoice runs out before it is paid. The error carries `chargeId`.
 - Anything [`createCharge()`](/Payments/createCharge/#return-value) rejects with, such as `lightning_address_not_configured`.
 
-<div class="info"><strong>Verify before you deliver.</strong> The window runs in the payer's browser, so the resolved promise is a convenience for the UI, not proof. Before handing over anything valuable, read the charge from a <a href="/Workers/">worker</a> or your own server with <a href="/Payments/getCharge/">getCharge()</a> and check <code>status</code>, <code>lightningAddress</code> and the price (<code>amountSats</code>, or <code>fiat.amount</code> and <code>fiat.currency</code>).</div>
+<div class="info"><strong>Verify before you deliver.</strong> The window runs in the payer's browser, so the resolved promise is a convenience for the UI, not proof, and so is the charge's pricing: a payer can create a sats-priced charge instead of the fiat one your app asked for. Before handing over anything valuable, read the charge from a <a href="/Workers/">worker</a> or your own server with <a href="/Payments/getCharge/">getCharge()</a> and check <code>status</code>, <code>lightningAddress</code> and that <code>amountSats</code> is at least what your item is worth. See <a href="/Payments/createCharge/">createCharge()</a> for the fiat arithmetic.</div>
 
 ## Examples
 

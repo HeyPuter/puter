@@ -29,16 +29,19 @@ const METHODS = [
 const req = (puter, method, route, opts = {}) =>
     apiRequest(puter, method, route, { service: 'payments', ...opts });
 
-const CURRENCY_RE = /^[a-z]{3}$/i;
+/** Kept identical to the server's check in extensions/payments.ts. */
+const CURRENCY_RE = /^[A-Za-z]{3}$/;
 
 /**
- * Checks the price options and returns the request body. A charge is priced
- * in satoshis (`amountSats`) or in a fiat currency (`amount` + `currency`),
- * never both; the server does the conversion.
+ * Checks the shape of the price options and returns the request body. A
+ * charge is priced in satoshis (`amountSats`) or in a fiat currency (`amount`
+ * + `currency`), never both. Value rules (minor units, what the address
+ * accepts) are the server's; this only catches what can be caught without a
+ * round trip. `null` means absent, as for every other optional field.
  */
 const validateCreateOptions = (options) => {
-    const hasSats = options?.amountSats !== undefined;
-    const hasFiat = options?.amount !== undefined || options?.currency !== undefined;
+    const hasSats = options?.amountSats != null;
+    const hasFiat = options?.amount != null || options?.currency != null;
     if ( hasSats && hasFiat ) {
         throw new PuterJSError('pass either `amountSats` or `amount` with `currency`, not both', 'invalid_amount');
     }

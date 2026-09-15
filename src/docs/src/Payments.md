@@ -128,9 +128,9 @@ That's it. Charges created by any of your apps now pay into your Glow wallet.
 Every charge is settled in satoshis, but you can price it either way:
 
 - `amountSats: 1000` fixes the number of satoshis.
-- `amount: 4.99, currency: 'USD'` fixes the fiat price. The server converts it to satoshis at the current exchange rate when the charge is created, rounding up to the next satoshi, and records the conversion on the charge as `fiat: { amount, currency, rate }`. Any ISO 4217 currency with a published bitcoin price works, not just USD.
+- `amount: 4.99, currency: 'USD'` fixes the fiat price. The server converts it to satoshis at the current exchange rate when the charge is created, rounding up to the next satoshi, and records the conversion on the charge as `fiat: { amount, currency, rate }`. Any ISO 4217 currency with a published bitcoin price works, not just USD. The amount can have no more decimals than the currency does, so the price the payer sees is the price converted.
 
-Once created, a charge is a fixed number of satoshis. The rate is not re-quoted while the payer decides; an invoice lives 5 minutes, so the exposure is small. If the rate source is unreachable, fiat-priced charges fail with `exchange_rate_unavailable` rather than being quoted at a stale price; sats-priced charges are unaffected.
+Once created, a charge is a fixed number of satoshis. The rate is not re-quoted while the payer decides; an invoice lives 5 minutes, so the exposure is small. If the rate source is unreachable, or the table it serves is stale, fiat-priced charges fail with `exchange_rate_unavailable` rather than being quoted at an old price; sats-priced charges are unaffected.
 
 ## How it works
 
@@ -141,5 +141,5 @@ Once created, a charge is a fixed number of satoshis. The rate is not re-quoted 
 
 ## Verifying payments
 
-Everything an app passes to `createCharge()` or `checkout()` is chosen in the payer's browser, and so is the code that reacts to the resolved promise. Use the promise for the user interface, and decide what to deliver from code the payer cannot tamper with: a [worker](/Workers/) or your own server. There, read the charge with [`getCharge()`](/Payments/getCharge/) and check that `status` is `completed`, that the price is what the item costs (`amountSats`, or `fiat.amount` and `fiat.currency` for a fiat-priced charge), and that `lightningAddress` is your own address. Developer surfaces such as [`listCharges()`](/Payments/listCharges/) and the settings calls only work from your own context, never from an app.
+Everything an app passes to `createCharge()` or `checkout()` is chosen in the payer's browser, and so is the code that reacts to the resolved promise. Use the promise for the user interface, and decide what to deliver from code the payer cannot tamper with: a [worker](/Workers/) or your own server. There, read the charge with [`getCharge()`](/Payments/getCharge/) and check that `status` is `completed`, that `lightningAddress` is your own address, and that `amountSats` is at least what the item is worth. How the charge was priced is the payer's choice too, so do not branch on whether `fiat` is present; for a fiat price, compute the satoshis you expect from a rate you trust and compare with `amountSats`. [`createCharge()`](/Payments/createCharge/) spells out the check. Developer surfaces such as [`listCharges()`](/Payments/listCharges/) and the settings calls only work from your own context, never from an app.
 - Only `breez.tips` addresses are accepted. Get one by installing [Glow](https://breez.technology/glow/).

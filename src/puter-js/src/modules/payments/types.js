@@ -33,19 +33,40 @@
  */
 
 /**
- * Options for `Payments.createCharge()`. Price the charge either in satoshis with
- * `amountSats`, or in a fiat currency with `amount` and `currency`; not both.
+ * Options shared by both ways of pricing a charge.
  *
- * @typedef {Object} CreateChargeOptions
- * @property {number} [amountSats] The amount in satoshis, a positive integer.
- * @property {number} [amount] The amount in `currency`, a positive number. Converted to
- * satoshis at the current rate when the charge is created, rounded up.
- * @property {string} [currency] ISO 4217 code, such as `USD` or `EUR`. Required with `amount`.
+ * @typedef {Object} ChargeCommonOptions
  * @property {string} [description] Free text shown to the payer, at most 255 characters.
  * @property {string} [lightningAddress] A `breez.tips` address to pay into instead of the
  * developer's configured default. Only honored outside an app (a worker, an API token, the
  * developer's own session); an app's charges always pay the app owner's configured address.
  * @property {Record<string, unknown>} [metadata] Any JSON object to attach, at most 4 KB.
+ */
+
+/**
+ * A price fixed in satoshis.
+ *
+ * @typedef {Object} SatsPrice
+ * @property {number} amountSats The amount in satoshis, a positive integer.
+ * @property {never} [amount]
+ * @property {never} [currency]
+ */
+
+/**
+ * A price fixed in a fiat currency, converted to satoshis at the current rate when the
+ * charge is created, rounded up.
+ *
+ * @typedef {Object} FiatPrice
+ * @property {number} amount The amount in `currency`, a positive number.
+ * @property {string} currency ISO 4217 code, such as `USD` or `EUR`.
+ * @property {never} [amountSats]
+ */
+
+/**
+ * Options for `Payments.createCharge()`. Price the charge either in satoshis with
+ * `amountSats`, or in a fiat currency with `amount` and `currency`; not both.
+ *
+ * @typedef {ChargeCommonOptions & (SatsPrice | FiatPrice)} CreateChargeOptions
  */
 
 /**

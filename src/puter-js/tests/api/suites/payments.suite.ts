@@ -30,12 +30,15 @@ export default suite('payments', {
     },
 
     'createCharge rejects a bad fiat price before reaching the server': async (t) => {
+        // The option type is a union that already forbids these shapes; the
+        // cast lets the runtime validation be exercised for JS callers.
+        const createCharge = t.puter.payments.createCharge as (o: unknown) => Promise<unknown>;
         await t.assert.rejects(
             () => t.puter.payments.createCharge({ amount: 0, currency: 'USD' }),
             'a zero fiat amount should reject',
         );
         await t.assert.rejects(
-            () => t.puter.payments.createCharge({ amount: 1 }),
+            () => createCharge({ amount: 1 }),
             'a fiat amount without a currency should reject',
         );
         await t.assert.rejects(
@@ -43,11 +46,11 @@ export default suite('payments', {
             'a currency that is not a three-letter code should reject',
         );
         await t.assert.rejects(
-            () => t.puter.payments.createCharge({ amountSats: 100, amount: 1, currency: 'USD' }),
+            () => createCharge({ amountSats: 100, amount: 1, currency: 'USD' }),
             'sats and fiat together should reject',
         );
         await t.assert.rejects(
-            () => (t.puter.payments.createCharge as (o: unknown) => Promise<unknown>)({ description: 'no price' }),
+            () => createCharge({ description: 'no price' }),
             'no price at all should reject',
         );
     },

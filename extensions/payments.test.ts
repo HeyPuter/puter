@@ -17,6 +17,8 @@ import {
     GLOW_SETUP_URL,
     LATE_SETTLEMENT_GRACE_SECS,
     RATES_CACHE_MS,
+    RATES_MAX_AGE_MS,
+    RATES_RETRY_AFTER_MS,
     resetRatesCache,
     handleCreateCharge,
     handleGetCharge,
@@ -75,6 +77,8 @@ const fake = {
     // Fake Yadio: the BTC price table fiat charges are quoted from.
     rates: { USD: 100_000, EUR: 80_000 } as Record<string, number>,
     ratesDown: false,
+    /** How old the fake table claims to be. */
+    ratesAgeMs: 0,
     ratesRequests: 0,
 };
 
@@ -89,7 +93,11 @@ const fakeFetch = async (input: unknown): Promise<globalThis.Response> => {
     if (url.hostname === 'api.yadio.io') {
         fake.ratesRequests++;
         if (fake.ratesDown) return new globalThis.Response('<html>503</html>', { status: 503 });
-        return jsonResponse(200, { BTC: { BTC: 1, ...fake.rates }, base: 'BTC', timestamp: Date.now() });
+        return jsonResponse(200, {
+            BTC: { BTC: 1, ...fake.rates },
+            base: 'BTC',
+            timestamp: Date.now() - fake.ratesAgeMs,
+        });
     }
     if (url.hostname !== 'breez.tips') throw new Error(`unexpected host ${url.hostname}`);
 
@@ -143,6 +151,7 @@ afterEach(() => {
     fake.invoiceRequests = [];
     fake.rates = { USD: 100_000, EUR: 80_000 };
     fake.ratesDown = false;
+    fake.ratesAgeMs = 0;
     fake.ratesRequests = 0;
     resetRatesCache();
     vi.useRealTimers();
@@ -296,9 +305,7 @@ describe('payments extension', () => {
         it('prices a charge in fiat at the current rate, rounded up, and records the quote', async () => {
             const user = (await seedUser()) as Row;
             await configure(user);
-            // 4.99 USD at 100,000 USD/BTC is 4,990 sats exactly; 0.000015 BTC
-            // worth of EUR (1.2 EUR at 80,000) is 1,500 sats; 1.23456 USD is
-            // 1234.56 sats and must round up to 1235.
+            // An exact price stays exact; a fraction of a satoshi rounds up.
             const out = await call(
                 handleCreateCharge,
                 asUser(user),
@@ -314,8 +321,50 @@ describe('payments extension', () => {
             const eur = await call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1.2, currency: 'EUR' } }));
             expect(eur.body).toMatchObject({ amountSats: 1500, fiat: { currency: 'EUR', rate: 80_000 } });
 
-            const rounded = await call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1.23456, currency: 'USD' } }));
-            expect((rounded.body as { amountSats: number }).amountSats).toBe(1235);
+            // 1.23 EUR at 80,000 is 1537.5 sats.
+            const rounded = await call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1.23, currency: 'EUR' } }));
+            expect((rounded.body as { amountSats: number }).amountSats).toBe(1538);
+        });
+
+        it('treats null price fields as absent, like every other optional field', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            const out = await call(
+                handleCreateCharge,
+                asUser(user),
+                makeReq({ body: { amountSats: 10, amount: null, currency: null } }),
+            );
+            expect(out.status).toBe(201);
+            expect(out.body).toMatchObject({ amountSats: 10, fiat: null });
+        });
+
+        it('rejects a fiat amount finer than the currency’s minor unit, so the shown price is the charged price', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            fake.rates.JPY = 15_000_000;
+            for (const body of [
+                { amount: 1.234, currency: 'USD' },
+                { amount: 4.99, currency: 'JPY' },
+            ]) {
+                await expect(
+                    call(handleCreateCharge, asUser(user), makeReq({ body })),
+                ).rejects.toMatchObject({ statusCode: 400, code: 'invalid_amount' });
+            }
+            const yen = await call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 500, currency: 'JPY' } }));
+            expect(yen.body).toMatchObject({ amountSats: 3334, fiat: { amount: 500, currency: 'JPY' } });
+        });
+
+        it('names the fiat amount and its conversion when the address will not accept it', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            fake.rates.USD = 1;
+            await expect(
+                call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 2, currency: 'USD' } })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'amount_out_of_range',
+                message: expect.stringContaining('2 USD converts to 200000000 sats'),
+            });
         });
 
         it('leaves fiat null on a sats-priced charge', async () => {
@@ -364,6 +413,33 @@ describe('payments extension', () => {
             // Sats-priced charges do not depend on the rate source.
             const out = await call(handleCreateCharge, asUser(user), makeReq({ body: { amountSats: 10 } }));
             expect(out.status).toBe(201);
+        });
+
+        it('rejects a rate table the source itself stamped as old', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            fake.ratesAgeMs = RATES_MAX_AGE_MS + 1000;
+            await expect(
+                call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1, currency: 'USD' } })),
+            ).rejects.toMatchObject({ statusCode: 502, code: 'exchange_rate_unavailable' });
+        });
+
+        it('does not hammer a failing rate source: fails fast for a few seconds, then retries', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            vi.useFakeTimers({ toFake: ['Date'] });
+            const create = () =>
+                call(handleCreateCharge, asUser(user), makeReq({ body: { amount: 1, currency: 'USD' } }));
+            fake.ratesDown = true;
+            await expect(create()).rejects.toMatchObject({ code: 'exchange_rate_unavailable' });
+            await expect(create()).rejects.toMatchObject({ code: 'exchange_rate_unavailable' });
+            expect(fake.ratesRequests).toBe(1);
+
+            fake.ratesDown = false;
+            vi.advanceTimersByTime(RATES_RETRY_AFTER_MS + 1);
+            const out = await create();
+            expect(out.status).toBe(201);
+            expect(fake.ratesRequests).toBe(2);
         });
 
         it('caches the rate table for a minute and refreshes it afterwards', async () => {
@@ -536,6 +612,23 @@ describe('payments extension', () => {
             await ageCharge(charge.id, 1);
             const out = await call(handleGetCharge, asUser(user), makeReq({ params: { id: charge.id } }));
             expect(out.body).toMatchObject({ status: 'pending' });
+        });
+
+        it('reads a charge stored before fiat pricing existed as fiat null, on read and in the list', async () => {
+            const user = (await seedUser()) as Row;
+            await configure(user);
+            const created = await call(handleCreateCharge, asUser(user), makeReq({ body: { amountSats: 10 } }));
+            const id = (created.body as { id: string }).id;
+            const key = `payments:charge:${id}`;
+            const stored = (await server.stores.kv.get({ key })).res as Record<string, unknown>;
+            delete stored.fiat;
+            await server.stores.kv.set({ key, value: stored });
+
+            const read = await call(handleGetCharge, asUser(user), makeReq({ params: { id } }));
+            expect((read.body as { fiat: unknown }).fiat).toBeNull();
+            const list = await call(handleListCharges, asUser(user), makeReq());
+            const item = (list.body as { items: { id: string; fiat: unknown }[] }).items.find((c) => c.id === id);
+            expect(item?.fiat).toBeNull();
         });
 
         it('does not serve the QR code to a stranger', async () => {
