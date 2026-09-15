@@ -1908,158 +1908,28 @@ const ipc_listener = async (event, handled) => {
         });
     }
     //--------------------------------------------------------
-    // saveToPictures/Desktop/Documents/Videos/Audio/AppData
+    // saveToPictures/Desktop/Documents/Videos/Audio/AppData (removed)
     //--------------------------------------------------------
+    // These legacy handlers wrote into standard user folders with no
+    // permission prompt — an app only had to post the message. They were
+    // never exposed through puter.js or documented, so the only callers are
+    // hand-rolled postMessage. Removed rather than gated: the write needs
+    // the same consent as any other filesystem write, and `puter.fs.write`
+    // already provides that path.
+    //
+    // Answered explicitly instead of falling through, so a legacy caller
+    // fails fast rather than awaiting a reply that never arrives.
     else if (( event.data.msg === 'saveToPictures' || event.data.msg === 'saveToDesktop' || event.data.msg === 'saveToAppData' ||
         event.data.msg === 'saveToDocuments' || event.data.msg === 'saveToVideos' || event.data.msg === 'saveToAudio' )) {
-        let target_path;
-        let create_missing_ancestors = false;
-
-        console.warn(`The method ${event.data.msg} is deprecated - see docs.puter.com for more information.`);
-        event.data.filename = path.normalize(event.data.filename)
-            .replace(/(\.+\/|\.+\\)/g, '');
-
-        if ( event.data.msg === 'saveToPictures' )
-        {
-            target_path = path.join(window.pictures_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToDesktop' )
-        {
-            target_path = path.join(window.desktop_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToDocuments' )
-        {
-            target_path = path.join(window.documents_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToVideos' )
-        {
-            target_path = path.join(window.videos_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToAudio' )
-        {
-            target_path = path.join(window.audio_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToAppData' ) {
-            target_path = path.join(window.appdata_path, app_uuid, event.data.filename);
-            create_missing_ancestors = true;
-        }
-        //auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
-        {
-            return;
-        }
-
-        let item_with_same_name_already_exists = true;
-        let overwrite = false;
-
-        // -------------------------------------
-        // URL
-        // -------------------------------------
-        if ( event.data.url ) {
-            let overwrite = false;
-            // download progress tracker
-            let dl_op_id = window.operation_id++;
-
-            // upload progress tracker defaults
-            window.progress_tracker[dl_op_id] = [];
-            window.progress_tracker[dl_op_id][0] = {};
-            window.progress_tracker[dl_op_id][0].total = 0;
-            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-            let item_with_same_name_already_exists = true;
-            while ( item_with_same_name_already_exists ) {
-                const res = await download({
-                    url: event.data.url,
-                    name: path.basename(target_path),
-                    dest_path: path.dirname(target_path),
-                    auth_token: window.auth_token,
-                    api_origin: window.api_origin,
-                    dedupe_name: true,
-                    overwrite: false,
-                    operation_id: dl_op_id,
-                    item_upload_id: 0,
-                    success: function (res) {
-                    },
-                    error: function (err) {
-                        UIAlert(err && err.message ? err.message : 'Download failed.');
-                    },
-                });
-                item_with_same_name_already_exists = false;
-            }
-        }
-        // -------------------------------------
-        // File
-        // -------------------------------------
-        else {
-            let content = event.data.content;
-            let file_to_upload;
-
-            if ( typeof content === 'string' ) {
-                const blob = new Blob([content], { type: 'text/plain' });
-                file_to_upload = new File([blob], path.basename(target_path), { type: 'text/plain' });
-            } else {
-                file_to_upload = new File([content], path.basename(target_path));
-            }
-
-            while ( item_with_same_name_already_exists ) {
-                if ( overwrite )
-                {
-                    item_with_same_name_already_exists = false;
-                }
-                try {
-                    const res = await puter.fs.write(target_path, file_to_upload, {
-                        dedupeName: true,
-                        overwrite: false,
-                        createMissingAncestors: create_missing_ancestors,
-                    });
-                    item_with_same_name_already_exists = false;
-                    let file_signature = await puter.fs.sign(app_uuid, { uid: res.uid, action: 'write' });
-                    file_signature = file_signature.items;
-
-                    target_iframe.contentWindow.postMessage({
-                        msg: 'fileSaved',
-                        original_msg_id: msg_id,
-                        filename: res.name,
-                        saved_file: {
-                            name: file_signature.fsentry_name,
-                            readURL: file_signature.read_url,
-                            writeURL: file_signature.write_url,
-                            metadataURL: file_signature.metadata_url,
-                            uid: file_signature.uid,
-                            path: privacy_aware_path(res.path),
-                        },
-                    }, '*');
-                    $(target_iframe).get(0).focus({ preventScroll: true });
-                }
-                catch ( err ) {
-                    if ( err.code === 'item_with_same_name_exists' ) {
-                        const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                            buttons: [
-                                {
-                                    label: i18n('replace'),
-                                    value: 'replace',
-                                    type: 'primary',
-                                },
-                                {
-                                    label: i18n('cancel'),
-                                    value: 'cancel',
-                                },
-                            ],
-                            parent_uuid: event.data.appInstanceID,
-                        });
-                        if ( alert_resp === 'replace' ) {
-                            overwrite = true;
-                        } else if ( alert_resp === 'cancel' ) {
-                            item_with_same_name_already_exists = false;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
+        console.warn(`The method ${event.data.msg} has been removed - use puter.fs.write() instead.`);
+        target_iframe.contentWindow.postMessage({
+            msg: 'error',
+            original_msg_id: msg_id,
+            error: {
+                code: 'method_removed',
+                message: `${event.data.msg} has been removed. Use puter.fs.write() instead.`,
+            },
+        }, '*');
     }
     //--------------------------------------------------------
     // messageToApp

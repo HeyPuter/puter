@@ -343,7 +343,7 @@ Errors come back as JSON: `{ "error": …, "message": …, "code": … }`.
 
 ### What Puter.js already does for you
 
-The SDK turns the money-shaped failures into prompts without any code on your part: an AI call that runs out of credit and a filesystem write that runs out of space both surface an upgrade dialog to the user (in an app via `puter.ui.requestUpgrade()`, on the web as a usage-limit dialog). Everything else rejects the promise with the shape above — an app that writes files should still handle `storage_limit_reached` explicitly rather than letting a save fail quietly, and anything running a loop should treat `429` as a signal to back off.
+The SDK turns the money-shaped failures into prompts without any code on your part: a call that runs out of credit (`insufficient_funds`), one the user's plan doesn't include (`subscription_required`), and a filesystem write that runs out of space (`storage_limit_reached`) all surface an upgrade dialog to the user — in an app via `puter.ui.requestUpgrade()`, on the web as a dialog the SDK renders itself. The dialog names the call that was refused, and for a plan gate says what needs the plan: the SDK's own wording where it has one (email), otherwise the `message` the server sent. The promise still rejects with the shape above — an app that writes files should handle `storage_limit_reached` explicitly rather than letting a save fail quietly, and anything running a loop should treat `429` as a signal to back off.
 
 ## Checking usage from your app
 

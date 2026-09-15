@@ -1,7 +1,23 @@
+/** @typedef {{ title?: string, method?: string }} UsageLimitDialogOptions */
+
+const escapeHtml = (text) => String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
 class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
-    constructor (message) {
+    /**
+     * @param {string} message Plain-text line saying what was refused.
+     * @param {UsageLimitDialogOptions} [options] `title` replaces the default
+     *   heading; `method` names the SDK call that was refused.
+     */
+    constructor (message, { title = 'Low Balance', method } = {}) {
         super();
         this.message = message || 'You have reached your usage limit for this account.';
+        // Not `this.title`: on an HTMLElement that is the tooltip attribute.
+        this.heading = title;
+        this.method = method;
 
         this.attachShadow({ mode: 'open' });
 
@@ -88,6 +104,15 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
             margin: 0;
         }
 
+        .method {
+            text-align: center;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 12px;
+            color: #8a8a90;
+            margin: 12px 0 0;
+            word-break: break-all;
+        }
+
         .buttons {
             display: flex;
             justify-content: center;
@@ -164,6 +189,10 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
                 color: #b9b9c2;
             }
 
+            .method {
+                color: #7c7c84;
+            }
+
             .close-btn {
                 color: #8a8a90;
             }
@@ -197,8 +226,9 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                 </div>
-                <h2>Low Balance</h2>
-                <p class="message">${this.message}</p>
+                <h2>${escapeHtml(this.heading)}</h2>
+                <p class="message">${escapeHtml(this.message)}<br>Please upgrade to continue.</p>
+                ${this.method ? `<p class="method">${escapeHtml(this.method)}</p>` : ''}
                 <div class="buttons">
                     <button class="button button-primary" id="upgrade-btn">Upgrade Now</button>
                     <button class="button button-cancel" id="close-btn">Close</button>
@@ -250,10 +280,14 @@ if ( typeof globalThis.HTMLElement !== 'undefined' && globalThis.customElements 
 }
 
 /**
- * Shows a usage limit dialog to the user
- * @param {string} message - The message to display
+ * Shows the upgrade dialog. One at a time: a second call while one is up is
+ * dropped, so racing requests can't stack dialogs.
+ *
+ * @param {string} message Plain-text line saying what was refused; the dialog
+ *   adds the "upgrade to continue" line itself.
+ * @param {UsageLimitDialogOptions} [options]
  */
-export function showUsageLimitDialog (message) {
+export function showUsageLimitDialog (message, options = {}) {
     // Only log in non-browser environments
     if ( typeof globalThis.document === 'undefined' ) {
         console.warn('[Puter]', message);
@@ -265,7 +299,7 @@ export function showUsageLimitDialog (message) {
         return;
     }
 
-    const dialog = new UsageLimitDialog(message);
+    const dialog = new UsageLimitDialog(message, options);
     document.body.appendChild(dialog);
     dialog.open();
 }
