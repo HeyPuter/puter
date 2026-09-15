@@ -3,6 +3,10 @@ import { PuterModule } from '../../lib/PuterModule.js';
 import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
 import * as utils from '../../lib/utils.js';
 import { compose } from './ComposerLib.js';
+import { get } from './get.js';
+import { list } from './list.js';
+
+/** @typedef {import('../../index.js').Puter} Puter */
 
 /** @typedef {import('./types.js').EmailAttachment} EmailAttachment */
 
@@ -100,8 +104,32 @@ const preprocessSendArgs = (args) => {
  *
  * `send()` is the previous name of this method and still works; it will be
  * removed once existing apps have moved to `sendTransactional()`.
+ *
+ * Reading is the other half: every account has a mailbox at
+ * `{username}@puter.email`, stored as `message/rfc822` objects under the
+ * user's `~/.mail`. `list()` pages through a folder newest first without
+ * downloading anything, and `get()` fetches and parses one message. An app
+ * needs the `fs:/{username}/.mail:read` permission to read its user's mail.
  */
 export class EmailModule extends PuterModule {
+    // The fields hold the unbound functions so they keep the full overloaded
+    // types (`bind` erases overloads); the constructor rebinds them at runtime
+    // so destructured calls (`const { list } = puter.email`) keep working.
+    list = list;
+    get = get;
+
+    /** @param {Puter} puter */
+    constructor (puter) {
+        super(puter);
+
+        const methods = /** @type {Record<string, (...args: unknown[]) => unknown>} */ (
+            /** @type {unknown} */ (this)
+        );
+        for ( const name of ['list', 'get'] ) {
+            methods[name] = methods[name].bind(this);
+        }
+    }
+
     /**
      * Sends one transactional email. The positional form is shorthand for a
      * plain-text body; everything else (html, cc/bcc, attachments,
@@ -148,7 +176,7 @@ export class EmailModule extends PuterModule {
  * The public face of the module: derived from the class, with the internal
  * `puter` handle and the legacy `authToken` accessor omitted.
  *
- * @typedef {import('../lib/types.js').OmitMembers<
+ * @typedef {import('../../lib/types.js').OmitMembers<
  *     typeof EmailModule,
  *     'puter' | 'authToken'
  * >} EmailConstructor

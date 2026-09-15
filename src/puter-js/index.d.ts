@@ -93,6 +93,17 @@ export type {
     EmailSendOptions,
     EmailSendResult,
 } from './types/modules/Email/Email.js';
+export type {
+    EmailAddress,
+    EmailFolder,
+    EmailGetOptions,
+    EmailHeader,
+    EmailListOptions,
+    EmailListStreamOptions,
+    EmailMessage,
+    EmailMessageAttachment,
+    EmailSummary,
+} from './types/modules/Email/types.js';
 
 // -- puter.events --
 export type {

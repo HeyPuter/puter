@@ -3,6 +3,7 @@ import ai from './ai.suite.ts';
 import apps from './apps.suite.ts';
 import auth from './auth.suite.ts';
 import components from './components.suite.ts';
+import email from './email.suite.ts';
 import events from './events.suite.ts';
 import fs from './fs.suite.ts';
 import hosting from './hosting.suite.ts';
@@ -25,6 +26,7 @@ export const suites: Suite[] = [
     apps,
     auth,
     components,
+    email,
     events,
     fs,
     hosting,
