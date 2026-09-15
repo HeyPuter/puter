@@ -2378,6 +2378,9 @@ window.upload_items = async function (items, dest_path) {
             // init
             init: async (operation_id, xhr) => {
                 opid = operation_id;
+                // register before the first await, so a failure while the progress
+                // window is still opening can't delete the entry before it exists
+                window.active_uploads[opid] = 0;
                 // create upload progress window
                 upload_progress_window = await UIWindowProgress({
                     title: i18n('upload'),
@@ -2389,8 +2392,6 @@ window.upload_items = async function (items, dest_path) {
                         xhr.abort();
                     },
                 });
-                // add to active_uploads
-                window.active_uploads[opid] = 0;
             },
             // start
             start: async function () {
