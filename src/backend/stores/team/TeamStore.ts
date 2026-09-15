@@ -178,8 +178,9 @@ export class TeamStore extends PuterStore {
     }
 
     /** Makes the seeded `kind IS NULL` groups unreachable, not merely absent. */
-    #live(): string {
-        return '`kind` = ? AND `deleted_at` IS NULL';
+    #live(alias = ''): string {
+        const prefix = alias ? `${alias}.` : '';
+        return `${prefix}\`kind\` = ? AND ${prefix}\`deleted_at\` IS NULL`;
     }
 
     // -- Reads --------------------------------------------------------
@@ -380,7 +381,7 @@ export class TeamStore extends PuterStore {
         const rows = (await this.clients.db.read(
             'SELECT ug.`user_id` FROM `jct_user_group` ug ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
-                `WHERE g.\`uid\` = ? AND g.${this.#live()} ` +
+                `WHERE g.\`uid\` = ? AND ${this.#live('g')} ` +
                 `AND ug.\`user_id\` IN (${ids.map(() => '?').join(', ')})`,
             [teamUid, TEAM_KIND, ...ids],
         )) as { user_id: number }[];

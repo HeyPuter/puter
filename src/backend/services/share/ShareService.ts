@@ -1456,6 +1456,7 @@ export class ShareService extends PuterService {
                 Number(row.holder_group_id),
             );
             if (!node || !team) continue;
+            let authorized = false;
             for (const permission of entryPermissions(node.uuid)) {
                 if (
                     !(await this.services.permission.canManagePermission(
@@ -1465,6 +1466,7 @@ export class ShareService extends PuterService {
                 ) {
                     continue;
                 }
+                authorized = true;
                 if (
                     await this.services.permission.revokeUserGroupPermission(
                         actor,
@@ -1477,6 +1479,8 @@ export class ShareService extends PuterService {
                     revoked++;
                 }
             }
+            // Gated as the user path is: a surviving grant keeps its index row.
+            if (!authorized) continue;
             await this.stores.share.deleteActiveGroup({
                 holderGroupId: Number(row.holder_group_id),
                 fsentryId: node.id,
