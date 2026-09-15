@@ -25,6 +25,10 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { ZAI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { aiUserIdentifier } from '../../../util/aiUserIdentifier.js';
+
+// Z.AI documents `user_id` as 6-128 characters.
+const USER_ID_MAX_LENGTH = 128;
 
 type ZAIConfig = {
     apiBaseUrl?: string;
@@ -104,13 +108,7 @@ export class ZAIProvider implements IChatProvider {
 
         const customParams = asRecord(custom) as ZAICustomParams;
         const userId =
-            customParams.user_id ??
-            (actor?.user?.id
-                ? `puter-${actor.user.id}${actor.app?.uid ? `-${actor.app.uid}` : ''}`.slice(
-                      0,
-                      128,
-                  )
-                : undefined);
+            customParams.user_id ?? aiUserIdentifier(actor, USER_ID_MAX_LENGTH);
 
         const completionParams: ChatCompletionCreateParams = {
             messages,
