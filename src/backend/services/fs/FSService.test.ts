@@ -3852,6 +3852,74 @@ describe('FSService permission rules', () => {
         );
         expect(higher).toContain(`manage:fs:${file.uuid}`);
     });
+
+    it('never offers the bare entry as a parent of a moded permission', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:write`,
+        );
+        expect(higher).not.toContain(`fs:${file.uuid}`);
+    });
+
+    it('refuses to grant an entry with no mode', async () => {
+        const stranger = await makeUser();
+        for (const specifier of [file.path, file.uuid]) {
+            const error = await caught(() =>
+                server.services.permission.grantUserUserPermission(
+                    user.actor,
+                    stranger.username,
+                    `fs:${specifier}`,
+                ),
+            );
+            expect(error.statusCode).toBe(400);
+            expect(error.legacyCode).toBe('bad_request');
+        }
+    });
+
+    // A row an earlier bug could still have written: it names the entry and no
+    // mode, so the parent walk once let it answer read, write and delete.
+    it('resolves nothing for a stored permission with no mode', async () => {
+        const app = (await server.stores.app.create(
+            {
+                name: `perm-${uuidv4()}`,
+                title: 'FS permission test',
+                index_url: 'https://perm.test/',
+            },
+            { ownerUserId: user.userId },
+        )) as { id: number; uid: string };
+        const appActor = makeActor({
+            user: user.actor.user,
+            app: { uid: app.uid, id: app.id },
+        });
+
+        await server.stores.permission.upsertUserAppPerm(
+            user.userId,
+            app.id,
+            `fs:${file.uuid}`,
+            {},
+        );
+
+        for (const mode of ['see', 'list', 'read', 'write']) {
+            await expect(
+                server.services.permission.check(
+                    appActor,
+                    `fs:${file.uuid}:${mode}`,
+                ),
+            ).resolves.toBe(false);
+        }
+
+        // The same row with a mode on it still resolves, and only that far.
+        await server.services.permission.grantUserAppPermission(
+            user.actor,
+            app.uid,
+            `fs:${file.uuid}:read`,
+        );
+        await expect(
+            server.services.permission.check(appActor, `fs:${file.uuid}:read`),
+        ).resolves.toBe(true);
+        await expect(
+            server.services.permission.check(appActor, `fs:${file.uuid}:write`),
+        ).resolves.toBe(false);
+    });
 });
 
 // -- Cross-app AppData (app-data:<uid>:fs:<class>) ----------------------

@@ -30,6 +30,7 @@ import {
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from './consts';
 import {
+    isBareFsPermission,
     PermissionUtil,
     readingHasTerminal,
     type PermissionExploder,
@@ -126,7 +127,9 @@ export class PermissionService extends PuterService {
                 for (const p of more) higher.add(p);
             }
         }
-        return [...higher];
+        // The parent walk reaches `fs:<uid>`, which no grant is allowed to
+        // hold; drop it so a stored one can't answer a check for any mode.
+        return [...higher].filter((p) => !isBareFsPermission(p));
     }
 
     getParentPermissions(permission: string): string[] {
@@ -138,6 +141,22 @@ export class PermissionService extends PuterService {
         }
         parents.reverse();
         return parents;
+    }
+
+    /**
+     * Grants only: an `fs:` permission has to name a mode. Without one the row
+     * sits above every mode, and a request that simply omits it reads to the
+     * user as a narrower grant than it is. Revokes stay unguarded so an
+     * existing bare row can still be withdrawn.
+     */
+    assertGrantableFsPermission(permission: string): void {
+        if (isBareFsPermission(permission)) {
+            throw new HttpError(
+                400,
+                'Invalid `permission`: `fs` requires an access mode',
+                { legacyCode: 'bad_request' },
+            );
+        }
     }
 
     // -- Public check / scan API --------------------------------------
@@ -825,6 +844,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
+        this.assertGrantableFsPermission(permission);
         const user = await this.stores.user.getByUsername(username);
         if (!user)
             throw new HttpError(404, `user_does_not_exist: ${username}`, {
@@ -933,6 +953,7 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         // First: the rewrite decides the row's width and what a revoke matches.
         permission = await this.rewritePermission(permission);
+        this.assertGrantableFsPermission(permission);
         if (permission.length > PERMISSION_MAX_LEN) {
             throw new HttpError(400, 'permission is too long', {
                 legacyCode: 'bad_request',
@@ -1287,6 +1308,7 @@ export class PermissionService extends PuterService {
      */
     async assertUserAppPermissionWritable(permission: string): Promise<void> {
         const rewritten = await this.#rewriteForUserAppWrite(permission);
+        this.assertGrantableFsPermission(rewritten);
         if (rewritten.length > PERMISSION_MAX_LEN) {
             throw new HttpError(400, 'Invalid `permission`', {
                 legacyCode: 'bad_request',
@@ -1302,6 +1324,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.#rewriteForUserAppWrite(permission);
+        this.assertGrantableFsPermission(permission);
         // Checked after the rewrite, because the rewrite is what decides how
         // wide the row actually is: `fs:/deep/path:read` collapses to
         // `fs:<uuid>:read`. Reject here rather than let an oversized string
@@ -1448,6 +1471,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
+        this.assertGrantableFsPermission(permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app)
             throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
