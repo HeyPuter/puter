@@ -555,6 +555,29 @@ export default suite('fs', {
         t.assert.equal(await blob.text(), 'upload two');
     },
 
+    'upload keeps same-named files apart by the directory they came from': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-nested`;
+        await t.puter.fs.mkdir(dir);
+        const files = [
+            droppedFile('content a', 'folder-a/file.txt'),
+            droppedFile('content b', 'folder-b/file.txt'),
+        ];
+
+        await t.puter.fs.upload(files, dir, {
+            parsedDataTransferItems: true,
+            createFileParent: true,
+        });
+
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/folder-a/file.txt`)).text(),
+            'content a',
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/folder-b/file.txt`)).text(),
+            'content b',
+        );
+    },
+
     'upload of a single File resolves to one entry, not an array': async (t) => {
         const dir = `${home(t)}/fs-suite-upload-single`;
         await t.puter.fs.mkdir(dir);
@@ -775,61 +798,53 @@ export default suite('fs', {
         );
     },
 
-    // Directory uploads only work on the signed batch-write path. The legacy
-    // `/batch` fallback (node, workers) sends a mkdir operation the backend
-    // does not accept, so these are pinned where the behaviour is correct
-    // rather than asserted everywhere and quietly relaxed. What the legacy
-    // path does instead is asserted below, in the legacy upload tests.
-    'upload of parsed drop entries creates the dropped directory tree': {
-        platforms: ['browser'],
-        fn: async (t) => {
-            const dir = `${home(t)}/fs-suite-upload-drop`;
-            await t.puter.fs.mkdir(dir);
-            await t.puter.fs.upload(
-                [
-                    { isDirectory: true, fullPath: 'dropped' },
-                    droppedFile('inside the dropped dir', 'dropped/inside.txt'),
-                ] as never,
-                dir,
-                { parsedDataTransferItems: true },
-            );
-            t.assert.equal(
-                Boolean((await t.puter.fs.stat(`${dir}/dropped`)).is_dir),
-                true,
-            );
-            t.assert.equal(
-                await (await t.puter.fs.read(`${dir}/dropped/inside.txt`)).text(),
-                'inside the dropped dir',
-            );
-        },
+    // Directory uploads only work on the signed batch-write path, which every
+    // platform now takes. What the legacy `/batch` fallback does instead is
+    // asserted below, in the legacy upload tests.
+    'upload of parsed drop entries creates the dropped directory tree': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-drop`;
+        await t.puter.fs.mkdir(dir);
+        await t.puter.fs.upload(
+            [
+                { isDirectory: true, fullPath: 'dropped' },
+                droppedFile('inside the dropped dir', 'dropped/inside.txt'),
+            ] as never,
+            dir,
+            { parsedDataTransferItems: true },
+        );
+        t.assert.equal(
+            Boolean((await t.puter.fs.stat(`${dir}/dropped`)).is_dir),
+            true,
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/dropped/inside.txt`)).text(),
+            'inside the dropped dir',
+        );
     },
 
-    'upload with createFileParent builds the directories the files sit in': {
-        platforms: ['browser'],
-        fn: async (t) => {
-            const dir = `${home(t)}/fs-suite-upload-parents`;
-            await t.puter.fs.mkdir(dir);
-            await t.puter.fs.upload(
-                [
-                    droppedFile('leaf a', 'nested/a.txt'),
-                    droppedFile('leaf b', 'nested/deep/b.txt'),
-                ] as never,
-                dir,
-                { parsedDataTransferItems: true, createFileParent: true },
-            );
-            t.assert.equal(
-                Boolean((await t.puter.fs.stat(`${dir}/nested/deep`)).is_dir),
-                true,
-            );
-            t.assert.equal(
-                await (await t.puter.fs.read(`${dir}/nested/a.txt`)).text(),
-                'leaf a',
-            );
-            t.assert.equal(
-                await (await t.puter.fs.read(`${dir}/nested/deep/b.txt`)).text(),
-                'leaf b',
-            );
-        },
+    'upload with createFileParent builds the directories the files sit in': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-parents`;
+        await t.puter.fs.mkdir(dir);
+        await t.puter.fs.upload(
+            [
+                droppedFile('leaf a', 'nested/a.txt'),
+                droppedFile('leaf b', 'nested/deep/b.txt'),
+            ] as never,
+            dir,
+            { parsedDataTransferItems: true, createFileParent: true },
+        );
+        t.assert.equal(
+            Boolean((await t.puter.fs.stat(`${dir}/nested/deep`)).is_dir),
+            true,
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/nested/a.txt`)).text(),
+            'leaf a',
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/nested/deep/b.txt`)).text(),
+            'leaf b',
+        );
     },
 
     'upload skips .DS_Store entries': async (t) => {

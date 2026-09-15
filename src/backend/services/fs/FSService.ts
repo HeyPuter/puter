@@ -232,10 +232,7 @@ export class FSService extends PuterService {
                 if (actor.app || actor.accessToken) return undefined;
                 if (!actor.user?.id) return undefined;
 
-                const stripped = permission.replaceAll(
-                    `${MANAGE_PERM_PREFIX}:`,
-                    '',
-                );
+                const stripped = PermissionUtil.stripManageArms(permission);
                 const parts = PermissionUtil.split(stripped);
                 const uid = parts[1];
                 if (!uid) return undefined;
@@ -269,10 +266,7 @@ export class FSService extends PuterService {
                 if (actor.app || actor.accessToken) return undefined;
                 if (!actor.user?.id) return undefined;
 
-                const stripped = permission.replaceAll(
-                    `${MANAGE_PERM_PREFIX}:`,
-                    '',
-                );
+                const stripped = PermissionUtil.stripManageArms(permission);
                 const uid = PermissionUtil.split(stripped)[1];
                 if (!uid) return undefined;
 

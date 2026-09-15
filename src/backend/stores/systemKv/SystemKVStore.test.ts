@@ -1072,6 +1072,174 @@ describe('SystemKVStore', () => {
     });
 
     describe('document paths', () => {
+        describe('path methods', () => {
+            const fixtures = [
+                {
+                    name: 'root index',
+                    path: '[0]',
+                    wrap: (value: unknown) => [value, 'keep'],
+                    removed: ['keep'],
+                },
+                {
+                    name: 'nested index',
+                    path: 'a[0]',
+                    wrap: (value: unknown) => ({ a: [value, 'keep'] }),
+                    removed: { a: ['keep'] },
+                },
+                {
+                    name: 'mixed path',
+                    path: 'some.path[1].to.value',
+                    wrap: (value: unknown) => ({
+                        some: { path: ['keep', { to: { value } }] },
+                    }),
+                    removed: { some: { path: ['keep', { to: {} }] } },
+                },
+                {
+                    name: 'repeated indexes',
+                    path: '[0][1]',
+                    wrap: (value: unknown) => [['keep', value]],
+                    removed: [['keep']],
+                },
+                {
+                    name: 'quoted dotted keys',
+                    path: `["a.b"]['c.d']`,
+                    wrap: (value: unknown) => ({
+                        'a.b': { 'c.d': value },
+                        keep: true,
+                    }),
+                    removed: { 'a.b': {}, keep: true },
+                },
+                {
+                    name: 'escaped quote and backslash',
+                    path: "['quote\\'and\\\\slash']",
+                    wrap: (value: unknown) => ({
+                        "quote'and\\slash": value,
+                        keep: true,
+                    }),
+                    removed: { keep: true },
+                },
+                {
+                    name: 'quoted numeric map key',
+                    path: '["0"]',
+                    wrap: (value: unknown) => ({ '0': value, keep: true }),
+                    removed: { keep: true },
+                },
+            ];
+            const operations = [
+                {
+                    name: 'update',
+                    initial: 10,
+                    next: 'after',
+                    run: (key: string, path: string) =>
+                        target.update(
+                            { key, pathAndValueMap: { [path]: 'after' } },
+                            opts,
+                        ),
+                },
+                {
+                    name: 'incr',
+                    initial: 10,
+                    next: 13,
+                    run: (key: string, path: string) =>
+                        target.incr(
+                            { key, pathAndAmountMap: { [path]: 3 } },
+                            opts,
+                        ),
+                },
+                {
+                    name: 'decr',
+                    initial: 10,
+                    next: 7,
+                    run: (key: string, path: string) =>
+                        target.decr(
+                            { key, pathAndAmountMap: { [path]: 3 } },
+                            opts,
+                        ),
+                },
+                {
+                    name: 'add',
+                    initial: ['before'],
+                    next: ['before', 'after'],
+                    run: (key: string, path: string) =>
+                        target.add(
+                            { key, pathAndValueMap: { [path]: ['after'] } },
+                            opts,
+                        ),
+                },
+                {
+                    name: 'remove',
+                    initial: 10,
+                    next: undefined,
+                    run: (key: string, path: string) =>
+                        target.remove({ key, paths: [path] }, opts),
+                },
+            ];
+
+            describe.each(operations)('$name', (operation) => {
+                it.each(fixtures)(
+                    'supports $name and persists the result',
+                    async (fixture) => {
+                        const key = 'path-matrix';
+                        await target.set(
+                            { key, value: fixture.wrap(operation.initial) },
+                            opts,
+                        );
+                        const expected =
+                            operation.name === 'remove'
+                                ? fixture.removed
+                                : fixture.wrap(operation.next);
+                        expect(
+                            (await operation.run(key, fixture.path)).res,
+                        ).toEqual(expected);
+                        expect((await target.get({ key }, opts)).res).toEqual(
+                            expected,
+                        );
+                    },
+                );
+
+                it.each([
+                    'a[-1]',
+                    'a[1.5]',
+                    'a[',
+                    'a[0]tail',
+                    '["__proto__"].polluted',
+                    "['constructor'].prototype.polluted",
+                    'a[0]["prototype"]',
+                    '["__pro\\to__"].polluted',
+                ])('rejects %s without changing stored data', async (path) => {
+                    const key = 'invalid-path-matrix';
+                    const initial = { a: [10], keep: true };
+                    await target.set({ key, value: initial }, opts);
+                    await expect(
+                        operation.run(key, path),
+                    ).rejects.toMatchObject({ statusCode: 400 });
+                    expect((await target.get({ key }, opts)).res).toEqual(
+                        initial,
+                    );
+                });
+
+                it('does not append an unintended element for a missing indexed ancestor', async () => {
+                    const key = 'missing-index-matrix';
+                    const initial = [{ keep: true }];
+                    await target.set({ key, value: initial }, opts);
+                    if (operation.name === 'remove') {
+                        expect(
+                            (await operation.run(key, '[4].value')).res,
+                        ).toEqual(initial);
+                    } else {
+                        await expect(
+                            operation.run(key, '[4].value'),
+                        ).rejects.toMatchObject({
+                            name: 'ValidationException',
+                        });
+                    }
+                    expect((await target.get({ key }, opts)).res).toEqual(
+                        initial,
+                    );
+                });
+            });
+        });
+
         const rootArrayOperations: Array<[
             string,
             () => Promise<{ res: unknown }>,

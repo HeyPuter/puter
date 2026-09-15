@@ -1369,3 +1369,85 @@ describe('createPuterSiteMiddleware — __workers/ is never served', () => {
         expect(piped!.equals(shell)).toBe(true);
     });
 });
+
+describe('createPuterSiteMiddleware — hosting CSP', () => {
+    const POLICY = "script-src * 'unsafe-inline'; object-src 'none'";
+
+    // Serves one file at the site root and returns the captured response.
+    const serve = async (
+        filename: string,
+        contentType: string,
+        configOverride?: Partial<IConfig>,
+    ) => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `csp-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/${filename}`,
+            Buffer.from('<p>hi</p>'),
+            contentType,
+        );
+
+        const mw = buildMiddleware(configOverride);
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: `/${filename}`,
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return out;
+    };
+
+    it('sends no CSP header when hosting_csp is unset', async () => {
+        // The default. Hosted sites are third-party apps, so an unconfigured
+        // deployment must not start enforcing a policy on them.
+        const out = await serve('index.html', 'text/html');
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy']).toBeUndefined();
+        expect(
+            out.headers['Content-Security-Policy-Report-Only'],
+        ).toBeUndefined();
+    });
+
+    it('enforces hosting_csp on an active document when configured', async () => {
+        const out = await serve('index.html', 'text/html', {
+            hosting_csp: POLICY,
+        });
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy']).toBe(POLICY);
+        expect(
+            out.headers['Content-Security-Policy-Report-Only'],
+        ).toBeUndefined();
+    });
+
+    it('sends the policy as Report-Only when hosting_csp_report_only is set', async () => {
+        const out = await serve('index.html', 'text/html', {
+            hosting_csp: POLICY,
+            hosting_csp_report_only: true,
+        });
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy-Report-Only']).toBe(POLICY);
+        expect(out.headers['Content-Security-Policy']).toBeUndefined();
+    });
+
+    it('leaves non-active documents alone', async () => {
+        // A CSP does nothing for a stylesheet or an image, and every header
+        // set here ships to apps we don't control.
+        const out = await serve('style.css', 'text/css', {
+            hosting_csp: POLICY,
+        });
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy']).toBeUndefined();
+    });
+});

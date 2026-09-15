@@ -236,7 +236,9 @@ describe('revoking a handle', () => {
             // holder's rows — no lookup keyed on the handle anywhere.
             expect(settle).toHaveBeenCalledTimes(1);
             expect(byHolder).toHaveBeenCalledTimes(1);
-            expect(byHolder).toHaveBeenCalledWith(guest.id, null);
+            expect(byHolder).toHaveBeenCalledWith(guest.id, null, {
+                includeSuspended: true,
+            });
         } finally {
             byHolder.mockRestore();
             settle.mockRestore();

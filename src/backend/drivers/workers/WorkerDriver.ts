@@ -331,7 +331,10 @@ export class WorkerDriver extends PuterDriver {
         if (!skipAdmission) this.#requireVerified(actor);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
-        const appId = args.appId || actor.app?.uid;
+        // `effectiveApp`, not `app`: a token an app issued carries no app of
+        // its own, and reading it as "no app" is what drops the deploy into
+        // the account-scoped branch below.
+        const appId = args.appId || actor.effectiveApp?.uid;
         if (!workerName)
             throw new HttpError(400, 'Missing `workerName`', {
                 legacyCode: 'bad_request',
@@ -421,6 +424,7 @@ export class WorkerDriver extends PuterDriver {
                     legacyCode: 'internal_error',
                 });
             const session = await this.services.auth.createWorkerSessionToken(
+                actor,
                 userRow,
                 workerName,
             );
@@ -1139,6 +1143,7 @@ export class WorkerDriver extends PuterDriver {
                 } else {
                     const session =
                         await this.services.auth.createWorkerSessionToken(
+                            ownerActor,
                             ownerUser,
                             workerName,
                         );

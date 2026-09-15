@@ -72,7 +72,10 @@ describe('ShareService', () => {
         return entry;
     };
 
-    /** A directory and a file inside it, so the file inherits the folder's shares. */
+    /**
+     * A directory and a file inside it, so the file inherits the folder's
+     * shares.
+     */
     const makeDirWithFile = async (owner: { id: number; username: string }) => {
         const dirUuid = uuidv4();
         const dirName = `d-${dirUuid.slice(0, 8)}`;
@@ -112,7 +115,8 @@ describe('ShareService', () => {
             actor,
             {
                 path,
-                resolveAncestors: () => server.services.fs.getAncestorChain(path),
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(path),
             },
             'read',
         );
@@ -397,6 +401,36 @@ describe('ShareService', () => {
                 recipient: { email: owner.email },
             }),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('refuses an app handing out `manage`, even where its reach is total', async () => {
+        // Inside its own AppData the ACL short-circuit answers every mode, so
+        // reach is no bound here — and `manage` is the right to re-share
+        // onward in the user's name, which the user delegated to the app, not
+        // through it.
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const app = await makeApp(owner.user.id);
+        const file = await makeFile(owner.user);
+        await grantAppReach(owner, app, file, 'manage');
+
+        await expect(
+            share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'manage',
+            }),
+        ).rejects.toMatchObject({ legacyCode: 'cannot_delegate_manage' });
+
+        // What it may still do is unchanged.
+        await grantAppReach(owner, app, file, 'read');
+        await expect(
+            share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            }),
+        ).resolves.toBeTruthy();
     });
 
     it('shows the owner a share a manage delegate issued', async () => {
@@ -720,12 +754,10 @@ describe('ShareService', () => {
             expect(listed.items[0].path).toBe(
                 `/${owner.user.username}/${file.uuid}/${file.name}`,
             );
-            expect(listed.items[0].owner?.username).toBe(
-                owner.user.username,
-            );
+            expect(listed.items[0].owner?.username).toBe(owner.user.username);
         });
 
-        it('drops a delegate-issued share from both listings once revoked, never from the recipient\'s', async () => {
+        it("drops a delegate-issued share from both listings once revoked, never from the recipient's", async () => {
             const owner = await makeUser();
             const delegate = await makeUser();
             const recipient = await makeUser();
@@ -744,7 +776,10 @@ describe('ShareService', () => {
 
             const heldByRecipient = (
                 items: Array<{ holder: { username: string | null } }>,
-            ) => items.some((i) => i.holder.username === recipient.user.username);
+            ) =>
+                items.some(
+                    (i) => i.holder.username === recipient.user.username,
+                );
 
             expect(
                 heldByRecipient((await listSharedByMe(owner.actor)).items),
@@ -1105,8 +1140,7 @@ describe('ShareService', () => {
         });
 
         it('lets a session filter to one app, or to what it shared itself', async () => {
-            const { owner, recipient, apps, files } =
-                await shareThroughApps(2);
+            const { owner, recipient, apps, files } = await shareThroughApps(2);
             const byHand = await makeFile(owner.user);
             await share(owner.actor, {
                 uid: byHand.uuid,
@@ -1154,14 +1188,13 @@ describe('ShareService', () => {
 
         it('keeps the grouped view to user sessions', async () => {
             const { owner, apps } = await shareThroughApps(1);
-            await expect(
-                listApps(asApp(owner, apps[0])),
-            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(listApps(asApp(owner, apps[0]))).rejects.toMatchObject(
+                { statusCode: 403 },
+            );
         });
 
         it('still shows and revokes what a removed app left behind', async () => {
-            const { owner, recipient, apps, files } =
-                await shareThroughApps(1);
+            const { owner, recipient, apps, files } = await shareThroughApps(1);
             await server.stores.app.delete(apps[0].id);
 
             const grouped = await listApps(owner.actor);
@@ -1283,9 +1316,9 @@ describe('ShareService', () => {
 
             const listed = await listSharedByMe(owner.actor);
             expect(listed.items[0].pending).toBe(true);
-            expect(
-                await revokeByUid(owner.actor, listed.items[0].uid),
-            ).toEqual({ revoked: 1 });
+            expect(await revokeByUid(owner.actor, listed.items[0].uid)).toEqual(
+                { revoked: 1 },
+            );
             expect(await server.stores.share.listPendingByEmail(email)).toEqual(
                 [],
             );
@@ -1318,14 +1351,12 @@ describe('ShareService', () => {
                 recipient: { username: recipient.user.username },
                 mode: 'write',
             });
-            expect((await listSharedByMe(asApp(owner, app))).items).toEqual(
-                [],
-            );
+            expect((await listSharedByMe(asApp(owner, app))).items).toEqual([]);
             const manual = await listSharedByMe(owner.actor, { appUid: null });
             expect(manual.items.map((i) => i.uid)).toEqual([uid]);
-            await expect(revokeByUid(asApp(owner, app), uid)).rejects.toMatchObject(
-                { statusCode: 404 },
-            );
+            await expect(
+                revokeByUid(asApp(owner, app), uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
 
             // And back: re-shared through the app, the same row is the app's
             // again.
@@ -1343,7 +1374,7 @@ describe('ShareService', () => {
 
         // Every uid the caller may not act on answers alike, or the endpoint
         // becomes a way to ask whether one exists.
-        it('answers 404 for an unknown uid and for another account\'s', async () => {
+        it("answers 404 for an unknown uid and for another account's", async () => {
             const owner = await makeUser();
             const stranger = await makeUser();
             const recipient = await makeUser();
@@ -1364,9 +1395,8 @@ describe('ShareService', () => {
             expect(await canRead(recipient.actor, file.path)).toBe(true);
         });
 
-        it('answers 404 when an app names another app\'s share', async () => {
-            const { owner, recipient, apps, files } =
-                await shareThroughApps(2);
+        it("answers 404 when an app names another app's share", async () => {
+            const { owner, recipient, apps, files } = await shareThroughApps(2);
             const listed = await listSharedByMe(asApp(owner, apps[1]));
 
             await expect(
@@ -1550,9 +1580,9 @@ describe('ShareService', () => {
                     (i) => i.issuer.username === owner.user.username,
                 ),
             ).toBe(true);
-            expect(
-                trail.items.some((i) => i.entryUid === theirs.uuid),
-            ).toBe(false);
+            expect(trail.items.some((i) => i.entryUid === theirs.uuid)).toBe(
+                false,
+            );
         });
 
         it('refuses the trail of an item the caller cannot manage', async () => {
@@ -2330,7 +2360,15 @@ describe('ShareService', () => {
                 const uuid = uuidv4();
                 await server.clients.db.write(
                     'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
-                    [uuid, segment, dirPath, owner.user.id, now, parentId, parentUid],
+                    [
+                        uuid,
+                        segment,
+                        dirPath,
+                        owner.user.id,
+                        now,
+                        parentId,
+                        parentUid,
+                    ],
                 );
                 const row = await server.stores.fsEntry.getEntryByPath(dirPath);
                 parentId = row.id;
@@ -2340,7 +2378,15 @@ describe('ShareService', () => {
             const filePath = `${dirPath}/state.json`;
             await server.clients.db.write(
                 'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
-                [uuid, 'state.json', filePath, owner.user.id, now, parentId, parentUid],
+                [
+                    uuid,
+                    'state.json',
+                    filePath,
+                    owner.user.id,
+                    now,
+                    parentId,
+                    parentUid,
+                ],
             );
             return server.stores.fsEntry.getEntryByPath(filePath);
         };
@@ -4165,9 +4211,7 @@ describe('ShareService', () => {
                 true,
             );
             expect(
-                await server.services.share.listBlockedSenders(
-                    recipient.actor,
-                ),
+                await server.services.share.listBlockedSenders(recipient.actor),
             ).toMatchObject({
                 all: true,
                 items: [{ username: sender.user.username }],
@@ -4260,10 +4304,7 @@ describe('ShareService', () => {
             // since it was sent.
             const claimer = await makeUser();
             await server.stores.user.update(claimer.user.id, { email });
-            await server.services.share.setBlockAllSenders(
-                claimer.actor,
-                true,
-            );
+            await server.services.share.setBlockAllSenders(claimer.actor, true);
 
             expect(
                 await server.services.share.claimPendingShares(
@@ -4392,7 +4433,6 @@ describe('ShareService', () => {
             expect(await canRead(claimer.actor, file.path)).toBe(true);
         });
 
-
         it('claims invites when the address arrives via OIDC signup', async () => {
             const owner = await makeUser();
             const file = await makeFile(owner.user);
@@ -4484,8 +4524,14 @@ describe('ShareService', () => {
             // The row is claimed before any grant is written, so whichever
             // call loses the row has granted nothing it must take back.
             const [a, b] = await Promise.all([
-                server.services.share.claimPendingShares(claimer.user.id, email),
-                server.services.share.claimPendingShares(claimer.user.id, email),
+                server.services.share.claimPendingShares(
+                    claimer.user.id,
+                    email,
+                ),
+                server.services.share.claimPendingShares(
+                    claimer.user.id,
+                    email,
+                ),
             ]);
 
             expect(a.length + b.length).toBe(1);

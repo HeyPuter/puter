@@ -24,6 +24,7 @@ import {
     type PageResult,
 } from '../../util/pagination.js';
 import { PuterStore } from '../types.js';
+import { assertColumnWidths, KV_SHARE_HANDLE_WIDTHS } from './columnWidths.js';
 
 /**
  * Opaque names for shared regions of a user's key-value namespace.
@@ -109,6 +110,13 @@ export class KvShareHandleStore extends PuterStore {
             createdAt: nowSeconds(),
             revokedAt: null,
         };
+        assertColumnWidths(KV_SHARE_HANDLE_WIDTHS, {
+            handle: row.handle,
+            appUid: row.appUid,
+            keyPrefix: row.keyPrefix,
+            permission: row.permission,
+        });
+
         await this.clients.db.insert(TABLE, {
             handle: row.handle,
             owner_user_id: row.ownerUserId,

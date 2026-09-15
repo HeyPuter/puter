@@ -716,6 +716,21 @@ interface IConfigOptional {
     /** Alt private app hosting domain. */
     private_app_hosting_domain_alt: string;
     /**
+     * Content-Security-Policy applied to active documents served from hosted
+     * sites. Unset means no header at all, which is the default: hosted sites
+     * are arbitrary third-party apps, so an enforcing policy has to be rolled
+     * out with evidence rather than switched on blind.
+     * `RECOMMENDED_HOSTING_CSP` in `middleware/puterSite.ts` is the suggested
+     * value.
+     */
+    hosting_csp?: string;
+    /**
+     * Send `hosting_csp` as `Content-Security-Policy-Report-Only` instead of
+     * enforcing it. Cannot break a page, so it is the safe first step when
+     * introducing a policy.
+     */
+    hosting_csp_report_only?: boolean;
+    /**
      * Groups of equivalent app index_url hosts. Each group lists hosts that
      * should resolve to the same canonical app: `appUidFromOrigin` looks up any
      * DB row whose `index_url` is one of the group's hosts and returns that

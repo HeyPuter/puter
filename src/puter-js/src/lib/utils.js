@@ -226,13 +226,16 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
  *   responseType?: '' | 'text' | 'blob',
  *   preprocess?: (args: Record<string, unknown>) => Record<string, unknown>,
  *   transform?: (result: unknown) => unknown,
+ *   upgradePrompt?: import('./types.js').UpgradePromptContext,
  * }} spec `iface`/`driver`/`method`/`testMode` address the driver call itself
- *   (see `driverCall`); the rest configures this wrapper.
+ *   (see `driverCall`); the rest configures this wrapper. `upgradePrompt`
+ *   names the public method (`puter.email.sendTransactional`) in the upgrade
+ *   prompt a refusal raises, and says why the method needs a plan.
  * @returns {(...args: unknown[]) => Promise<unknown>}
  */
 function makeDriverMethod (spec) {
     const { iface, method, argNames = [], driver, puter, testMode } = spec;
-    const { readonly, responseType, preprocess, transform } = spec;
+    const { readonly, responseType, preprocess, transform, upgradePrompt } = spec;
 
     return async function (...args) {
         let driverArgs = {};
@@ -269,7 +272,7 @@ function makeDriverMethod (spec) {
 
         return await driverCall(
             { iface, driver, method, args: driverArgs, testMode, puter },
-            { readonly, responseType, transform, onError },
+            { readonly, responseType, transform, onError, upgradePrompt },
         );
     };
 }

@@ -47,8 +47,7 @@ export class BroadcastController extends PuterController {
     @Post('/webhook', { subdomain: '*' })
     async webhook(req: Request, res: Response): Promise<void> {
         const broadcast = this.services.broadcast as unknown as
-            | BroadcastService
-            | undefined;
+            BroadcastService | undefined;
         if (!broadcast) {
             res.status(503).json({
                 error: { message: 'Broadcast service not registered' },
@@ -80,8 +79,7 @@ export class BroadcastController extends PuterController {
     @Post('/events', { subdomain: '*' })
     async events(req: Request, res: Response): Promise<void> {
         const broadcast = this.services.broadcast as unknown as
-            | BroadcastService
-            | undefined;
+            BroadcastService | undefined;
         if (!broadcast) {
             res.status(503).json({
                 error: { message: 'Broadcast service not registered' },
@@ -106,6 +104,7 @@ export class BroadcastController extends PuterController {
 
         const reply = await this.services.eventForward.receive(
             (req.body ?? {}) as ForwardBatch,
+            verified.peerId ?? '',
         );
         res.status(200).json({ ok: true, ...reply });
     }

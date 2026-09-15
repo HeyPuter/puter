@@ -495,6 +495,33 @@ describe('subscribing through a handle', () => {
         expect(JSON.stringify(listed)).not.toContain(PREFIX);
     });
 
+    it('keeps the stored filter on the handle, whatever shape the grantee wrote', async () => {
+        // The pattern is composed onto the granted prefix before it is stored,
+        // so a `*` that is not delimiter-aligned leaves the owner's absolute
+        // key layout in `match`. Re-based on the handle, as the anchor is.
+        await clearRows();
+        const { handle } = await mint();
+
+        for (const pattern of ['messages*', 'a:b*', 'messages:*', '*']) {
+            const sub = (
+                await events().subscribe(guest.actor, SOCKET_ID, {
+                    subject: `kv:${handle}:${pattern}`,
+                })
+            ).sub;
+
+            expect(JSON.stringify(sub)).not.toContain(PREFIX);
+            expect(JSON.stringify(sub)).not.toContain(owner.uuid);
+            if (sub.match !== null) expect(sub.match).toBe(pattern);
+
+            const [listed] = await events().listSubscriptions(
+                guest.actor,
+                SOCKET_ID,
+            );
+            expect(JSON.stringify(listed)).not.toContain(PREFIX);
+            await clearRows();
+        }
+    });
+
     it('refuses a user the handle was not granted to', async () => {
         await clearRows();
         const { handle } = await mint();

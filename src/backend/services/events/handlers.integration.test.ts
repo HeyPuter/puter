@@ -26,7 +26,15 @@
  * shared handler delivers each subscriber their own.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
     EVENTS_COALESCE_WINDOW_MS,
@@ -44,8 +52,10 @@ import { RecordingWorkerInvoker } from './workerSeam.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 
-const SOURCE = 'async ({ event, ctx }) => { await fetch(ctx.url, { method: "POST" }); }';
-const NEXT_SOURCE = 'async ({ event, ctx }) => { console.log(event.path, ctx.url); }';
+const SOURCE =
+    'async ({ event, ctx }) => { await fetch(ctx.url, { method: "POST" }); }';
+const NEXT_SOURCE =
+    'async ({ event, ctx }) => { console.log(event.path, ctx.url); }';
 
 let env: PuterTestEnv;
 let userId: number;
@@ -116,8 +126,12 @@ const makeApp = async (
 
     const tokens: string[] = [];
     for (const grant of grants) {
-        const entry = await env.server.stores.fsEntry.getEntryByPath(grant.path);
-        const { actor } = await env.server.services.auth.authenticate(grant.token);
+        const entry = await env.server.stores.fsEntry.getEntryByPath(
+            grant.path,
+        );
+        const { actor } = await env.server.services.auth.authenticate(
+            grant.token,
+        );
         await env.server.services.permission.grantUserAppPermission(
             actor!,
             uid,
@@ -143,8 +157,8 @@ const subscribe = (token: string, body: object): Promise<ApiResponse> =>
 const listSubscriptions = async (
     token: string,
 ): Promise<DurableSubscriptionView[]> =>
-    (await call('GET', '/events/subscriptions', token))
-        .body.items as DurableSubscriptionView[];
+    (await call('GET', '/events/subscriptions', token)).body
+        .items as DurableSubscriptionView[];
 
 const rowOf = (subId: string) => durable().getBySubId(subId);
 
@@ -270,6 +284,31 @@ describe('who may publish a handler', () => {
         expect(refused.body.code).toBe('events_handler_forbidden');
     });
 
+    it('refuses a scoped API token naming an app its user owns', async () => {
+        // It carries no app, so a gate reading that as "the account" would let
+        // a token minted for one narrow purpose replace the handler code of
+        // every app its user owns — code that then runs holding each
+        // subscriber's own credential.
+        const actor = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+        const entry = await env.server.stores.fsEntry.getEntryByPath(anchor);
+        const scoped = await env.server.services.auth.createAccessToken(
+            actor.actor!,
+            [[`fs:${entry!.uid}:list`]],
+            { label: 'handlers-scope' },
+        );
+
+        const refused = await publish(scoped, {
+            appUid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_handler_forbidden');
+    });
+
     it('refuses an app token reaching into another app`s namespace', async () => {
         const refused = await publish(appToken, {
             appUid: foreignAppUid,
@@ -325,7 +364,9 @@ describe('publishing a set', () => {
         // stopped rather than being left to guess.
         const listed = await call('GET', '/events/handlers/list', appToken);
         expect(
-            (listed.body.handlers as Array<{ name: string }>).map((h) => h.name),
+            (listed.body.handlers as Array<{ name: string }>).map(
+                (h) => h.name,
+            ),
         ).toContain('indexDocument');
     });
 });
@@ -339,11 +380,19 @@ describe('the total-source cap', () => {
             // can reach the total cap.
             const bigSource = 'x'.repeat(EVENTS_HANDLER_SOURCE_MAX_BYTES);
             const names = Array.from(
-                { length: EVENTS_WORKER_SOURCE_MAX_BYTES / EVENTS_HANDLER_SOURCE_MAX_BYTES },
+                {
+                    length:
+                        EVENTS_WORKER_SOURCE_MAX_BYTES /
+                        EVENTS_HANDLER_SOURCE_MAX_BYTES,
+                },
                 (_, i) => `big${i}`,
             );
 
-            for (let i = 0; i < names.length; i += EVENTS_HANDLER_PUBLISH_BATCH) {
+            for (
+                let i = 0;
+                i < names.length;
+                i += EVENTS_HANDLER_PUBLISH_BATCH
+            ) {
                 const batch = names
                     .slice(i, i + EVENTS_HANDLER_PUBLISH_BATCH)
                     .map((name) => ({ name, source: bigSource }));
@@ -748,11 +797,16 @@ describe('the handler lifecycle', () => {
 
         // New source under the name is the fix for a handler that could not
         // take its deliveries, so it is what brings its subscriptions back.
-        const republished = await call('POST', '/events/handlers/publish', appToken, {
-            name: 'ingestUpload',
-            source: NEXT_SOURCE,
-            replace: true,
-        });
+        const republished = await call(
+            'POST',
+            '/events/handlers/publish',
+            appToken,
+            {
+                name: 'ingestUpload',
+                source: NEXT_SOURCE,
+                replace: true,
+            },
+        );
 
         expect(republished.body.resumed).toBe(1);
         expect(await rowOf(subId)).toMatchObject({

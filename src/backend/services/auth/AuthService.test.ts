@@ -20,7 +20,7 @@
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
@@ -1040,9 +1040,12 @@ describe('AuthService (integration)', () => {
             const before = Math.floor(Date.now() / 1000);
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const { session, token, gui_token } =
-                await authService.createWorkerSessionToken(user, workerName, {
-                    user_agent: 'worker-agent',
-                });
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    { user_agent: 'worker-agent' },
+                );
 
             const row = (await server.stores.session.getByUuid(
                 (session as { uuid: string }).uuid,
@@ -1067,14 +1070,56 @@ describe('AuthService (integration)', () => {
             expect(decodeAuth(gui_token).worker_name).toBe(workerName);
         });
 
+        it('createWorkerSessionToken refuses every delegated credential', async () => {
+            // The token it mints is `type: 'session'` with no app, so it walks
+            // past the gates that keep apps and tokens out of account
+            // management — including the one refusing an access token the
+            // right to mint another.
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const delegated: Actor[] = [
+                makeActor({ user, app: { uid: 'app-caller' } }),
+                makeActor({
+                    user,
+                    accessToken: {
+                        uid: 'tok-scoped',
+                        issuer: makeActor({ user }),
+                        authorized: null,
+                        fullAccess: false,
+                    },
+                }),
+                makeActor({
+                    user,
+                    accessToken: {
+                        uid: 'tok-pat',
+                        issuer: makeActor({ user }),
+                        authorized: null,
+                        fullAccess: true,
+                    },
+                }),
+            ];
+
+            for (const actor of delegated) {
+                await expect(
+                    authService.createWorkerSessionToken(
+                        actor,
+                        user,
+                        workerName,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            }
+        });
+
         it('createWorkerSessionToken is idempotent on (user, worker_name) — redeploys reuse the row', async () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const a = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
             const b = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
@@ -1086,10 +1131,12 @@ describe('AuthService (integration)', () => {
         it('createWorkerSessionToken with different worker_names mints distinct rows for the same user', async () => {
             const user = await makeUser();
             const a = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 `wk-${Math.random().toString(36).slice(2, 8)}-a`,
             );
             const b = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 `wk-${Math.random().toString(36).slice(2, 8)}-b`,
             );
@@ -1101,7 +1148,11 @@ describe('AuthService (integration)', () => {
         it('createWorkerSessionToken rejects an empty workerName (400)', async () => {
             const user = await makeUser();
             await expect(
-                authService.createWorkerSessionToken(user, ''),
+                authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    '',
+                ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
@@ -1453,7 +1504,11 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const { token, session } =
-                await authService.createWorkerSessionToken(user, workerName);
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                );
             const sessionUuid = (session as { uuid: string }).uuid;
 
             await authService.revokeSession(sessionUuid);
@@ -1473,6 +1528,7 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const first = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
@@ -1480,6 +1536,7 @@ describe('AuthService (integration)', () => {
             await authService.revokeSession(firstUuid);
 
             const second = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
@@ -1532,7 +1589,11 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const { token, session } =
-                await authService.createWorkerSessionToken(user, workerName);
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                );
             const sessionUuid = (session as { uuid: string }).uuid;
 
             await authService.removeSessionByToken(token);

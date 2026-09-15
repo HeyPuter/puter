@@ -24,6 +24,33 @@
  */
 
 /**
+ * Why a call was refused pending an upgrade: no usage credit left, a plan that
+ * doesn't include the surface, or no storage left.
+ *
+ * @typedef {'funds' | 'subscription' | 'storage'} UpgradeReason
+ */
+
+/**
+ * How an SDK method describes itself to the upgrade prompt a refusal raises.
+ *
+ * @typedef {Object} UpgradePromptContext
+ * @property {string} [method] The SDK method that was refused, e.g. `puter.email.sendTransactional`.
+ * Shown in the prompt so the user and the developer know which action it was.
+ * @property {string} [subscriptionMessage] Why this method needs a paid plan, as one sentence
+ * ("Sending email requires a subscription."). Wins over the backend's message; without either the
+ * prompt says "This action requires a subscription."
+ */
+
+/**
+ * What `puter.ui.requestUpgrade()` tells the desktop about the refusal that prompted it.
+ *
+ * @typedef {Object} UpgradeRequestDetails
+ * @property {UpgradeReason} [reason] What kind of upgrade would clear the refusal.
+ * @property {string} [method] The SDK method that was refused.
+ * @property {string} [message] One sentence saying what was refused and why.
+ */
+
+/**
  * The legacy positional callbacks most methods accept alongside the promise
  * they return.
  *

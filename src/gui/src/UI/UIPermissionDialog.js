@@ -552,6 +552,9 @@ function permission_icon_svg (icon) {
     return icons[icon] ?? icons.shield;
 }
 
+/** Access modes an `fs:` permission can ask for; anything else is not shown. */
+const FS_ACCESS_MODES = ['see', 'list', 'read', 'write'];
+
 /**
  * Generates a user-friendly description of a permission string.
  *
@@ -568,6 +571,11 @@ async function get_permission_description (permission, options = {}) {
         const [resource_type, resource_id, action, interface_name = null] = parts;
 
         if ( resource_type === 'fs' ) {
+            // No mode means no verb to put in front of the user, and a
+            // modeless `fs:` grant is one the backend refuses anyway.
+            if ( ! FS_ACCESS_MODES.includes(action) ) {
+                return null;
+            }
             // Check for standard folders using whoami().directories
             const standard_folder_description = await get_standard_folder_description(resource_id, action);
             if ( standard_folder_description ) {

@@ -1,5 +1,8 @@
-import { PuterModule } from '../lib/PuterModule.js';
-import * as utils from '../lib/utils.js';
+import { fetchUrl } from '../../lib/networkUtils.js';
+import { PuterModule } from '../../lib/PuterModule.js';
+import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
+import * as utils from '../../lib/utils.js';
+import { compose } from './ComposerLib.js';
 
 /**
  * One attachment: either inline base64 `content`, or a Puter FS reference
@@ -72,7 +75,8 @@ const preprocessSendArgs = (args) => {
 };
 
 /**
- * Transactional email from your app (the `puter-email` driver interface).
+ * Transactional email from your app (the `puter-transactional-email` driver
+ * interface).
  *
  * Every send must be authorized by a worker: either the worker calls
  * directly (`me.puter.email.sendTransactional(...)`), or a user calls with
@@ -119,25 +123,38 @@ export class EmailModule extends PuterModule {
      * @type {EmailSendMethod}
      */
     sendTransactional = utils.makeDriverMethod({
-        iface: 'puter-email',
+        iface: 'puter-transactional-email',
         method: 'sendTransactional',
         argNames: ['to', 'subject', 'body'],
         preprocess: preprocessSendArgs,
+        upgradePrompt: {
+            method: 'puter.email.sendTransactional',
+            subscriptionMessage: 'Sending email from an app requires a subscription.',
+        },
     });
 
     /**
-     * Legacy name for {@link EmailModule.sendTransactional}; same arguments,
-     * same result.
+     * Sends a message from the user's own mailbox. Resolves with the response
+     * body as the server sent it, error bodies included; a refusal that an
+     * upgrade would clear also prompts the user.
      *
-     * @deprecated Use `sendTransactional()`.
-     * @type {EmailSendMethod}
+     * @param {Record<string, unknown>} options Message fields for the composer.
+     * @returns {Promise<unknown>}
      */
-    send = utils.makeDriverMethod({
-        iface: 'puter-email',
-        method: 'send',
-        argNames: ['to', 'subject', 'body'],
-        preprocess: preprocessSendArgs,
-    });
+    send = async (options) => {
+        const req = await fetchUrl(`${this.APIOrigin}/email/send`, { method: "POST", includePuterAuth: true, body: new Blob([await compose(options)], { type: 'message/rfc822' }) });
+        const result = await req.json();
+        if ( ! req.ok ) {
+            promptIfUpgradeRequired(
+                result && typeof result === 'object' ? { ...result, status: req.status } : { status: req.status },
+                {
+                    method: 'puter.email.send',
+                    subscriptionMessage: 'Sending email to addresses outside Puter requires a subscription.',
+                },
+            );
+        }
+        return result;
+    }
 }
 
 /**
