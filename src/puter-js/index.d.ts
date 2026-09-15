@@ -219,6 +219,18 @@ export type {
     PermsResource,
 } from './types/modules/perms/types.js';
 
+// -- puter.payments --
+export type {
+    Charge,
+    ChargePage,
+    CheckoutOptions,
+    CreateChargeOptions,
+    FiatAmount,
+    ListChargesOptions,
+    PaymentSettings,
+    WaitForPaymentOptions,
+} from './types/modules/payments/types.js';
+
 // -- puter.teams --
 export type {
     CreateMemberOptions,
@@ -281,6 +293,7 @@ export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSCo
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
 export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;
 export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
+export type Payments = InstanceType<import('./types/modules/payments/index.js').PaymentsConstructor>;
 export type Peer = InstanceType<import('./types/modules/Peer.js').PeerConstructor>;
 export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
 export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsConstructor>;

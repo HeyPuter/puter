@@ -71,6 +71,17 @@ Sizes are fixed for every account:
 
 A key or value over its size limit is rejected outright. A number over its limit is not: it is stored clamped to the bound, and `NaN` is stored as `null` — the same thing `JSON.stringify()` does with it. This applies to numbers nested anywhere inside an object or array, so a value carrying one still keeps every other field it holds. Anything that has to stay exact past 2<sup>53</sup> — a large id, a running total — should be stored as a string.
 
+### Payments
+
+Per account, per minute. `429` `too_many_requests` when exceeded.
+
+| Route                                        | Limit |
+| -------------------------------------------- | ----- |
+| `createCharge` / `checkout`                  | 30    |
+| `getCharge` (checkout windows poll every 2s) | 600   |
+| `listCharges`                                | 120   |
+| `getSettings` / `updateSettings`             | 60    |
+
 ### Filesystem
 
 All per minute unless stated:

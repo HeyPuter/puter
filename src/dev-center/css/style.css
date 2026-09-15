@@ -1501,3 +1501,9 @@ dialog{
   font-weight: 500;
 }
 
+
+/* Payments tab */
+#payments-charges th, #payments-charges td { padding: 6px 8px; border-bottom: 1px solid #eee; }
+.payments-status { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #eee; color: #555; }
+.payments-status-completed { background: #dff7e6; color: #1a7f3c; }
+.payments-status-pending { background: #fff3d6; color: #8a5a00; }

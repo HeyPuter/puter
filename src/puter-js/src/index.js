@@ -22,6 +22,7 @@ import { PSocket } from './modules/networking/PSocket.js';
 import { PTLSSocket } from './modules/networking/PTLS.js';
 import { pFetch } from './modules/networking/requests.js';
 import { OS } from './modules/os/index.js';
+import { Payments } from './modules/payments/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
 import { Teams } from './modules/teams/index.js';
@@ -317,6 +318,7 @@ export class Puter {
         this.events = this.registerModule('events', Events);
         this.perms = this.registerModule('perms', Perms);
         this.teams = this.registerModule('teams', Teams);
+        this.payments = this.registerModule('payments', Payments);
         this.drivers = this.registerModule('drivers', Drivers);
         this.debug = this.registerModule('debug', Debug);
         this.peer = this.registerModule('peer', Peer);

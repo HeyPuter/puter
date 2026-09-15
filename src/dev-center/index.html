@@ -93,6 +93,7 @@
                 <li class="tab-btn active" data-tab="apps">Apps<span class="app-count"></span></li>
                 <li class="tab-btn" data-tab="websites">Websites<span class="website-count"></span></li>
                 <li class="tab-btn" data-tab="workers">Workers<span class="worker-count"></span></li>
+                <li class="tab-btn" data-tab="payments">Payments</li>
                 <hr class="tab-btn-separator">
                 <li class="tab-btn" data-tab="payout-method" style="display:none;">Payout Method</li>
             </ul>
@@ -218,6 +219,51 @@
                 earnings from the previous month. The payment is usually processed within the first seven business days
                 of the new month. Please do not hesitate to contact us at <a
                     href="mailto:hey@puter.com">hey@puter.com</a> should you have any questions.</p>
+        </section>
+
+        <!---------------------------------------->
+        <!-- Payments                           -->
+        <!---------------------------------------->
+        <section id="tab-payments" style="display:none; margin-bottom: 100px;">
+            <h1>Payments</h1>
+            <p style="font-size:14px;">Accept Lightning payments in your apps. Payments go straight to your own
+                wallet; Puter never holds your funds.</p>
+            <div class="error" id="payments-error" style="width: 410px; display:none;"></div>
+
+            <h2 style="font-size:16px; margin-top:24px;">1. Get a Glow wallet</h2>
+            <p style="font-size:14px;">Install Glow and pick your Lightning address. It looks like
+                <code>you@breez.tips</code>.</p>
+            <a id="payments-glow-link" class="button" href="https://breez.technology/glow/" target="_blank"
+                rel="noopener">Get Glow</a>
+
+            <h2 style="font-size:16px; margin-top:24px;">2. Enter your Lightning address</h2>
+            <div style="width: 410px;">
+                <label for="payments-address">Your breez.tips address</label>
+                <input type="text" id="payments-address" placeholder="you@breez.tips" autocomplete="off">
+            </div>
+            <button type="button" class="payments-save-btn button button-primary" style="margin-top:10px;">Save</button>
+            <span id="payments-configured" style="display:none; margin-left:10px; font-size:13px; color:#1ccd60;">Ready
+                to accept payments</span>
+
+            <h2 style="font-size:16px; margin-top:24px;">3. Charge from your app</h2>
+            <pre style="font-size:13px; background:#f4f4f6; padding:12px; border-radius:6px; width: 410px; overflow:auto;">const paid = await puter.payments.checkout({
+    amount: 4.99, currency: 'USD', // or amountSats: 1000
+    description: 'Pro upgrade',
+});</pre>
+            <p style="font-size:13px;">Payers can use any Lightning wallet, including Cash App. See the
+                <a href="https://docs.puter.com/Payments/" target="_blank" rel="noopener">Payments docs</a>.</p>
+
+            <h2 style="font-size:16px; margin-top:24px;">Recent charges <button type="button"
+                    class="payments-refresh-btn button" style="margin-left:10px; font-size:12px;">Refresh</button></h2>
+            <p id="payments-no-charges" style="font-size:14px; color: #606062;">No charges yet.</p>
+            <table id="payments-charges" style="display:none; width:100%; font-size:13px; border-collapse:collapse;">
+                <thead>
+                    <tr style="text-align:left;">
+                        <th>Created</th><th>Amount</th><th>Status</th><th>Description</th><th>Paid to</th><th>Charge ID</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
         </section>
 
         <!---------------------------------------->

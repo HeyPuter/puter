@@ -19,6 +19,7 @@
 
 import init_apps from './apps.js';
 import init_workers from './workers.js';
+import './payments.js';
 import init_websites from './websites.js';
 
 window.url_params = new URLSearchParams(window.location.search);
@@ -128,6 +129,13 @@ $(document).on('click', '.tab-btn', async function (e) {
         activeTab = 'websites';
         // Reset websites search when tab is activated
         resetWebsitesSearch();
+    }
+    // ---------------------------------------------------------------
+    // Payments tab
+    // ---------------------------------------------------------------
+    else if ( $(this).attr('data-tab') === 'payments' ) {
+        activeTab = 'payments';
+        refresh_payments();
     }
     // ---------------------------------------------------------------
     // Payout Method tab
