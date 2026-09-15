@@ -319,6 +319,37 @@ describe('team billing events', () => {
         expect(mine.map((r) => r.action)).toContain('delete_account');
     });
 
+    it('deletes a suspended seat after its team is deleted', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        await service.deleteTeam(team.uid, owner.id);
+        seen.length = 0;
+
+        // The deletion suspended the seat; this is the only way to retire it.
+        await service.deleteMember(team.uid, owner.id, seat.userId);
+
+        expect(await server.stores.user.getById(seat.userId)).toBeFalsy();
+        // The billing stop still fires: `getOrgSeat` includes deleted teams.
+        expect(of('team.account.deleted')).toHaveLength(1);
+    });
+
+    it('refuses to delete a seat Puter suspended', async () => {
+        const team = await makeTeam();
+        const seat = await provision(team);
+        await server.stores.user.update(seat.userId, {
+            suspended: 1,
+            suspended_at: Math.floor(Date.now() / 1000),
+            suspended_reason: 'abuse_review',
+        });
+        await server.stores.user.invalidateById(seat.userId);
+
+        // As `enableMember` holds: a platform suspension is not the team's.
+        await expect(
+            service.deleteMember(team.uid, owner.id, seat.userId),
+        ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
+        expect(await server.stores.user.getById(seat.userId)).toBeTruthy();
+    });
+
     // -- the directory --------------------------------------------------
 
     it('offers only members who have actually taken up their account', async () => {

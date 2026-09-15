@@ -353,8 +353,8 @@ export class TeamController extends PuterController {
     async deleteMember(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
-        // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        // Authority first (anti-oracle); deleted team included, see the service.
+        await this.services.team.requireOwnedTeam(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
         await this.services.team.deleteMember(uid, userId, target);

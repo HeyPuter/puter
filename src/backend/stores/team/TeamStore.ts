@@ -346,6 +346,22 @@ export class TeamStore extends PuterStore {
         return (rows[0] as unknown as TeamMemberRow) ?? null;
     }
 
+    /** As `getMembership`, deleted team included; uncached — deletion is rare. */
+    async getMembershipIncludingDeleted(
+        teamUid: string,
+        userId: number,
+    ): Promise<TeamMemberRow | null> {
+        const rows = await this.clients.db.read(
+            'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
+                'ug.`created_at`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                'WHERE g.`uid` = ? AND ug.`user_id` = ? AND g.`kind` = ?',
+            [teamUid, userId, TEAM_KIND],
+        );
+        return (rows[0] as unknown as TeamMemberRow) ?? null;
+    }
+
     /** Whether this user belongs to this team. */
     async isMember(teamUid: string, userId: number): Promise<boolean> {
         return (await this.getMembership(teamUid, userId)) !== null;

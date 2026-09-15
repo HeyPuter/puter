@@ -228,11 +228,14 @@ export class TeamService extends PuterService {
     async requireOrgAccount(
         teamUid: string,
         targetUserId: number,
+        opts: { includeDeleted?: boolean } = {},
     ): Promise<TeamMemberRow> {
-        const membership = await this.stores.team.getMembership(
-            teamUid,
-            targetUserId,
-        );
+        const membership = opts.includeDeleted
+            ? await this.stores.team.getMembershipIncludingDeleted(
+                  teamUid,
+                  targetUserId,
+              )
+            : await this.stores.team.getMembership(teamUid, targetUserId);
         // Tested explicitly, never inferred from NULL.
         if (!membership || Number(membership.org_owned) !== 1) {
             throw new HttpError(404, 'Not an account of this team', {
@@ -566,7 +569,7 @@ export class TeamService extends PuterService {
         actorUserId: number,
         opts: { limit?: unknown; cursor?: string } = {},
     ) {
-        const team = await this.#requireOwnedTeam(teamUid, actorUserId);
+        const team = await this.requireOwnedTeam(teamUid, actorUserId);
         return this.#withUsernames(
             await this.stores.team.listAudit(team.id, opts),
         );
@@ -664,7 +667,7 @@ export class TeamService extends PuterService {
     }
 
     /** Resolves a team the caller owns, soft-deleted or not. */
-    async #requireOwnedTeam(
+    async requireOwnedTeam(
         teamUid: string,
         actorUserId: number,
     ): Promise<TeamRow> {
@@ -1094,8 +1097,11 @@ export class TeamService extends PuterService {
         actorUserId: number,
         targetUserId: number,
     ): Promise<void> {
-        const team = await this.requireOwner(teamUid, actorUserId);
-        await this.requireOrgAccount(teamUid, targetUserId);
+        // Deleted team included: the only self-serve way to retire its seats.
+        const team = await this.requireOwnedTeam(teamUid, actorUserId);
+        await this.requireOrgAccount(teamUid, targetUserId, {
+            includeDeleted: true,
+        });
 
         // Forced, as `enableMember` is: a cached row predates the disable.
         const user = await this.stores.user.getByProperty('id', targetUserId, {
@@ -1104,6 +1110,12 @@ export class TeamService extends PuterService {
         if (!user?.suspended) {
             throw new HttpError(409, 'Disable the account before deleting it', {
                 legacyCode: 'account_must_be_disabled_first',
+            });
+        }
+        // Only the team's own suspension may be deleted, as `enableMember` holds.
+        if (user.suspended_reason !== DISABLED_BY_TEAM) {
+            throw new HttpError(409, 'That account was suspended by Puter', {
+                legacyCode: 'conflict',
             });
         }
 
