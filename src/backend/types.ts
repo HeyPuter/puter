@@ -693,6 +693,11 @@ interface IConfigOptional {
     /** One flat cap whatever the owner pays; overrides both of the above. */
     max_seats_per_team?: number;
     /**
+     * Only these email domains may enter the teams surface; members of an
+     * existing team always pass. Unset means everyone.
+     */
+    teams_allowed_email_domains?: string[];
+    /**
      * Fully-qualified externally-visible URL (protocol + domain + port).
      * Computed from `protocol`/`domain`/`pub_port` if unset.
      */

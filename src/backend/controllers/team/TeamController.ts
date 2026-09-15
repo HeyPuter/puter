@@ -85,6 +85,7 @@ export class TeamController extends PuterController {
     })
     async createTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
+        await this.#requireTeamsAvailable(req, userId);
         const body = this.#body(req);
 
         const team = await this.services.team.createTeam(userId, {
@@ -105,6 +106,7 @@ export class TeamController extends PuterController {
     })
     async listTeams(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
+        await this.#requireTeamsAvailable(req, userId);
         const teams = await this.stores.team.listTeamsForUser(userId);
         res.json({
             items: teams.map((t) =>
@@ -408,6 +410,18 @@ export class TeamController extends PuterController {
                     ? req.query.cursor
                     : undefined,
         };
+    }
+
+    /**
+     * The domain-allowlist gate, on the two routes that enter the feature. Same
+     * 404 as a teams-off deployment; other routes bound by membership.
+     */
+    async #requireTeamsAvailable(req: Request, userId: number): Promise<void> {
+        const email = (
+            req.actor as { user?: { email?: string | null } } | undefined
+        )?.user?.email;
+        if (await this.services.team.teamsAvailableTo(userId, email)) return;
+        throw new HttpError(404, 'Not found', { legacyCode: 'not_found' });
     }
 
     #requireUserId(req: Request): number {

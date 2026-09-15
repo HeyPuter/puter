@@ -300,6 +300,10 @@
     // ignore plans entirely. Unset by default — leave it that way to keep the
     // free cap meaningful.
     // "max_seats_per_team": 50,
+    //
+    // Staged rollout: only these email domains may create a team or see the
+    // tab. Members of an existing team always pass. Unset means everyone.
+    // "teams_allowed_email_domains": ["puter.com"],
 
     // ── Notifications ───────────────────────────────────────────────────
     // How long a notification is kept, in days from creation. Acknowledged or

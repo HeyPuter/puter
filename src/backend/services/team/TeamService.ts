@@ -199,6 +199,32 @@ export class TeamService extends PuterService {
     }
     // -- Authority ---- the whole authorization model ------------------
 
+    /**
+     * Whether this account may enter the teams surface. Membership in any team
+     * always passes: an allowed owner brought them in.
+     */
+    async teamsAvailableTo(
+        userId: number,
+        email: string | null | undefined,
+    ): Promise<boolean> {
+        const domains = this.config.teams_allowed_email_domains;
+        if (!Array.isArray(domains) || domains.length === 0) return true;
+        const at = String(email ?? '').lastIndexOf('@');
+        const domain =
+            at === -1
+                ? ''
+                : String(email)
+                      .slice(at + 1)
+                      .toLowerCase();
+        if (
+            domain !== '' &&
+            domains.some((d) => String(d).toLowerCase() === domain)
+        ) {
+            return true;
+        }
+        return (await this.stores.team.listGroupIdsForUser(userId)).length > 0;
+    }
+
     /** 404 to a non-member so the endpoint is not an existence oracle. */
     async requireMembership(
         teamUid: string,
