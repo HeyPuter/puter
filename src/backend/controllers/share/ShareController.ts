@@ -31,28 +31,7 @@ import { toClientShare } from './clientShare.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
-
-/**
- * Two windows: a burst ceiling, and a daily one so a slow drip can't add up to
- * a mail-merge. Neither bounds _shares_ — one request carries many — which is
- * what `ShareService`'s per-day quota is for.
- */
-const SHARE_LIMIT = [
-    { scope: 'share:mutate', limit: 60, window: 60_000, key: 'user' as const },
-    {
-        scope: 'share:mutate-daily',
-        limit: 500,
-        window: 24 * 60 * 60_000,
-        key: 'user' as const,
-    },
-];
-
-const SHARE_LIST_LIMIT = {
-    scope: 'share:list',
-    limit: 600,
-    window: 60_000,
-    key: 'user' as const,
-};
+import { SHARE_LIMIT, SHARE_LIST_LIMIT } from './limits.js';
 
 /** Distinct (holder, item) pairs run together; see the note on grouping below. */
 const SHARE_CONCURRENCY = 8;

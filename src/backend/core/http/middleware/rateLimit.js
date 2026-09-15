@@ -710,6 +710,34 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
 }
 
 /**
+ * Charge a route-shaped rate-limit spec from inside a handler.
+ *
+ * `rateLimitGate` takes one static spec per route, which is wrong for a route
+ * whose cost depends on a request parameter: `stat` with `return_shares` does
+ * the same work as the share-listing route, and should spend from the same
+ * budget. This resolves the key and the per-subscription limit exactly as the
+ * gate does — same spec in, same bucket out — so a handler can charge a second
+ * scope conditionally. Returns true if allowed; fails open on backend error.
+ */
+export async function consumeRouteRateLimit(req, spec) {
+    const {
+        window: windowMs,
+        key: strategy = 'fingerprint',
+        scope,
+        backend,
+    } = spec;
+    const backendPair = resolveBackend(backend);
+    const key = resolveKey(req, scope ?? req.route?.path ?? 'route', strategy);
+    try {
+        const limit = await resolveSubscriptionLimit(req, spec);
+        return await backendPair.rate(key, limit, windowMs);
+    } catch (err) {
+        console.error('[rate-limit] handler charge failed, failing open:', err);
+        return true;
+    }
+}
+
+/**
  * Read whether `key` still has budget, without spending any. The twin to
  * `checkRateLimit` for gates whose budget is consumed by an outcome rather than
  * by the request: a failed-credential counter has to be readable before the
