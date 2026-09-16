@@ -17,21 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { assertImagePrompt } from '../../imageValidation.js';
+import { imageDataUri } from '../../imageOutput.js';
 import { OpenAI } from 'openai';
+import { formatAspectRatio } from '../../imageDimensions.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type {
-    IGenerateParams,
-    IImageModel,
-    IImageProvider,
-} from '../../types.js';
-import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
+import type { IGenerateParams, IImageProvider } from '../../types.js';
+import { XAI_IMAGE_GENERATION_MODELS, type XaiImageModel } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { assertInputImageString } from '../../inputImage.js';
+import { toUrlOrDataUri } from '../../inputImage.js';
 
 const DEFAULT_MODEL = 'grok-imagine-image';
-// xAI's Grok Imagine edit endpoint accepts up to 3 source images per request.
-const MAX_INPUT_IMAGES = 3;
+// xAI's Grok Imagine edit endpoint accepts up to 5 source images per request.
+const MAX_INPUT_IMAGES = 5;
 
 interface XaiImageResponse {
     data?: Array<{ url?: string; b64_json?: string }>;
@@ -53,7 +52,7 @@ export class XAIImageProvider implements IImageProvider {
         });
     }
 
-    models(): IImageModel[] {
+    models(): XaiImageModel[] {
         return XAI_IMAGE_GENERATION_MODELS;
     }
 
@@ -72,32 +71,58 @@ export class XAIImageProvider implements IImageProvider {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new HttpError(400, '`prompt` must be a non-empty string', {
-                legacyCode: 'bad_request',
-            });
+        assertImagePrompt(prompt);
+
+        for (const option of ['quality', 'resolution'] as const) {
+            if (params[option] != null && typeof params[option] !== 'string') {
+                throw new HttpError(400, `${option} must be a string`, {
+                    legacyCode: 'bad_request',
+                });
+            }
         }
 
         // Backwards compat: fold singular `input_image` into `input_images`.
         if (input_image && (!input_images || input_images.length === 0)) {
             input_images = [input_image];
         }
-        // xAI caps edits at 3 source images.
+        // Reject excess references instead of silently dropping part of an edit.
         if (input_images && input_images.length > MAX_INPUT_IMAGES) {
-            input_images = input_images.slice(0, MAX_INPUT_IMAGES);
+            throw new HttpError(
+                400,
+                `xAI accepts at most ${MAX_INPUT_IMAGES} input images`,
+                { legacyCode: 'bad_request' },
+            );
         }
         const inputImageCount = input_images?.length ?? 0;
         const hasInputImages = inputImageCount > 0;
 
         // xAI uses a `resolution` tier ('1k'/'2k') rather than a pixel size.
-        const resolution = this.#normalizeResolution(quality);
-        const aspectRatio = this.#aspectRatio(ratio);
+        const resolution = this.#normalizeResolution(
+            params.resolution ?? quality,
+        );
+        const normalizedQuality = quality?.trim().toLowerCase();
+        const imageQuality = selectedModel.defaultQuality
+            ? normalizedQuality &&
+              normalizedQuality !== 'auto' &&
+              selectedModel.allowedQualityLevels?.includes(normalizedQuality)
+                ? normalizedQuality
+                : hasInputImages
+                  ? (selectedModel.defaultEditQuality ??
+                    selectedModel.defaultQuality)
+                  : selectedModel.defaultQuality
+            : undefined;
+        const outputCostKey = `output:${resolution}${imageQuality ? `:${imageQuality}` : ''}`;
+        const aspectRatio = formatAspectRatio(ratio);
 
         const actor = Context.get('actor');
-        const userIdentifier =
-            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
+        if (!actor) {
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
+        }
+        const userIdentifier = `${actor.user.id ?? ''}${actor.app?.uid ? `:${actor.app.uid}` : ''}`;
 
-        const outputPriceInCents = selectedModel.costs[`output:${resolution}`];
+        const outputPriceInCents = selectedModel.costs[outputCostKey];
         const mediaInputPriceInCents = selectedModel.costs.media_input ?? 0;
         const estimatedCostInCents =
             outputPriceInCents +
@@ -123,6 +148,8 @@ export class XAIImageProvider implements IImageProvider {
                   input_image_mime_type,
                   resolution,
                   aspectRatio,
+                  imageQuality,
+                  userIdentifier,
               )
             : ((await this.#client.images.generate({
                   model: selectedModel.id,
@@ -131,6 +158,7 @@ export class XAIImageProvider implements IImageProvider {
                   // xAI-specific params not in the OpenAI type; passed through.
                   ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
                   resolution,
+                  ...(imageQuality ? { quality: imageQuality } : {}),
               } as Parameters<
                   OpenAI['images']['generate']
               >[0])) as XaiImageResponse);
@@ -138,9 +166,7 @@ export class XAIImageProvider implements IImageProvider {
         const first = response.data?.[0];
         const url =
             first?.url ||
-            (first?.b64_json
-                ? `data:image/png;base64,${first.b64_json}`
-                : undefined);
+            (first?.b64_json ? imageDataUri(first.b64_json) : undefined);
 
         if (!url) {
             throw new Error('Failed to extract image URL from xAI response');
@@ -148,7 +174,7 @@ export class XAIImageProvider implements IImageProvider {
 
         const usageEntries = [
             {
-                usageType: `xai:${selectedModel.id}:output:${resolution}`,
+                usageType: `xai:${selectedModel.id}:${outputCostKey}`,
                 usageAmount: 1,
                 costOverride: outputPriceInCents * 1_000_000,
             },
@@ -178,42 +204,29 @@ export class XAIImageProvider implements IImageProvider {
         mimeHint: string | undefined,
         resolution: string,
         aspectRatio: string | undefined,
+        quality: string | undefined,
+        user: string,
     ): Promise<XaiImageResponse> {
-        const refs = inputImages.map((img) => this.#toImageRef(img, mimeHint));
+        const refs = inputImages.map((img) => ({
+            type: 'image_url',
+            url: toUrlOrDataUri(img, mimeHint),
+        }));
         const body: Record<string, unknown> = {
             model: modelId,
+            user,
             prompt,
             image: refs.length === 1 ? refs[0] : refs,
             resolution,
         };
         if (aspectRatio) body.aspect_ratio = aspectRatio;
+        if (quality) body.quality = quality;
         return (await this.#client.post('/images/edits', {
             body,
         })) as XaiImageResponse;
     }
 
-    // xAI accepts a public URL or a base64 data URI for input images.
-    #toImageRef(img: string, mimeHint?: string) {
-        assertInputImageString(img, 'xAI');
-        const url =
-            img.startsWith('http://') ||
-            img.startsWith('https://') ||
-            img.startsWith('data:')
-                ? img
-                : `data:${mimeHint ?? 'image/png'};base64,${img}`;
-        return { type: 'image_url', url };
-    }
-
     #normalizeResolution(quality?: string): '1k' | '2k' {
-        return (quality ?? '').toLowerCase() === '2k' ? '2k' : '1k';
-    }
-
-    #aspectRatio(ratio?: { w: number; h: number }): string | undefined {
-        if (!ratio || !ratio.w || !ratio.h) return undefined;
-        const gcd = (a: number, b: number): number =>
-            b === 0 ? a : gcd(b, a % b);
-        const d = gcd(ratio.w, ratio.h) || 1;
-        return `${ratio.w / d}:${ratio.h / d}`;
+        return (quality ?? '').trim().toLowerCase() === '2k' ? '2k' : '1k';
     }
 
     #getModel(model?: string) {

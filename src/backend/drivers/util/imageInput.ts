@@ -73,10 +73,10 @@ export function parseDataUri(
     return { base64: m[2] ?? '', mime: m[1] ?? 'image/png' };
 }
 
-/** Fetch an http(s) image and return raw base64 + mime (SSRF-guarded). */
-export async function fetchImageAsBase64(
+/** Fetch image bytes and MIME type with SSRF protection. */
+export async function fetchImageBytes(
     url: string,
-): Promise<{ base64: string; mime: string }> {
+): Promise<{ bytes: Buffer; mime: string }> {
     const res = await secureFetch(url);
     if (!res.ok) {
         throw new HttpError(
@@ -88,7 +88,15 @@ export async function fetchImageAsBase64(
     const buffer = Buffer.from(await res.arrayBuffer());
     const mime =
         res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/png';
-    return { base64: buffer.toString('base64'), mime };
+    return { bytes: buffer, mime };
+}
+
+/** Fetch an http(s) image and return raw base64 + mime (SSRF-guarded). */
+export async function fetchImageAsBase64(
+    url: string,
+): Promise<{ base64: string; mime: string }> {
+    const { bytes, mime } = await fetchImageBytes(url);
+    return { base64: bytes.toString('base64'), mime };
 }
 
 /**

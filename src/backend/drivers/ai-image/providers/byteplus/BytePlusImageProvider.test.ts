@@ -20,12 +20,11 @@
 /**
  * Offline unit tests for BytePlusImageProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs BytePlusImageProvider directly against the
- * live wired `MeteringService` so the recording side is exercised
- * end-to-end. Ark's image API is OpenAI-compatible so the OpenAI SDK
- * is mocked at the module boundary; that's the real network egress
- * point.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs BytePlusImageProvider directly against the live wired
+ * `MeteringService` so the recording side is exercised end-to-end. Ark's image
+ * API is OpenAI-compatible so the OpenAI SDK is mocked at the module boundary;
+ * that's the real network egress point.
  */
 
 import {
@@ -261,7 +260,7 @@ describe('BytePlusImageProvider.generate request shape', () => {
                 quality: '1.5K',
             }),
         );
-        expect(generateMock.mock.calls[0]![0].size).toBe('1.5K');
+        expect(generateMock.mock.calls[0]![0].size).toBe('2K');
     });
 
     it('resolves an aspect ratio + tier to the documented pixel size', async () => {
@@ -271,7 +270,7 @@ describe('BytePlusImageProvider.generate request shape', () => {
                 model: 'seedream-4-0',
                 prompt: 'hi',
                 quality: '1k',
-                ratio: { w: 16, h: 9 },
+                imageSize: { w: 16, h: 9, kind: 'aspect' },
             }),
         );
         expect(generateMock.mock.calls[0]![0].size).toBe('1424x800');
@@ -296,11 +295,30 @@ describe('BytePlusImageProvider.generate request shape', () => {
             makeProvider().generate({
                 prompt: 'hi',
                 quality: '1.5k',
-                ratio: { w: 16, h: 9 },
+                imageSize: { w: 16, h: 9, kind: 'aspect' },
             }),
         );
-        expect(generateMock.mock.calls[1]![0].size).toBe('2816x1584');
+        expect(generateMock.mock.calls[1]![0].size).toBe('2848x1600');
     });
+
+    it.each([
+        ['seedream-4-0', 512, 512, '2048x2048'],
+        ['seedream-5-0-lite', 640, 360, '2848x1600'],
+        ['dola-seedream-5-0-pro', 640, 360, '2816x1584'],
+    ])(
+        'preserves small pixel pairs as aspect hints for %s',
+        async (model, w, h, size) => {
+            generateMock.mockResolvedValueOnce(sampleResponse);
+            await withTestActor(() =>
+                makeProvider().generate({
+                    model: String(model),
+                    prompt: 'hi',
+                    imageSize: { w: Number(w), h: Number(h), kind: 'aspect' },
+                }),
+            );
+            expect(generateMock.mock.calls[0][0].size).toBe(size);
+        },
+    );
 
     it('passes explicit pixel dimensions straight through', async () => {
         generateMock.mockResolvedValueOnce(sampleResponse);
@@ -308,7 +326,7 @@ describe('BytePlusImageProvider.generate request shape', () => {
             makeProvider().generate({
                 model: 'seedream-4-0',
                 prompt: 'hi',
-                ratio: { w: 2048, h: 1024 },
+                imageSize: { w: 2048, h: 1024, kind: 'pixels' },
             }),
         );
         expect(generateMock.mock.calls[0]![0].size).toBe('2048x1024');
@@ -322,7 +340,7 @@ describe('BytePlusImageProvider.generate request shape', () => {
             withTestActor(() =>
                 makeProvider().generate({
                     prompt: 'hi',
-                    ratio: { w: 2048, h: 1024 },
+                    imageSize: { w: 2048, h: 1024, kind: 'pixels' },
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -336,7 +354,7 @@ describe('BytePlusImageProvider.generate request shape', () => {
                 model: 'seedream-4-0',
                 prompt: 'hi',
                 quality: '1k',
-                ratio: { w: 32, h: 18 },
+                imageSize: { w: 32, h: 18, kind: 'aspect' },
             }),
         );
         expect(generateMock.mock.calls[0]![0].size).toBe('1424x800');
@@ -347,7 +365,7 @@ describe('BytePlusImageProvider.generate request shape', () => {
             withTestActor(() =>
                 makeProvider().generate({
                     prompt: 'hi',
-                    ratio: { w: 6000, h: 6000 },
+                    imageSize: { w: 6000, h: 6000, kind: 'pixels' },
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -547,4 +565,96 @@ describe('BytePlusImageProvider.generate response handling', () => {
         ).rejects.toThrow(/Failed to extract image URL/);
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
     });
+});
+
+describe('BytePlusImageProvider model-specific output sizes', () => {
+    it.each([
+        ['seedream-5-0-lite-260128', '3k', '3072x3072'],
+        ['seedream-5-0-lite-260128', '4k', '4096x4096'],
+        ['seedream-4-5-251128', '4k', '4096x4096'],
+        ['seedream-4-0-250828', '4k', '4096x4096'],
+    ])('supports %s at %s', async (model, quality, size) => {
+        generateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://example.com/image.png' }],
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model,
+                quality,
+                prompt: 'a landscape',
+                imageSize: { w: 1, h: 1, kind: 'aspect' },
+            }),
+        );
+        expect(generateMock).toHaveBeenCalledWith(
+            expect.objectContaining({ size }),
+        );
+    });
+
+    it('accepts explicit 4K pixels for Lite but rejects them for Pro', async () => {
+        generateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://example.com/image.png' }],
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedream-5-0-lite-260128',
+                prompt: 'a landscape',
+                imageSize: { w: 4096, h: 4096, kind: 'pixels' },
+            }),
+        );
+        expect(generateMock).toHaveBeenCalledWith(
+            expect.objectContaining({ size: '4096x4096' }),
+        );
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'dola-seedream-5-0-pro-260628',
+                    prompt: 'a landscape',
+                    imageSize: { w: 4096, h: 4096, kind: 'pixels' },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+it('labels BytePlus base64 by its image signature', async () => {
+    generateMock.mockResolvedValueOnce({
+        data: [{ b64_json: 'iVBORw0KGgo=' }],
+    });
+        const result = await withTestActor(() =>
+            makeProvider().generate({ prompt: 'hi' }),
+        );
+    expect(result).toBe('data:image/png;base64,iVBORw0KGgo=');
+});
+
+it.each([
+    { w: 2048.5, h: 2048 },
+    { w: 2048, h: 2048.5 },
+])('rejects fractional pixel dimensions %j before billing', async (ratio) => {
+    await expect(
+        withTestActor(() =>
+            makeProvider().generate({
+                prompt: 'hi',
+                model: 'seedream-4-5-251128',
+                imageSize: { ...ratio, kind: 'pixels' },
+            }),
+        ),
+    ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    expect(hasCreditsSpy).not.toHaveBeenCalled();
+    expect(generateMock).not.toHaveBeenCalled();
+});
+
+it('maps a nearby aspect hint to the closest supported BytePlus aspect', async () => {
+    generateMock.mockResolvedValueOnce({
+        data: [{ url: 'https://example.com/out.jpg' }],
+    });
+    await withTestActor(() =>
+        makeProvider().generate({
+            prompt: 'hi',
+            model: 'dola-seedream-5-0-pro-260628',
+            imageSize: { w: 17, h: 10, kind: 'aspect' },
+        }),
+    );
+    expect(generateMock).toHaveBeenCalledWith(
+        expect.objectContaining({ size: '2816x1584' }),
+    );
 });

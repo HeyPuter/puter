@@ -826,6 +826,28 @@ export default suite('ai', {
 
     // -- txt2img -----------------------------------------------------
 
+    'txt2img rejects absent or invalid prompts consistently': async (t) => {
+        useApiToken(t);
+        for (const input of [undefined, null, {}, '', '   ', { prompt: 1 }]) {
+            const error = await errorOf(t, () => t.puter.ai.txt2img(input));
+            t.assert.equal(error.code, 'prompt_required');
+        }
+    },
+
+    'txt2img accepts frozen options in either call form': async (t) => {
+        useApiToken(t);
+        const options = Object.freeze({ model: 'ai-suite-model', puter_output_path: 'image.png', maskImage: 'data:image/png;base64,AQID', providerOptions: Object.freeze({ outputFormat: 'png' }) });
+        const positional = await errorOf(t, () => t.puter.ai.txt2img('a landscape', options));
+        t.assert.equal(positional.code, 'bad_request');
+        t.assert.equal(positional.message, 'Model not found: ai-suite-model');
+        const objectForm = await errorOf(t, () => t.puter.ai.txt2img(Object.freeze({ ...options, prompt: 'a landscape' })));
+        t.assert.equal(objectForm.code, 'bad_request');
+        t.assert.equal(objectForm.message, 'Model not found: ai-suite-model');
+        t.assert.equal(options.puter_output_path, 'image.png');
+        t.assert.equal(options.maskImage, 'data:image/png;base64,AQID');
+        t.assert.equal(options.providerOptions.outputFormat, 'png');
+    },
+
     'txt2img forwards the model from either call form': async (t) => {
         useApiToken(t);
         // Keyless the model can never resolve, and the driver echoes back the
