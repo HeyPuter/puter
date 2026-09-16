@@ -46,6 +46,10 @@ describe('resolveImageSize', () => {
             { width: '4096', height: '3072' },
             { w: 4096, h: 3072, kind: 'pixels' },
         ],
+        [
+            { width: ' 512 ', height: ' 512 ' },
+            { w: 512, h: 512, kind: 'pixels' },
+        ],
         [{ aspect_ratio: '170:100' }, { w: 170, h: 100, kind: 'aspect' }],
         [
             { ratio: { w: 4, h: 3 }, width: 1024, height: 1024 },
@@ -104,6 +108,8 @@ describe('resolveImageSize', () => {
         { aspect_ratio: '1:2:3' },
         { aspect_ratio: 42 },
         { aspect_ratio: '-1:2' },
+        { width: '0x10', height: '0x10' },
+        { ratio: { w: '1e3', h: '1e3' } },
     ])('rejects malformed dimensions %j', (params) => {
         expect(() =>
             resolveImageSize({ prompt: 'hi', ...params } as never),

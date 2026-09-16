@@ -37,4 +37,17 @@ describe('imageDataUri', () => {
             'data:image/jpeg;base64,AAAA',
         );
     });
+
+    it('labels svg when the root sits beyond the first bytes', () => {
+        // `<?xml ...?>` pushes `<svg` past fixed-offset magic-number range, so
+        // the sniff has to scan the full 8 KB window rather than the head only.
+        const svg =
+            '<?xml version="1.0" encoding="UTF-8"?>' +
+            '<svg xmlns="http://www.w3.org/2000/svg">' +
+            '<rect width="10" height="10"/></svg>';
+        const base64 = Buffer.from(svg).toString('base64');
+        expect(imageDataUri(base64)).toBe(
+            `data:image/svg+xml;base64,${base64}`,
+        );
+    });
 });

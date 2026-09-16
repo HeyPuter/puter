@@ -25,11 +25,17 @@ import type {
     ImageSize,
 } from './types.js';
 
+// Decimal-only, so `'0x10'`, `'1e3'` and similar number-literal coercions
+// don't sneak into what is meant to be a plain image dimension.
+const DECIMAL_RE = /^\d+(\.\d+)?$/;
+
 function dimension(value: unknown): number {
     const number =
-        typeof value === 'number' || (typeof value === 'string' && value.trim())
-            ? Number(value)
-            : NaN;
+        typeof value === 'number'
+            ? value
+            : typeof value === 'string' && DECIMAL_RE.test(value.trim())
+              ? Number(value)
+              : NaN;
     if (
         !Number.isFinite(number) ||
         number <= 0 ||
