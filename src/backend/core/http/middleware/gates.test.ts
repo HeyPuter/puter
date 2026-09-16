@@ -19,10 +19,7 @@
 
 import type { Request, Response } from 'express';
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-    resetCardVerificationStatusCache,
-    type CardFallbackDeps,
-} from '../../../util/cardFallback';
+import { resetCardVerificationStatusCache } from '../../../util/cardFallback';
 import { makeActor, type Actor } from '../../actor';
 import { HttpError, isHttpError } from '../HttpError';
 import {
@@ -32,6 +29,7 @@ import {
     assertNotUserSession,
     noUserSessionGate,
     requireAnyVerifiedGate,
+    type AnyVerifiedDeps,
     requireAuthGate,
     requireCardVerifiedGate,
     requirePhoneVerifiedGate,
@@ -91,6 +89,23 @@ const runGate = (
         throw new Error('gate did not call next()');
     }
     return captured;
+};
+
+/** `runGate` for a gate that answers asynchronously. */
+const runGateAsync = (
+    gate: (
+        req: Request,
+        res: Response,
+        next: (arg?: unknown) => void,
+    ) => unknown,
+    req: Partial<Request>,
+): Promise<NextArg> => {
+    if (req.actor) req = { ...req, actor: reviveActor(req.actor) };
+    return new Promise((resolve) =>
+        gate(req as Request, {} as Response, (arg?: unknown) =>
+            resolve(arg as NextArg),
+        ),
+    );
 };
 
 const expectHttpError = (got: NextArg, status: number, legacyCode?: string) => {
@@ -952,22 +967,31 @@ describe('requirePhoneVerifiedGate', () => {
 });
 
 describe('requireCardVerifiedGate', () => {
-    it('passes a user with a verified card on file', () => {
-        const got = runGate(requireCardVerifiedGate(), {
+    const plan = (paid: boolean) => ({ hasPaidPlan: async () => paid });
+
+    it('passes a user with a verified card on file', async () => {
+        const got = await runGateAsync(requireCardVerifiedGate(plan(false)), {
             actor: { user: { uuid: 'u-1', card_fingerprint: 'fp_1' } },
         });
         expect(got).toBeUndefined();
     });
 
-    it('rejects a user who never verified a card', () => {
-        const got = runGate(requireCardVerifiedGate(), {
+    it('passes a paying account as card-verified', async () => {
+        const got = await runGateAsync(requireCardVerifiedGate(plan(true)), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects a user who never verified a card', async () => {
+        const got = await runGateAsync(requireCardVerifiedGate(plan(false)), {
             actor: { user: { uuid: 'u-1' } },
         });
         expectHttpError(got, 403, 'card_verification_required');
     });
 
-    it('rejects a user still carrying the card gate', () => {
-        const got = runGate(requireCardVerifiedGate(), {
+    it('rejects a user still carrying the card gate', async () => {
+        const got = await runGateAsync(requireCardVerifiedGate(plan(false)), {
             actor: {
                 user: {
                     uuid: 'u-1',
@@ -986,27 +1010,20 @@ describe('requireAnyVerifiedGate', () => {
     // The card probe is memoized module-wide; every case starts cold.
     beforeEach(() => resetCardVerificationStatusCache());
 
-    const deps = (sms: boolean, card: boolean | null): CardFallbackDeps => ({
+    const deps = (
+        sms: boolean,
+        card: boolean | null,
+        paid = false,
+    ): AnyVerifiedDeps => ({
         smsConfigured: () => sms,
         probeCardVerification: async () => card,
+        hasPaidPlan: async () => paid,
     });
-
-    const runAsync = (
-        gate: ReturnType<typeof requireAnyVerifiedGate>,
-        req: Partial<Request>,
-    ): Promise<NextArg> => {
-        if (req.actor) req = { ...req, actor: reviveActor(req.actor) };
-        return new Promise((resolve) =>
-            gate(req as Request, {} as Response, (arg?: unknown) =>
-                resolve(arg as NextArg),
-            ),
-        );
-    };
 
     const both = ['phone', 'card'] as const;
 
     it('is inert where neither factor can be verified', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(both, deps(false, null)),
             { actor: { user: { uuid: 'u-1' } } },
         );
@@ -1014,7 +1031,7 @@ describe('requireAnyVerifiedGate', () => {
     });
 
     it('passes a verified number whatever the deployment can do today', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(both, deps(false, null)),
             { actor: { user: { uuid: 'u-1', phone: '+15550000000' } } },
         );
@@ -1022,15 +1039,50 @@ describe('requireAnyVerifiedGate', () => {
     });
 
     it('passes a verified card', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(both, deps(true, true)),
             { actor: { user: { uuid: 'u-1', card_fingerprint: 'fp_1' } } },
         );
         expect(got).toBeUndefined();
     });
 
+    it('takes a paid plan as the card, verified by other means', async () => {
+        const got = await runGateAsync(
+            requireAnyVerifiedGate(both, deps(true, true, true)),
+            { actor: { user: { uuid: 'u-1' } } },
+        );
+        expect(got).toBeUndefined();
+    });
+
+    it('does not let a paid plan stand in for a phone', async () => {
+        const got = await runGateAsync(
+            requireAnyVerifiedGate(['phone'], deps(true, true, true)),
+            { actor: { user: { uuid: 'u-1' } } },
+        );
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+
+    it('asks about the plan only once the row itself has not answered', async () => {
+        let asked = 0;
+        const counting: AnyVerifiedDeps = {
+            ...deps(true, true),
+            hasPaidPlan: async () => {
+                asked++;
+                return true;
+            },
+        };
+        await runGateAsync(requireAnyVerifiedGate(both, counting), {
+            actor: { user: { uuid: 'u-1', phone: '+15550000000' } },
+        });
+        expect(asked).toBe(0);
+        await runGateAsync(requireAnyVerifiedGate(both, counting), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expect(asked).toBe(1);
+    });
+
     it('leads with the phone flow and names both factors when both are verifiable', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(both, deps(true, true)),
             { actor: { user: { uuid: 'u-1' } } },
         );
@@ -1041,7 +1093,7 @@ describe('requireAnyVerifiedGate', () => {
     });
 
     it('asks only for the factors the deployment can verify', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(both, deps(false, true)),
             { actor: { user: { uuid: 'u-1' } } },
         );
@@ -1050,7 +1102,7 @@ describe('requireAnyVerifiedGate', () => {
     });
 
     it('takes the lead factor from the route order', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(['card', 'phone'], deps(true, true)),
             { actor: { user: { uuid: 'u-1' } } },
         );
@@ -1061,7 +1113,7 @@ describe('requireAnyVerifiedGate', () => {
     });
 
     it('does not count a factor still mid-verification', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(both, deps(true, null)),
             {
                 actor: {
@@ -1078,7 +1130,7 @@ describe('requireAnyVerifiedGate', () => {
     });
 
     it('rejects when there is no actor at all', async () => {
-        const got = await runAsync(
+        const got = await runGateAsync(
             requireAnyVerifiedGate(both, deps(true, null)),
             {},
         );

@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { toMicroCents } from '../../services/metering/utils';
+
 // Microcents per byte of TURN egress ($0.05/GB).
 export const PEER_COSTS = {
-    'turn:egress-bytes': 0.005,
+    'turn:egress-bytes': toMicroCents(0.1 / 1000 ** 3),
 } as const;

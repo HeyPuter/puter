@@ -1272,6 +1272,25 @@ describe('FSService signed (direct-to-S3) writes', () => {
         await fs.abortUrlWrite(user.userId, response.sessionId);
     });
 
+    it('keeps a zero-byte write single even when multipart is requested', async () => {
+        // Multipart on a zero declared size is how a caller reaches for a part
+        // URL carrying no size limit, against a quota check that saw nothing.
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/empty.bin`,
+                size: 0,
+                contentType: 'application/octet-stream',
+            },
+            uploadMode: 'multipart',
+        });
+
+        expect(response.uploadMode).toBe('single');
+        expect(response.multipartUploadId).toBeFalsy();
+        expect(response.multipartPartUrls).toBeFalsy();
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+    });
+
     it('aborts the multipart upload when the pending row cannot be written', async () => {
         const abort = vi.spyOn(server.stores.s3Object, 'abortMutipartUpload');
         const createPendingEntry = vi
