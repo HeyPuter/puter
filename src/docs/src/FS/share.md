@@ -84,7 +84,7 @@ If some recipients succeed and others fail, the promise resolves with the ones t
 
 A rejection carries `{ message, code }`. Because each recipient/item pair succeeds or fails on its own, these are the codes of the *pairs* that failed — you only see one as a rejection when every pair failed.
 
-One refusal applies to the whole call instead: handing out access requires a verified phone number or a verified card on the account, on deployments that can verify either. The rejection is `phone_verification_required` (or `card_verification_required` where only a card can be verified) and carries `factors`, the verifications the deployment accepts, in the order to offer them. Inside the Puter desktop the user is walked through it and the call is retried on its own. Withdrawing and listing shares never ask for this.
+One refusal applies to the whole call instead: handing out access requires a verified phone number or a verified card on the account, on deployments that can verify either. An account on a paid plan is never asked — its card is already on file. The rejection is `phone_verification_required` (or `card_verification_required` where only a card can be verified) and carries `factors`, the verifications the deployment accepts, in the order to offer them. Inside the Puter desktop the user is walked through it and the call is retried on its own. Withdrawing and listing shares never ask for this.
 
 | `code` | Meaning |
 | --- | --- |

@@ -23,6 +23,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
 import {
     actorHasSubscription,
+    actorOnPaidPlan,
     assertActorHasCredits,
     assertActorHasSubscription,
     creditEnforcementExempt,
@@ -213,6 +214,25 @@ describe('actorHasSubscription', () => {
         expect(await actorHasSubscription(asked, undefined, true, config)).toBe(
             false,
         );
+        expect(asked.getActorSubscription).not.toHaveBeenCalled();
+    });
+});
+
+describe('actorOnPaidPlan', () => {
+    const metering = (id: string) => ({
+        getActorSubscription: vi.fn().mockResolvedValue({ id }),
+    });
+    const user: Actor = { user: { uuid: 'u-1' } } as Actor;
+
+    it('reads the plan as a fact, whatever the enforcement switches say', async () => {
+        expect(await actorOnPaidPlan(metering('business'), user)).toBe(true);
+        expect(await actorOnPaidPlan(metering('user_free'), user)).toBe(false);
+    });
+
+    it('is a no with nothing to ask, or nobody to ask about', async () => {
+        expect(await actorOnPaidPlan(undefined, user)).toBe(false);
+        const asked = metering('business');
+        expect(await actorOnPaidPlan(asked, undefined)).toBe(false);
         expect(asked.getActorSubscription).not.toHaveBeenCalled();
     });
 });

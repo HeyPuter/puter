@@ -206,6 +206,22 @@ export const actorHasSubscription = async (
 };
 
 /**
+ * Whether the actor is on a paid plan — the fact, not the gate. Unlike
+ * {@link actorHasSubscription} this ignores the enforcement switches: it is for
+ * a caller reading the plan as evidence (a paying account has a card on file
+ * with the billing provider) rather than as an entitlement to enforce. False
+ * with no metering to ask, or no account behind the actor.
+ */
+export const actorOnPaidPlan = async (
+    metering: SubscriptionMetering | undefined,
+    actor: Actor | undefined,
+): Promise<boolean> => {
+    if (!metering || !actor?.user?.uuid) return false;
+    const subscription = await metering.getActorSubscription(actor);
+    return subscriptionSatisfies(subscription.id, true);
+};
+
+/**
  * Reject a caller whose plan doesn't cover the surface they're calling.
  *
  * Unlike the credit check, a worker session is not exempt: a worker acts for an
