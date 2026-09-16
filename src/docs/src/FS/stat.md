@@ -39,7 +39,7 @@ A `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of the speci
 
 The item carries `is_shared`: `true` when it has been shared with someone, `false` when it has not, and `null` when the item is not yours — whether someone else's file has other recipients is not yours to see. It covers shares granted by anyone holding `manage` on the item, not only your own, the same way [`getShares()`](/FS/getShares/) does. Only shares **on the item itself** count. A file inside a folder you shared is reachable through that folder without being shared itself, so it reports `false`; `getShares()` is what reports inherited access.
 
-With `returnShares: true`, the result also carries `shares` — an array of the same share objects [`getShares()`](/FS/getShares/) returns, including access inherited from a parent folder and unclaimed invitations. It is empty unless you own the item or hold `manage` on it, so asking for it never fails a `stat()` you were otherwise allowed to make.
+With `returnShares: true`, the result also carries `shares` — an array of the same share objects [`getShares()`](/FS/getShares/) returns, including access inherited from a parent folder and unclaimed invitations. It is empty unless you own the item or hold `manage` on it, so asking for it never fails a `stat()` you were otherwise allowed to make. An app or API token gets an empty array unless the credential itself holds `manage`, and an invitation's `recipientEmail` is withheld from everyone but the owner and its sender — see [`getShares()`](/FS/getShares/).
 
 ## Examples
 

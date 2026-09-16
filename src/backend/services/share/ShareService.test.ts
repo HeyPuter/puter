@@ -23,6 +23,7 @@ import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
+import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 
 describe('ShareService', () => {
     let server: PuterServer;
@@ -4867,5 +4868,113 @@ describe('ShareService', () => {
                 [],
             );
         });
+    });
+
+    // An invite names a third party who never agreed to be named. The listing
+    // is the one place those addresses surface, so who may read one is a gate
+    // of its own, independent of who may read the listing at all.
+    describe('who may read an invite address', () => {
+        /** An owner, a file, and an unclaimed invite on it. */
+        const withInvite = async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `invited-${Math.random().toString(36).slice(2, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+            return { owner, file, email };
+        };
+
+        const listOf = (actor: Actor, uuid: string) =>
+            server.services.share.listSharesOf(actor, { uid: uuid });
+
+        it('tells the owner who they invited', async () => {
+            const { owner, file, email } = await withInvite();
+            const [invite] = await listOf(owner.actor, file.uuid);
+            expect(invite.pending).toBe(true);
+            expect(invite.recipientEmail).toBe(email);
+        });
+
+        it('withholds it from a manage delegate who did not send it', async () => {
+            const { owner, file, email } = await withInvite();
+            const delegate = await makeUser();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+
+            const listed = await listOf(delegate.actor, file.uuid);
+            const invite = listed.find((row) => row.pending);
+            // Listed — they manage the item and must know an invite is out —
+            // but the address is the owner's to know.
+            expect(invite).toBeDefined();
+            expect(invite!.recipientEmail).toBeUndefined();
+            expect(JSON.stringify(listed)).not.toContain(email);
+        });
+
+        it('tells a delegate the address of an invite they sent', async () => {
+            const { owner, file } = await withInvite();
+            const delegate = await makeUser();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+            const theirs = `theirs-${Math.random().toString(36).slice(2, 8)}@test.local`;
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: theirs },
+                mode: 'read',
+            });
+
+            const listed = await listOf(delegate.actor, file.uuid);
+            const addresses = listed
+                .filter((row) => row.pending)
+                .map((row) => row.recipientEmail);
+            // Their own, and only their own.
+            expect(addresses).toContain(theirs);
+            expect(addresses).toContain(undefined);
+        });
+
+        it('refuses the listing to an app holding only the file', async () => {
+            const { owner, file, email } = await withInvite();
+            const app = await makeApp(owner.user.id);
+            await grantAppReach(owner, app, file, 'read');
+
+            // The file it was given, not the company it keeps.
+            const refused = await listOf(asApp(owner, app), file.uuid).then(
+                () => null,
+                (err: { statusCode?: number }) => err,
+            );
+            expect([403, 404]).toContain(refused?.statusCode);
+            // `return_shares` rides this, and answers an empty list instead.
+            expect(
+                await server.services.share.tryListSharesOf(asApp(owner, app), {
+                    uid: file.uuid,
+                }),
+            ).toBeNull();
+            expect(JSON.stringify(refused)).not.toContain(email);
+        });
+
+        it('still answers an app that holds manage on the item', async () => {
+            const { owner, file, email } = await withInvite();
+            const app = await makeApp(owner.user.id);
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.grantUserAppPermission(
+                    owner.actor,
+                    app.uid,
+                    `${MANAGE_PERM_PREFIX}:fs:${file.uuid}`,
+                ),
+            );
+
+            const listed = await listOf(asApp(owner, app), file.uuid);
+            expect(listed.some((row) => row.pending)).toBe(true);
+            // Manage or not, an address is not an app's to read.
+            expect(JSON.stringify(listed)).not.toContain(email);
+        });
+
     });
 });
