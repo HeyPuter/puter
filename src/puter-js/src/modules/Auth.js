@@ -83,6 +83,63 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
  */
 
 /**
+ * Options for `puter.auth.signIn()`.
+ *
+ * @typedef {Object} SignInOptions
+ * @property {boolean} [attempt_temp_user_creation] Create a temporary user instead of prompting.
+ * @property {boolean} [request_auth] Let the user re-pick their account even when this site already holds a token.
+ * @property {string} [email] Sign in with an emailed link, prefilled with this address.
+ * @property {string} [returnUrl] Where the link lands the user afterwards. Required with `email`; must be on this page's origin.
+ */
+
+/**
+ * The problem with an `email` sign-in request, as the rejection object, or
+ * null when there is none. Checked before any popup opens.
+ *
+ * @param {SignInOptions} options
+ * @param {string | null} pageOrigin
+ * @returns {{ error: string, msg: string } | null}
+ * @internal
+ */
+export const validateSignInOptions = (options, pageOrigin) => {
+    if ( options.email === undefined ) return null;
+    if ( typeof options.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(options.email.trim()) ) {
+        return { error: 'invalid_email', msg: '`email` must be an email address.' };
+    }
+    if ( options.returnUrl === undefined ) {
+        return { error: 'return_url_required', msg: '`returnUrl` is required when signing in with `email`.' };
+    }
+    let target;
+    try {
+        target = new URL(String(options.returnUrl));
+    } catch {
+        return { error: 'invalid_return_url', msg: '`returnUrl` must be an absolute URL.' };
+    }
+    if ( target.protocol !== 'http:' && target.protocol !== 'https:' ) {
+        return { error: 'invalid_return_url', msg: '`returnUrl` must be an http(s) URL.' };
+    }
+    if ( pageOrigin && target.origin !== pageOrigin ) {
+        return { error: 'invalid_return_url', msg: '`returnUrl` must be on this page\'s origin.' };
+    }
+    return null;
+};
+
+/**
+ * Query parameters that turn the sign-in popup into a magic-link popup.
+ *
+ * @param {SignInOptions} options
+ * @param {string} signinSession
+ * @returns {string}
+ * @internal
+ */
+const magicLinkParams = (options, signinSession) => {
+    if ( options.email === undefined ) return '';
+    return `&email=${encodeURIComponent(options.email.trim())}` +
+        `&return_url=${encodeURIComponent(String(options.returnUrl))}` +
+        `&signin_session=${signinSession}`;
+};
+
+/**
  * The `puter.auth` module. Most Puter methods authenticate on their own; these
  * are for apps that drive the sign-in flow themselves.
  */
@@ -108,10 +165,24 @@ export class AuthModule extends PuterModule {
      * call that finds no token) sets it, which is the behaviour its own popup
      * used to carry as `?request_auth=true`.
      *
-     * @type {(options?: { attempt_temp_user_creation?: boolean, request_auth?: boolean }) => Promise<SignInResult>}
+     * `email` switches the popup to a passwordless sign-in link: the address
+     * is prefilled, Puter emails a link, and clicking it signs the user in
+     * and returns them to `returnUrl`, which must be on this page's origin.
+     * Rejects with `{ error: 'invalid_email' }`, `{ error: 'return_url_required' }`
+     * or `{ error: 'invalid_return_url' }` before opening anything.
+     *
+     * @type {(options?: SignInOptions) => Promise<SignInResult>}
      */
     signIn = (options) => {
         options = options || {};
+
+        const emailProblem = validateSignInOptions(
+            options,
+            typeof location !== 'undefined' ? location.origin : null,
+        );
+        if ( emailProblem ) {
+            return Promise.reject(emailProblem);
+        }
 
         // Apps receive their token from the GUI that launched them, not from a
         // popup. Running the popup flow under app mode would deliver the token
@@ -127,7 +198,7 @@ export class AuthModule extends PuterModule {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = this.#messageID++;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
+            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}${magicLinkParams(options, signinsession)}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.

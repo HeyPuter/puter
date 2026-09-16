@@ -337,6 +337,17 @@ support@puter.com immediately.
 <p>Puter</p>
         `,
     },
+    magic_link_sign_in: {
+        subject: 'Sign in to {{app_host}} with Puter',
+        html: `
+<p>Hi there,</p>
+<p><strong>{{app_host}}</strong> uses Puter for its cloud features. Use this link to sign in:</p>
+<p><a href="{{{link}}}">{{{link}}}</a></p>
+<p>The link works once and expires in 15 minutes. If you didn't request it, you can ignore this email.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     email_password_recovery: {
         subject: 'Password Recovery',
         html: `

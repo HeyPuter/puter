@@ -28,6 +28,7 @@ import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
+import UIWindowMagicLinkSignIn from './UI/UIWindowMagicLinkSignIn.js';
 import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.js';
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
@@ -1023,6 +1024,9 @@ function authErrorDisplayMessage() {
     if (code === 'account_suspended') {
         return i18n('account_suspended_message', [], false);
     }
+    if (code === 'link_expired') {
+        return i18n('magic_link_expired_message', [], false);
+    }
     return i18n('auth_error_generic', [], false);
 }
 
@@ -1456,8 +1460,44 @@ window.initgui = async function (options) {
             !window.is_auth() &&
             !(window.attempt_temp_user_creation && window.first_visit_ever)
         ) {
+            // A site that already knows the user's email asks for a
+            // sign-in link instead of a password. The link's landing page
+            // mints the opener's token, so the popup hands it over itself
+            // and is done; the usual signup window only appears when the
+            // link window was dismissed.
+            let use_password_flow = true;
+            if (window.url_query_params.has('email')) {
+                const magic = await UIWindowMagicLinkSignIn({
+                    email: window.url_query_params.get('email'),
+                    session: window.url_query_params.get('signin_session'),
+                    opener_origin: window.openerOrigin,
+                    return_url: window.url_query_params.get('return_url'),
+                    show_close_button: false,
+                    window_options: {
+                        has_head: false,
+                        cover_page: true,
+                    },
+                });
+                if (magic?.token) {
+                    window.opener?.postMessage(
+                        {
+                            msg: 'puter.token',
+                            success: true,
+                            token: magic.token,
+                            app_uid: magic.app_uid,
+                            msg_id: window.url_query_params.get('msg_id'),
+                        },
+                        new URL(window.openerOrigin).origin,
+                    );
+                    window.close();
+                    window.open('', '_self').close();
+                    return;
+                }
+                use_password_flow = magic === false;
+            }
             // show signup window
             if (
+                use_password_flow &&
                 await UIWindowSignup({
                     reload_on_success: false,
                     send_confirmation_code: true,

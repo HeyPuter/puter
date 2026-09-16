@@ -77,6 +77,7 @@ export type {
     AppUsage,
     DetailedAppUsage,
     MonthlyUsage,
+    SignInOptions,
     SignInResult,
     User,
 } from './types/modules/Auth.js';
