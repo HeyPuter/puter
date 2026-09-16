@@ -25,21 +25,17 @@ export interface ActorApp {
 }
 
 /**
- * Access-token wrapper. When set, this actor is acting _through_ an access
- * token issued by `issuer`. The token's row in `access_token_permissions` gates
- * which permissions of the issuer it can exercise.
+ * Set when the actor acts through an access token issued by `issuer`; the
+ * token's `access_token_permissions` rows gate which of the issuer's
+ * permissions it may exercise.
  */
 export interface ActorAccessToken {
     uid: string;
     issuer: Actor;
     authorized?: Actor | null;
     /**
-     * Full-API-access ("personal access token") flag, set from the signed
-     * `full_access` JWT claim. Such a token may exercise everything its issuing
-     * user can do via the API and is admitted past `requireNonAccessTokenGate`
-     * — but is still rejected by `requireUserActor` / web-session gates, so it
-     * can never manage the account. Normal (scoped) access tokens leave this
-     * false and remain blocked from non-`allowAccessToken` routes.
+     * Personal access token (signed `full_access` claim): full API reach, but
+     * still rejected by `requireUserActor`, so never account management.
      */
     fullAccess?: boolean;
 }
@@ -48,35 +44,18 @@ export interface Actor {
     user: Partial<UserRow>;
     app?: ActorApp | null;
     /**
-     * The app this actor ultimately acts as: its own `app`, or failing that the
-     * app of whoever issued its access token.
-     *
-     * Read this — not `app` — in any gate asking "which app is doing this?". An
-     * access-token actor carries no `app` of its own, so `app` alone reads as
-     * "no app" even for a token an app minted, and a gate keyed off it fails
-     * open exactly where it must not.
-     *
-     * `null` and `undefined` are not the same thing here:
-     *
-     * - `null` — resolved, and this actor is not acting as any app.
-     * - Absent — never resolved, because the actor skipped `makeActor`.
-     *
-     * A gate must not read the second as the first: that is the fail-open this
-     * field exists to prevent. Optional only so an actor literal that predates
-     * the field still compiles; `assertResolvedActor` is what keeps the request
-     * path honest, and `makeActor` is the one place the derivation lives.
+     * The app this actor ultimately acts as: its own `app`, else the app of its
+     * access token's issuer. Gates asking "which app" must read this, not
+     * `app`. `null` means resolved to no app; `undefined` means the actor
+     * skipped `makeActor` and must not be read as "no app".
      */
     effectiveApp?: ActorApp | null;
     /** True for the system actor; skips metering / quota tracking. */
     system?: boolean;
     accessToken?: ActorAccessToken | null;
     /**
-     * Session reference when authenticated via a session token (user actors) or
-     * an app-under-user token that carries a session. Absent for system,
-     * raw-app, and pure access-token actors. Used for session introspection and
-     * targeted logout. `kind` mirrors the session row's kind (e.g. 'web',
-     * 'app', 'worker') so callers can gate on how the credential was minted
-     * without an extra session lookup.
+     * Set when authenticated by a session token or an app-under-user token
+     * carrying one. `kind` mirrors the session row (`web`, `app`, `worker`).
      */
     session?: { uid: string; kind?: string | null } | null;
 }
@@ -92,11 +71,8 @@ export const SYSTEM_ACTOR: Actor = {
 };
 
 /**
- * Build an actor, deriving `effectiveApp` from its own app and, failing that,
- * from the app of whoever issued its access token.
- *
- * The issuer was itself built here, so its chain is already collapsed — one hop
- * is enough, and no caller has to walk anything.
+ * Build an actor with `effectiveApp` derived; the issuer is already collapsed,
+ * so one hop suffices.
  */
 export const makeActor = (actor: Omit<Actor, 'effectiveApp'>): Actor => ({
     ...actor,
@@ -104,13 +80,8 @@ export const makeActor = (actor: Omit<Actor, 'effectiveApp'>): Actor => ({
 });
 
 /**
- * Fail closed on an actor whose `effectiveApp` was never derived.
- *
- * Every actor on the request path is built by `AuthService` through
- * `makeActor`, so this cannot fire in production — which is the point. It turns
- * a future actor literal that skips the builder into a loud 500 at the edge
- * rather than a silent bypass deep inside a gate that read `undefined` as "no
- * app". Call it once, where the request actor is established.
+ * Fail closed on an actor that skipped `makeActor`, at the edge rather than
+ * inside a gate reading `undefined` as "no app".
  */
 export const assertResolvedActor = (actor: Actor): Actor => {
     if (actor.effectiveApp === undefined) {
@@ -137,14 +108,9 @@ export const isAccessTokenActor = (
 };
 
 /**
- * Whether this actor holds its user's own account reach: a plain session, or a
- * full-access token, which carries exactly that.
- *
- * Read this — not `effectiveApp === null` — wherever "no app" is about to be
- * read as "the account". A scoped access token carries no app either, so that
- * test admits a credential confined to a subset of its issuer's permissions to
- * surfaces meant for the account itself. Unresolved answers no, so an actor
- * that skipped `makeActor` is denied rather than admitted.
+ * Whether the actor holds the account's own reach: a plain session or a
+ * full-access token. Use this, not `effectiveApp === null`, which would also
+ * admit scoped access tokens. Unresolved actors answer no.
  */
 export const isAccountContext = (actor: Actor | undefined | null): boolean => {
     if (!actor || actor.effectiveApp !== null) return false;

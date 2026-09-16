@@ -54,19 +54,9 @@ export type TeamBillingEvent = TeamBillingContext & {
 };
 
 /**
- * Extension-augmentable half of {@link EventMap}. Extensions that emit their own
- * events declare the payload here by declaration merging, so both the emitter
- * and every listener are typed against the same shape:
- *
- *     declare module '@heyputer/backend/clients/event/types' {
- *         interface IExtensionEventMap {
- *             'my.thing.happened': { thingId: string };
- *         }
- *     }
- *
- * Deliberately member-less and index-signature-free: an index signature here
- * would widen `keyof EventMap` to `string` and silently disable key checking on
- * every `emit` in the tree.
+ * Extension-augmentable half of {@link EventMap}, declaration-merged like
+ * `IExtensionClientInstances`. No index signature: it would widen `keyof
+ * EventMap` to `string` and disable key checking on every `emit`.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IExtensionEventMap {}
@@ -795,10 +785,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
