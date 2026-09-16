@@ -18,7 +18,11 @@
  */
 
 import type { Request, Response } from 'express';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+    resetCardVerificationStatusCache,
+    type CardFallbackDeps,
+} from '../../../util/cardFallback';
 import { makeActor, type Actor } from '../../actor';
 import { HttpError, isHttpError } from '../HttpError';
 import {
@@ -27,6 +31,7 @@ import {
     allowedAppIdsGate,
     assertNotUserSession,
     noUserSessionGate,
+    requireAnyVerifiedGate,
     requireAuthGate,
     requireCardVerifiedGate,
     requirePhoneVerifiedGate,
@@ -972,5 +977,111 @@ describe('requireCardVerifiedGate', () => {
             },
         });
         expectHttpError(got, 403, 'card_verification_required');
+    });
+});
+
+// ── requireAnyVerifiedGate ──────────────────────────────────────────
+
+describe('requireAnyVerifiedGate', () => {
+    // The card probe is memoized module-wide; every case starts cold.
+    beforeEach(() => resetCardVerificationStatusCache());
+
+    const deps = (sms: boolean, card: boolean | null): CardFallbackDeps => ({
+        smsConfigured: () => sms,
+        probeCardVerification: async () => card,
+    });
+
+    const runAsync = (
+        gate: ReturnType<typeof requireAnyVerifiedGate>,
+        req: Partial<Request>,
+    ): Promise<NextArg> => {
+        if (req.actor) req = { ...req, actor: reviveActor(req.actor) };
+        return new Promise((resolve) =>
+            gate(req as Request, {} as Response, (arg?: unknown) =>
+                resolve(arg as NextArg),
+            ),
+        );
+    };
+
+    const both = ['phone', 'card'] as const;
+
+    it('is inert where neither factor can be verified', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(both, deps(false, null)),
+            { actor: { user: { uuid: 'u-1' } } },
+        );
+        expect(got).toBeUndefined();
+    });
+
+    it('passes a verified number whatever the deployment can do today', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(both, deps(false, null)),
+            { actor: { user: { uuid: 'u-1', phone: '+15550000000' } } },
+        );
+        expect(got).toBeUndefined();
+    });
+
+    it('passes a verified card', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(both, deps(true, true)),
+            { actor: { user: { uuid: 'u-1', card_fingerprint: 'fp_1' } } },
+        );
+        expect(got).toBeUndefined();
+    });
+
+    it('leads with the phone flow and names both factors when both are verifiable', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(both, deps(true, true)),
+            { actor: { user: { uuid: 'u-1' } } },
+        );
+        expectHttpError(got, 403, 'phone_verification_required');
+        expect((got as HttpError).fields).toEqual({
+            factors: ['phone', 'card'],
+        });
+    });
+
+    it('asks only for the factors the deployment can verify', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(both, deps(false, true)),
+            { actor: { user: { uuid: 'u-1' } } },
+        );
+        expectHttpError(got, 403, 'card_verification_required');
+        expect((got as HttpError).fields).toEqual({ factors: ['card'] });
+    });
+
+    it('takes the lead factor from the route order', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(['card', 'phone'], deps(true, true)),
+            { actor: { user: { uuid: 'u-1' } } },
+        );
+        expectHttpError(got, 403, 'card_verification_required');
+        expect((got as HttpError).fields).toEqual({
+            factors: ['card', 'phone'],
+        });
+    });
+
+    it('does not count a factor still mid-verification', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(both, deps(true, null)),
+            {
+                actor: {
+                    user: {
+                        uuid: 'u-1',
+                        phone: '+15550000000',
+                        requires_phone_verification: true,
+                    },
+                },
+            },
+        );
+        expectHttpError(got, 403, 'phone_verification_required');
+        expect((got as HttpError).fields).toEqual({ factors: ['phone'] });
+    });
+
+    it('rejects when there is no actor at all', async () => {
+        const got = await runAsync(
+            requireAnyVerifiedGate(both, deps(true, null)),
+            {},
+        );
+        expectHttpError(got, 403, 'phone_verification_required');
     });
 });

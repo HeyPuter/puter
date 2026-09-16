@@ -239,7 +239,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -1154,6 +1159,17 @@ interface IConfigOptional {
     };
 
     /**
+     * The verified-factor requirement some routes declare
+     * (`requireAnyVerified`: a verified phone or card). `enabled: false` is the
+     * one switch that stops every declared gate enforcing without unpicking the
+     * declarations — for an SMS provider outage, say. Defaults to on; a
+     * deployment that can verify neither factor gates nothing regardless.
+     */
+    verifiedFactorGate?: {
+        enabled?: boolean;
+    };
+
+    /**
      * Subscribable events over filesystem and key-value changes.
      *
      * - `enabled` — the master switch for the whole surface. Absent means off:
@@ -1262,8 +1278,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

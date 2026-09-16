@@ -51,7 +51,7 @@ A plain-text body. Shorthand for `text`; use the options form for anything else.
 
 A `Promise` that resolves to an object:
 
-- `messageId` (String | null) - The transport's id for the first delivery, when it reported one.
+- `messageId` (String | null) - The `Message-ID` of the first delivery: the transport's for a relayed copy, the stored message's for a Puter mailbox.
 - `cost` (Number) - What the send was charged, in microcents.
 - `suppressed` (Array) - Recipients (lowercased) dropped because they unsubscribed from your app's mail. The message went to the others.
 - `failed` (Array) - Recipients (lowercased) whose delivery failed. Everyone else got their copy — retry with just these addresses.
@@ -65,7 +65,12 @@ In case of an error, the `Promise` rejects with `{ message, code }`. Codes you m
 - `subscription_required` (402) - The calling account is not on a paid plan.
 - `insufficient_funds` (402) - The calling account has no usage credit left for this send.
 - `bad_request` (400) - Invalid arguments: a bad address, a missing body, too many recipients, an invalid attachment.
+- `not_found` (404) - Every recipient was a Puter address with no mailbox to receive in.
 - `too_many_requests` (429) - Over the rate limit; see [Rate Limits and Quotas](/rate-limits-and-quotas/#email).
+
+## Recipients on Puter
+
+A recipient at a Puter address, `<username>@puter.email`, is a Puter user, and their copy is not relayed: it is filed straight into their Puter mailbox, the `~/.mail` folder in their own cloud drive, whatever plan they are on. Only an account that has set its mailbox up can receive this way. A Puter address that belongs to no account, or to one that has never opened its mailbox, comes back in `failed` like any other undeliverable recipient. The copy carries the same From address, footer and opt-out links as a relayed one.
 
 ## From address and replies
 

@@ -18,6 +18,7 @@
  */
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import type { UserRow } from '../../stores/user/UserStore';
 import type { Actor } from '../actor';
 
 /**
@@ -73,14 +74,36 @@ export type RoutePath = string | RegExp | Array<string | RegExp>;
  *
  *     subdomain → requireAuth (+ suspended) → emailConfirmed →
  *     requireUserActor → adminOnly → allowedAppIds → phoneVerified →
- *     cardVerified → requireReputation → requireSubscription → rateLimit →
- *     requireCredits → concurrent → caller `middleware: []` → handler
+ *     cardVerified → anyVerified → requireReputation → requireSubscription →
+ *     rateLimit → requireCredits → concurrent → caller `middleware: []` →
+ *     handler
  *
  * `requireUserActor`, `adminOnly`, and `allowedAppIds` all imply `requireAuth`;
  * the materializer dedupes so only one auth gate ends up in the chain.
  * Commented-out slots are reserved for the next chunks (body parsing, post-auth
  * gates, timing).
  */
+/** The account-verification factors a route can ask for by name. */
+export type VerificationFactor = 'phone' | 'card';
+
+/**
+ * The user fields the account gates read. `Actor.user` is a `Partial<UserRow>`,
+ * so every field is optional here too.
+ */
+export type AccountGateUser = Partial<
+    Pick<
+        UserRow,
+        | 'suspended'
+        | 'email_confirmed'
+        | 'requires_email_confirmation'
+        | 'requires_phone_verification'
+        | 'requires_card_verification'
+        | 'requires_password_change'
+        | 'phone'
+        | 'card_fingerprint'
+    >
+>;
+
 /** One rate-limit window. See `RouteOptions.rateLimit` for semantics. */
 export interface RouteRateLimit {
     limit: number;
@@ -220,6 +243,23 @@ export interface RouteOptions {
      * opt-in, "must have actually done it" counterpart of the pending gate.
      */
     requireCardVerified?: boolean;
+
+    /**
+     * Reject unless the user has verified at least one of the named factors —
+     * `requirePhoneVerified` / `requireCardVerified` joined by OR, for a
+     * surface where either proof will do. A factor verified at any point
+     * counts. Otherwise only the factors this deployment can verify are asked
+     * for (an SMS provider configured; a card gate an extension reports on),
+     * and with none of them verifiable the gate is inert rather than locking
+     * the route on a self-hosted install.
+     *
+     * 403 with the first verifiable factor's code
+     * (`phone_verification_required` / `card_verification_required`) plus
+     * `factors`, the verifiable ones in this order, so a client can lead with
+     * one flow and offer the other. Implies `requireAuth`. An empty list is a
+     * boot error.
+     */
+    requireAnyVerified?: readonly VerificationFactor[];
 
     /**
      * Per-route JSON body parsing override. By default the global parser
@@ -464,15 +504,21 @@ export type AuthRequired<O extends RouteOptions> = O extends {
               : O extends { requireCardVerified: true }
                 ? true
                 : O extends {
-                        requireSubscription:
-                            | true
-                            | readonly string[]
-                            | string[];
+                        requireAnyVerified:
+                            | readonly VerificationFactor[]
+                            | VerificationFactor[];
                     }
                   ? true
-                  : O extends { requireReputation: string }
+                  : O extends {
+                          requireSubscription:
+                              | true
+                              | readonly string[]
+                              | string[];
+                      }
                     ? true
-                    : false;
+                    : O extends { requireReputation: string }
+                      ? true
+                      : false;
 
 /** Express `Request` with `actor` narrowed based on the route's options. */
 export type TypedRequest<O extends RouteOptions> = Omit<Request, 'actor'> & {

@@ -40,8 +40,9 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/listAllShared.js';
-import { can_restructure, can_share, remember_shared_roots } from '../../helpers/sharedAccess.js';
-import { parent_path_for, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
+import { can_restructure, can_share, remember_shared_root, remember_shared_roots } from '../../helpers/sharedAccess.js';
+import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
+import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -583,6 +584,9 @@ const TabFiles = {
             delete window.dashboard_initial_file_path; // Clear so it only runs once
             delete window.dashboard_initial_shared_paths;
             this.pushNavHistory(initialPath);
+            // A share link's items may not be anyone's share rows (an item
+            // open to anyone with the link); the Shared listing looks them up.
+            if ( sharedPaths ) this.pendingSharedLinks = sharedPaths;
             const rendered = this.renderDirectory(initialPath, { skipUrlUpdate: true });
             // A share link names what was just shared; pick it out once the
             // listing is up, the way an upload lands highlighted.
@@ -2286,25 +2290,7 @@ const TabFiles = {
         let directoryContents;
         try {
             directoryContents = isSharedView
-                ? (await list_all_shared().then((shares) => {
-                    remember_shared_roots(shares);
-                    return shares;
-                })).map((share) => ({
-                    uid: share.entryUid,
-                    name: share.name ?? share.path.split('/').pop(),
-                    path: share.path,
-                    is_dir: share.isDir,
-                    // A share row has no fsentry behind it to stat, so the
-                    // listing carries what the icon needs.
-                    type: share.type,
-                    thumbnail: share.thumbnail,
-                    modified: share.modified,
-                    size: share.size,
-                    shared_with_me: true,
-                    share_mode: share.mode,
-                    shared_by: share.issuer,
-                    owner: share.owner,
-                }))
+                ? await this.listSharedView()
                 : await window.puter.fs.readdir(readdirArg);
         } catch ( err ) {
             // readdir rejects on any backend error (permission, deleted dir,
@@ -4890,6 +4876,71 @@ const TabFiles = {
     selectUploadedRows (paths) {
         const wanted = new Set(paths.map(p => String(p).toLowerCase()));
         this.selectRowsWhere((row) => wanted.has(String(row.getAttribute('data-path') ?? '').toLowerCase()));
+    },
+
+    /**
+     * The Shared view's rows: everything shared with the user, plus whatever
+     * a share link named that the listing does not carry. An item open to
+     * anyone with the link is nobody's share row, so it is looked up on its
+     * own and shown alongside — the link brought the user here to see it.
+     *
+     * @returns {Promise<Array<Object>>}
+     */
+    async listSharedView () {
+        const shares = await list_all_shared();
+        remember_shared_roots(shares);
+        const rows = shares.map((share) => ({
+            uid: share.entryUid,
+            name: share.name ?? share.path.split('/').pop(),
+            path: share.path,
+            is_dir: share.isDir,
+            // A share row has no fsentry behind it to stat, so the
+            // listing carries what the icon needs.
+            type: share.type,
+            thumbnail: share.thumbnail,
+            modified: share.modified,
+            size: share.size,
+            shared_with_me: true,
+            share_mode: share.mode,
+            shared_by: share.issuer,
+            owner: share.owner,
+        }));
+
+        const linked = this.pendingSharedLinks ?? [];
+        this.pendingSharedLinks = null;
+        const listed = new Set(rows.map((row) => String(row.uid).toLowerCase()));
+        const missing = linked.filter((shared_path) => {
+            const uid = parse_shared_path(shared_path)?.uid.toLowerCase();
+            return uid && ! listed.has(uid);
+        });
+        const found = await Promise.all(
+            missing.map((shared_path) => resolve_shared_item(window.puter.fs, shared_path)),
+        );
+        for ( const stat of found ) {
+            if ( ! stat || listed.has(String(stat.uid).toLowerCase()) ) continue;
+            // The path a stranger is handed is the masked form, which names
+            // the owner; one's own item comes back real, and is not "shared".
+            const owner = parse_shared_path(stat.path)?.owner;
+            if ( ! owner ) continue;
+            listed.add(String(stat.uid).toLowerCase());
+            // No mode travels with a stat; the guards read an unknown one
+            // as read-only, which is the safe way to be wrong.
+            remember_shared_root({ path: stat.path, name: stat.name });
+            rows.push({
+                uid: stat.uid,
+                name: stat.name,
+                path: stat.path,
+                is_dir: stat.is_dir,
+                type: stat.type,
+                thumbnail: stat.thumbnail,
+                modified: stat.modified,
+                size: stat.size,
+                shared_with_me: true,
+                shared_by: owner,
+                owner,
+            });
+        }
+        return rows;
     },
 
     /**

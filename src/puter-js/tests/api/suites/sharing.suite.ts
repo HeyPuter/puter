@@ -55,6 +55,33 @@ export default suite('sharing', {
         );
     },
 
+    'anyone with the link opens an item to another signed-in account': async (t) => {
+        const path = scratch(t, 'anyone');
+        await t.puter.fs.write(path, 'for anyone');
+        const before = await readAsOther(t, path);
+        t.assert.ok(before.status !== 200, `should start closed (got ${before.status})`);
+
+        // This env runs with plan gates off, so the paid-plan check is covered
+        // server-side; what this exercises is the round trip through the API.
+        const [share] = await t.puter.fs.share(path, { anyone: true }, 'read');
+        t.assert.equal(share.anyone, true);
+        t.assert.equal(share.holder, null);
+        t.assert.equal(share.mode, 'read');
+
+        const after = await readAsOther(t, path);
+        t.assert.equal(after.status, 200);
+        t.assert.equal(await after.text(), 'for anyone');
+
+        const listed = await t.puter.fs.getShares(path);
+        t.assert.equal(listed.length, 1);
+        t.assert.equal(listed[0].anyone, true);
+
+        const revoked = await t.puter.fs.unshare(path, { anyone: true });
+        t.assert.equal(revoked.revoked, 1);
+        const closed = await readAsOther(t, path);
+        t.assert.ok(closed.status !== 200, `should close again (got ${closed.status})`);
+    },
+
     'share accepts an options object and defaults to read': async (t) => {
         const path = scratch(t, 'options');
         await t.puter.fs.write(path, 'x');

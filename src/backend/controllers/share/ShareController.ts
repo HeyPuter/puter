@@ -104,10 +104,15 @@ export class ShareController extends PuterController {
      * POST /share — grant `mode` on one or more items to one or more
      * recipients. Partial success is the contract: each pair reports its own
      * outcome and the envelope summarizes.
+     *
+     * Handing out access is the one share surface that reaches other people, so
+     * it asks for a verified phone or card first; withdrawing and listing never
+     * do — a caller must always be able to see and undo what it shared.
      */
     @Post('', {
         subdomain: 'api',
         requireVerified: true,
+        requireAnyVerified: ['phone', 'card'],
         rateLimit: SHARE_LIMIT,
     })
     async createShares(req: Request, res: Response): Promise<void> {
@@ -644,6 +649,7 @@ export class ShareController extends PuterController {
 
     /** Echoes back the identifier the caller named, so results are matchable. */
     #recipientLabel(recipient: ShareRecipient): string {
+        if (recipient.anyone) return 'anyone';
         return (
             recipient.email ??
             recipient.username ??
@@ -670,6 +676,12 @@ export class ShareController extends PuterController {
             }
             if (entry && typeof entry === 'object') {
                 const rec = entry as Record<string, unknown>;
+                // Object form only, and the literal `true`: nothing typed into
+                // a people field can become "everyone".
+                if (rec.anyone === true) {
+                    out.push({ anyone: true });
+                    continue;
+                }
                 const email =
                     typeof rec.email === 'string' ? rec.email.trim() : '';
                 const username =

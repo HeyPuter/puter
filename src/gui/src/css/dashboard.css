@@ -2533,6 +2533,8 @@ input.share-modal-recipient:focus {
 select.share-modal-mode,
 select.share-modal-team-select,
 select.share-modal-team-mode,
+select.share-modal-link-access,
+select.share-modal-link-mode,
 select.share-modal-row-mode {
     -webkit-appearance: none;
     appearance: none;
@@ -2555,12 +2557,15 @@ select.share-modal-row-mode {
     transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
 }
 select.share-modal-mode,
-select.share-modal-team-mode {
+select.share-modal-team-mode,
+select.share-modal-link-mode {
     flex-shrink: 0;
 }
 select.share-modal-mode:focus,
 select.share-modal-team-select:focus,
 select.share-modal-team-mode:focus,
+select.share-modal-link-access:focus,
+select.share-modal-link-mode:focus,
 select.share-modal-row-mode:focus {
     padding: 8px 26px 8px 10px;
     border: 1px solid var(--select-color);
@@ -2569,6 +2574,8 @@ select.share-modal-row-mode:focus {
 select.share-modal-mode:disabled,
 select.share-modal-team-select:disabled,
 select.share-modal-team-mode:disabled,
+select.share-modal-link-access:disabled,
+select.share-modal-link-mode:disabled,
 select.share-modal-row-mode:disabled {
     opacity: 0.55;
     cursor: default;
@@ -2581,6 +2588,8 @@ select.share-modal-row-mode:disabled {
 .device-phone select.share-modal-mode,
 .device-phone select.share-modal-team-select,
 .device-phone select.share-modal-team-mode,
+.device-phone select.share-modal-link-access,
+.device-phone select.share-modal-link-mode,
 .device-phone select.share-modal-row-mode {
     font-size: 16px;
 }
@@ -2640,6 +2649,59 @@ select.share-modal-row-mode:disabled {
 .share-modal-team-btn:disabled {
     opacity: 0.6;
     cursor: default;
+}
+
+/* General access: the owner's switch between people-only and anyone with
+   the link, below the people and team controls. The copy button is the team
+   button's quieter sibling. */
+.share-modal-general {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.share-modal-general .share-modal-heading {
+    margin: 0 0 8px;
+}
+
+.share-modal-general-row {
+    display: flex;
+    gap: 8px;
+}
+
+select.share-modal-link-access {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.share-modal-general-note {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--dashboard-text-hint);
+}
+
+.share-modal-copy-link {
+    width: 100%;
+    height: 38px;
+    margin-top: 10px;
+    padding: 0 16px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: transparent;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+@media (hover: hover) {
+    .share-modal-copy-link:hover:not(:disabled) {
+        background: var(--dashboard-card-background);
+        border-color: var(--dashboard-text-hint);
+    }
 }
 
 .share-modal-submit {
@@ -2982,7 +3044,11 @@ select.share-modal-row-mode:focus {
     input.share-modal-recipient,
     input.share-modal-recipient:focus,
     select.share-modal-mode,
-    select.share-modal-mode:focus {
+    select.share-modal-mode:focus,
+    select.share-modal-link-access,
+    select.share-modal-link-access:focus,
+    select.share-modal-link-mode,
+    select.share-modal-link-mode:focus {
         min-height: 44px;
     }
     select.share-modal-row-mode,
