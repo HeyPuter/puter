@@ -124,15 +124,6 @@ const skipped = (reason: string, detail: Record<string, unknown>): void => {
     console.log('[share-notify] not emailing:', reason, detail);
 };
 
-/**
- * Telling people what has been shared with them. Separate from `ShareService`
- * because sharing succeeds or fails on its own; being told is best-effort and
- * always off the response path.
- *
- * Two decisions per share: what the recipient's notification _says_ is always
- * kept current, while whether it may _interrupt_ them — pushed to their screen,
- * mailed to them — is budgeted, since that is the part that can bury someone.
- */
 /** Where a single-item notification points; a masked path, opened in place. */
 interface ShareNotificationTarget {
     path: string;
@@ -159,6 +150,11 @@ interface DigestEntryRecord {
     queuedAt: number;
 }
 
+/**
+ * Tells people what was shared with them, off the response path. What the
+ * notification says is always kept current; whether it may interrupt them
+ * (push, email) is budgeted.
+ */
 export class ShareNotificationService extends PuterService {
     /**
      * The flush timers this node owns, keyed per recipient. Timers only — the

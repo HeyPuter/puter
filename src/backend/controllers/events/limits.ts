@@ -44,10 +44,9 @@ const userWindow = (
 ): RouteRateLimit => ({ scope, limit, window, key: 'user' });
 
 /**
- * A cap that varies by plan, in the shape route gates already declare theirs
- * in: the base is what a subscribed account sees, and `bySubscription` carves
- * the free tiers out beneath it. A plan nobody enumerated falls through to the
- * base, so a new one is generous rather than accidentally throttled.
+ * A plan-varying cap in route-gate shape: `limit` is what a subscribed account
+ * gets, `bySubscription` carves out the free tiers, unlisted plans get the
+ * base.
  */
 export interface TieredLimit {
     limit: number;

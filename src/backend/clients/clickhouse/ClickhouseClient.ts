@@ -17,24 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Optional ClickHouse client.
- *
- * ClickHouse is NOT a hard dependency. Core Puter runs without it — the app
- * stats read path (open / unique-user counts) falls back to the primary SQL
- * database. `this.clients.clickhouse` is therefore typed as optional and is
- * `undefined` in default and self-hosted setups; callers MUST branch on its
- * presence and fall back to SQL.
- *
- * A production deployment can register a real ClickHouse client via an
- * extension (`extension.registerClient('clickhouse', client)`) to offload the
- * analytics queries off the primary database and keep the stats path fast at
- * scale. When registered, the instance flows into `this.clients.clickhouse`
- * everywhere it's typed.
- *
- * Only the surface the stats path actually consumes is declared here. Extend
- * this interface (don't widen to `any`) when a new query shape is needed.
- */
+// Optional analytics client, registered by an extension. Only the surface the
+// app-stats path consumes is declared; extend it rather than widening to `any`.
+
 export interface ClickhouseQueryResult {
     json<T = Record<string, unknown>>(): Promise<T[]>;
 }

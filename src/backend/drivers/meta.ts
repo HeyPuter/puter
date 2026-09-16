@@ -73,13 +73,8 @@ export const DRIVER_REQUIRE_REPUTATION_KEY =
 
 // -- Driver rate-limit config ----------------------------------------
 //
-// A driver declares its rate-limit policy alongside its other metadata
-// (`@Driver({ rateLimit: ... })` or an imperative `readonly rateLimit`
-// field). `DriverController.#handleCall` resolves the spec for the
-// requested method via `resolveDriverMethodRateLimit` and passes it to
-// `checkDriverRateLimit`. Different driver methods can therefore use
-// different storage backends and different limits — there's no longer a
-// single boot-time backend that constrains everyone.
+// Declared per driver; `DriverController` resolves the spec for the requested
+// method, so methods can differ in limits and storage backend.
 
 export const RATE_LIMIT_BACKEND_NAMES = ['memory', 'redis', 'kv'] as const;
 export type RateLimitBackend = (typeof RATE_LIMIT_BACKEND_NAMES)[number];
@@ -89,36 +84,20 @@ export interface DriverRateLimitSpec {
     limit: number;
     /** Window length, in milliseconds. */
     window: number;
-    /**
-     * Per-subscription overrides for `limit`. Keyed by `SubscriptionPolicy.id`
-     * (`user_free`, `temp_free`, `unlimited`, etc.). Falls back to `limit` when
-     * the actor's subscription isn't in the map. Same mechanic as
-     * `DriverConcurrentSpec.bySubscription`.
-     */
+    /** Per-`SubscriptionPolicy.id` overrides for `limit`. */
     bySubscription?: Record<string, number>;
-    /**
-     * Storage backend to count against. Omit to use the server-wide default
-     * configured by `config.rate_limit.backend`.
-     */
+    /** Defaults to `config.rate_limit.backend`. */
     backend?: RateLimitBackend;
 }
 
 export interface DriverRateLimitConfig {
-    /**
-     * Applied to any method not listed in `methods`. Lets a driver opt the
-     * whole interface into tighter limits than the global driver default
-     * without enumerating every method.
-     */
+    /** Applied to any method not listed in `methods`. */
     default?: DriverRateLimitSpec;
     /** Per-method overrides. Keys are driver method names. */
     methods?: Record<string, DriverRateLimitSpec>;
 }
 
-/**
- * Validate a `rateLimit` block declared by a driver. Throws on bad shape so
- * registration fails loudly at boot rather than silently misconfiguring
- * production traffic. Returns the value unchanged on success for chaining.
- */
+/** Validate a driver's `rateLimit` block; throws at boot on a bad shape. */
 export function validateDriverRateLimit(
     value: unknown,
     label: string,
@@ -207,25 +186,13 @@ export function resolveDriverMethodRateLimit(
 }
 
 // -- Driver concurrent-limit config ----------------------------------
-//
-// Twin to `DriverRateLimitConfig` but for in-flight concurrency. Same
-// shape minus `window`, plus `bySubscription` to vary the cap by the
-// caller's subscription tier (resolved via `MeteringService`).
 
 export interface DriverConcurrentSpec {
     /** Maximum simultaneous in-flight requests. */
     limit: number;
-    /**
-     * Per-subscription overrides keyed by `SubscriptionPolicy.id` (`user_free`,
-     * `temp_free`, `unlimited`, etc.). Falls back to `limit` when the actor's
-     * subscription isn't in the map.
-     */
+    /** Per-`SubscriptionPolicy.id` overrides for `limit`. */
     bySubscription?: Record<string, number>;
-    /**
-     * Storage backend. Memory is per-process (use only on single-node
-     * deployments); redis coordinates across nodes; kv is rarely the right
-     * choice for concurrency but supported for parity.
-     */
+    /** `memory` is per-process; use `redis` on multi-node deployments. */
     backend?: RateLimitBackend;
 }
 
@@ -442,59 +409,34 @@ export function resolveDriverMethodRequireReputation(
 }
 
 /**
- * Resolved metadata for a registered driver. Read from either decorator
- * metadata or imperative instance properties.
+ * Resolved metadata for a registered driver, from decorator metadata or
+ * imperative instance properties. The gates live here rather than on a route
+ * because every driver shares the `/drivers/call` dispatch route.
  */
 export interface DriverMeta {
-    /** The interface this driver implements (e.g. 'puter-chat-completion'). */
+    /** E.g. 'puter-chat-completion'. */
     interfaceName: string;
-    /** Unique name within its interface (e.g. 'openai-completion', 'claude'). */
+    /** Unique within the interface. */
     driverName: string;
-    /** When true, this driver is the default for its interface. */
     isDefault: boolean;
     /**
-     * Additional driver names that resolve to the same instance. Used by
-     * multi-provider drivers (TTS/OCR/image/video) so legacy puter-js calls
-     * that pass a provider id in the `driver` slot (e.g. `aws-polly`,
-     * `openai-tts`) still find the unified driver. The requested alias is
-     * exposed to the driver method via `Context.get('driverName')` so the
-     * method can route to the right internal provider.
+     * Other names resolving to this driver, so legacy calls naming a provider
+     * (`aws-polly`) still find the unified driver. The requested alias reaches
+     * the method via `Context.get('driverName')`.
      */
     aliases: string[];
-    /**
-     * Rate-limit policy for this driver. Per-method specs override the
-     * `default` spec; both are optional. `DriverController` consults this
-     * before invoking the method and falls back to the global driver default
-     * (600/min) if nothing is declared.
-     */
+    /** Falls back to the global driver default when absent. */
     rateLimit?: DriverRateLimitConfig;
-    /**
-     * Concurrent in-flight policy for this driver. When set, the controller
-     * acquires a slot before invoking the method and releases in `finally`.
-     * Absent → no concurrency cap (current behaviour).
-     */
+    /** No concurrency cap when absent. */
     concurrent?: DriverConcurrentConfig;
-    /**
-     * When true, `/drivers/call` rejects bare account-session ("root") tokens
-     * for this driver: callers must present an app/worker token or a
-     * dashboard-minted API token. Per-driver counterpart of the `noUserSession`
-     * route option — the dispatch route is shared, so the flag lives on the
-     * driver.
-     */
+    /** Reject bare account-session tokens. */
     noUserSession?: boolean;
     /**
-     * Which methods on this driver need a subscription, and which plans count.
-     * Per-method entries override `default`; a method covered by neither stays
-     * open to every plan. Per-driver for the same reason as `noUserSession` —
-     * the dispatch route is shared.
+     * Per-method plan requirement; a method covered by neither `default` nor
+     * `methods` is open.
      */
     requireSubscription?: DriverRequireSubscriptionConfig;
-    /**
-     * Which methods on this driver need a reputation tier, and which tier.
-     * Per-method entries override `default`; a method covered by neither asks
-     * for no floor. Per-driver for the same reason as `requireSubscription` —
-     * the dispatch route is shared.
-     */
+    /** Per-method reputation tier; same coverage rule as `requireSubscription`. */
     requireReputation?: DriverRequireReputationConfig;
 }
 
