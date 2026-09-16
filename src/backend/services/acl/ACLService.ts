@@ -30,14 +30,9 @@ import { actorHasSubscription } from '../metering/enforcement';
 // -- Types ------------------------------------------------------------
 
 /**
- * Thin, filesystem-agnostic view of a resource for ACL checks.
- *
- * Callers construct a descriptor from whatever entry metadata they already
- * have; ACL does not depend on the filesystem layer. FSController does exactly
- * this (see its `resourceDescriptor` in `#assertWriteAccess`).
- *
- * `resolveAncestors()` MUST return the chain starting with the resource itself
- * and ending at the direct child of root. Empty means "root".
+ * Filesystem-agnostic view of a resource. `resolveAncestors()` returns the
+ * chain from the resource itself to the direct child of root; empty means
+ * root.
  */
 export interface ResourceDescriptor {
     path: string;

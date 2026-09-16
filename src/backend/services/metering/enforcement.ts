@@ -107,20 +107,14 @@ export type SubscriptionMetering = Pick<
 >;
 
 /**
- * What a surface asks for. `true` — any plan that isn't one of the free ones
- * (`FREE_SUBSCRIPTION_IDS`), so a plan added by an extension counts without
- * being named here. An array — the caller's own allowlist of policy ids, for
- * the narrower case of a feature that belongs to specific plans. `false` — no
- * requirement, the same as not declaring one.
+ * `true`: any plan outside `FREE_SUBSCRIPTION_IDS`. An array: only those policy
+ * ids. `false`: no requirement.
  */
 export type SubscriptionRequirement = boolean | readonly string[];
 
 /**
- * Validate a requirement declared on a route or a driver method. Throws at
- * boot, where the declaration is read, rather than letting a malformed one
- * decide live requests: an empty array reads as "subscribers only" to the next
- * person editing the file while admitting everybody, so it is an error, and
- * `false` has to be written deliberately.
+ * Validate a declared requirement at boot. An empty array is an error: it reads
+ * as "subscribers only" while admitting everybody.
  */
 export const validateSubscriptionRequirement = (
     value: unknown,
@@ -233,7 +227,7 @@ export const actorOnPaidPlan = async (
  * this normally costs a map lookup.
  */
 export const assertActorHasSubscription = async (
-    metering: SubscriptionMetering | undefined,
+    metering: SubscriptionMetering,
     actor: Actor | undefined,
     requirement: SubscriptionRequirement,
     config: EnforcementConfig,
@@ -246,7 +240,7 @@ export const assertActorHasSubscription = async (
         });
     }
 
-    const subscription = await metering.getActorSubscription(actor);
+    const subscription = await metering!.getActorSubscription(actor);
     if (subscriptionSatisfies(subscription.id, requirement)) return;
 
     throw new HttpError(402, 'A subscription is required for this action', {

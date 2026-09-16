@@ -59,23 +59,14 @@ const getOrInitRoutes = (proto: DecoratedPrototype): CollectedRoute[] => {
 
 // -- @Controller -----------------------------------------------------
 
-/**
- * Class decorator.
- *
- * - Stores the controller's path `prefix` on the prototype so `PuterServer` can
- *   construct a correctly-prefixed `PuterRouter` for this controller.
- * - Installs a default `registerRoutes(router)` on the prototype that walks
- *   routes collected by method decorators (if this class hasn't defined its own
- *   `registerRoutes`). This means a purely-decorated controller needs no body —
- *   the decorators do all the wiring.
- *
- * Controllers that define their own `registerRoutes` are untouched; they can
- * still use `@Post` etc. and walk `prototype[ROUTES_METADATA_KEY]` manually if
- * they want to combine the styles.
- */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCtor = new (...args: any[]) => any;
 
+/**
+ * Class decorator. Stores `prefix` on the prototype for `PuterServer`, and
+ * installs a default `registerRoutes` that walks decorator-collected routes
+ * unless the class defines its own.
+ */
 export function Controller(prefix: string = '') {
     return <T extends AnyCtor>(
         value: T,
@@ -84,9 +75,7 @@ export function Controller(prefix: string = '') {
         const proto = value.prototype as DecoratedPrototype;
         proto[PREFIX_METADATA_KEY] = prefix;
 
-        // Only install the default walker if the class itself hasn't
-        // defined registerRoutes. We check *own* properties (not inherited)
-        // so a PuterController base-class default doesn't block us.
+        // Own property only, so a base-class default doesn't block the walker.
         const hasOwnRegister = Object.prototype.hasOwnProperty.call(
             proto,
             'registerRoutes',

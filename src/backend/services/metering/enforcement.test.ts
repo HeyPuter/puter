@@ -395,12 +395,6 @@ describe('assertActorHasSubscription', () => {
         expect(metering.getActorSubscription).not.toHaveBeenCalled();
     });
 
-    it('admits everyone with no metering service to ask', async () => {
-        await expect(
-            assertActorHasSubscription(undefined, userActor(), true, config()),
-        ).resolves.toBeUndefined();
-    });
-
     it('admits everyone when subscription enforcement is switched off', async () => {
         await expect(
             assertActorHasSubscription(

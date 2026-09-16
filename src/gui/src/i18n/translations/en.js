@@ -567,6 +567,8 @@ const en = {
         teams_upgrade_to: 'Upgrade to %%',
         teams_switch_to: 'Switch to %%',
         teams_switch_to_free: 'Switch to Free',
+        teams_keep_plan: 'Keep %%',
+        teams_plan_ending: 'Ends with the current period',
         teams_cancel_keeps_until: 'Done. The plan stays active until the end of the period it was paid for, then the account moves to Free.',
         teams_audit_range: '{{from}}–{{to}} of {{total}}',
         previous: 'Previous',
