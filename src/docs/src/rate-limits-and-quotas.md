@@ -52,6 +52,8 @@ Concurrency is counted per interface, so an image generation and a chat completi
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) additionally require a paid plan — a free account calling them gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, under the limits above; the model catalogue endpoints stay open to everyone.
 
+Sharing a file or folder with **anyone with the link** ([`puter.fs.share()`](/FS/share/) with `{ anyone: true }`) is a paid-plan feature too: a free account gets `subscription_required`, and a link stops working while its owner's plan has lapsed. Sharing with named people and teams is open to every account.
+
 ### Key-value store
 
 | Limit                           | Paid | Free | Anonymous |

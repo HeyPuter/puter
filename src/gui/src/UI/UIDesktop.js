@@ -1862,15 +1862,22 @@ async function UIDesktop (options) {
     }
 
     /**
-     * Act on a share link. A share only ever reaches a real account, so a
-     * temporary session is never the recipient: signing out of the way first
-     * beats resolving the link as somebody who can't see it and burning it on
-     * a "not found". The link stays in the address bar across the prompt
-     * because login reloads on success, which brings it back for the account
-     * that can actually open it.
+     * Act on a share link. A share to a person only ever reaches a real
+     * account, so for a temporary session the item is tried first — an item
+     * open to anyone with the link resolves for it — and only a miss asks
+     * for a sign-in, rather than burning the link on a "not found" as
+     * somebody who can't see it. The link stays in the address bar across
+     * the prompt because login reloads on success, which brings it back for
+     * the account that can actually open it.
      */
     async function handle_shared_link (shared_path) {
         if ( window.user?.is_temp ) {
+            const stat = await resolve_shared_item(puter.fs, shared_path);
+            if ( stat ) {
+                clear_shared_param();
+                await open_path_target(stat.path ?? shared_path, stat);
+                return;
+            }
             await UIWindowLogin({
                 reload_on_success: true,
                 window_options: { cover_page: true, has_head: false },

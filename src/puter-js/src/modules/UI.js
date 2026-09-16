@@ -1101,11 +1101,15 @@ export class UIModule extends EventListener {
      *
      * @internal
      * @param {string} code - The gate's error code.
+     * @param {{ factors?: string[] }} [details] - What the server said about
+     *   the gate. `factors` is present when a route asked for a verified
+     *   factor rather than the account being flagged: the verifications it
+     *   accepts, in the order to offer them.
      * @returns {Promise<boolean>}
      */
-    requestVerificationGate (code) {
+    requestVerificationGate (code, details = {}) {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestVerificationGate', resolve, { code });
+            this.#postMessageWithCallback('requestVerificationGate', resolve, { code, ...details });
         }).then((res) => res?.response === true);
     };
 

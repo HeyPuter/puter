@@ -83,6 +83,13 @@ const bucket_of = (share) => {
  * @returns {{ key: string, name: string, teamUid: string|null }|null}
  */
 const identify = (share, bucket) => {
+    // A link share on the item itself is the "general access" control's
+    // business, not a row; one inherited from a folder above is shown, since
+    // it can only be changed there.
+    if ( share.anyone ) {
+        if ( bucket !== 'inherited' ) return null;
+        return { key: 'anyone', name: i18n('share_row_anyone'), teamUid: null };
+    }
     const team = share.holderTeam;
     if ( team?.uid ) {
         return { key: `team:${team.uid}`, name: team_label(team), teamUid: team.uid };
@@ -214,4 +221,29 @@ export const aggregateOwners = (owners) => {
         seen.set(owner, entry);
     }
     return [...seen.values()];
+};
+
+/**
+ * Where the selection stands on "anyone with the link": `restricted` when no
+ * item is open, `anyone` (with the one mode, or null when they disagree) when
+ * every item is, `mixed` in between. Only a link share on the item itself
+ * counts — one inherited from a folder above is that folder's.
+ *
+ * @param {string[]} paths - The items the dialog covers
+ * @param {Map<string, Object[]>} sharesByPath - Each item's `getShares` result
+ * @returns {{ access: 'restricted'|'anyone'|'mixed', mode: string|null }}
+ */
+export const linkShareState = (paths, sharesByPath) => {
+    const modes = paths.map((item_path) =>
+        (sharesByPath.get(item_path) ?? []).find(
+            (share) => share?.anyone && ! share.inheritedFrom,
+        )?.mode ?? null,
+    );
+    if ( modes.length === 0 || modes.every((mode) => mode === null) ) {
+        return { access: 'restricted', mode: null };
+    }
+    if ( modes.every((mode) => mode !== null) ) {
+        return { access: 'anyone', mode: uniform(modes) };
+    }
+    return { access: 'mixed', mode: null };
 };

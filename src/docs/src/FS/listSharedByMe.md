@@ -4,7 +4,7 @@ description: List everything you have shared with other users, across all items.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-This method lists everything you have shared out, a page at a time, without naming an item first. [`getShares()`](/FS/getShares/) answers the same question for one item you can already point at; this is what answers it when you can't. The listing includes invites to addresses that have no account yet (marked `pending`), and — for items you own — shares that a delegate with `manage` access issued on your behalf.
+This method lists everything you have shared out, a page at a time, without naming an item first. [`getShares()`](/FS/getShares/) answers the same question for one item you can already point at; this is what answers it when you can't. The listing includes invites to addresses that have no account yet (marked `pending`), items you opened to anyone with the link (marked `anyone`), and — for items you own — shares that a delegate with `manage` access issued on your behalf.
 
 > **What an app sees.** An app never gets more reach than it was given: this
 > listing shows an app only the shares on items it can reach in its own right.

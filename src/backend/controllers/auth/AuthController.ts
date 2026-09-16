@@ -28,6 +28,10 @@ import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
+import {
+    hasVerifiedCard,
+    hasVerifiedPhone,
+} from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
@@ -61,6 +65,7 @@ import {
     SEND_PHONE_RATE_LIMIT,
     SEND_PHONE_RATE_WINDOW_MS,
     cardFallbackAfterAttempts,
+    cardFallbackDepsFrom,
     cardFallbackFlagKey,
     isCardFallbackEligible,
     isCardFallbackEnabled,
@@ -196,20 +201,6 @@ const SESSION_LIMIT = {
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-/**
- * Whether this account has already been through the card flow. Both halves
- * matter: the pending flag being clear only says nobody asked, while the
- * fingerprint is the artifact a completed check leaves behind. A route that
- * requires a verified card (`requireCardVerified`) sends users here with the
- * flag clear and no card on file, and answering "already verified" on the flag
- * alone would bounce them between a dialog that reports success and a route
- * that keeps refusing.
- */
-const cardAlreadyVerified = (user: {
-    card_fingerprint?: string | null;
-    requires_card_verification?: boolean;
-}): boolean =>
-    Boolean(user.card_fingerprint) && !user.requires_card_verification;
 export const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
@@ -1621,18 +1612,7 @@ export class AuthController extends PuterController {
      * is listening on a stock build, which reads as "no card gate".
      */
     private cardFallbackDeps(): CardFallbackDeps {
-        return {
-            smsConfigured: () => Boolean(this.clients.prelude?.isConfigured()),
-            probeCardVerification: async () => {
-                const statusEvent = { enabled: null as boolean | null };
-                await this.clients.event?.emitAndWait(
-                    'puter.card-verification.status',
-                    statusEvent,
-                    {},
-                );
-                return statusEvent.enabled;
-            },
-        };
+        return cardFallbackDepsFrom(this.clients);
     }
 
     @Post('/send-confirm-phone', {
@@ -1898,7 +1878,12 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found.', {
                 legacyCode: 'not_found',
             });
-        if (!user.requires_phone_verification) {
+        // Both halves, as for the card: the flag being clear only says nobody
+        // asked. A route requiring a verified phone sends never-flagged users
+        // here with no number on file, and answering "already verified" on
+        // the flag alone would bounce them between a dialog that reports
+        // success and a route that keeps refusing.
+        if (hasVerifiedPhone(user)) {
             res.json({ phone_verified: true, original_client_socket_id });
             return;
         }
@@ -2024,7 +2009,7 @@ export class AuthController extends PuterController {
         // Phone normally comes first, but the fallback lets a phone-gated user
         // in once they've exhausted SMS attempts.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (cardAlreadyVerified(user) && !fallbackEligible) {
+        if (hasVerifiedCard(user) && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }
@@ -2145,7 +2130,7 @@ export class AuthController extends PuterController {
             });
         // Same fallback exception as setup: card may come before phone.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (cardAlreadyVerified(user) && !fallbackEligible) {
+        if (hasVerifiedCard(user) && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }
