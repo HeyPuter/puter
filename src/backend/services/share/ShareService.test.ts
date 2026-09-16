@@ -519,6 +519,273 @@ describe('ShareService', () => {
         ).toBe(dir.path);
     });
 
+    describe('anyone with the link', () => {
+        const paid = new Set<string>();
+
+        /** Plans by user uuid: whoever `paid` names is on `business`. */
+        const planFor = (actor: { user?: { uuid?: string } }) => ({
+            id: paid.has(actor.user?.uuid ?? '') ? 'business' : 'user_free',
+        });
+
+        let subscriptionSpy: ReturnType<typeof vi.spyOn>;
+        beforeAll(() => {
+            subscriptionSpy = vi
+                .spyOn(server.services.metering, 'getActorSubscription')
+                .mockImplementation(async (actor) => planFor(actor) as never);
+        });
+        afterAll(() => {
+            subscriptionSpy.mockRestore();
+        });
+
+        const anyone = { anyone: true } as const;
+        const canWrite = async (actor: Actor, path: string) =>
+            server.services.acl.check(
+                actor,
+                {
+                    path,
+                    resolveAncestors: () =>
+                        server.services.fs.getAncestorChain(path),
+                },
+                'write',
+            );
+        const linkRows = (fsentryId: number) =>
+            server.clients.db.read(
+                'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1',
+                [fsentryId],
+            );
+
+        it('is refused to an owner on a free plan, and nothing is written', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await expect(
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: anyone,
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 402,
+                legacyCode: 'subscription_required',
+            });
+            expect(await linkRows(file.id)).toEqual([]);
+        });
+
+        it('opens the item to any signed-in account at the mode given', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const stranger = await makeUser();
+            const file = await makeFile(owner.user);
+            expect(await canRead(stranger.actor, file.path)).toBe(false);
+
+            const created = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            expect(created).toMatchObject({
+                anyone: true,
+                mode: 'read',
+                isNew: true,
+                holder: { username: null },
+            });
+
+            expect(await canRead(stranger.actor, file.path)).toBe(true);
+            expect(await canWrite(stranger.actor, file.path)).toBe(false);
+
+            // Raising it is another call, not a second row.
+            const raised = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'write',
+            });
+            expect(raised).toMatchObject({ anyone: true, isNew: false });
+            expect(await linkRows(file.id)).toHaveLength(1);
+            expect(await canWrite(stranger.actor, file.path)).toBe(true);
+        });
+
+        it('reaches everything inside a folder, and the listing says so', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const stranger = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            expect(await canRead(stranger.actor, file.path)).toBe(true);
+
+            const onDir = await server.services.share.listSharesOf(
+                owner.actor,
+                { uid: dir.uuid },
+            );
+            expect(onDir).toEqual([
+                expect.objectContaining({
+                    anyone: true,
+                    mode: 'read',
+                    inheritedFrom: null,
+                }),
+            ]);
+            const onFile = await server.services.share.listSharesOf(
+                owner.actor,
+                { uid: file.uuid },
+            );
+            expect(onFile).toEqual([
+                expect.objectContaining({
+                    anyone: true,
+                    inheritedFrom: dir.path,
+                }),
+            ]);
+        });
+
+        it('shows in the outbound listing and the shared flag', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+
+            const outbound = await server.services.share.listSharedByMe(
+                owner.actor,
+            );
+            expect(outbound.items).toEqual([
+                expect.objectContaining({ anyone: true, entryUid: file.uuid }),
+            ]);
+            expect(outbound.items[0].pending).toBeUndefined();
+            expect(
+                await server.services.share.shareFlags(owner.actor, [file]),
+            ).toEqual(new Map([[file.uuid, true]]));
+        });
+
+        it('goes quiet while the owner is off a plan, and comes back with it', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const stranger = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            expect(await canRead(stranger.actor, file.path)).toBe(true);
+
+            paid.delete(owner.user.uuid);
+            server.services.metering.invalidateActorSubscription(
+                owner.user.uuid,
+            );
+            expect(await canRead(stranger.actor, file.path)).toBe(false);
+
+            paid.add(owner.user.uuid);
+            server.services.metering.invalidateActorSubscription(
+                owner.user.uuid,
+            );
+            expect(await canRead(stranger.actor, file.path)).toBe(true);
+        });
+
+        it('hands out access, never authority', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const file = await makeFile(owner.user);
+            for (const mode of ['manage', 'see', 'list'] as const) {
+                await expect(
+                    share(owner.actor, {
+                        uid: file.uuid,
+                        recipient: anyone,
+                        mode,
+                    }),
+                ).rejects.toMatchObject({ legacyCode: 'invalid_mode' });
+            }
+        });
+
+        it("is the owner's call, not a manage delegate's", async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const delegate = await makeUser();
+            paid.add(delegate.user.uuid);
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+
+            await expect(
+                share(delegate.actor, {
+                    uid: file.uuid,
+                    recipient: anyone,
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(await linkRows(file.id)).toEqual([]);
+        });
+
+        it('is withdrawn by the owner, by recipient or by share uid', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const stranger = await makeUser();
+            const file = await makeFile(owner.user);
+            const created = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+
+            // A stranger who can read it still cannot switch it off.
+            await expect(
+                server.services.share.unshare(stranger.actor, {
+                    uid: file.uuid,
+                    recipient: anyone,
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+
+            expect(
+                await server.services.share.unshare(owner.actor, {
+                    uid: file.uuid,
+                    recipient: anyone,
+                }),
+            ).toEqual({ revoked: 1 });
+            expect(await canRead(stranger.actor, file.path)).toBe(false);
+            expect(
+                await server.services.share.listSharesOf(owner.actor, {
+                    uid: file.uuid,
+                }),
+            ).toEqual([]);
+
+            const again = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            expect(again.uid).not.toBe(created.uid);
+            expect(
+                await server.services.share.revokeSharedByMe(
+                    owner.actor,
+                    again.uid,
+                ),
+            ).toEqual({ revoked: 1 });
+            expect(await canRead(stranger.actor, file.path)).toBe(false);
+        });
+
+        it('does not turn a link share into an invite anywhere', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            expect(
+                await server.stores.share.listPendingOnFsentry(file.id),
+            ).toEqual([]);
+        });
+    });
+
     describe('the listing flag', () => {
         const flags = (actor: Actor, entries: unknown[]) =>
             server.services.share.shareFlags(actor, entries as never);

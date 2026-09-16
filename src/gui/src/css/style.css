@@ -6653,6 +6653,28 @@ html.dark-mode .usage-table-show-less:hover {
     margin: -8px 0 12px;
 }
 
+/* General access: the owner's switch between people-only and anyone with
+   the link. */
+.share-general-access {
+    margin-top: 18px;
+}
+
+.share-dialog .share-link-access {
+    flex: 1;
+    min-width: 0;
+}
+
+.share-dialog .share-link-mode {
+    width: 130px;
+    flex: none;
+}
+
+.share-link-note {
+    font-size: 12px;
+    color: #7f8b99;
+    margin: -8px 0 12px;
+}
+
 .share-dialog-empty {
     font-size: 13px;
     color: #7f8b99;

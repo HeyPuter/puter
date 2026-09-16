@@ -442,6 +442,9 @@ const VERIFICATION_GATE_CODES = new Set([
     'card_verification_required',
 ]);
 
+/** Whether an error code names one of those gates. */
+const isVerificationGateCode = (code) => VERIFICATION_GATE_CODES.has(code);
+
 // Single-flighted verification prompt: concurrent gated requests share one
 // GUI dialog rather than stacking windows.
 let pendingVerificationGate = null;
@@ -452,14 +455,20 @@ let pendingVerificationGate = null;
  * resolves unverified and the rejection reaches the caller unchanged.
  *
  * @param {string} code - The gate's error code.
+ * @param {string[]} [factors] - Sent when a route asked for a verified factor
+ *   rather than the account being flagged: the verifications it accepts, in
+ *   the order to offer them.
  * @returns {Promise<{ verified: boolean }>}
  */
-async function resolveVerificationGate(code) {
+async function resolveVerificationGate(code, factors) {
     if (globalThis.puter?.env !== 'app') return { verified: false };
     if (!pendingVerificationGate) {
         pendingVerificationGate = (async () => {
             try {
-                const verified = await puter.ui.requestVerificationGate(code);
+                const verified = await puter.ui.requestVerificationGate(
+                    code,
+                    Array.isArray(factors) ? { factors } : {},
+                );
                 return { verified: verified === true };
             } catch (e) {
                 return { verified: false };
@@ -626,11 +635,14 @@ async function classifyRetry(outcome, ctx) {
     // replay is safe once the user clears it; a user behind several gates
     // clears them one replay at a time (email → phone → card).
     const gateCode = [parsed?.code, parsed?.error?.code].find((c) =>
-        VERIFICATION_GATE_CODES.has(c),
+        isVerificationGateCode(c),
     );
     if (status === 403 && gateCode) {
         if (!ctx.done.has(gateCode)) {
-            const res = await resolveVerificationGate(gateCode);
+            const res = await resolveVerificationGate(
+                gateCode,
+                parsed?.factors ?? parsed?.error?.factors,
+            );
             if (res.verified) {
                 ctx.done.add(gateCode);
                 return { delayMs: 0 };
@@ -1129,7 +1141,9 @@ export {
     driverCall,
     driverCallEnvelope,
     fetchUrl,
+    isVerificationGateCode,
     parseResponse,
     resolveReauth,
+    resolveVerificationGate,
     sendWithRetry,
 };

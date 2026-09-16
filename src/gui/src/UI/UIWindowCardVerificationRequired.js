@@ -41,6 +41,11 @@ import UIWindow from './UIWindow.js';
 //     kill switch short-circuit, in particular) would close a dialog that
 //     reports success while the account is still phone-gated and every gated
 //     route keeps 403ing. `options.on_unavailable` is called instead.
+//
+// `options.card_alternative` (with `phone_fallback`) is the phone dialog handing
+// off for a caller that accepts a verified phone OR card: the card alone is the
+// point, so `card_verified` is success on its own. The kill-switch short-circuit
+// still isn't — it verified nothing — and bounces back the same way.
 
 const STRIPE_JS_URL = 'https://js.stripe.com/v3/';
 
@@ -164,6 +169,13 @@ function UIWindowCardVerificationRequired(options) {
             width: 390,
             dominant: true,
             ...options.window_options,
+            // Settles the closable variant (and a parent cascade) as
+            // dismissed; `finish`/`backToPhone` have settled before they close.
+            on_close: () => {
+                if (settled || logging_out) return;
+                settled = true;
+                resolve(false);
+            },
             window_class: 'window-card-verification',
             window_css: {
                 height: 'initial',
@@ -199,9 +211,13 @@ function UIWindowCardVerificationRequired(options) {
             $(el_window).find(`.card-step-${name}`).show();
         };
 
-        // Resolve at most once: `finish` and `backToPhone` are the only exits
-        // and a double close would operate on a detached window.
+        // Resolve at most once: `finish`, `backToPhone` and the close hook are
+        // the only exits and a double close would operate on a detached window.
         let settled = false;
+        // Logout is handled by a global 'logout' event, not by resolving this
+        // gate; the close hook must not resolve(false) into a caller's
+        // reopen-until-cleared loop on the way out.
+        let logging_out = false;
 
         const finish = () => {
             if (settled) return;
@@ -221,14 +237,23 @@ function UIWindowCardVerificationRequired(options) {
             resolve(false);
         };
 
-        // Fallback mode only: the server answered `card_verified` without
-        // lifting the phone gate — the card path can't clear this account
-        // (typically the server-side kill switch). Reporting success here would
-        // close the dialog on a still-phone-gated account, so bounce back to
-        // the phone gate with the reason instead.
-        const cardCannotClearPhoneGate = () => {
+        // Fallback mode only: the server answered `card_verified` but that
+        // doesn't satisfy whoever opened this dialog (typically the server-side
+        // kill switch). Reporting success would close the dialog on an account
+        // the caller keeps refusing, so bounce back to the phone gate with the
+        // reason instead.
+        const cardCannotSatisfyCaller = () => {
             options.on_unavailable?.();
             backToPhone();
+        };
+
+        // Whether a `card_verified` answer satisfies the caller. As the SMS
+        // escape hatch the phone gate must have lifted too; as an alternative
+        // factor the card alone does — unless the answer was the kill switch's
+        // short-circuit, which verified nothing.
+        const cardSatisfiesCaller = (res) => {
+            if (options.card_alternative) return !res.disabled;
+            return !options.phone_fallback || Boolean(res.phone_verified);
         };
 
         const mountPaymentElement = async (publishable_key, client_secret) => {
@@ -275,11 +300,10 @@ function UIWindowCardVerificationRequired(options) {
                     // Already verified, or the feature was disabled server-side
                     // (kill switch) — either way the gate is satisfied.
                     if (res.card_verified) {
-                        // ...except in fallback mode, where the phone gate is
-                        // the one that has to lift and this short-circuit never
-                        // lifts it.
-                        if (options.phone_fallback) {
-                            cardCannotClearPhoneGate();
+                        // ...except when the caller needed more than a card on
+                        // file, which this short-circuit never delivers.
+                        if (!cardSatisfiesCaller(res)) {
+                            cardCannotSatisfyCaller();
                             return;
                         }
                         finish();
@@ -383,11 +407,8 @@ function UIWindowCardVerificationRequired(options) {
                     statusCode: { 401: (xhr) => window.handle401(xhr) },
                     success: function (res) {
                         if (res.card_verified) {
-                            // In fallback mode the card is only worth anything
-                            // if it took the phone gate down with it; the
-                            // server says so with `phone_verified`.
-                            if (options.phone_fallback && !res.phone_verified) {
-                                cardCannotClearPhoneGate();
+                            if (!cardSatisfiesCaller(res)) {
+                                cardCannotSatisfyCaller();
                                 return;
                             }
                             finish();
@@ -430,6 +451,7 @@ function UIWindowCardVerificationRequired(options) {
         $(el_window)
             .find('.card-log-out')
             .on('click', function () {
+                logging_out = true;
                 window.logout();
                 $(el_window).close();
             });

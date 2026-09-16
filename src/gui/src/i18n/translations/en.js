@@ -313,6 +313,7 @@ const en = {
         phone_select_country: 'Select country',
         phone_code_sent_to: 'Enter the 6-digit code sent to',
         phone_code_sent_whatsapp: 'Enter the 6-digit code sent via WhatsApp to',
+        phone_card_alternative_prompt: 'Rather not use your phone?',
         phone_card_fallback_prompt: "Can't receive a code?",
         phone_card_fallback_link: 'Verify with a card instead',
         phone_card_fallback_note: "We only check that the card is valid \u2014 you won't be charged.",
@@ -496,6 +497,31 @@ const en = {
         share_team_note:
             'Everyone in the team gets access, including anyone added to it later.',
         share_row_team: 'team',
+        share_row_anyone: 'Anyone with the link',
+        share_general_access: 'General access',
+        share_link_restricted: 'Restricted',
+        share_link_anyone: 'Anyone with the link',
+        share_link_restricted_note: 'Only people with access can open this item.',
+        share_link_restricted_note_items: 'Only people with access can open these items.',
+        share_link_anyone_note_read:
+            'Anyone signed in to Puter who has the link can view this item.',
+        share_link_anyone_note_write:
+            'Anyone signed in to Puter who has the link can view and edit this item.',
+        share_link_anyone_note_read_items:
+            'Anyone signed in to Puter who has a link to one of these items can view it.',
+        share_link_anyone_note_write_items:
+            'Anyone signed in to Puter who has a link to one of these items can view and edit it.',
+        share_link_mixed_note: 'Some of these items are open to anyone with the link and some are not.',
+        share_link_on_read: 'Anyone with the link can now view this item',
+        share_link_on_write: 'Anyone with the link can now edit this item',
+        share_link_on_read_items: 'Anyone with the link can now view these items',
+        share_link_on_write_items: 'Anyone with the link can now edit these items',
+        share_link_off: 'Only people with access can open this item now',
+        share_link_off_items: 'Only people with access can open these items now',
+        share_link_requires_plan:
+            'Sharing with anyone who has the link requires a subscription.',
+        share_copy_link: 'Copy link',
+        share_link_copied: 'Link copied',
         shortcut_to: 'Shortcut to',
         show_all_windows: 'Show All Windows',
         show_hidden: 'Show hidden',

@@ -40,6 +40,17 @@ export const remember_shared_roots = (shares) => {
     loaded = true;
 };
 
+/**
+ * Record one more root the listing did not carry — an item reached through a
+ * link, which is nobody's share row. Kept until the next full listing.
+ *
+ * @param {{ path: string, mode?: string|null, name?: string }} share
+ */
+export const remember_shared_root = ({ path, mode, name }) => {
+    if ( ! path ) return;
+    roots.set(path, { mode: mode ?? null, name });
+};
+
 /** Drop what we know; the next lookup re-reads it. */
 export const invalidate_shared_roots = () => {
     roots.clear();

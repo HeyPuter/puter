@@ -40,6 +40,7 @@ import {
     adminOnlyGate,
     allowedAppIdsGate,
     noUserSessionGate,
+    requireAnyVerifiedGate,
     requireAuthGate,
     requireCardVerifiedGate,
     requirePhoneVerifiedGate,
@@ -57,6 +58,7 @@ import { validateReputationRequirement } from './core/reputation';
 import { validateSubscriptionRequirement } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
 import { activeSubdomain, subdomainOffsetForDomain } from './util/subdomains';
 import {
@@ -988,6 +990,7 @@ export class PuterServer {
             opts.noUserSession ||
             opts.requirePhoneVerified ||
             opts.requireCardVerified ||
+            opts.requireAnyVerified ||
             requiresSubscription ||
             requiresReputation,
         );
@@ -1085,6 +1088,23 @@ export class PuterServer {
         }
         if (opts.requireCardVerified) {
             mwChain.push(requireCardVerifiedGate());
+        }
+        if (opts.requireAnyVerified) {
+            // Same stance as the subscription requirement: an empty list reads
+            // as gated while admitting everyone, so it fails the boot instead.
+            if (opts.requireAnyVerified.length === 0) {
+                throw new Error(
+                    `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireAnyVerified: expected at least one factor`,
+                );
+            }
+            if (this.#config.verifiedFactorGate?.enabled !== false) {
+                mwChain.push(
+                    requireAnyVerifiedGate(
+                        opts.requireAnyVerified,
+                        cardFallbackDepsFrom(this.clients),
+                    ),
+                );
+            }
         }
 
         // 2a''. Reputation floor. Ahead of the plan gate and everything

@@ -252,7 +252,13 @@ const ipc_listener = async (event, handled) => {
         };
         const gate_is_on = gate_flags[event.data.code];
         let response = true;
-        if ( gate_is_on ) {
+        if ( Array.isArray(event.data.factors) ) {
+            // A route asked for a verified factor. The account flags say
+            // nothing about that; the server already did.
+            response = await openVerificationGateWindow(event.data.code, {
+                factors: event.data.factors,
+            });
+        } else if ( gate_is_on ) {
             try {
                 await window.refresh_user_data(window.auth_token);
             } catch (e) {

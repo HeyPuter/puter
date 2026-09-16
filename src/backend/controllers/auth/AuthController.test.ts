@@ -3915,8 +3915,8 @@ describe('AuthController.handleConfirmPhone', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('short-circuits to verified when the gate is not set (no Prelude call)', async () => {
-        const { actor } = await makeUserAndActor();
+    it('short-circuits to verified when a verified number is on file (no Prelude call)', async () => {
+        const { actor } = await makeUserAndActor({ phone: '+14155550123' });
         const checkVerification = vi.fn();
         await withPrelude(stubPrelude({ checkVerification }), async () => {
             const res = makeRes();
@@ -3927,6 +3927,34 @@ describe('AuthController.handleConfirmPhone', () => {
             expect(res.body).toMatchObject({ phone_verified: true });
             expect(checkVerification).not.toHaveBeenCalled();
         });
+    });
+
+    it('verifies for real when the gate was never set but no number is on file', async () => {
+        // A route requiring a verified phone sends never-flagged users here;
+        // answering "verified" on the clear flag alone would store nothing and
+        // leave that route refusing them.
+        const { user, actor } = await makeUserAndActor();
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${user.id}`,
+            value: '+14155550123',
+        });
+        const checkVerification = vi.fn(async () => ({ status: 'success' }));
+        await withPrelude(stubPrelude({ checkVerification }), async () => {
+            const res = makeRes();
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor }),
+                res,
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
+        expect(checkVerification).toHaveBeenCalledWith(
+            '+14155550123',
+            '123456',
+        );
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.phone).toBe('+14155550123');
     });
 
     it('throws 400 when the gate is set but no phone is on file', async () => {
