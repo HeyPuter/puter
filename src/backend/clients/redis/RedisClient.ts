@@ -107,14 +107,8 @@ const buildCluster = (config: IConfig): Cluster => {
 };
 
 /**
- * `RedisClient` IS the ioredis `Cluster` instance — consumers call
- * `this.clients.redis.get(...)` / `.set(...)` directly rather than going
- * through an inner `.client` field. Lifecycle methods (`onServerShutdown`) are
- * attached onto the cluster instance itself.
- *
- * Type-wise, `RedisClient` is `Cluster & WithLifecycle`; the registry- facing
- * value below is a constructor that returns that shape. Mirrors the
- * `DatabaseClientFactory` pattern.
+ * The ioredis `Cluster` itself, with lifecycle methods attached; the
+ * constructor below returns it.
  */
 export type RedisClient = Cluster & WithLifecycle;
 

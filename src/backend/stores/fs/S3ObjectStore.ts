@@ -302,7 +302,10 @@ export class S3ObjectStore extends PuterStore {
             }
             const offset = (partNumber - 1) * multipartPartSize;
             const remaining = declaredTotalSize - offset;
-            if (remaining <= 0) return undefined;
+            // Zero, not `undefined`: a declared size of 0 leaves nothing for
+            // the part to carry, and an omitted binding is an unbounded URL
+            // rather than a small one.
+            if (remaining <= 0) return 0;
             return Math.min(multipartPartSize, remaining);
         };
 

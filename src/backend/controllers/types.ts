@@ -32,24 +32,8 @@ import type {
     WithControllerRegistration,
 } from '../types';
 
-/**
- * Extension-augmentable controller registry. Extensions add their own
- * controller instance types via TypeScript declaration merging:
- *
- *     declare module '@heyputer/backend/controllers/types' {
- *         interface IExtensionControllerInstances {
- *             myController: MyController;
- *         }
- *     }
- *
- * Augmentations flow into the `extension.import('controller')` proxy.
- */
+/** Extension-augmentable controller registry; see `IExtensionClientInstances`. */
 export interface IExtensionControllerInstances {
-    /**
-     * Open index signature so reads of extension-only controller keys return
-     * `unknown` instead of a type error. Concrete declaration-merged keys
-     * override this for that name.
-     */
     [key: string]: unknown;
 }
 
@@ -64,11 +48,8 @@ export type IPuterController<
 ) => T;
 
 /**
- * Base class for v2 controllers. `registerRoutes(router)` receives a
- * `PuterRouter` (not an express app) — see `core/http/PuterRouter.ts`.
- * Controllers either override `registerRoutes` imperatively or lean on the
- * `@Controller` / `@Post` / etc. decorators, which install a default
- * `registerRoutes` walker on the prototype.
+ * Base class for controllers. Override `registerRoutes(router)` or use the
+ * `@Controller` / `@Post` decorators, which install a default one.
  */
 export const PuterController =
     class PuterController implements WithControllerRegistration {

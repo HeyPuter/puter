@@ -233,13 +233,9 @@ export const backgroundConsentRequired = (): HttpError =>
 // -- Cross-user KV -----------------------------------------------------
 
 /**
- * Whether this actor may still watch a shared key-value region.
- *
- * The permission row is the source of truth and the handle is an address for
- * it: a subscription is authorized by holding the grant, never by being named
- * on the handle. That is what makes a handle passed on to a delegate work the
- * same way it does for the person it was minted for, and what makes revoking
- * the grant the one thing that stops it.
+ * Deps for checking whether an actor may still watch a shared KV region. The
+ * permission row is the source of truth and the handle only an address for it,
+ * so revoking the grant is what stops a subscription.
  */
 export interface KvSharedRegionDeps {
     /** Whether share handles are available on this install at all. */

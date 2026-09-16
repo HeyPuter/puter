@@ -88,17 +88,12 @@ export function cardFallbackAfterAttempts(
     );
 }
 
-/**
- * What the fallback needs to know about the rest of the system to decide
- * whether it should be on by default.
- */
 export interface CardFallbackDeps {
-    /** Whether SMS verification can work at all — i.e. a provider is set up. */
+    /** Whether an SMS provider is set up. */
     smsConfigured: () => boolean;
     /**
-     * Asks whichever extension owns card verification whether the card gate is
-     * on. Resolves null when nothing is listening (no payments extension), so
-     * "installed but off" and "not installed" stay distinguishable.
+     * Whether the owning extension reports the card gate on; null when none is
+     * installed.
      */
     probeCardVerification: () => Promise<boolean | null>;
 }

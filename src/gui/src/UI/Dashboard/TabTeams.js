@@ -353,6 +353,7 @@ const loadPlan = async (teamUid) => {
             status: 'ready',
             offerings: Array.isArray(cat.offerings) ? cat.offerings : [],
             seatTiers: entry?.seatTiers ?? {},
+            seatStatuses: entry?.seatStatuses ?? {},
             tierQuantities: entry?.tierQuantities ?? {},
             subStatus: entry?.status ?? null,
         };
@@ -370,6 +371,7 @@ const changeSeatPlan = ($el_window, username, uuid) => {
             seatUuid: uuid,
             username,
             currentTier: state.plan.seatTiers?.[uuid] ?? null,
+            currentStatus: state.plan.seatStatuses?.[uuid] ?? null,
             onDone: () => refresh($el_window),
         },
     }));

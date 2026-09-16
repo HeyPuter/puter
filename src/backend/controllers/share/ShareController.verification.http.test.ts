@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
     createTestUser,
     setupPuterTestEnv,
@@ -110,6 +110,27 @@ describe('share verification gate over HTTP', () => {
         const res = await share(owner, file.uid);
         expect(res.status).toBe(200);
         expect(await res.json()).toMatchObject({ status: 'success' });
+    });
+
+    it('lets a paying owner share without either factor', async () => {
+        const owner = await makeUser();
+        const row = await env.server.stores.user.getByUsername(owner.username);
+        const metering = env.server.services.metering;
+        const real = metering.getActorSubscription.bind(metering);
+        const spy = vi
+            .spyOn(metering, 'getActorSubscription')
+            .mockImplementation(async (actor) =>
+                actor.user?.uuid === row!.uuid
+                    ? ({ id: 'business' } as never)
+                    : real(actor),
+            );
+        try {
+            const file = await makeFile(owner);
+            expect((await share(owner, file.uid)).status).toBe(200);
+        } finally {
+            spy.mockRestore();
+            metering.invalidateActorSubscription(row!.uuid);
+        }
     });
 
     it('accepts a verified card once an extension reports the card gate on', async () => {

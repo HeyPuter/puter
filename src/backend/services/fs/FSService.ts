@@ -769,6 +769,11 @@ export class FSService extends PuterService {
     ): UploadMode {
         const maxSingleUploadSize =
             this.stores.s3Object.getMaxSingleUploadSize();
+        // An empty object has no part to carry it, so a multipart request
+        // here can only be an attempt at a part URL bound to no bytes.
+        if (size <= 0) {
+            return 'single';
+        }
         if (requestUploadMode === 'multipart') {
             return 'multipart';
         }

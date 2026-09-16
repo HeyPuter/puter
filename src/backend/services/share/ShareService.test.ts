@@ -679,12 +679,36 @@ describe('ShareService', () => {
                 owner.user.uuid,
             );
             expect(await canRead(stranger.actor, file.path)).toBe(false);
+            // A link nobody can use is not shown as a share anywhere: the
+            // item's own listing, the owner's outbound one, or the badge.
+            expect(
+                await server.services.share.listSharesOf(owner.actor, {
+                    uid: file.uuid,
+                }),
+            ).toEqual([]);
+            expect(
+                (await server.services.share.listSharedByMe(owner.actor)).items,
+            ).toEqual([]);
+            expect(
+                await server.services.share.shareFlags(owner.actor, [file]),
+            ).toEqual(new Map([[file.uuid, false]]));
 
             paid.add(owner.user.uuid);
             server.services.metering.invalidateActorSubscription(
                 owner.user.uuid,
             );
             expect(await canRead(stranger.actor, file.path)).toBe(true);
+            // The row was never dropped, so the plan brings it back as it was.
+            expect(
+                await server.services.share.listSharesOf(owner.actor, {
+                    uid: file.uuid,
+                }),
+            ).toEqual([
+                expect.objectContaining({ anyone: true, mode: 'read' }),
+            ]);
+            expect(
+                await server.services.share.shareFlags(owner.actor, [file]),
+            ).toEqual(new Map([[file.uuid, true]]));
         });
 
         it('hands out access, never authority', async () => {

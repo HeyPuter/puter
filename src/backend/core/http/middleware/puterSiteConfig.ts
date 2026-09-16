@@ -20,11 +20,7 @@
 import { posix as pathPosix } from 'node:path';
 import type { FSEntry } from '../../../stores/fs/FSEntry';
 
-/**
- * Minimal Redis surface we need — `get` / `set` with EX TTL. Typed as a subset
- * of ioredis so callers can pass either the real cluster client or a mock
- * without needing the full Cluster type here.
- */
+/** The subset of ioredis the loader uses, so tests can pass a mock. */
 export interface SiteConfigCache {
     get(key: string): Promise<string | null>;
     set(
@@ -35,42 +31,6 @@ export interface SiteConfigCache {
     ): Promise<unknown>;
 }
 
-/**
- * Site-level configuration loaded from `.puter_site_config` at the site root.
- * Lets a hosted site customize how the server responds for it — currently
- * limited to error-page mapping (e.g. SPA fallback that serves `/index.html`
- * for any 404 with a 200 status).
- *
- * The on-disk JSON shape:
- *
- * { "errors": { "404": { "file": "/index.html", "status": 200 } } }
- *
- * Other static-hosting platforms (Vercel `vercel.json`, Netlify/Amplify
- * `_redirects`, nginx `error_page`) express the same idea with different
- * syntax. The internal `SiteConfig` is intentionally narrow so additional
- * parsers can normalize to it without churning the consumer in `puterSite.ts` —
- * see `SITE_CONFIG_FILENAMES` for the lookup list.
- *
- * Security posture (every input here originates from a user-uploaded file
- * served on the open internet):
- *
- * - The on-disk file is size-capped before parse (`MAX_CONFIG_BYTES`),
- * - JSON parsing is wrapped in try/catch — a malformed file silently falls back
- *   to default behavior, never 5xx,
- * - Every `file` value is normalized as if it were a URL path: it must start with
- *   `/`, gets `pathPosix.normalize`d so `..` is collapsed, and is re-anchored
- *   under the site root before any FS lookup,
- * - Status codes are clamped to a strict allow-list (the request side only
- *   honours 4xx/5xx error keys; the response side validates the `status` is a
- *   legitimate HTTP integer),
- * - The config file itself is hidden from public serving by the caller
- *   (`isSiteConfigPath`) — same status/body as any other missing path, no
- *   separate 403 that would leak its existence.
- *
- * Loop safety is the consumer's responsibility: when serving an error page, do
- * NOT re-consult `errors` if the error page itself is missing, otherwise a
- * misconfigured site could spin a 404→404→404 cycle.
- */
 export interface SiteErrorRule {
     /** Absolute path under the site root (e.g. `/index.html`). */
     file: string;
@@ -78,39 +38,32 @@ export interface SiteErrorRule {
     status: number;
 }
 
+/**
+ * Per-site config from `.puter_site_config` at the site root, e.g. `{ "errors":
+ * { "404": { "file": "/index.html", "status": 200 } } }`. Every value comes
+ * from a user-uploaded file; the parser validates it before it reaches this
+ * shape. When serving an error page the consumer must not consult `errors`
+ * again if that page is missing, or a misconfigured site loops.
+ */
 export interface SiteConfig {
-    /** Map of HTTP status code → custom error rule. Keys are 4xx/5xx. */
+    /** HTTP status code (4xx/5xx) → error rule. */
     errors: Record<number, SiteErrorRule>;
 }
 
 const MAX_CONFIG_BYTES = 64 * 1024;
 
-// Cache key prefix is distinct from `subdomains:` (SubdomainStore) and
-// other Redis users — keep this in sync if you rename, otherwise stale
-// entries from prior deploys could be read back as configs.
 const CACHE_KEY_PREFIX = 'puter-site-config:';
 const CACHE_TTL_SECONDS = 60;
-// Sentinel for "we looked, the site has no config" so repeated visits
-// to a config-less site don't keep round-tripping S3 to confirm.
+// Cached "site has no config" so config-less sites don't re-read storage.
 const NEGATIVE_CACHE_MARKER = '__none__';
 
-/**
- * Filenames consulted at the site root, in priority order. First file that
- * parses to a non-empty config wins. Extending this list to add Vercel /
- * Netlify / nginx adapters is the entrypoint for multi-format support — each
- * parser receives the raw text and returns a normalized `SiteConfig` (or null
- * if the file isn't valid in that format).
- */
+/** Filenames consulted at the site root, in priority order. */
 const SITE_CONFIG_FILENAMES: ReadonlyArray<{
     name: string;
     parse: (text: string) => SiteConfig | null;
 }> = [{ name: '.puter_site_config', parse: parsePuterSiteConfig }];
 
-/**
- * Returns true if `urlPath` (already normalized to start with `/`) names the
- * site config file. Used by `puterSite.ts` to suppress direct serving so the
- * deployment shape isn't leaked to visitors.
- */
+/** Whether `urlPath` names a config file, which is never served publicly. */
 export function isSiteConfigPath(urlPath: string): boolean {
     const base = pathPosix.basename(urlPath);
     return SITE_CONFIG_FILENAMES.some((f) => f.name === base);
@@ -119,12 +72,7 @@ export function isSiteConfigPath(urlPath: string): boolean {
 interface LoadSiteConfigArgs {
     /** Absolute site root path (e.g. `/<username>/Public`). */
     rootPath: string;
-    /**
-     * Stable identifier for the site root, used as the cache key. We key on
-     * `rootDirId` (not the subdomain) so that renaming a subdomain — or
-     * pointing multiple subdomains at the same directory — neither orphans nor
-     * duplicates the cached entry.
-     */
+    /** Cache key; the directory rather than the subdomain, which can be renamed. */
     rootDirId: number;
     fsEntryStore: {
         getEntryByPath: (path: string) => Promise<FSEntry | null>;
@@ -138,21 +86,14 @@ interface LoadSiteConfigArgs {
             contentLength: number | null;
         }>;
     };
-    /**
-     * Optional Redis cache. When omitted, every request re-reads the config
-     * from S3 — fine for tests, slow for prod. Cache failures are swallowed
-     * (best-effort): a transient Redis blip just falls through to the live
-     * read, never errors the request.
-     */
+    /** Best-effort; cache failures fall through to a live read. */
     cache?: SiteConfigCache;
 }
 
 /**
- * Locate and parse the site config. Returns null when no config file exists,
- * the file is unreadable, oversized, or fails validation — callers must treat
- * null as "behave like there is no config" and never raise the error to the
- * visitor. Errors are logged for the operator but never surfaced to the
- * request.
+ * Locate and parse the site config. Null when there is none or it is
+ * unreadable, oversized, or invalid; errors are logged, never surfaced to the
+ * visitor.
  */
 export async function loadSiteConfig(
     args: LoadSiteConfigArgs,

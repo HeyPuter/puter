@@ -19,7 +19,7 @@
 
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import { userRelatedActor, type Actor } from '../../core/actor';
+import { makeActor, userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
@@ -38,7 +38,10 @@ import {
     maskEntryPath,
     resolveSharePath,
 } from '../fs/sharePathMask';
-import { assertActorHasSubscription } from '../metering/enforcement.js';
+import {
+    actorHasSubscription,
+    assertActorHasSubscription,
+} from '../metering/enforcement.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types';
@@ -1741,6 +1744,12 @@ export class ShareService extends PuterService {
                 this.#liveGroupGrants(rows, nodeById),
             ]);
 
+        // Link rows are the caller's own (owner-only by construction), so one
+        // answer covers them all; only asked when there is one to show.
+        const linkCovered = rows.some((row) => row.anyone)
+            ? await this.#linkSharingCovered(actor)
+            : true;
+
         const items: ResolvedShare[] = [];
         for (const row of rows) {
             const entry = entries.get(Number(row.fsentry_id));
@@ -1754,8 +1763,10 @@ export class ShareService extends PuterService {
             if (pending && !pendingAllowed.has(row.uid)) continue;
             // Its liveness is the grant, not a holder's reach.
             if (anyone) {
-                // Owner-only by construction; a node that changed hands had
-                // its rows dropped, so this only catches a row that slipped.
+                // Silent while the plan is lapsed, so not listed either.
+                if (!linkCovered) continue;
+                // A node that changed hands had its rows dropped, so this only
+                // catches a row that slipped.
                 if (entry.userId !== Number(row.issuer_user_id)) continue;
             } else if (row.holder_group_id) {
                 if (!liveGroupGrants.has(row.uid)) continue;
@@ -2093,12 +2104,18 @@ export class ShareService extends PuterService {
                 ),
             )
         ).flat();
-        // And so can anyone with the link to a folder above it.
-        const anyoneRows: OutboundShareRow[] =
+        // And so can anyone with the link to a folder above it — while the
+        // owner's plan covers it. A link the ACL turns away is not a share the
+        // owner should see listed as one; it is silent, and stays silent until
+        // the plan is back.
+        let anyoneRows: OutboundShareRow[] =
             await this.stores.share.listAnyoneOnFsentries([
                 entry.id,
                 ...viaById.keys(),
             ]);
+        if (anyoneRows.length > 0 && !(await this.#linkSharingCovered(entry))) {
+            anyoneRows = [];
+        }
         const userIds = [
             ...[...rows, ...inherited.map((i) => i.row)].flatMap(
                 (row: { issuer_user_id: number; holder_user_id: number }) => [
@@ -2219,8 +2236,10 @@ export class ShareService extends PuterService {
         );
         if (own.length === 0) return new Map();
 
+        // A link share nobody can use must not badge the item as shared.
         const sharedIds = await this.stores.share.getSharedFsentryIds(
             own.map((entry) => entry.id),
+            { includeAnyone: await this.#linkSharingCovered(actor) },
         );
         return new Map(
             own.map((entry) => [entry.uuid, sharedIds.has(entry.id)]),
@@ -2598,6 +2617,28 @@ export class ShareService extends PuterService {
             await releaseQuota?.();
             throw err;
         }
+    }
+
+    /**
+     * Whether link shares on this owner's items work right now — the ACL's
+     * question, asked here so no listing shows a link the ACL would turn away.
+     * Takes the owner's actor, or the entry to look the owner up from.
+     */
+    async #linkSharingCovered(owner: Actor | FSEntry): Promise<boolean> {
+        let actor: Actor | undefined;
+        if ('user' in owner) {
+            actor = owner;
+        } else {
+            const row = await this.stores.user.getById(owner.userId);
+            if (!row) return false;
+            actor = makeActor({ user: row });
+        }
+        return actorHasSubscription(
+            this.services.metering,
+            actor,
+            true,
+            this.config,
+        );
     }
 
     /** Link sharing is the owner's call, on and off alike. */

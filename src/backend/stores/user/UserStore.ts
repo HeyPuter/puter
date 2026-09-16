@@ -54,11 +54,7 @@ export interface UserRow {
     reputation?: number;
     /** E.164 phone number collected during SMS verification. */
     phone?: string | null;
-    /**
-     * The account's own referral code — unique across accounts, shareable, and
-     * minted on demand rather than at signup, so accounts that never look at
-     * theirs never get one. Null for every account that hasn't asked.
-     */
+    /** Minted on demand, so null until the account asks for one. */
     referral_code?: string | null;
     /** `user.id` of the account whose referral code this one signed up with. */
     referred_by?: number | null;
@@ -67,22 +63,15 @@ export interface UserRow {
     /** True while the account must complete credit-card verification before use. */
     requires_card_verification?: boolean;
     /**
-     * 1 while the account still holds a password its team administrator issued;
-     * enforced by `assertVerifiedAccount` and cleared only by the account
-     * choosing its own. Unlike the other `requires_*` flags this is a numeric
-     * column on every dialect, so it is not normalized to a boolean.
+     * 1 while the account holds an admin-issued password. Numeric on every
+     * dialect, so not normalized.
      */
     requires_password_change?: number;
-    /**
-     * Unix seconds after which the administrator-issued password stops
-     * authenticating. Null for every password the account chose itself.
-     */
+    /** Unix seconds after which an admin-issued password stops authenticating. */
     temp_password_expires_at?: number | string | null;
     /**
-     * Payment-provider fingerprint of the card this account verified with —
-     * stable per card, written only on a successful check. Its presence is what
-     * "this account verified a card" reads off; null for accounts that never
-     * did.
+     * Stable per card, written only on a successful check; its presence means
+     * "verified a card".
      */
     card_fingerprint?: string | null;
     /**
