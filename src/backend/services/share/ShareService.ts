@@ -38,6 +38,7 @@ import {
     maskEntryPath,
     resolveSharePath,
 } from '../fs/sharePathMask';
+import { assertActorHasSubscription } from '../metering/enforcement.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types';
@@ -54,6 +55,8 @@ export interface ShareRecipient {
     username?: string;
     team?: string;
     teamHandle?: string;
+    /** Anyone with the link: every signed-in account that can name the item. */
+    anyone?: boolean;
 }
 
 export interface ShareTarget {
@@ -80,6 +83,8 @@ interface OutboundShareRow extends Omit<ShareIndexRow, 'holder_user_id'> {
     holder_user_id: number | null;
     /** Set instead of `holder_user_id` when the holder is a team. */
     holder_group_id?: number | null;
+    /** 1 on a link share, which has no holder of any kind; NULL otherwise. */
+    anyone?: number | null;
     recipient_email?: string;
 }
 
@@ -171,6 +176,11 @@ export interface ResolvedShare {
     pending?: boolean;
     /** Address the invite was aimed at. Set only when `pending`. */
     recipientEmail?: string;
+    /**
+     * Anyone with the link: no holder, every signed-in account that names the
+     * item reaches it — while the owner's plan covers link sharing.
+     */
+    anyone?: true;
 }
 
 const SHAREABLE_MODES: ReadonlySet<string> = new Set([
@@ -180,6 +190,9 @@ const SHAREABLE_MODES: ReadonlySet<string> = new Set([
     'write',
     'manage',
 ]);
+
+/** What a link share may grant: access to the item, never authority over it. */
+const ANYONE_MODES: ReadonlySet<string> = new Set(['read', 'write']);
 
 /**
  * Every permission a share of one node can rest on. `manage` is spelled with
@@ -881,6 +894,9 @@ export class ShareService extends PuterService {
         await this.#assertCanManage(actor, entry, mode);
         const resolved = await this.#resolveRecipient(input.recipient);
 
+        if (resolved.kind === 'anyone') {
+            return this.#shareWithAnyone(actor, issuerId, entry, mode);
+        }
         if (resolved.kind === 'pending') {
             return this.#invite(actor, issuerId, entry, resolved.email, mode);
         }
@@ -1240,6 +1256,12 @@ export class ShareService extends PuterService {
             this.#resolveRecipient(input.recipient),
         ]);
 
+        if (resolved.kind === 'anyone') {
+            await this.#assertCanManage(actor, entry);
+            this.#assertOwnsLinkShare(entry, issuerId);
+            const removed = await this.stores.share.deleteAnyone(entry.id);
+            return { revoked: removed ? 1 : 0 };
+        }
         // Nothing was granted, so there is only the invitation to take back.
         if (resolved.kind === 'pending') {
             await this.#assertCanManage(actor, entry);
@@ -1766,9 +1788,13 @@ export class ShareService extends PuterService {
             await Promise.all([
                 this.#reachingGrants(rows, nodeById),
                 this.#pendingStillAuthorized(
-                    // Group rows have no holder user but are not invites.
+                    // Group and link rows have no holder user but are not
+                    // invites.
                     rows.filter(
-                        (row) => !row.holder_user_id && !row.holder_group_id,
+                        (row) =>
+                            !row.holder_user_id &&
+                            !row.holder_group_id &&
+                            !row.anyone,
                     ),
                     nodeById,
                     users,
@@ -1782,11 +1808,18 @@ export class ShareService extends PuterService {
             const entry = entries.get(Number(row.fsentry_id));
             if (!entry) continue;
             if (!reachable.has(entry.uuid)) continue;
-            // A group row has no holder user either, and is not an invite.
-            const pending = !row.holder_user_id && !row.holder_group_id;
+            // Group and link rows have no holder user either, and are not
+            // invites.
+            const anyone = Boolean(row.anyone);
+            const pending =
+                !anyone && !row.holder_user_id && !row.holder_group_id;
             if (pending && !pendingAllowed.has(row.uid)) continue;
             // Its liveness is the grant, not a holder's reach.
-            if (row.holder_group_id) {
+            if (anyone) {
+                // Owner-only by construction; a node that changed hands had
+                // its rows dropped, so this only catches a row that slipped.
+                if (entry.userId !== Number(row.issuer_user_id)) continue;
+            } else if (row.holder_group_id) {
                 if (!liveGroupGrants.has(row.uid)) continue;
             } else if (
                 !pending &&
@@ -1926,6 +1959,15 @@ export class ShareService extends PuterService {
             throw notFound();
         }
         if (!(await this.#hasOwnReach(actor, entry, 'see'))) throw notFound();
+
+        // A link share has no holder to address, and only the owner may take
+        // it back — the same bound as setting it.
+        if (row.anyone) {
+            await this.#assertCanManage(actor, entry);
+            this.#assertOwnsLinkShare(entry, userId);
+            const removed = await this.stores.share.deleteAnyone(entry.id);
+            return { revoked: removed ? 1 : 0 };
+        }
 
         // Not an invite: deleting the row alone leaves every member's access.
         if (row.holder_group_id) {
@@ -2113,6 +2155,12 @@ export class ShareService extends PuterService {
                 ),
             )
         ).flat();
+        // And so can anyone with the link to a folder above it.
+        const anyoneRows: OutboundShareRow[] =
+            await this.stores.share.listAnyoneOnFsentries([
+                entry.id,
+                ...viaById.keys(),
+            ]);
         const userIds = [
             ...[...rows, ...inherited.map((i) => i.row)].flatMap(
                 (row: { issuer_user_id: number; holder_user_id: number }) => [
@@ -2126,6 +2174,7 @@ export class ShareService extends PuterService {
             ...groupRows.map((row: { issuer_user_id: number }) =>
                 Number(row.issuer_user_id),
             ),
+            ...anyoneRows.map((row) => Number(row.issuer_user_id)),
         ];
         const users = await this.stores.user.getByIds(userIds);
         const maskedPath = maskEntryPath(entry);
@@ -2203,7 +2252,19 @@ export class ShareService extends PuterService {
                 });
             });
 
-        return inheritedShares.concat(own, groups, pending);
+        // The link share itself: a row on this node, or inherited from a
+        // folder above, published against the queried node like the rest.
+        const anyone: ResolvedShare[] = anyoneRows.map((row) =>
+            this.#resolvedShareRow(row, entry, users, {
+                path: maskedPath,
+                via:
+                    Number(row.fsentry_id) === entry.id
+                        ? null
+                        : viaById.get(Number(row.fsentry_id)),
+            }),
+        );
+
+        return inheritedShares.concat(own, groups, anyone, pending);
     }
 
     /** Whether each of the caller's own `entries` is shared, keyed by uuid. */
@@ -2553,6 +2614,68 @@ export class ShareService extends PuterService {
         return perms.flat().length > 0;
     }
 
+    /**
+     * Anyone with the link: one row on the node, no holder and no permission
+     * row. ACLService honours it directly, and only while the owner's plan
+     * covers link sharing — which is why the plan is checked here as well: a
+     * lapsed plan silences an existing link, and a free account never gets to
+     * mint one. Owner-only, since it opens the node to every account, a say a
+     * `manage` delegate was never given.
+     */
+    async #shareWithAnyone(
+        actor: Actor,
+        issuerId: number,
+        entry: FSEntry,
+        mode: AclMode,
+    ): Promise<ResolvedShare> {
+        if (!ANYONE_MODES.has(mode)) {
+            throw new HttpError(
+                400,
+                'Anyone with the link can be given read or write access',
+                { legacyCode: 'invalid_mode' },
+            );
+        }
+        this.#assertOwnsLinkShare(entry, issuerId);
+        await assertActorHasSubscription(
+            this.services.metering,
+            actor,
+            true,
+            this.config,
+        );
+
+        // Moving an existing link to another mode is not new reach.
+        const existing = await this.stores.share.getAnyone(entry.id);
+        const releaseQuota = existing
+            ? null
+            : await this.#reserveDailyQuota(issuerId);
+        try {
+            const row = await this.stores.share.upsertAnyone({
+                issuerUserId: issuerId,
+                fsentryId: entry.id,
+                mode,
+                issuerAppUid: this.#actingAppUid(actor),
+            });
+            return {
+                ...this.#resolve(row, entry, actor, { username: null }),
+                anyone: true,
+                isNew: !existing,
+            };
+        } catch (err) {
+            await releaseQuota?.();
+            throw err;
+        }
+    }
+
+    /** Link sharing is the owner's call, on and off alike. */
+    #assertOwnsLinkShare(entry: FSEntry, userId: number): void {
+        if (entry.userId === userId) return;
+        throw new HttpError(
+            403,
+            'Only the owner can share with anyone with the link',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
     /** One grant, resolved per member at scan time; one unit of quota. */
     async #shareWithTeam(
         actor: Actor,
@@ -2820,12 +2943,14 @@ export class ShareService extends PuterService {
             path?: string;
         } = {},
     ): ResolvedShare {
-        // A group row has no holder user and is not an invite.
-        const pending = !row.holder_user_id && !row.holder_group_id;
+        // Group and link rows have no holder user and are not invites.
+        const anyone = Boolean(row.anyone);
+        const pending = !anyone && !row.holder_user_id && !row.holder_group_id;
         return {
             uid: String(row.uid),
             mode: String(row.mode),
             path: opts.path ?? maskEntryPath(entry),
+            ...(anyone ? { anyone: true as const } : {}),
             ...(opts.entryMeta
                 ? {
                       name: entry.name,
@@ -3054,7 +3179,9 @@ export class ShareService extends PuterService {
         | { kind: 'user'; user: UserRow }
         | { kind: 'pending'; email: string }
         | { kind: 'team'; team: TeamRow }
+        | { kind: 'anyone' }
     > {
+        if (recipient?.anyone === true) return { kind: 'anyone' };
         // Before email and username, and never falling through to them.
         const team = await this.#resolveTeamRecipient(recipient);
         if (team) return { kind: 'team', team };

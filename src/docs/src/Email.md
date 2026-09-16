@@ -8,7 +8,7 @@ platforms: [websites, apps, nodejs, workers]
 
 The Puter.js Email API lets your app send **transactional email**: mail your app sends to a person because of something they did — a signup confirmation, a receipt, a password reset, an alert. It is not a mailing-list tool: a message reaches at most ten recipients, and every recipient can opt out of your app's mail with one click.
 
-Mail goes out from a Puter-controlled address labelled with your app's title, for example `"My App" <my-app-no-reply@apps.puter.email>`, so you never set up a mail server, a sending domain, or DKIM. Replies go to your account email unless you say otherwise.
+Mail goes out from a Puter-controlled address labelled with your app's title, for example `"My App" <my-app-no-reply@apps.puter.email>`, so you never set up a mail server, a sending domain, or DKIM. Replies go to your account email unless you say otherwise. A recipient with a Puter account can be reached at `<username>@puter.email`: that copy is filed straight into their Puter mailbox rather than relayed, on any plan, as long as they have set their mailbox up.
 
 ## How sending works
 

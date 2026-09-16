@@ -42,7 +42,9 @@ const SHARED_IDS_CHUNK_SIZE = 1000;
  * to an email that has no account yet; claiming it fills in the holder rather
  * than deleting the row, so the share stays queryable afterwards.
  *
- * Permissions remain the source of truth for access. This is the index.
+ * Permissions remain the source of truth for access. This is the index — with
+ * one exception: a row with `anyone` = 1 ("anyone with the link") has no holder
+ * and no permission behind it, and is itself what the ACL reads.
  */
 export class ShareStore extends PuterStore {
     // -- Reads --------------------------------------------------------
@@ -495,8 +497,8 @@ export class ShareStore extends PuterStore {
      * the node needs to see who has been asked but has not arrived.
      *
      * A team share also has no `holder_user_id` -- its holder is the group --
-     * so both columns are checked, or every team share is listed here as an
-     * invite to a blank address.
+     * and a link share has none at all, so all three are checked, or those are
+     * listed here as invites to a blank address.
      *
      * @param {number} fsentryId
      */
@@ -504,7 +506,7 @@ export class ShareStore extends PuterStore {
         const rows = await this.clients.db.read(
             'SELECT * FROM `share` WHERE `fsentry_id` = ? AND ' +
                 '`holder_user_id` IS NULL AND `holder_group_id` IS NULL ' +
-                'ORDER BY `id`',
+                'AND `anyone` IS NULL ORDER BY `id`',
             [fsentryId],
         );
         return rows.map((r) => this.#normalizeRow(r));
@@ -846,10 +848,11 @@ export class ShareStore extends PuterStore {
             this.#subtreeCte() +
                 'SELECT `share`.`uid` FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
-                // Group rows also have no holder user; deleting one here would
-                // drop the index row and leave its grant standing.
+                // Group and link rows also have no holder user; deleting one
+                // here would drop the index row and leave its grant standing.
                 'WHERE `share`.`holder_user_id` IS NULL AND ' +
                 '`share`.`holder_group_id` IS NULL AND ' +
+                '`share`.`anyone` IS NULL AND ' +
                 '`share`.`issuer_user_id` = ?',
             [fsentryId, issuerUserId],
         );
@@ -874,6 +877,126 @@ export class ShareStore extends PuterStore {
         const result = await this.clients.db.write(
             'DELETE FROM `share` WHERE `recipient_email` = ?',
             [email],
+        );
+        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+    }
+
+    // -- Anyone with the link -----------------------------------------
+    //
+    // One row per node with `anyone` = 1 and no holder of any kind. Unlike
+    // every other row here it is not an index over a permission: nothing in
+    // the permission tables stands behind it, and ACLService reads it directly.
+
+    /**
+     * The link share on one node, if any.
+     *
+     * @param {number} fsentryId
+     */
+    async getAnyone(fsentryId) {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1',
+            [fsentryId],
+        );
+        return this.#normalizeRow(rows[0]) ?? null;
+    }
+
+    /**
+     * Link shares on any of `fsentryIds` — a node plus its ancestors.
+     *
+     * @param {number[]} fsentryIds
+     */
+    async listAnyoneOnFsentries(fsentryIds) {
+        if (fsentryIds.length === 0) return [];
+        const placeholders = fsentryIds.map(() => '?').join(', ');
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
+                'AND `anyone` = 1 ORDER BY `id`',
+            fsentryIds,
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Link shares reaching any of `uuids`, with who owns each node. The ACL
+     * knows an entry's ancestors by uuid rather than row id, so the join is
+     * done here instead of asking it to resolve them first.
+     *
+     * @param {string[]} uuids
+     * @returns {Promise<
+     *     { mode: string; entryUuid: string; ownerUserId: number }[]
+     * >}
+     */
+    async listAnyoneReaching(uuids) {
+        if (uuids.length === 0) return [];
+        const placeholders = uuids.map(() => '?').join(', ');
+        const rows = await this.clients.db.read(
+            'SELECT `share`.`mode`, `fsentries`.`uuid` AS `entry_uuid`, ' +
+                '`fsentries`.`user_id` AS `owner_user_id` FROM `share` ' +
+                'JOIN `fsentries` ON `fsentries`.`id` = `share`.`fsentry_id` ' +
+                `WHERE \`fsentries\`.\`uuid\` IN (${placeholders}) ` +
+                'AND `share`.`anyone` = 1',
+            uuids,
+        );
+        return rows.map((row) => ({
+            mode: String(row.mode),
+            entryUuid: String(row.entry_uuid),
+            ownerUserId: Number(row.owner_user_id),
+        }));
+    }
+
+    /**
+     * Record a link share, or move the node's existing one to a new mode. One
+     * statement on the (fsentry, anyone) key, so two owners' sessions setting
+     * it at once settle on one row.
+     *
+     * @param {object} input
+     * @param {number} input.issuerUserId
+     * @param {number} input.fsentryId
+     * @param {string} input.mode
+     * @param {string | null} [input.issuerAppUid]
+     */
+    async upsertAnyone({ issuerUserId, fsentryId, mode, issuerAppUid = null }) {
+        if (!issuerUserId || !fsentryId || !mode) {
+            throw new Error(
+                'upsertAnyone: issuerUserId, fsentryId and mode are required',
+            );
+        }
+        const data = JSON.stringify(
+            issuerAppUid ? { issuedByApp: issuerAppUid } : {},
+        );
+        await this.clients.db.write(
+            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
+                '`fsentry_id`, `anyone`, `mode`, `data`, `applied_at`) ' +
+                'VALUES (?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP) ' +
+                this.clients.db.upsertClause(
+                    ['fsentry_id', 'anyone'],
+                    ['mode', 'data', 'issuer_user_id'],
+                ),
+            [
+                uuidv4(),
+                issuerUserId,
+                // NOT NULL since `0067`; nobody in particular has an address.
+                '',
+                fsentryId,
+                mode,
+                data,
+                mode,
+                data,
+                issuerUserId,
+            ],
+        );
+        return this.getAnyone(fsentryId);
+    }
+
+    /**
+     * Drop the link share on one node.
+     *
+     * @param {number} fsentryId
+     */
+    async deleteAnyone(fsentryId) {
+        const result = await this.clients.db.write(
+            'DELETE FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1',
+            [fsentryId],
         );
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }

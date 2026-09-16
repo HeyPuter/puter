@@ -21,10 +21,14 @@ import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
 import type { Actor } from '../../core/actor';
-import { isSystemActor } from '../../core/actor';
+import { isSystemActor, makeActor } from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    subscriptionEnforcementEnabled,
+    subscriptionSatisfies,
+} from '../metering/enforcement';
 
 // -- Types ------------------------------------------------------------
 
@@ -46,11 +50,7 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    | 'see'
-    | 'list'
-    | 'read'
-    | 'write'
-    | typeof MANAGE_PERM_PREFIX;
+    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -230,7 +230,56 @@ export class ACLService extends PuterService {
             if (options.length > 0) return true;
         }
 
-        return false;
+        // Last: a link share on the node or a folder above it. Nothing in the
+        // permission tables stands behind one, so it is read on its own.
+        return this.#anyoneWithLinkAllows(actor, ancestors, mode);
+    }
+
+    /**
+     * "Anyone with the link": the owner switched the node open to every
+     * signed-in account, at `read` or `write`. Honoured only while the owner's
+     * plan covers link sharing, so a lapsed plan silences the link without
+     * anyone having to find and withdraw it; a deployment with no plan gates
+     * honours it outright.
+     */
+    async #anyoneWithLinkAllows(
+        actor: Actor,
+        ancestors: ReadonlyArray<{ uid: string }>,
+        mode: AclMode,
+    ): Promise<boolean> {
+        // Authority over the node is never handed out this way, and there has
+        // to be an account on the other end for "anyone" to mean someone.
+        if (mode === MANAGE_PERM_PREFIX) return false;
+        if (typeof actor.user?.id !== 'number') return false;
+        if (ancestors.length === 0) return false;
+
+        const links = await this.stores.share.listAnyoneReaching(
+            ancestors.map((ancestor) => ancestor.uid),
+        );
+        const covering = links.find((link) =>
+            MODES_ABOVE[mode].some((above) => above === link.mode),
+        );
+        if (!covering) return false;
+        return this.#planCoversLinkSharing(covering.ownerUserId);
+    }
+
+    /**
+     * Whether the owner is on a plan that includes link sharing — the same
+     * question `ShareService` asks when the link is made, asked again on each
+     * use. Answered from the metering service's per-actor cache, so it costs a
+     * map lookup once warm.
+     */
+    async #planCoversLinkSharing(ownerUserId: number): Promise<boolean> {
+        const metering = this.services.metering;
+        if (!metering || !subscriptionEnforcementEnabled(this.config)) {
+            return true;
+        }
+        const owner = await this.stores.user.getById(ownerUserId);
+        if (!owner?.uuid) return false;
+        const subscription = await metering.getActorSubscription(
+            makeActor({ user: owner }),
+        );
+        return subscriptionSatisfies(subscription.id, true);
     }
 
     /**

@@ -58,7 +58,8 @@ const LOOKUP_TIMEOUT_MS = 10000;
  *   used for display, never as the grant target.
  * @param {string} [options.origin] - Origin of the requesting site (popup flow).
  * @param {boolean|'dir'|'file'} [options.create] - Create the fs path if it
- *   does not exist, after the user approves. Forwarded to the grant only.
+ *   does not exist, after the user approves. Defaults to `true`; `false` opts
+ *   out. Forwarded to the grant only.
  * @returns {Promise<boolean>} `true` only if the permission was granted.
  */
 async function UIPermissionDialog (options) {
@@ -74,8 +75,13 @@ async function UIPermissionDialog (options) {
         return false;
     }
     // Sorted so two requests for the same set share one in-flight prompt
-    // regardless of the order the caller listed them in.
-    options = { ...options, permissions: [...permissions].sort() };
+    // regardless of the order the caller listed them in. `create` is resolved
+    // here so the pending key, the dialog body and the grant all see one value.
+    options = {
+        ...options,
+        permissions: [...permissions].sort(),
+        create: options.create ?? true,
+    };
 
     // Never prompt the user on behalf of a requester the grant can't name.
     // Only `app_uid` and `origin` are sent to /auth/grant-user-app, so an
@@ -278,9 +284,9 @@ async function show_permission_dialog (options) {
                         // can't survive a rejected scope — and the
                         // uncertain-commit handling below stays single-flight.
                         permissions: options.permissions,
-                        // Omitted rather than sent `false`/`undefined`, so the
-                        // request shape is unchanged for every existing caller.
-                        ...(options.create ? { create: options.create } : {}),
+                        // Always sent, so an explicit `false` reaches the
+                        // server instead of falling back to its default.
+                        create: options.create,
                     }),
                     method: 'POST',
                     ...(controller ? { signal: controller.signal } : {}),

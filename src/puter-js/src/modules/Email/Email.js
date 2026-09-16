@@ -4,20 +4,7 @@ import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
 import * as utils from '../../lib/utils.js';
 import { compose } from './ComposerLib.js';
 
-/**
- * One attachment: either inline base64 `content`, or a Puter FS reference
- * (`path`/`uid`) read server-side with the caller's — falling back to the
- * authorizing worker's — file permissions. FS references are streamed from
- * storage and never travel through the request, so prefer them for anything
- * larger than a few hundred kilobytes.
- *
- * @typedef {Object} EmailAttachment
- * @property {string} [filename] Required with `content`; defaults to the file's name for FS refs.
- * @property {string} [content] Base64 file body. Mutually exclusive with `path`/`uid`.
- * @property {string} [path] Puter FS path (supports `~/`). Mutually exclusive with `content`.
- * @property {string} [uid] Puter FS entry uid. Mutually exclusive with `content`.
- * @property {string} [contentType] MIME type of the attachment.
- */
+/** @typedef {import('./types.js').EmailAttachment} EmailAttachment */
 
 /**
  * The options form of `sendTransactional()`.
@@ -29,7 +16,7 @@ import { compose } from './ComposerLib.js';
  * @property {string} [html] HTML body.
  * @property {string | string[]} [cc]
  * @property {string | string[]} [bcc]
- * @property {string} [replyTo]
+ * @property {string} [replyTo] Defaults to the confirmed account email of the app's owner.
  * @property {string} [emailAccessToken] A worker's auth token authorizing the send when the caller is
  * not itself a worker (inside a worker: `me.puter.authToken`). The caller stays the billed and
  * rate-limited identity.

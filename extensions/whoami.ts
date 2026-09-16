@@ -1,6 +1,9 @@
 import { Context } from '@heyputer/backend/src/core';
 import { extension } from '@heyputer/backend/src/extensions';
-import { isCardFallbackEligible } from '@heyputer/backend/src/util/cardFallback.js';
+import {
+    cardFallbackDepsFrom,
+    isCardFallbackEligible,
+} from '@heyputer/backend/src/util/cardFallback.js';
 import { APP_ICON_SIZES } from '@heyputer/backend/src/util/appIcon.js';
 import { getTaskbarItems } from '@heyputer/backend/src/util/taskbarItems.js';
 import type { Request, Response } from 'express';
@@ -170,19 +173,7 @@ export const handleWhoami = async (
                   extension.config,
                   user,
                   async (key) => (await stores.kv.get({ key })).res,
-                  {
-                      smsConfigured: () =>
-                          Boolean(clients.prelude?.isConfigured()),
-                      probeCardVerification: async () => {
-                          const status = { enabled: null as boolean | null };
-                          await clients.event?.emitAndWait(
-                              'puter.card-verification.status',
-                              status,
-                              {},
-                          );
-                          return status.enabled;
-                      },
-                  },
+                  cardFallbackDepsFrom(clients),
               )
             : false,
         desktop_bg_url: user.desktop_bg_url,

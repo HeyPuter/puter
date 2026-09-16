@@ -18,8 +18,13 @@
  */
 
 import type { Request, RequestHandler } from 'express';
+import {
+    isCardVerificationEnabled,
+    type CardFallbackDeps,
+} from '../../../util/cardFallback';
 import type { Actor } from '../../actor';
 import { HttpError } from '../HttpError';
+import type { AccountGateUser, VerificationFactor } from '../types';
 import { assertVerifiedEmail } from '../verifiedEmail';
 
 // Make sure the `Express.Request.actor` augmentation is in scope.
@@ -359,15 +364,7 @@ export const requireVerifiedAccount = (): RequestHandler => {
  * verification pending, so the first pending gate rejects.
  */
 export const assertVerifiedAccount = (
-    user:
-        | {
-              requires_email_confirmation?: unknown;
-              email_confirmed?: unknown;
-              requires_phone_verification?: unknown;
-              requires_card_verification?: unknown;
-              requires_password_change?: unknown;
-          }
-        | undefined,
+    user: AccountGateUser | undefined,
 ): void => {
     if (user?.requires_email_confirmation && !user?.email_confirmed) {
         throw new HttpError(403, 'Please confirm your email to continue', {
@@ -405,10 +402,10 @@ export const assertVerifiedAccount = (
 //
 // `requireVerifiedAccount` above is the default-on gate: it turns away an
 // account that is *pending* a verification the abuse harness asked of it, and
-// says nothing about accounts that were never asked. The two gates below are
-// the opt-in counterparts of `requireVerified` (email) for the other two
-// factors: they require the verification to have actually happened, whether or
-// not this account was ever flagged for it.
+// says nothing about accounts that were never asked. The gates below are the
+// opt-in counterparts of `requireVerified` (email) for the other two factors:
+// they require the verification to have actually happened, whether or not this
+// account was ever flagged for it.
 //
 // Neither factor has a boolean "verified" column — the pending flag is cleared
 // on success and the proof is the artifact left behind. `phone` is written only
@@ -418,17 +415,27 @@ export const assertVerifiedAccount = (
 // present is therefore the honest reading of "verified", and an account still
 // mid-flow fails on the flag rather than slipping through on a stale artifact.
 
+/** A verified number on file: both halves, see the note above. */
+export const hasVerifiedPhone = (user: AccountGateUser | undefined): boolean =>
+    Boolean(user?.phone) && !user?.requires_phone_verification;
+
+/** A verified card on file: both halves, see the note above. */
+export const hasVerifiedCard = (user: AccountGateUser | undefined): boolean =>
+    Boolean(user?.card_fingerprint) && !user?.requires_card_verification;
+
+const PHONE_REQUIRED_MESSAGE = 'Please verify your phone number to continue';
+const CARD_REQUIRED_MESSAGE = 'Please verify your card to continue';
+
 /**
  * Reject unless the user has a phone number verified on file. 403
  * `phone_verification_required`, the same code the pending-verification gate
  * uses, so a client that already prompts for the SMS flow prompts here too.
  */
 export const assertPhoneVerified = (
-    user:
-        { phone?: unknown; requires_phone_verification?: unknown } | undefined,
+    user: AccountGateUser | undefined,
 ): void => {
-    if (user?.phone && !user?.requires_phone_verification) return;
-    throw new HttpError(403, 'Please verify your phone number to continue', {
+    if (hasVerifiedPhone(user)) return;
+    throw new HttpError(403, PHONE_REQUIRED_MESSAGE, {
         legacyCode: 'phone_verification_required',
     });
 };
@@ -451,13 +458,9 @@ export const requirePhoneVerifiedGate = (): RequestHandler => {
  * `card_verification_required`, matching the pending-verification gate so the
  * client shows the card flow it already has.
  */
-export const assertCardVerified = (
-    user:
-        | { card_fingerprint?: unknown; requires_card_verification?: unknown }
-        | undefined,
-): void => {
-    if (user?.card_fingerprint && !user?.requires_card_verification) return;
-    throw new HttpError(403, 'Please verify your card to continue', {
+export const assertCardVerified = (user: AccountGateUser | undefined): void => {
+    if (hasVerifiedCard(user)) return;
+    throw new HttpError(403, CARD_REQUIRED_MESSAGE, {
         legacyCode: 'card_verification_required',
     });
 };
@@ -475,9 +478,77 @@ export const requireCardVerifiedGate = (): RequestHandler => {
     };
 };
 
-export const assertNotSuspended = (
-    user: { suspended?: unknown } | undefined,
-): void => {
+const isFactorVerified = (
+    factor: VerificationFactor,
+    user: AccountGateUser | undefined,
+): boolean =>
+    factor === 'phone' ? hasVerifiedPhone(user) : hasVerifiedCard(user);
+
+/**
+ * Whether this deployment can put a user through the factor's flow at all: SMS
+ * needs a provider configured, card needs an installed extension reporting the
+ * card gate on.
+ */
+const isFactorVerifiable = async (
+    factor: VerificationFactor,
+    deps: CardFallbackDeps,
+): Promise<boolean> =>
+    factor === 'phone'
+        ? deps.smsConfigured()
+        : (await isCardVerificationEnabled(deps)) === true;
+
+/**
+ * Reject unless the user has verified at least one of `factors` — the phone and
+ * card gates above joined by OR. A factor verified at any point counts,
+ * whatever the deployment can do today. Failing that, only the factors the
+ * deployment can currently verify are asked for; with none of them verifiable
+ * the gate is inert, so a self-hosted install without SMS or a card gate never
+ * has its route locked.
+ *
+ * 403 with the code of the first verifiable factor, in the order given (so a
+ * client leads with that flow), and `factors`, every verifiable one, so it can
+ * offer the rest as alternatives.
+ */
+export const assertAnyVerified = async (
+    user: AccountGateUser | undefined,
+    factors: readonly VerificationFactor[],
+    deps: CardFallbackDeps,
+): Promise<void> => {
+    if (factors.some((factor) => isFactorVerified(factor, user))) return;
+    const verifiable: VerificationFactor[] = [];
+    for (const factor of factors) {
+        if (verifiable.includes(factor)) continue;
+        if (await isFactorVerifiable(factor, deps)) verifiable.push(factor);
+    }
+    if (verifiable.length === 0) return;
+    const [lead] = verifiable;
+    throw new HttpError(
+        403,
+        lead === 'phone' ? PHONE_REQUIRED_MESSAGE : CARD_REQUIRED_MESSAGE,
+        {
+            legacyCode:
+                lead === 'phone'
+                    ? 'phone_verification_required'
+                    : 'card_verification_required',
+            fields: { factors: verifiable },
+        },
+    );
+};
+
+/** Route-option form of {@link assertAnyVerified} (`requireAnyVerified`). */
+export const requireAnyVerifiedGate = (
+    factors: readonly VerificationFactor[],
+    deps: CardFallbackDeps,
+): RequestHandler => {
+    return (req, _res, next) => {
+        assertAnyVerified(req.actor?.user, factors, deps).then(
+            () => next(),
+            (err) => next(err),
+        );
+    };
+};
+
+export const assertNotSuspended = (user: AccountGateUser | undefined): void => {
     if (user?.suspended) {
         throw new HttpError(403, 'Account suspended', {
             legacyCode: 'forbidden',

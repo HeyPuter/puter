@@ -8,10 +8,11 @@ import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
 /**
  * Normalizes recipients into the wire form. A bare string is read as an email
- * when it contains `@`, and as a username otherwise.
+ * when it contains `@`, and as a username otherwise. Teams and "anyone with
+ * the link" have no string form: those spellings already mean a person.
  *
  * @param {unknown} value
- * @returns {Array<{ email?: string, username?: string }>}
+ * @returns {Array<{ email?: string, username?: string, team?: string, teamHandle?: string, anyone?: true }>}
  */
 export const toShareRecipients = (value) => {
     const list = Array.isArray(value) ? value : [value];
@@ -26,7 +27,9 @@ export const toShareRecipients = (value) => {
             }
             const record = /** @type {Record<string, unknown>} */ (entry);
             // Object form only: a bare-string spelling would reinterpret
-            // strings that already mean something.
+            // strings that already mean something. The literal `true`, so a
+            // truthy stray field can't open an item to everyone.
+            if ( record.anyone === true ) return { anyone: true };
             return {
                 ...(record.email ? { email: String(record.email) } : {}),
                 ...(record.username ? { username: String(record.username) } : {}),
@@ -88,6 +91,8 @@ export const toShare = (row) => ({
         : {}),
     inheritedFrom: /** @type {string | null} */ (row.inherited_from ?? null),
     issuedByApp: /** @type {string | null} */ (row.issued_by_app ?? null),
+    // No holder of any kind: every signed-in account with the link.
+    ...(row.anyone === true ? { anyone: true } : {}),
     ...(row.status === 'pending' || row.pending === true
         ? {
             pending: true,

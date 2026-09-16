@@ -15,8 +15,8 @@ import {
  *
  * @param {Puter} puter
  * @param {string[]} permissions
- * @param {PermsCreateKind} [create] - Forwarded only when set, so the message
- *   is unchanged when nothing asked to create a path.
+ * @param {PermsCreateKind} [create] - Forwarded whenever set, `false`
+ *   included: the GUI creates by default, so an opt-out has to travel.
  * @returns {Promise<boolean>}
  */
 export async function requestPermissions (puter, permissions, create) {
@@ -25,7 +25,7 @@ export async function requestPermissions (puter, permissions, create) {
         ? { permission: permissions[0] }
         : { permissions };
     return await puter.ui.requestPermission(
-        create ? { ...options, create } : options,
+        create === undefined ? options : { ...options, create },
     );
 }
 

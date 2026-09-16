@@ -30,8 +30,11 @@ import {
     mark_item_shared,
 } from '../../helpers/sharedBadge.js';
 import { share_outcome } from '../../helpers/shareOutcome.js';
-import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
+import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
 import { team_label, teams_for_sharing } from '../../helpers/shareTeams.js';
+import { share_link_for } from '../../helpers/sharePaths.js';
+import { is_plan_gate_error, open_upgrade_flow } from '../../helpers/planGate.js';
+import { with_verification_gate } from '../../helpers/verification_gates.js';
 
 const { html_encode } = window;
 
@@ -180,6 +183,19 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                         </button>
                     </form>
                     <div class="share-modal-teams" hidden></div>
+                    ${allow_manage ? `<div class="share-modal-general">
+                        <h3 class="share-modal-heading">${i18n('share_general_access')}</h3>
+                        <div class="share-modal-general-row">
+                            <select class="share-modal-link-access" aria-label="${i18n('share_general_access')}">
+                                <option value="restricted">${i18n('share_link_restricted')}</option>
+                                <option value="anyone">${i18n('share_link_anyone')}</option>
+                                <option value="mixed" disabled hidden>${i18n('share_access_mixed')}</option>
+                            </select>
+                            <select class="share-modal-link-mode" aria-label="${i18n('share_access_level')}" hidden>${options_for('read', { allow_manage: false })}</select>
+                        </div>
+                        <p class="share-modal-general-note">${is_multi ? i18n('share_link_restricted_note_items') : i18n('share_link_restricted_note')}</p>
+                        ${is_multi ? '' : `<button type="button" class="share-modal-copy-link" hidden>${i18n('share_copy_link')}</button>`}
+                    </div>` : ''}
                     <div class="share-modal-status" role="status" aria-live="polite"></div>
                     <h3 class="share-modal-heading">${i18n('share_who_has_access')}</h3>
                     <div class="share-modal-list" aria-busy="true">
@@ -199,6 +215,15 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const $list = $overlay.find('.share-modal-list');
     const $recipient = $overlay.find('.share-modal-recipient');
     const $submit = $overlay.find('.share-modal-submit');
+    const $link_access = $overlay.find('.share-modal-link-access');
+    const $link_mode = $overlay.find('.share-modal-link-mode');
+    const $link_note = $overlay.find('.share-modal-general-note');
+    const $copy_link = $overlay.find('.share-modal-copy-link');
+
+    /** Where the selection stands on "anyone with the link", as last listed. */
+    let link_state = { access: 'restricted', mode: null };
+    /** The one item's uid, which its link is built on. Single item only. */
+    let single_uid = is_multi ? null : (targets[0].fsentry?.uid ?? null);
 
     // Focus returns to wherever the user was (usually the shared row) when
     // the modal closes. While it's up, the recipient input takes it on
@@ -414,7 +439,31 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             mark_item_shared(target, has_direct_share(shares));
         }
         render(aggregateShares(target_paths, by_path));
+        link_state = linkShareState(target_paths, by_path);
+        render_link_access();
         if ( failure ) show_error(i18n('share_load_partial_failed'));
+    };
+
+    // -- General access: people only, or anyone with the link --
+
+    /** Put the control where the listings say the selection stands. */
+    const render_link_access = () => {
+        if ( ! allow_manage ) return;
+        const { access, mode } = link_state;
+        $link_access.val(access);
+        $link_mode.prop('hidden', access !== 'anyone');
+        // `null` rests the mode on the "Mixed" placeholder, as the rows do.
+        if ( access === 'anyone' ) $link_mode.html(options_for(mode, { allow_manage: false }));
+        let note;
+        if ( access === 'mixed' ) {
+            note = i18n('share_link_mixed_note');
+        } else if ( access === 'anyone' ) {
+            note = i18n(`share_link_anyone_note_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`);
+        } else {
+            note = i18n(is_multi ? 'share_link_restricted_note_items' : 'share_link_restricted_note');
+        }
+        $link_note.html(note);
+        $copy_link.prop('hidden', ! (access === 'anyone' && single_uid));
     };
 
     // -- Dismissal wiring --
@@ -504,7 +553,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const grant_access = async (recipient, mode, paths) => {
         const created = [];
         for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
-            created.push(...(await puter.fs.share({ paths: run, recipient, mode }) ?? []));
+            created.push(...(await with_verification_gate(
+                () => puter.fs.share({ paths: run, recipient, mode }),
+            ) ?? []));
         }
         return created;
     };
@@ -514,6 +565,68 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             await puter.fs.unshare({ paths: run, recipient });
         }
     };
+
+    /** Open the selection to anyone with the link at `mode`, or close it with null. */
+    const set_link_access = async (mode) => {
+        $link_access.prop('disabled', true);
+        $link_mode.prop('disabled', true);
+        try {
+            if ( mode ) {
+                const created = await grant_access({ anyone: true }, mode, target_paths);
+                if ( ! is_multi ) single_uid ??= created?.[0]?.entryUid ?? null;
+                show_success(i18n(`share_link_on_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`));
+            } else {
+                await revoke_access({ anyone: true }, target_paths);
+                show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
+            }
+        } catch (err) {
+            // A plan gate gets the flow that clears it, where the deployment
+            // has one; a refusal is otherwise reported like any other.
+            if ( is_plan_gate_error(err) ) {
+                if ( ! open_upgrade_flow() ) show_error(i18n('share_link_requires_plan'));
+            } else {
+                show_error(error_html(err));
+            }
+        } finally {
+            $link_access.prop('disabled', false);
+            $link_mode.prop('disabled', false);
+        }
+        // The listings are the truth either way, and they put the control back.
+        invalidate_shared_roots();
+        await refresh();
+        focus_dialog();
+    };
+
+    $overlay.on('change', '.share-modal-link-access', function () {
+        const value = $(this).val();
+        if ( value === 'mixed' ) return;
+        set_link_access(value === 'anyone' ? ($link_mode.val() || 'read') : null);
+    });
+    $overlay.on('change', '.share-modal-link-mode', function () {
+        const mode = $(this).val();
+        if ( mode ) set_link_access(mode);
+    });
+    $overlay.on('click', '.share-modal-copy-link', async function () {
+        if ( ! single_uid ) return;
+        try {
+            await window.copy_to_clipboard(share_link_for(
+                { owner: targets[0].owner, uid: single_uid, name: targets[0].name },
+                window.gui_origin,
+            ));
+            show_success(i18n('share_link_copied'));
+        } catch (err) {
+            show_error(error_html(err));
+        }
+    });
+
+    // The uid the link is built on, when the row did not carry it.
+    if ( allow_manage && ! is_multi && ! single_uid ) {
+        puter.fs.stat(targets[0].path).then((stat) => {
+            if ( closed ) return;
+            single_uid = stat?.uid ?? null;
+            render_link_access();
+        }).catch(() => { /* the button just stays hidden */ });
+    }
 
     /** A team is named by uid; a person by the name the row already shows. */
     const recipient_of = (group) => (group.teamUid ? { team: group.teamUid } : group.name);
