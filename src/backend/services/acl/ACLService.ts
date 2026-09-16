@@ -25,10 +25,7 @@ import { isSystemActor, makeActor } from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { HttpError } from '../../core/http/HttpError.js';
-import {
-    subscriptionEnforcementEnabled,
-    subscriptionSatisfies,
-} from '../metering/enforcement';
+import { actorHasSubscription } from '../metering/enforcement';
 
 // -- Types ------------------------------------------------------------
 
@@ -274,16 +271,14 @@ export class ACLService extends PuterService {
      * map lookup once warm.
      */
     async #planCoversLinkSharing(ownerUserId: number): Promise<boolean> {
-        const metering = this.services.metering;
-        if (!metering || !subscriptionEnforcementEnabled(this.config)) {
-            return true;
-        }
         const owner = await this.stores.user.getById(ownerUserId);
-        if (!owner?.uuid) return false;
-        const subscription = await metering.getActorSubscription(
+        if (!owner) return false;
+        return actorHasSubscription(
+            this.services.metering,
             makeActor({ user: owner }),
+            true,
+            this.config,
         );
-        return subscriptionSatisfies(subscription.id, true);
     }
 
     /**

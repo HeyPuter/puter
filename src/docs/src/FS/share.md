@@ -117,7 +117,7 @@ await puter.fs.unshare('report.txt', { anyone: true });
 Three things set it apart from sharing with a person:
 
 - **It is the owner's call.** Someone holding `manage` on the item can share it with people, but not open it to everyone; they get `forbidden`.
-- **It is a paid-plan feature.** A free account is refused with `subscription_required`. The plan is checked again every time the link is used, so while the owner has no plan the link is silent — nobody has to find it and take it back — and it works again once they do.
+- **It is a paid-plan feature.** A free account is refused with `subscription_required`. The plan is checked again every time the link is used, so while the owner has no plan the link is silent — nobody has to find it and take it back — and it is not listed as a share by [`getShares()`](/FS/getShares/) or [`listSharedByMe()`](/FS/listSharedByMe/) either, since nobody can use it. The share itself is kept: once the owner is on a plan again the link works, and is listed, exactly as it was.
 - **Nobody is told.** No notification goes out, and the item does not appear in anyone's [`listShared()`](/FS/listShared/); whoever has the link opens it from the link.
 
 The share shows in [`getShares()`](/FS/getShares/) with `anyone: true` and a `null` `holder`. Sharing again with a different mode replaces it, as it does for a person.
