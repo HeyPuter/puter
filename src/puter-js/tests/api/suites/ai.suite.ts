@@ -902,6 +902,25 @@ export default suite('ai', {
         }
     },
 
+    'txt2vid rejects absent or invalid prompts consistently': async (t) => {
+        useApiToken(t);
+        for (const input of [undefined, null, {}, '', '   ', { prompt: 1 }]) {
+            const error = await errorOf(t, () => t.puter.ai.txt2vid(input));
+            t.assert.equal(error.code, 'prompt_required');
+        }
+    },
+
+    'txt2vid accepts frozen options without mutating aliases or paths': async (t) => {
+        useApiToken(t);
+        const options = Object.freeze({ duration: 4, puter_output_path: 'video.mp4' });
+        const positional = await errorOf(t, () => t.puter.ai.txt2vid('a landscape', options));
+        t.assert.equal(positional.code, 'internal_error');
+        const objectForm = await errorOf(t, () => t.puter.ai.txt2vid(Object.freeze({ ...options, prompt: 'a landscape' })));
+        t.assert.equal(objectForm.code, 'internal_error');
+        t.assert.equal(options.puter_output_path, 'video.mp4');
+        t.assert.equal(Object.hasOwn(options, 'seconds'), false);
+    },
+
     'txt2vid takes duration as an alias of seconds': async (t) => {
         useApiToken(t);
         // `duration` has to be mapped before the request leaves the SDK; if

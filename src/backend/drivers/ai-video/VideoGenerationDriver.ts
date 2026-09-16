@@ -91,8 +91,8 @@ export class VideoGenerationDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, IVideoProvider> = {};
-    #modelIdMap: Record<string, IVideoModel[]> = {};
+    #providers: Record<string, IVideoProvider> = Object.create(null);
+    #modelIdMap: Record<string, IVideoModel[]> = Object.create(null);
 
     override onServerStart() {
         this.#registerProviders();

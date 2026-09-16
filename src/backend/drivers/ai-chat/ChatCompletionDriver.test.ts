@@ -191,16 +191,33 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         ).rejects.toMatchObject({ statusCode: 401 });
     });
 
-    it('throws 400 when the requested model is unknown', async () => {
-        await expect(
-            withTestActor(() =>
-                driver.complete({
-                    model: 'totally-not-a-model',
-                    messages: [{ role: 'user', content: 'hi' }],
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
+    it.each(['totally-not-a-model', '__proto__', 'constructor'])(
+        'throws 400 when the requested model is unknown: %s',
+        async (model) => {
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        model,
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
+
+    it.each(['__proto__', 'constructor'])(
+        'rejects inherited object keys as unknown providers: %s',
+        async (provider) => {
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        provider,
+                        messages: [{ role: 'user', content: 'hi' }],
+                    } as ICompleteArguments),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
 
     it('falls back to the provider default model when neither model nor provider is given (azure-openai is the hard-coded default provider)', async () => {
         // Without `azure-openai` in providers config, the driver tries
