@@ -454,35 +454,62 @@ export const requirePhoneVerifiedGate = (): RequestHandler => {
 };
 
 /**
- * Reject unless the user has a card verified on file. 403
- * `card_verification_required`, matching the pending-verification gate so the
- * client shows the card flow it already has.
+ * What the card-aware gates need beyond the user's own row: whether each factor
+ * can be verified here (the fallback deps), and whether the account's plan
+ * already vouches for it.
  */
-export const assertCardVerified = (user: AccountGateUser | undefined): void => {
-    if (hasVerifiedCard(user)) return;
-    throw new HttpError(403, CARD_REQUIRED_MESSAGE, {
-        legacyCode: 'card_verification_required',
-    });
-};
+export interface AnyVerifiedDeps extends CardFallbackDeps {
+    /**
+     * Whether the actor is on a paid plan. A paying account has a card on file
+     * with the billing provider, so it is treated as card-verified and never
+     * asked to verify one again.
+     */
+    hasPaidPlan: (actor: Actor) => Promise<boolean>;
+}
 
-/** Route-option form of {@link assertCardVerified} (`requireCardVerified`). */
-export const requireCardVerifiedGate = (): RequestHandler => {
+/**
+ * The card factor by either proof: a card checked on the row, or a paid plan.
+ * The row answers first, so the plan is only looked up when it has to be.
+ */
+const hasCardEvidence = async (
+    actor: Actor | undefined,
+    deps: Pick<AnyVerifiedDeps, 'hasPaidPlan'>,
+): Promise<boolean> =>
+    hasVerifiedCard(actor?.user) ||
+    (actor !== undefined && (await deps.hasPaidPlan(actor)));
+
+/**
+ * Reject unless the user is card-verified — by a card on file, or by a paid
+ * plan. 403 `card_verification_required`, matching the pending-verification
+ * gate so the client shows the card flow it already has. Route-option form:
+ * `requireCardVerified`.
+ */
+export const requireCardVerifiedGate = (
+    deps: Pick<AnyVerifiedDeps, 'hasPaidPlan'>,
+): RequestHandler => {
     return (req, _res, next) => {
-        try {
-            assertCardVerified(req.actor?.user);
-        } catch (err) {
-            next(err);
-            return;
-        }
-        next();
+        hasCardEvidence(req.actor, deps).then((verified) => {
+            if (verified) {
+                next();
+                return;
+            }
+            next(
+                new HttpError(403, CARD_REQUIRED_MESSAGE, {
+                    legacyCode: 'card_verification_required',
+                }),
+            );
+        }, next);
     };
 };
 
 const isFactorVerified = (
     factor: VerificationFactor,
-    user: AccountGateUser | undefined,
-): boolean =>
-    factor === 'phone' ? hasVerifiedPhone(user) : hasVerifiedCard(user);
+    actor: Actor | undefined,
+    deps: Pick<AnyVerifiedDeps, 'hasPaidPlan'>,
+): Promise<boolean> =>
+    factor === 'phone'
+        ? Promise.resolve(hasVerifiedPhone(actor?.user))
+        : hasCardEvidence(actor, deps);
 
 /**
  * Whether this deployment can put a user through the factor's flow at all: SMS
@@ -500,7 +527,8 @@ const isFactorVerifiable = async (
 /**
  * Reject unless the user has verified at least one of `factors` — the phone and
  * card gates above joined by OR. A factor verified at any point counts,
- * whatever the deployment can do today. Failing that, only the factors the
+ * whatever the deployment can do today; for `card` a paid plan counts too, as
+ * it does in `requireCardVerified`. Failing that, only the factors the
  * deployment can currently verify are asked for; with none of them verifiable
  * the gate is inert, so a self-hosted install without SMS or a card gate never
  * has its route locked.
@@ -510,11 +538,14 @@ const isFactorVerifiable = async (
  * offer the rest as alternatives.
  */
 export const assertAnyVerified = async (
-    user: AccountGateUser | undefined,
+    actor: Actor | undefined,
     factors: readonly VerificationFactor[],
-    deps: CardFallbackDeps,
+    deps: AnyVerifiedDeps,
 ): Promise<void> => {
-    if (factors.some((factor) => isFactorVerified(factor, user))) return;
+    // In the route's order, so a verified phone never costs the plan lookup.
+    for (const factor of factors) {
+        if (await isFactorVerified(factor, actor, deps)) return;
+    }
     const verifiable: VerificationFactor[] = [];
     for (const factor of factors) {
         if (verifiable.includes(factor)) continue;
@@ -538,10 +569,10 @@ export const assertAnyVerified = async (
 /** Route-option form of {@link assertAnyVerified} (`requireAnyVerified`). */
 export const requireAnyVerifiedGate = (
     factors: readonly VerificationFactor[],
-    deps: CardFallbackDeps,
+    deps: AnyVerifiedDeps,
 ): RequestHandler => {
     return (req, _res, next) => {
-        assertAnyVerified(req.actor?.user, factors, deps).then(
+        assertAnyVerified(req.actor, factors, deps).then(
             () => next(),
             (err) => next(err),
         );
