@@ -6,6 +6,8 @@ platforms: [websites, apps, nodejs, workers]
 
 Reads one message by the `id` a listing returned. The whole raw message is downloaded and parsed, so the result carries the full subject, sender and recipients, the text and HTML bodies, every header, and each attachment with its bytes. Pass `raw: true` to get the unparsed `message/rfc822` bytes as a `Blob` instead.
 
+Reading the mailbox requires the `fs:/{username}/.mail:read` permission, the same grant [`puter.email.list()`](/Email/list/) needs.
+
 ## Syntax
 
 ```js
@@ -27,41 +29,9 @@ The message id from `puter.email.list()`. Looks up the inbox.
 
 ## Return value
 
-A `Promise` that resolves to the parsed message:
+A `Promise` that resolves to an [`EmailMessage`](/Objects/emailmessage/) object: the full subject, sender and recipients, the text and HTML bodies, every header, and the attachments as [`EmailMessageAttachment`](/Objects/emailmessageattachment/) objects with their decoded bytes.
 
-```js
-{
-    id: '019...',
-    folder: 'inbox',
-    path: '/alice/.mail/objects/2026-03-15/019...--WW91ciBvcmRlcg',
-    uid: 'a1b2c3...',
-    size: 48213,
-    date: '2026-03-15T12:34:56.000Z',   // the Date header, or the filing time if unparseable
-    subject: 'Your order has shipped',
-    messageId: '<abc@example.com>',
-    inReplyTo: null,
-    references: null,
-    from: { name: 'Example Shop', address: 'orders@example.com' },
-    to: [{ name: 'Alice', address: 'alice@puter.email' }],
-    cc: [],
-    bcc: [],                            // populated only on sent copies
-    replyTo: [],
-    headers: [{ key: 'subject', originalKey: 'Subject', value: 'Your order has shipped' }, /* ... */],
-    text: 'Hi Alice, ...',
-    html: '<p>Hi Alice, ...</p>',       // null when the message has no HTML part
-    attachments: [
-        {
-            filename: 'invoice.pdf',
-            mimeType: 'application/pdf',
-            disposition: 'attachment',
-            size: 30211,
-            content: ArrayBuffer         // the decoded bytes
-        }
-    ]
-}
-```
-
-With `raw: true`, the `Promise` resolves to a `Blob` of the message exactly as it was received.
+With `raw: true`, the `Promise` resolves to a `Blob` of the `message/rfc822` bytes exactly as they were received.
 
 Messages can be up to 25 MiB, and `get()` holds the whole message in memory while parsing. For a message list, use `puter.email.list()` and read messages one at a time as the user opens them.
 

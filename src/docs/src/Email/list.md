@@ -6,6 +6,8 @@ platforms: [websites, apps, nodejs, workers]
 
 Lists the messages in one folder of the user's mailbox, newest first. Every call returns one page of `items` plus, while more pages exist, a `cursor` to pass back for the next one. Listing reads the mailbox's folder structure only, so it never downloads a message: each item carries the subject, date, and size, and `puter.email.get()` fetches the rest.
 
+The mailbox belongs to the user, so it is protected like the rest of their files. An app reads it only after the user grants `fs:/{username}/.mail:read`, for example with `puter.perms.request('permission', { permission: `fs:/${username}/.mail:read` })`.
+
 ## Syntax
 
 ```js
@@ -26,29 +28,9 @@ puter.email.list(options)
 
 ## Return value
 
-A `Promise` that resolves to a page:
+A `Promise` that resolves to an [`EmailListPage`](/Objects/emaillistpage/) object: its `items` are [`EmailSummary`](/Objects/emailsummary/) objects, newest first, and its `cursor` is present only while more pages exist. A page may hold fewer than `limit` items while more pages exist, so iterate until `cursor` is absent rather than checking the page size. A mailbox that has never received mail lists as `{ items: [] }`.
 
-```js
-{
-    items: [
-        {
-            id: '019...',                    // pass to puter.email.get()
-            subject: 'Your order has shipped', // may be truncated to 80 characters
-            date: '2026-03-15T12:34:56.789Z', // when the message was filed
-            size: 48213,                      // raw message size in bytes
-            folder: 'inbox',
-            path: '/alice/.mail/objects/2026-03-15/019...--WW91ciBvcmRlcg',
-            uid: 'a1b2c3...'
-        },
-        // ...
-    ],
-    cursor: 'eyJ2IjoxLCJmIjoiaW5ib3giLCJkIjoiMjAyNi0wMy0xNSJ9' // only while more pages exist
-}
-```
-
-A page may hold fewer than `limit` items while more pages exist. Iterate until `cursor` is absent rather than checking the page size. A mailbox that has never received mail lists as `{ items: [] }`.
-
-With `stream: true`, the method returns an `AsyncIterableIterator` of such pages.
+With `stream: true`, the method returns an `AsyncIterableIterator` of [`EmailListPage`](/Objects/emaillistpage/) objects instead.
 
 ## Errors
 
