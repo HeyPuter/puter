@@ -85,7 +85,7 @@ If some recipients succeed and others fail, the promise resolves with the ones t
 
 A rejection carries `{ message, code }`. Because each recipient/item pair succeeds or fails on its own, these are the codes of the *pairs* that failed — you only see one as a rejection when every pair failed.
 
-One refusal applies to the whole call instead: handing out access requires a verified phone number or a verified card on the account, on deployments that can verify either. The rejection is `phone_verification_required` (or `card_verification_required` where only a card can be verified) and carries `factors`, the verifications the deployment accepts, in the order to offer them. Inside the Puter desktop the user is walked through it and the call is retried on its own. Withdrawing and listing shares never ask for this.
+One refusal applies to the whole call instead: handing out access requires a verified phone number or a verified card on the account, on deployments that can verify either. An account on a paid plan is never asked — its card is already on file. The rejection is `phone_verification_required` (or `card_verification_required` where only a card can be verified) and carries `factors`, the verifications the deployment accepts, in the order to offer them. Inside the Puter desktop the user is walked through it and the call is retried on its own. Withdrawing and listing shares never ask for this.
 
 | `code` | Meaning |
 | --- | --- |
@@ -118,7 +118,7 @@ await puter.fs.unshare('report.txt', { anyone: true });
 Three things set it apart from sharing with a person:
 
 - **It is the owner's call.** Someone holding `manage` on the item can share it with people, but not open it to everyone; they get `forbidden`.
-- **It is a paid-plan feature.** A free account is refused with `subscription_required`. The plan is checked again every time the link is used, so while the owner has no plan the link is silent — nobody has to find it and take it back — and it works again once they do.
+- **It is a paid-plan feature.** A free account is refused with `subscription_required`. The plan is checked again every time the link is used, so while the owner has no plan the link is silent — nobody has to find it and take it back — and it is not listed as a share by [`getShares()`](/FS/getShares/) or [`listSharedByMe()`](/FS/listSharedByMe/) either, since nobody can use it. The share itself is kept: once the owner is on a plan again the link works, and is listed, exactly as it was.
 - **Nobody is told.** No notification goes out, and the item does not appear in anyone's [`listShared()`](/FS/listShared/); whoever has the link opens it from the link.
 
 The share shows in [`getShares()`](/FS/getShares/) with `anyone: true` and a `null` `holder`. Sharing again with a different mode replaces it, as it does for a person.

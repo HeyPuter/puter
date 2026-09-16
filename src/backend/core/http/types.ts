@@ -243,10 +243,11 @@ export interface RouteOptions {
      * Reject unless the user has verified at least one of the named factors —
      * `requirePhoneVerified` / `requireCardVerified` joined by OR, for a
      * surface where either proof will do. A factor verified at any point
-     * counts. Otherwise only the factors this deployment can verify are asked
-     * for (an SMS provider configured; a card gate an extension reports on),
-     * and with none of them verifiable the gate is inert rather than locking
-     * the route on a self-hosted install.
+     * counts, and so does a paid plan where `card` is listed — a paying account
+     * has a card on file already. Otherwise only the factors this deployment
+     * can verify are asked for (an SMS provider configured; a card gate an
+     * extension reports on), and with none of them verifiable the gate is inert
+     * rather than locking the route on a self-hosted install.
      *
      * 403 with the first verifiable factor's code
      * (`phone_verification_required` / `card_verification_required`) plus

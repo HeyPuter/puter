@@ -409,12 +409,15 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Which of `fsentryIds` carry a share, pending invites included.
+     * Which of `fsentryIds` carry a share, pending invites included. Link
+     * shares count unless `includeAnyone` is false — what the caller passes
+     * while the owner's plan has them switched off.
      *
      * @param {number[]} fsentryIds
+     * @param {{ includeAnyone?: boolean }} [opts]
      * @returns {Promise<Set<number>>}
      */
-    async getSharedFsentryIds(fsentryIds) {
+    async getSharedFsentryIds(fsentryIds, { includeAnyone = true } = {}) {
         const ids = [
             ...new Set(
                 fsentryIds.map(Number).filter((id) => Number.isFinite(id)),
@@ -426,7 +429,8 @@ export class ShareStore extends PuterStore {
             const placeholders = chunk.map(() => '?').join(', ');
             const rows = await this.clients.db.read(
                 'SELECT DISTINCT `fsentry_id` FROM `share` ' +
-                    `WHERE \`fsentry_id\` IN (${placeholders})`,
+                    `WHERE \`fsentry_id\` IN (${placeholders})` +
+                    (includeAnyone ? '' : ' AND `anyone` IS NULL'),
                 chunk,
             );
             for (const row of rows) shared.add(Number(row.fsentry_id));

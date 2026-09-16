@@ -22,6 +22,8 @@ import { SYSTEM_ACTOR, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
 import {
+    actorHasSubscription,
+    actorOnPaidPlan,
     assertActorHasCredits,
     assertActorHasSubscription,
     creditEnforcementExempt,
@@ -152,6 +154,87 @@ describe('assertActorHasCredits', () => {
 
 const onPlan = (id: string) => ({
     getActorSubscription: vi.fn().mockResolvedValue({ id }),
+});
+
+describe('actorHasSubscription', () => {
+    const metering = (id: string) => ({
+        getActorSubscription: vi.fn().mockResolvedValue({ id }),
+    });
+    const user: Actor = { user: { uuid: 'u-1' } } as Actor;
+    const config = {} as IConfig;
+
+    it('answers the plan question as a yes or no', async () => {
+        expect(
+            await actorHasSubscription(
+                metering('business'),
+                user,
+                true,
+                config,
+            ),
+        ).toBe(true);
+        expect(
+            await actorHasSubscription(
+                metering('user_free'),
+                user,
+                true,
+                config,
+            ),
+        ).toBe(false);
+    });
+
+    it('is a yes wherever the assertion would not ask', async () => {
+        expect(
+            await actorHasSubscription(
+                metering('user_free'),
+                user,
+                false,
+                config,
+            ),
+        ).toBe(true);
+        expect(await actorHasSubscription(undefined, user, true, config)).toBe(
+            true,
+        );
+        expect(
+            await actorHasSubscription(metering('user_free'), user, true, {
+                meteringEnforcement: { subscriptions: false },
+            } as IConfig),
+        ).toBe(true);
+        expect(
+            await actorHasSubscription(
+                metering('user_free'),
+                SYSTEM_ACTOR,
+                true,
+                config,
+            ),
+        ).toBe(true);
+    });
+
+    it('is a no for an actor with no account behind it', async () => {
+        const asked = metering('business');
+        expect(await actorHasSubscription(asked, undefined, true, config)).toBe(
+            false,
+        );
+        expect(asked.getActorSubscription).not.toHaveBeenCalled();
+    });
+});
+
+describe('actorOnPaidPlan', () => {
+    const metering = (id: string) => ({
+        getActorSubscription: vi.fn().mockResolvedValue({ id }),
+    });
+    const user: Actor = { user: { uuid: 'u-1' } } as Actor;
+
+    it('reads the plan as a fact, whatever the enforcement switches say', async () => {
+        expect(await actorOnPaidPlan(metering('business'), user)).toBe(true);
+        expect(await actorOnPaidPlan(metering('user_free'), user)).toBe(false);
+    });
+
+    it('is a no with nothing to ask, or nobody to ask about', async () => {
+        expect(await actorOnPaidPlan(undefined, user)).toBe(false);
+        const asked = metering('business');
+        expect(await actorOnPaidPlan(asked, undefined)).toBe(false);
+        expect(asked.getActorSubscription).not.toHaveBeenCalled();
+    });
 });
 
 describe('subscriptionSatisfies', () => {
