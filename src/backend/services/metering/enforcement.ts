@@ -233,7 +233,7 @@ export const actorOnPaidPlan = async (
  * this normally costs a map lookup.
  */
 export const assertActorHasSubscription = async (
-    metering: SubscriptionMetering | undefined,
+    metering: SubscriptionMetering,
     actor: Actor | undefined,
     requirement: SubscriptionRequirement,
     config: EnforcementConfig,
@@ -246,7 +246,7 @@ export const assertActorHasSubscription = async (
         });
     }
 
-    const subscription = await metering.getActorSubscription(actor);
+    const subscription = await metering!.getActorSubscription(actor);
     if (subscriptionSatisfies(subscription.id, requirement)) return;
 
     throw new HttpError(402, 'A subscription is required for this action', {
