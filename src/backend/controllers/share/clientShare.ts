@@ -57,6 +57,8 @@ export async function toClientShare(
         ...(share.pending
             ? { pending: true, recipient_email: share.recipientEmail }
             : {}),
+        // A link share: no holder of any kind, this is what says so.
+        ...(share.anyone ? { anyone: true } : {}),
         // Set on a share call only, so a listing stays silent about it.
         ...(share.isNew === undefined ? {} : { is_new: share.isNew }),
         uid_entry: share.entryUid,

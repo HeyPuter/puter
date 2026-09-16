@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
+import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
+
+// The helper labels an inherited link share through i18n.
+globalThis.i18n = (key) => key;
 
 const grant = (holder, mode, extra = {}) => ({ holder, mode, ...extra });
 
@@ -203,5 +206,58 @@ describe('aggregateOwners', () => {
         expect(aggregateOwners([null, 'ann', undefined])).toEqual([
             { name: 'ann', count: 1 },
         ]);
+    });
+});
+
+describe('link shares in the access list', () => {
+    it('keeps the item\'s own link share out of the rows', () => {
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }, grant('ann', 'read')]],
+        ]));
+        expect(groups.map((g) => g.key)).toEqual(['user:ann']);
+    });
+
+    it('shows one inherited from a folder above, which only that folder can change', () => {
+        const groups = aggregateShares(['/me/d/a'], new Map([
+            ['/me/d/a', [{ anyone: true, mode: 'write', inheritedFrom: '/me/d' }]],
+        ]));
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            key: 'anyone',
+            name: 'share_row_anyone',
+            directPaths: [],
+            inheritedPaths: ['/me/d/a'],
+            inheritedMode: 'write',
+            inheritedFrom: '/me/d',
+        });
+    });
+});
+
+describe('linkShareState', () => {
+    it('is restricted when no item is open to the link', () => {
+        expect(linkShareState(['/me/a'], new Map([['/me/a', [grant('ann', 'read')]]])))
+            .toEqual({ access: 'restricted', mode: null });
+        expect(linkShareState([], new Map())).toEqual({ access: 'restricted', mode: null });
+    });
+
+    it('reports the one mode when every item is open at it', () => {
+        expect(linkShareState(['/me/a', '/me/b'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }]],
+            ['/me/b', [{ anyone: true, mode: 'read' }]],
+        ]))).toEqual({ access: 'anyone', mode: 'read' });
+    });
+
+    it('reports no mode when the open items disagree', () => {
+        expect(linkShareState(['/me/a', '/me/b'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }]],
+            ['/me/b', [{ anyone: true, mode: 'write' }]],
+        ]))).toEqual({ access: 'anyone', mode: null });
+    });
+
+    it('is mixed when only some items are open, ignoring inherited links', () => {
+        expect(linkShareState(['/me/a', '/me/b'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }]],
+            ['/me/b', [{ anyone: true, mode: 'read', inheritedFrom: '/me' }]],
+        ]))).toEqual({ access: 'mixed', mode: null });
     });
 });

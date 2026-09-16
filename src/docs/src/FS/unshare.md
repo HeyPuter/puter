@@ -31,7 +31,7 @@ The path to the file or directory. If `path` is not absolute, it will be resolve
 
 Whose access to withdraw. A string containing `@` is treated as an email address, and any other string as a username.
 
-Pass **yourself** to leave a share someone else gave you.
+Pass **yourself** to leave a share someone else gave you. Pass `{ team: uid }` to withdraw a team's access, or `{ anyone: true }` to stop sharing with anyone with the link — the latter is the owner's call, as opening it was.
 
 #### `options` (Object) (optional)
 

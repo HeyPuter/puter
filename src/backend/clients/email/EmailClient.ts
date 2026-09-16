@@ -39,6 +39,9 @@ export interface EmailAttachment {
     path?: string;
     contentType?: string;
     encoding?: string;
+    /** Content-ID of an inline part the html body references as `cid:`. */
+    cid?: string;
+    contentDisposition?: 'attachment' | 'inline';
 }
 
 /** Subset of the transport's send result callers may care about. */

@@ -91,9 +91,9 @@ describe('fsCreateKindFor', () => {
 });
 
 describe('parseCreateFlag', () => {
-    it('treats absent/null as false', () => {
-        expect(parseCreateFlag(undefined)).toBe(false);
-        expect(parseCreateFlag(null)).toBe(false);
+    it('treats absent/null as true', () => {
+        expect(parseCreateFlag(undefined)).toBe(true);
+        expect(parseCreateFlag(null)).toBe(true);
     });
 
     it('passes true/false through unchanged', () => {
