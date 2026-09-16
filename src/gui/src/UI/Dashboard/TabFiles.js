@@ -1320,6 +1320,9 @@ const TabFiles = {
                 thumbnailGenerator: createUploadThumbnailGenerator(),
                 init: async (operation_id, xhr) => {
                     opid = operation_id;
+                    // register before the first await, so a failure while the progress
+                    // window is still opening can't delete the entry before it exists
+                    window.active_uploads[opid] = 0;
                     // create upload progress window
                     upload_progress_window = await UIWindowProgress({
                         title: i18n('upload'),
@@ -1331,8 +1334,6 @@ const TabFiles = {
                             xhr.abort();
                         },
                     });
-                    // add to active_uploads
-                    window.active_uploads[opid] = 0;
                 },
                 // start
                 start: async function () {
@@ -4806,6 +4807,9 @@ const TabFiles = {
             thumbnailGenerator: createUploadThumbnailGenerator(),
             init: async (operation_id, xhr) => {
                 opid = operation_id;
+                // register before the first await, so a failure while the progress
+                // window is still opening can't delete the entry before it exists
+                window.active_uploads[opid] = 0;
                 upload_progress_window = await UIWindowProgress({
                     title: i18n('upload'),
                     icon: window.icons['app-icon-uploader.svg'],
@@ -4816,7 +4820,6 @@ const TabFiles = {
                         xhr.abort();
                     },
                 });
-                window.active_uploads[opid] = 0;
             },
             start: async function () {
                 upload_progress_window.set_status('Uploading');

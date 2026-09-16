@@ -41,6 +41,7 @@ import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
+import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
 import {
@@ -2500,14 +2501,9 @@ window.initgui = async function (options) {
         }
     }
 
-    // if there is at least one window open (only non-Explorer windows), ask user for confirmation when navigating away from puter
-    if (window.feature_flags.prompt_user_when_navigation_away_from_puter) {
-        window.onbeforeunload = function () {
-            if ($('.window:not(.window[data-app="explorer"])').length > 0) {
-                return true;
-            }
-        };
-    }
+    // ask the user to confirm before leaving while an upload is still in flight
+    // (and, behind the feature flag, while any non-Explorer window is open)
+    window.onbeforeunload = confirm_before_unload;
 
     // -------------------------------------------------------------------------------------
     // `login` event handler
