@@ -47,7 +47,7 @@ Rejects with an object carrying a `code`:
 
 <strong class="example-title">Read the newest message in the inbox</strong>
 
-```html;email-get
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

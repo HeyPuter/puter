@@ -24,7 +24,7 @@ With the [User-Pays Model](/user-pays-model/), the account making the call cover
 
 #### List the ten newest messages in the inbox
 
-```html;email-list
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -46,7 +46,7 @@ With the [User-Pays Model](/user-pays-model/), the account making the call cover
 
 #### Read the newest message
 
-```html;email-get
+```html
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -91,10 +91,3 @@ router.post('/notify', async ({ request, user }) => {
 - **[`puter.email.list()`](/Email/list/)** - List the messages in the user's mailbox, newest first
 - **[`puter.email.get()`](/Email/get/)** - Fetch and parse one message, attachments included
 - **[`puter.email.sendTransactional()`](/Email/sendTransactional/)** - Send a transactional email from your app
-
-## Examples
-
-You can see the Puter.js Email features in action from the following examples:
-
-- [List messages](/playground/email-list/)
-- [Read a message](/playground/email-get/)

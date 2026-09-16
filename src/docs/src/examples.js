@@ -435,23 +435,6 @@ const examples = [
         ],
     },
     {
-        title: 'Email',
-        children: [
-            {
-                title: 'List messages',
-                description: 'List the newest messages in the user\'s Puter mailbox with Puter.js. Run and modify this example in the playground.',
-                slug: 'email-list',
-                source: '/playground/examples/email-list.html',
-            },
-            {
-                title: 'Read a message',
-                description: 'Fetch and parse a message from the user\'s Puter mailbox with Puter.js, sender, body and attachments included. Run this example in the playground.',
-                slug: 'email-get',
-                source: '/playground/examples/email-get.html',
-            },
-        ],
-    },
-    {
         title: 'Key-Value Store',
         children: [
             {
