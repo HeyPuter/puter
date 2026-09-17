@@ -694,6 +694,11 @@ export type EventMap = {
     // wildcard + veto semantics as the driver lifecycle above.
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
+    // Cost factor for recorded AI usage, keyed by driver and model:
+    // `ai.cost.factor.<driverName>.<provider>:<model>`. Emitted once per model
+    // per batch; the last listener to set `factor` wins.
+    [K in `ai.cost.factor.${string}`]: AiCostFactorEvent;
+} & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
 } & {
     /**
@@ -712,6 +717,18 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** Payload for `ai.cost.factor.<driver>.<model>` events. */
+export type AiCostFactorEvent = {
+    /** Driver doing the pricing, e.g. `ai-chat`. */
+    driver: string;
+    /** `<provider>:<model>` the usage is recorded under. */
+    model: string;
+    /** Who the usage is being charged to. */
+    actor: Actor;
+    /** Applied to the cost, starting at 1. Values <= 0 are ignored. */
+    factor: number;
+};
 
 /**
  * Phase of a request/method lifecycle. `reject` is emitted when a `before`
