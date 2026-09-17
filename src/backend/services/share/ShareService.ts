@@ -19,7 +19,12 @@
 
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import { makeActor, userRelatedActor, type Actor } from '../../core/actor';
+import {
+    isAccountContext,
+    makeActor,
+    userRelatedActor,
+    type Actor,
+} from '../../core/actor';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
@@ -3270,7 +3275,7 @@ export class ShareService extends PuterService {
         entry: FSEntry,
         row: OutboundShareRow,
     ): boolean {
-        if (actor.app || actor.accessToken) return false;
+        if (!isAccountContext(actor)) return false;
         const userId = actor.user?.id;
         if (typeof userId !== 'number') return false;
         return (

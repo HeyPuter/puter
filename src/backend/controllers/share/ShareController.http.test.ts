@@ -26,6 +26,7 @@ import {
     type PuterTestEnv,
 } from '../../testUtil.js';
 import { ShareController } from './ShareController.js';
+import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 
 /**
  * Route-level coverage for the sharing endpoints. The service unit tests drive
@@ -1167,6 +1168,30 @@ describe('share endpoints over HTTP', () => {
             const body = await stat.text();
             expect(body).not.toContain(email);
             expect(JSON.parse(body).shares).toEqual([]);
+        });
+
+        // Withholding here would buy nothing: `shared-by-me` hands the same
+        // addresses to the same credential.
+        it('tells a full-access token what it could read from shared-by-me anyway', async () => {
+            const owner = env.users.user;
+            const { file, email } = await invitedFile(owner);
+            const user = await env.server.stores.user.getByUsername(
+                owner.username,
+            );
+            const actor = makeActor({ user: user! });
+            const pat = await runWithContext({ actor }, () =>
+                env.server.services.auth.createAccessToken(actor, [
+                    [FULL_API_ACCESS],
+                ]),
+            );
+
+            const outbound = await get('/share/shared-by-me', pat, {});
+            expect(outbound.status).toBe(200);
+            expect(await outbound.text()).toContain(email);
+
+            const listed = await get('/share/shares', pat, { uid: file.uid });
+            expect(listed.status).toBe(200);
+            expect(await listed.text()).toContain(email);
         });
 
         it('answers an app that was handed the item to manage', async () => {
