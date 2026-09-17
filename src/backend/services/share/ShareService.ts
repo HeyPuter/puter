@@ -19,7 +19,12 @@
 
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import { makeActor, userRelatedActor, type Actor } from '../../core/actor';
+import {
+    isAccountContext,
+    makeActor,
+    userRelatedActor,
+    type Actor,
+} from '../../core/actor';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
@@ -2064,6 +2069,11 @@ export class ShareService extends PuterService {
     ): Promise<ResolvedShare[]> {
         const entry = await this.#resolveEntry(target, actor);
         await this.#assertCanManage(actor, entry);
+        // A management view, answering for the ancestors too: an app or token
+        // handed one file at `see` needs `manage` reach of its own.
+        if (!(await this.#hasOwnReach(actor, entry, MANAGE_PERM_PREFIX))) {
+            throw await this.#manageRefusal(actor, entry);
+        }
 
         // Access is inherited down the tree, so a node's own rows are only
         // half the answer — without the ancestors' the caller is told nobody
@@ -2170,6 +2180,7 @@ export class ShareService extends PuterService {
             (row: OutboundShareRow) =>
                 this.#resolvedShareRow(row, entry, users, {
                     path: maskedPath,
+                    inviteAddress: this.#maySeeInviteAddress(actor, entry, row),
                 }),
         );
 
@@ -2886,6 +2897,11 @@ export class ShareService extends PuterService {
         opts: {
             entryMeta?: boolean;
             provenance?: boolean;
+            /**
+             * Withholds an invite's address when false; see
+             * `#maySeeInviteAddress`.
+             */
+            inviteAddress?: boolean;
             holderUsername?: string | null;
             holderTeam?: {
                 uid: string;
@@ -2935,9 +2951,16 @@ export class ShareService extends PuterService {
             ...(pending
                 ? {
                       pending: true,
-                      recipientEmail:
-                          (row.data as { invitedAddress?: string } | null)
-                              ?.invitedAddress ?? row.recipient_email,
+                      ...(opts.inviteAddress === false
+                          ? {}
+                          : {
+                                recipientEmail:
+                                    (
+                                        row.data as {
+                                            invitedAddress?: string;
+                                        } | null
+                                    )?.invitedAddress ?? row.recipient_email,
+                            }),
                   }
                 : {}),
             ...(opts.holderTeam ? { holderTeam: opts.holderTeam } : {}),
@@ -3228,14 +3251,37 @@ export class ShareService extends PuterService {
             }
         }
 
+        throw await this.#manageRefusal(actor, entry);
+    }
+
+    /**
+     * The ACL's own safe refusal, so a caller who can't see the node learns
+     * nothing.
+     */
+    async #manageRefusal(actor: Actor, entry: FSEntry): Promise<HttpError> {
         const safe = await this.services.acl.getSafeAclError(
             actor,
             this.#descriptorFor(entry),
             'manage',
         );
-        throw new HttpError(safe.status, safe.message, {
+        return new HttpError(safe.status, safe.message, {
             legacyCode: safe.fields.code,
         });
+    }
+
+    /** An invite's address is the owner's and the issuer's, and no app's. */
+    #maySeeInviteAddress(
+        actor: Actor,
+        entry: FSEntry,
+        row: OutboundShareRow,
+    ): boolean {
+        if (!isAccountContext(actor)) return false;
+        const userId = actor.user?.id;
+        if (typeof userId !== 'number') return false;
+        return (
+            userId === Number(entry.userId) ||
+            userId === Number(row.issuer_user_id)
+        );
     }
 
     /**
