@@ -434,7 +434,8 @@ async function UIWindowShare (options) {
     // field suggests both them and the people in them.
     teams = await teams_for_sharing();
     picker.setTeams(teams);
-    if ( teams.length ) $recipient.attr('placeholder', i18n('share_add_people_teams'));
+    // Not the encoded form: an attribute set from JS shows entities literally.
+    if ( teams.length ) $recipient.attr('placeholder', i18n('share_add_people_teams', [], false));
     await refresh();
     return el_window;
 }

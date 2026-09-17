@@ -653,9 +653,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( closed ) return;
         picker.setTeams(teams);
         if ( teams.length ) {
-            $recipient
-                .attr('placeholder', i18n('share_add_people_teams'))
-                .attr('aria-label', i18n('share_add_people_teams'));
+            // Not the encoded form: an attribute set from JS shows entities
+            // literally.
+            const label = i18n('share_add_people_teams', [], false);
+            $recipient.attr('placeholder', label).attr('aria-label', label);
         }
     })();
 
