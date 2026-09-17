@@ -6834,27 +6834,6 @@ html.dark-mode .usage-table-show-less:hover {
     letter-spacing: 0.04em;
 }
 
-/* Only rendered for a user who has a team; hidden for everyone else. */
-.share-team {
-    margin-top: 18px;
-}
-
-.share-dialog .share-team-select {
-    flex: 1;
-    min-width: 0;
-}
-
-.share-dialog .share-team-mode {
-    width: 130px;
-    flex: none;
-}
-
-.share-team-note {
-    font-size: 12px;
-    color: #7f8b99;
-    margin: -8px 0 12px;
-}
-
 /* General access: the owner's switch between people-only and anyone with
    the link. */
 .share-general-access {
