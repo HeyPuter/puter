@@ -229,6 +229,18 @@ describe('the kv subject', () => {
             expect(subject().project({ ...kvDelivery, op }).op).toBe(op);
     });
 
+    it('carries a value only once dispatch has put one on the context', () => {
+        expect(subject().project(kvDelivery)).not.toHaveProperty('value');
+        expect(
+            subject().project({ ...kvDelivery, value: { items: [1] } }).value,
+        ).toEqual({ items: [1] });
+        // `null` is a value — what a deleted key now holds.
+        expect(subject().project({ ...kvDelivery, value: null })).toHaveProperty(
+            'value',
+            null,
+        );
+    });
+
     it('anchors on the exact key and on its prefixes', () => {
         expect(subject().tokens(kvDelivery)).toEqual([
             'k#user-uuid#app-1234#cart:items',

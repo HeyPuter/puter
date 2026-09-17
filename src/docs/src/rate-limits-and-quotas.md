@@ -245,6 +245,7 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Events per fetch page                        | 200          |
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
+| Key-value value inlined in a delivery        | 16 KB        |
 | Broadcast deliveries per minute, per subscription | 600     |
 | `single` deliveries per minute, per subscription | 120      |
 | Handler invocations per minute, per (account, app) | 60     |
@@ -291,7 +292,7 @@ Deleting the node a subscription is anchored on ends it too, unless the subject 
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**, with **one `*` per segment** and **one `**` per pattern**; anything past that is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 
-A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`.
+A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`. A subscription made with `includeValue` is handed the key's new value on each delivery, up to **16 KB** serialized; a larger value is left out of the event and the subscriber reads the key back. Values never ride through a share handle, which grants watching a region and not reading it — `includeValue` on one is refused with `events_kv_handle_no_values`.
 
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 

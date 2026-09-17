@@ -423,6 +423,12 @@ export type EventMap = {
         userId: number;
         keys: string[];
         op: KvOp;
+        /**
+         * What each key holds after the change, aligned with `keys`: the
+         * written value on a `set`, `null` on a `del`. Absent when the write
+         * did not have it in hand, as an `expire` does not.
+         */
+        values?: unknown[];
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own

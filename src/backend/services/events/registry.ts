@@ -74,6 +74,12 @@ export interface ProjectedFsEvent extends ProjectedEventBase {
 export interface ProjectedKvEvent extends ProjectedEventBase {
     op: KvOp;
     key: string;
+    /**
+     * What the key holds after the change — the written value, or `null` after
+     * a `del`. Only on a subscription that asked for it, and only when the
+     * value is small enough to inline; an `expire` never carries one.
+     */
+    value?: unknown;
 }
 
 /**
@@ -166,6 +172,8 @@ export interface KvEventContext extends EventContextBase {
     appUid: string;
     kvKey: string;
     op: KvOp;
+    /** The value after the change, once dispatch has decided it may ride. */
+    value?: unknown;
 }
 
 /**
@@ -319,6 +327,7 @@ const kvProject = (delivery: KvDeliveryContext): ProjectedKvEvent => ({
     subject: `kv:${delivery.appUid}:${delivery.kvKey}`,
     op: delivery.op,
     key: delivery.kvKey,
+    ...(delivery.value !== undefined ? { value: delivery.value } : {}),
     self: delivery.self,
     ts: delivery.ts,
     seq: delivery.seq,

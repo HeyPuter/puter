@@ -96,6 +96,14 @@ await puter.events.onLocal(`kv:${puter.appID}:orders:pending`, handler);
 
 The `subject` and [anchor](#anchor) on the subscription you get back are always fully qualified, whichever form you subscribed with.
 
+A delivery names the key and not what it now holds, so a handler that needs the value reads it back. Ask for it instead with `includeValue`, and every `set` carries the new value while every `del` carries `null`:
+
+```js
+await puter.events.onLocal('kv:cart', ({ event }) => render(event.value), { includeValue: true });
+```
+
+A value over **16 KB** serialized is not inlined: the event arrives without `value`, and you read the key as you would have anyway. An `expire` never carries one, since the value did not change. `includeValue` is accepted on `kv:` subjects only — anything else is refused with `invalid_include_value` — and not through a [share handle](#share-handle), whose grant is to watch a region rather than read it.
+
 Watching **another app's** key-value data takes the same consent as reading it: that app must not have opted out of data sharing, and the user must have granted your app `app-data:<appId>:kv:read`. It is checked when you subscribe and again on every delivery, so deliveries stop the moment either goes away. Where the feature is not enabled, a cross-app subject is refused with `events_cross_app_disabled`.
 
 ### Sharing a region with another user
@@ -127,7 +135,7 @@ const { handle } = await res.json();
 await puter.events.onLocal(`kv:${handle}:*`, ({ event }) => render(event.key));
 ```
 
-The handle is the whole of what the holder learns: not whose data it is, not where in the namespace it sits, and not anything above the prefix it was granted on. Events name it too: `subject` and `key` on every delivery are relative to the handle, in the same grammar the subscription was written in. `kv:<handle>:messages:*` narrows to part of the shared region, and one handle per channel gives one subscription covering every key written in that channel.
+The handle is the whole of what the holder learns: not whose data it is, not where in the namespace it sits, and not anything above the prefix it was granted on. Events name it too: `subject` and `key` on every delivery are relative to the handle, in the same grammar the subscription was written in. `kv:<handle>:messages:*` narrows to part of the shared region, and one handle per channel gives one subscription covering every key written in that channel. Values never cross a handle: `includeValue` on a handle subject is refused with `events_kv_handle_no_values`, because the grant behind it is to watch the region, not to read it.
 
 **Key layout is the access boundary.** A handle pins the prefix it was granted on, and nothing rewrites it afterwards: rename `workspace:<uuid>:` to `project:<uuid>:` and every handle already given out points at keys nothing writes any more. Grant on a **stable synthetic segment** — `workspace:<uuid>:`, `thread:<uuid>:` — rather than a semantic one like `acme-corp:` or `q3-planning:`, which is more likely to get renamed later.
 
@@ -182,11 +190,12 @@ A key-value change carries `key` where a filesystem change carries `uid` and `pa
 | `subject` | String | `kv:<appId>:<key>`, naming the key that changed. |
 | `op` | String | `set` for a write, `del` for a removal, `expire` when only the key's lifetime changed. |
 | `key` | String | The key that changed. |
+| `value` | Any | What the key holds after the change — the written value on a `set`, `null` on a `del`. Only on a subscription made with `includeValue`, only up to 16 KB serialized, and never on an `expire`. |
 | `self` | Boolean | As above. |
 | `ts` | Number | As above. |
 | `seq` | Number | As above. |
 
-Nothing else is included — in particular there is no field naming *who* made the change, because on a shared folder that would tell every subscriber who else is in there, and no field carrying the new **value**, so a subscription never becomes a way to read data the delivery check has not just re-authorized.
+Nothing else is included — in particular there is no field naming *who* made the change, because on a shared folder that would tell every subscriber who else is in there. The new **value** rides only where the subscription asked for it with `includeValue`, and only to the account whose namespace it is — never through a share handle — so a subscription never becomes a way to read data its holder could not read anyway.
 
 Emptying a whole store with [`puter.kv.flush()`](/KV/flush/) delivers nothing: no subject names "everything in this namespace went", and the keys a flush can enumerate are not reliably the keys it removed.
 
