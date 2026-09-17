@@ -90,10 +90,13 @@ beforeEach(() => {
     };
 });
 
+const default_viewport_height = 768;
+
 afterEach(() => {
     mounted.forEach((picker) => picker.destroy());
     mounted = [];
     document.body.innerHTML = '';
+    window.innerHeight = default_viewport_height;
 });
 
 describe('wiring onto the field', () => {
@@ -159,6 +162,38 @@ describe('opening the list', () => {
         expect($('.share-suggest').parent().is('.row')).toBe(true);
         // The list is capped to the room around the field, not left to grow.
         expect($('.share-suggest-list').get(0).style.maxHeight).toMatch(/px$/);
+    });
+
+    // jsdom has no layout, so the boxes `place()` measures are stubbed: a
+    // scrolling ancestor holding the row, reaching past the bottom of the
+    // screen the way a dialog dragged low on a short display does.
+    const stub_layout = ({ viewport, clip, row }) => {
+        window.innerHeight = viewport;
+        const host = $('.host').get(0);
+        host.style.overflowY = 'auto';
+        host.getBoundingClientRect = () => ({ top: clip[0], bottom: clip[1] });
+        $('.row').get(0).getBoundingClientRect = () => ({ top: row[0], bottom: row[1] });
+    };
+
+    it('caps the list at the room on screen, not the room in the dialog', async () => {
+        const { picker, $input } = mount();
+        stub_layout({ viewport: 700, clip: [200, 780], row: [480, 517] });
+        picker.setTeams([ACME]);
+        $input.trigger('click');
+        await settle();
+
+        // 700 - 517 - 24, not the 239 the clipping ancestor alone reports.
+        expect($('.share-suggest-list').get(0).style.maxHeight).toBe('159px');
+    });
+
+    it('opens upwards when what is below the field is off the screen', async () => {
+        const { picker, $input } = mount();
+        stub_layout({ viewport: 700, clip: [100, 900], row: [600, 637] });
+        picker.setTeams([ACME]);
+        $input.trigger('click');
+        await settle();
+
+        expect($('.share-suggest').hasClass('share-suggest-above')).toBe(true);
     });
 
     it('leaves out whoever the access list already covers', async () => {

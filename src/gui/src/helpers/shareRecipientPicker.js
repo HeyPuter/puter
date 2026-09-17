@@ -163,20 +163,26 @@ export default function shareRecipientPicker ({
     const MIN_HEIGHT = 120;
 
     /**
-     * The box the list has to stay inside — the nearest ancestor that clips,
-     * which is the modal's scrolling body in one dialog and the window in the
-     * other. Falls back to the viewport.
+     * The box the list has to stay inside: the viewport, narrowed to the
+     * nearest ancestor that clips — the modal's scrolling body in one dialog
+     * and the window's in the other. Both bound it, and a dialog dragged low
+     * on a short screen has a clipping ancestor that reaches past the fold.
      */
     const clip_box = () => {
+        const bottom = window.innerHeight || 0;
         let el = $row.get(0)?.parentElement;
         while ( el && el !== document.body ) {
             const style = getComputedStyle(el);
             if ( /auto|scroll|hidden/.test(`${style.overflowY}${style.overflowX}`) ) {
-                return el.getBoundingClientRect();
+                const box = el.getBoundingClientRect();
+                return {
+                    top: Math.max(box.top, 0),
+                    bottom: Math.min(box.bottom, bottom),
+                };
             }
             el = el.parentElement;
         }
-        return { top: 0, bottom: window.innerHeight || 0 };
+        return { top: 0, bottom };
     };
 
     /**
