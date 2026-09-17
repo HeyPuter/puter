@@ -22,6 +22,7 @@ import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterService } from '../types';
+import { MAX_AI_COST_FACTOR, withAiCostFactor } from './aiCostFactor.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -368,6 +369,59 @@ export class MeteringService extends PuterService {
      */
     registerDefaultSubscriptionResolver(fn: SubscriptionResolver): void {
         this.defaultSubscriptionResolvers.push(fn);
+    }
+
+    // -- AI cost factor -------------------------------------------
+
+    /**
+     * This service as an AI driver should use it: recorded costs pass through
+     * the `ai.cost.factor.<driver>.<model>` hook first.
+     */
+    withAiCostFactor(driver: string): MeteringService {
+        return withAiCostFactor(this, driver);
+    }
+
+    /**
+     * Whether anything prices this model. Synchronous so an unhooked deployment
+     * records in the caller's own tick, not after the request ends.
+     */
+    hasAiCostFactor(driver: string, model: string): boolean {
+        return this.clients.event.hasListeners(
+            `ai.cost.factor.${driver}.${model}`,
+        );
+    }
+
+    /** One model's cost factor. 1 when unhooked or the answer is unusable. */
+    async resolveAiCostFactor(
+        actor: Actor,
+        driver: string,
+        model: string,
+    ): Promise<number> {
+        const key = `ai.cost.factor.${driver}.${model}` as const;
+        try {
+            if (!this.hasAiCostFactor(driver, model)) return 1;
+            const event = { driver, model, actor, factor: 1 };
+            await this.clients.event.emitAndWait(key, event, {});
+            const factor = Number(event.factor);
+            if (
+                !Number.isFinite(factor) ||
+                factor <= 0 ||
+                factor > MAX_AI_COST_FACTOR
+            ) {
+                if (factor !== 1) {
+                    console.warn(
+                        `[metering] ignoring AI cost factor ${event.factor} for ${key}`,
+                    );
+                }
+                return 1;
+            }
+            return factor;
+        } catch (e) {
+            console.warn(
+                `[metering] AI cost factor lookup failed for ${key}: ${(e as Error).message}`,
+            );
+            return 1;
+        }
     }
 
     // -- Public API: increment usage ----------------------------------

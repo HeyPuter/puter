@@ -20,6 +20,7 @@
 import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -69,6 +70,11 @@ export class VoiceChangerDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
+
     override getReportedCosts(): Record<string, unknown>[] {
         return Object.entries(VOICE_CHANGER_COSTS).map(
             ([usageType, ucentsPerUnit]) => ({
@@ -87,7 +93,8 @@ export class VoiceChangerDriver extends PuterDriver {
 
     override onServerStart() {
         const elevenlabs = this.config.providers?.elevenlabs as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
 
         this.#apiKey =
             (elevenlabs?.apiKey as string | undefined) ??
@@ -296,7 +303,7 @@ export class VoiceChangerDriver extends PuterDriver {
 
         const arrayBuffer = await response.arrayBuffer();
         const stream = Readable.from(Buffer.from(arrayBuffer));
-        this.services.metering.incrementUsage(
+        this.#aiMetering.incrementUsage(
             actor,
             usageKey,
             estimatedSeconds,

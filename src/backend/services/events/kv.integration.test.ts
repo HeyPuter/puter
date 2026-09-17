@@ -55,8 +55,24 @@ const settle = () =>
         interval: 25,
     });
 
+/**
+ * One row's own delivery. Session rows from earlier tests stay live on the
+ * shared socket, so `settle()` can return on someone else's envelope.
+ */
+const eventFor = (subId: string) =>
+    vi.waitFor(
+        () => {
+            const found = delivered.find((one) => one.subId === subId);
+            expect(found).toBeDefined();
+            return found!.event as Record<string, unknown>;
+        },
+        { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
+    );
+
 const quiet = () =>
-    new Promise((resolve) => setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3));
+    new Promise((resolve) =>
+        setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3),
+    );
 
 /** An app owned by the test user, registered the way the app store sees one. */
 const makeApp = async (metadata?: object): Promise<string> => {
@@ -214,18 +230,6 @@ describe('a kv write reaches its subscribers', () => {
 });
 
 describe('a subscription that asked for the value', () => {
-    // Session rows from earlier tests stay live on the shared socket, so
-    // every assertion here reads its own row's delivery rather than the first.
-    const eventFor = (subId: string) =>
-        vi.waitFor(
-            () => {
-                const found = delivered.find((one) => one.subId === subId);
-                expect(found).toBeDefined();
-                return found!.event as Record<string, unknown>;
-            },
-            { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
-        );
-
     it('is handed what the key now holds, and a row that did not ask is not', async () => {
         const asking = await subscribe(`kv:${ownAppUid}:value:*`, ownAppToken, {
             includeValue: true,
@@ -375,10 +379,8 @@ describe('the cross-app gate against real grants', () => {
         await kvSet(env.users.user.token, 'cart:items', [7], {
             appUuid: otherAppUid,
         });
-        await settle();
 
-        const own = delivered.find((one) => one.subId === sub.subId);
-        expect(own?.event).toMatchObject({ value: [7] });
+        expect(await eventFor(sub.subId)).toMatchObject({ value: [7] });
         await revokeRead(otherAppUid);
     });
 

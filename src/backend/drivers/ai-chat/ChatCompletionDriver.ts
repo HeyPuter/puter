@@ -26,6 +26,7 @@ import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { FREE_SUBSCRIPTION_IDS } from '../../services/metering/consts.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -302,6 +303,11 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #providers: Record<string, IChatProvider> = {};
     #modelIdMap: Record<string, IChatModel[]> = {};
+
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
 
     override onServerStart() {
         this.#registerProviders();
@@ -1029,7 +1035,7 @@ export class ChatCompletionDriver extends PuterDriver {
         };
 
         const cost = this.#computeCost(usage, model);
-        this.services.metering.utilRecordUsageObject(
+        this.#aiMetering.utilRecordUsageObject(
             {
                 [`estimated_${inputKey}`]: inputTokens,
                 [`estimated_${outputKey}`]: outputTokens,
@@ -1127,7 +1133,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const metering = this.services.metering;
+        const metering = this.#aiMetering;
 
         const readKey = (cfg: Record<string, unknown> | undefined) =>
             (cfg?.apiKey as string | undefined) ??

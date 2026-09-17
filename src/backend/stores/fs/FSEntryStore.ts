@@ -1226,6 +1226,35 @@ export class FSEntryStore extends PuterStore {
         return entriesByPath;
     }
 
+    /**
+     * The entry as it stands after a patch this store just wrote. The writer
+     * already knows every column it set, so all it needs is a base, and a
+     * cache-first read supplies that without the cross-region round trip a
+     * primary read costs.
+     *
+     * Only for patches that leave `id`, `uuid` and `path` alone — the cache
+     * keys derive from those. A writer changing other columns in the same
+     * instant can have one field served stale until the entry's TTL lapses;
+     * reading the primary on every mutation is the alternative.
+     */
+    async #entryAfterPatch(
+        uuid: string,
+        patch: Partial<FSEntry>,
+    ): Promise<FSEntry | null> {
+        const base = await this.getEntryByUuid(uuid);
+        if (!base) return null;
+        const entry = { ...base, ...patch };
+        // Broadcast the new value rather than a hole: peers would otherwise
+        // serve their own cached copy of the pre-patch row until its TTL.
+        await this.publishCacheKeys({
+            keys: this.#entryCacheKeys(entry),
+            serializedData: JSON.stringify(entry),
+            ttlSeconds: ENTRY_CACHE_TTL_SECONDS,
+            broadcast: true,
+        });
+        return entry;
+    }
+
     async getEntryByUuid(id: string): Promise<FSEntry | null> {
         const cacheKey = `prodfsv2:fsentry:uuid:${id}`;
         const cached = await this.#readEntryFromCache(cacheKey);
@@ -1384,22 +1413,21 @@ export class FSEntryStore extends PuterStore {
             }
         }
 
-        const refreshedRows = (await this.clients.db.pread(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? AND user_id = ? LIMIT 1`,
-            [uuid, userId],
-        )) as unknown as FSEntryRow[];
-        const refreshedRow = refreshedRows[0];
-        if (!refreshedRow) {
+        // The UPDATE above already proved the row exists and belongs to this
+        // user, and named every column that moved — so the result is knowable
+        // without reading the row back.
+        const updatedEntry = await this.#entryAfterPatch(uuid, {
+            thumbnail,
+            modified: now,
+            accessed: now,
+        });
+        if (!updatedEntry || updatedEntry.userId !== userId) {
             throw new HttpError(
                 404,
                 'File entry was not found for thumbnail update',
                 { legacyCode: 'not_found' },
             );
         }
-
-        const updatedEntry = this.#mapFSEntryRow(refreshedRow);
-        await this.#invalidateEntryCache(updatedEntry);
-        await this.#writeEntryToCache(updatedEntry);
         return updatedEntry;
     }
 
@@ -2310,7 +2338,15 @@ export class FSEntryStore extends PuterStore {
             input.kind === 'symlink',
         );
 
-        await this.clients.db.write(
+        const isPublic =
+            input.isPublic === undefined || input.isPublic === null
+                ? null
+                : this.clients.db.booleanValue(input.isPublic);
+        const immutable = this.clients.db.booleanValue(
+            Boolean(input.immutable),
+        );
+
+        const written = await this.clients.db.write(
             `INSERT INTO fsentries (
                 uuid,
                 user_id,
@@ -2348,10 +2384,8 @@ export class FSEntryStore extends PuterStore {
                 input.associatedAppId ?? null,
                 input.metadata ?? null,
                 input.thumbnail ?? null,
-                this.clients.db.booleanValue(Boolean(input.immutable)),
-                input.isPublic === undefined || input.isPublic === null
-                    ? null
-                    : this.clients.db.booleanValue(input.isPublic),
+                immutable,
+                isPublic,
                 now,
                 now,
                 now,
@@ -2359,6 +2393,52 @@ export class FSEntryStore extends PuterStore {
             ],
         );
 
+        // The insert supplied every column; the rest take their schema default
+        // and a row this new has no subdomains. Reading it back would only
+        // return what we just sent, at the price of a primary round trip on a
+        // path app launches wait for.
+        const insertId = Number(written.insertId);
+        const row: FSEntryRow = insertId
+            ? ({
+                  id: insertId,
+                  uuid,
+                  user_id: input.parent.userId,
+                  parent_id: input.parent.id,
+                  parent_uid: input.parent.uuid,
+                  name: input.name,
+                  path,
+                  is_dir: isDir,
+                  is_shortcut: isShortcut,
+                  shortcut_to: input.shortcutTo ?? null,
+                  is_symlink: isSymlink,
+                  symlink_path: input.symlinkPath ?? null,
+                  associated_app_id: input.associatedAppId ?? null,
+                  metadata: input.metadata ?? null,
+                  thumbnail: input.thumbnail ?? null,
+                  immutable,
+                  is_public: isPublic,
+                  created: now,
+                  modified: now,
+                  accessed: now,
+                  size: 0,
+                  bucket: null,
+                  bucket_region: null,
+                  public_token: null,
+                  file_request_token: null,
+                  layout: null,
+                  sort_by: null,
+                  sort_order: null,
+                  subdomains_agg: null,
+              } as unknown as FSEntryRow)
+            : await this.#readCreatedEntryRow(uuid);
+
+        const entry = this.#mapFSEntryRow(row);
+        await this.#writeEntryToCache(entry);
+        return entry;
+    }
+
+    /** Fallback for engines that report no insert id: the row we just wrote. */
+    async #readCreatedEntryRow(uuid: string): Promise<FSEntryRow> {
         const rows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
@@ -2369,9 +2449,7 @@ export class FSEntryStore extends PuterStore {
                 legacyCode: 'internal_error',
             });
         }
-        const entry = this.#mapFSEntryRow(row);
-        await this.#writeEntryToCache(entry);
-        return entry;
+        return row;
     }
 
     /**
@@ -2389,42 +2467,41 @@ export class FSEntryStore extends PuterStore {
         const now = Math.floor(Date.now() / 1000);
         const assignments: string[] = [];
         const values: unknown[] = [];
+        const patch: Partial<FSEntry> = {};
         if (options.setAccessed) {
             assignments.push('accessed = ?');
             values.push(now);
+            patch.accessed = now;
         }
         if (options.setModified) {
             assignments.push('modified = ?');
             values.push(now);
+            patch.modified = now;
         }
         if (options.setCreated) {
             assignments.push('created = ?');
             values.push(now);
+            patch.created = now;
         }
         if (assignments.length === 0) {
             // Default: touch all three.
             assignments.push('accessed = ?', 'modified = ?', 'created = ?');
             values.push(now, now, now);
+            patch.accessed = now;
+            patch.modified = now;
+            patch.created = now;
         }
         await this.clients.db.write(
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
         );
-        // Re-read the row itself rather than going through `getEntryByUuid`:
-        // that read is cache-first and would hand back the pre-touch
-        // timestamps (and then re-cache them for another TTL).
-        const refreshedRows = (await this.clients.db.pread(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
-            [uuid],
-        )) as unknown as FSEntryRow[];
-        const refreshedRow = refreshedRows[0];
-        if (!refreshedRow)
+        // The timestamps above are the only columns that moved, so the entry
+        // is knowable without reading the row back.
+        const entry = await this.#entryAfterPatch(uuid, patch);
+        if (!entry)
             throw new HttpError(404, 'Entry not found after touch', {
                 legacyCode: 'not_found',
             });
-        const entry = this.#mapFSEntryRow(refreshedRow);
-        await this.#invalidateEntryCache(entry);
-        await this.#writeEntryToCache(entry);
         return entry;
     }
 
@@ -2489,7 +2566,8 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            { v: unknown; id: number; s?: string; o?: string } | undefined;
+            | { v: unknown; id: number; s?: string; o?: string }
+            | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2675,7 +2753,8 @@ export class FSEntryStore extends PuterStore {
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
         const payload = decodeCursor(options.cursor) as
-            { p: string } | undefined;
+            | { p: string }
+            | undefined;
         const seek = payload ? 'AND path > ?' : '';
         const params: unknown[] = payload
             ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
