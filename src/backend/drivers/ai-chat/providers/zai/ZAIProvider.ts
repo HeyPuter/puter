@@ -45,7 +45,6 @@ type ZAICustomParams = {
         clear_thinking?: boolean;
     };
     tool_stream?: boolean;
-    user_id?: string;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -107,8 +106,8 @@ export class ZAIProvider implements IChatProvider {
         });
 
         const customParams = asRecord(custom) as ZAICustomParams;
-        const userId =
-            customParams.user_id ?? aiUserIdentifier(actor, USER_ID_MAX_LENGTH);
+        // Puter's abuse attribution; `custom` can't override it.
+        const userId = aiUserIdentifier(actor, USER_ID_MAX_LENGTH);
 
         const completionParams: ChatCompletionCreateParams = {
             messages,

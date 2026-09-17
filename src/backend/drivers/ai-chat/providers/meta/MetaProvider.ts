@@ -48,7 +48,6 @@ type MetaCustomParams = {
     frequency_penalty?: number;
     presence_penalty?: number;
     response_format?: unknown;
-    safety_identifier?: string;
     seed?: number;
 };
 
@@ -165,11 +164,9 @@ export class MetaProvider implements IChatProvider {
                 ? 'in_memory'
                 : prompt_cache_retention;
 
+        // The identifier is Puter's abuse attribution, so `custom` can't
+        // override it. Cache key defaults to it; see aiUserIdentifier.
         const userIdentifier = aiUserIdentifier(actor);
-        const safetyIdentifier =
-            customParams.safety_identifier ?? userIdentifier;
-        // Default `prompt_cache_key` to the same identifier so requests still
-        // bucket by user when the caller doesn't set one explicitly.
         const cacheKey = prompt_cache_key ?? userIdentifier;
 
         const completionParams = {
@@ -189,9 +186,7 @@ export class MetaProvider implements IChatProvider {
             ...(cacheRetention !== undefined
                 ? { prompt_cache_retention: cacheRetention }
                 : {}),
-            ...(safetyIdentifier
-                ? { safety_identifier: safetyIdentifier }
-                : {}),
+            ...(userIdentifier ? { safety_identifier: userIdentifier } : {}),
             ...(customParams.response_format
                 ? { response_format: customParams.response_format }
                 : {}),

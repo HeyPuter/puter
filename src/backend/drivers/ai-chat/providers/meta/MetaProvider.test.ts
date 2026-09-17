@@ -393,16 +393,16 @@ describe('MetaProvider.complete request shape', () => {
         );
     });
 
-    it('prefers an explicit custom.safety_identifier over the actor-derived one', async () => {
+    it('ignores a caller-supplied custom.safety_identifier', async () => {
         createMock.mockResolvedValueOnce(OK_COMPLETION);
-        const userActor: Actor = { user: { id: 42, uuid: 'u42' } };
+        const userActor = makeActor({ user: { id: 42, uuid: 'u42' } });
         await complete(
             makeProvider(),
             { custom: { safety_identifier: 'caller-supplied' } },
             userActor,
         );
         expect(createMock.mock.calls[0]![0].safety_identifier).toBe(
-            'caller-supplied',
+            'puter-u42',
         );
     });
 

@@ -44,8 +44,9 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import {
-    assertActorMatrixIdentifiers,
+    expectedIdentifierFields,
     makeActorMatrix,
+    sentIdentifierFields,
     withTestActor,
 } from '../../../integrationTestUtil.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
@@ -297,7 +298,10 @@ describe('XAIImageProvider.generate success path', () => {
             );
         }
 
-        assertActorMatrixIdentifiers(generateMock.mock.calls);
+        const fields = ['user'];
+        expect(sentIdentifierFields(generateMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
     });
 
     it('uses the 2k output rate when quality is "2k"', async () => {

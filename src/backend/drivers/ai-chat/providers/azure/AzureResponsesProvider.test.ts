@@ -45,8 +45,9 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import {
-    assertActorMatrixIdentifiers,
+    expectedIdentifierFields,
     makeActorMatrix,
+    sentIdentifierFields,
     withTestActor,
 } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
@@ -249,10 +250,10 @@ describe('AzureResponsesProvider.complete request shape', () => {
             );
         }
 
-        assertActorMatrixIdentifiers(responsesCreateMock.mock.calls, [
-            'safety_identifier',
-            'prompt_cache_key',
-        ]);
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(
+            sentIdentifierFields(responsesCreateMock.mock.calls, fields),
+        ).toEqual(expectedIdentifierFields(fields));
     });
 
     it('resolves an alias against the unrestricted catalog', async () => {

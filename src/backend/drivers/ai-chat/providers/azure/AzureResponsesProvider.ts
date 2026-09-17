@@ -143,10 +143,7 @@ export class AzureResponsesProvider implements IChatProvider {
             )!;
 
         const userIdentifier = aiUserIdentifier(actor);
-        // `user` is deprecated in favor of `safety_identifier` (abuse
-        // detection) and `prompt_cache_key` (cache-hit bucketing); default
-        // the latter to the same identifier when the caller didn't supply
-        // one, so callers keep the caching benefit `user` used to provide.
+        // Cache key defaults to the actor identifier; see aiUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs

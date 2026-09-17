@@ -47,8 +47,9 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import {
-    assertActorMatrixIdentifiers,
+    expectedIdentifierFields,
     makeActorMatrix,
+    sentIdentifierFields,
     withTestActor,
 } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
@@ -289,10 +290,10 @@ describe('OpenAiChatProvider.complete request shape', () => {
             );
         }
 
-        assertActorMatrixIdentifiers(createMock.mock.calls, [
-            'safety_identifier',
-            'prompt_cache_key',
-        ]);
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(sentIdentifierFields(createMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
     });
 
     it('forwards a caller-supplied prompt_cache_key instead of the derived identifier', async () => {

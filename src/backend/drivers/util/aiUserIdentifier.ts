@@ -20,42 +20,39 @@
 import type { Actor } from '../../core/actor.js';
 import { isSystemActor } from '../../core/actor.js';
 
-// OpenAI's `safety_identifier` (Chat Completions and Responses; Azure mirrors
-// the same contract) is documented at 64 characters. Z.AI's `user_id` is
-// documented at 6-128, so ZAIProvider passes a larger `maxLength`. Meta's and
-// xAI's APIs don't document a limit for this field; 64 is reused there as a
-// safe default, not a verified vendor cap. The same value is also sent as
-// the deprecated `user` field and, where forwarded, `prompt_cache_key` —
-// neither documents a length limit of its own.
-export const AI_USER_IDENTIFIER_MAX_LENGTH = 64;
+// OpenAI and Meta both document `safety_identifier` at 64 characters; Azure
+// mirrors OpenAI's contract. xAI documents no cap, so 64 is a safe default
+// there. Z.AI's `user_id` allows 6-128, so ZAIProvider passes a larger cap.
+const DEFAULT_MAX_LENGTH = 64;
 
-// Below this remaining budget, a truncated app uid loses enough of its
-// distinguishing suffix that two different apps could collide; below the
-// threshold we drop the app suffix entirely rather than risk that.
+// A truncated app uid shorter than this could collide with another app's, so
+// the suffix is dropped instead of squeezed.
 const MIN_APP_UID_BUDGET = 8;
 
 /**
- * Builds Puter's stable, non-sequential AI actor identifier.
+ * Stable, non-sequential identifier for the acting user (and app) to send to AI
+ * vendors as `user` / `safety_identifier` / `prompt_cache_key`:
+ * `puter-<user-uuid>[-<app-uid>]`.
  *
- * The user's UUID is always preserved in full. When an app is present,
- * maxLength limits the app-bearing form; the app token may be truncated or
- * omitted when there is insufficient room. The user-only form is always
- * returned in full.
+ * The user uuid is never truncated; only the app suffix is cut or dropped to
+ * fit `maxLength`. The app comes from `effectiveApp` so access-token requests
+ * are attributed to the issuing app. Returns undefined for the system actor.
  *
- * Reads only `effectiveApp` (never the bare `app`) so an actor literal built
- * without `makeActor` — whose `effectiveApp` was never derived — degrades to
- * the user-only identifier instead of silently attributing to the wrong app.
+ * The same value doubles as the default `prompt_cache_key`: OpenAI recommends
+ * one key per user whose cache accounting should stay separate, and per-user
+ * volume stays under the per-key routing budget. A shared prefix therefore
+ * isn't cache-shared across users of one app; that's a deliberate trade.
  */
 export const aiUserIdentifier = (
     actor?: Actor | null,
-    maxLength: number = AI_USER_IDENTIFIER_MAX_LENGTH,
+    maxLength: number = DEFAULT_MAX_LENGTH,
 ): string | undefined => {
     if (!actor || isSystemActor(actor)) return undefined;
     const userUuid = actor.user?.uuid;
     if (!userUuid) return undefined;
     const base = `puter-${userUuid}`;
     const appUid = actor.effectiveApp?.uid;
-    if (!appUid || maxLength <= base.length + 1) return base;
+    if (!appUid) return base;
     const appBudget = maxLength - base.length - 1;
     if (appBudget < MIN_APP_UID_BUDGET) return base;
     return `${base}-${appUid.slice(0, appBudget)}`;

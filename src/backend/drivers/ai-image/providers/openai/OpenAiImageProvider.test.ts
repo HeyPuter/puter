@@ -45,8 +45,9 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import {
-    assertActorMatrixIdentifiers,
+    expectedIdentifierFields,
     makeActorMatrix,
+    sentIdentifierFields,
     withTestActor,
 } from '../../../integrationTestUtil.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
@@ -274,7 +275,10 @@ describe('OpenAiImageProvider.generate user identifier', () => {
             );
         }
 
-        assertActorMatrixIdentifiers(generateMock.mock.calls);
+        const fields = ['user'];
+        expect(sentIdentifierFields(generateMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
     });
 });
 

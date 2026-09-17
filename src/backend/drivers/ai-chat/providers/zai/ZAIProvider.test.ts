@@ -43,7 +43,6 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import type { Actor } from '../../../../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -372,13 +371,11 @@ describe('ZAIProvider.complete request shape', () => {
         expect(args.user_id).toBe('puter-u42-app-uid');
     });
 
-    it('prefers an explicit custom.user_id over the actor-derived one', async () => {
+    it('ignores a caller-supplied custom.user_id', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
-        const userActor: Actor = {
-            user: { id: 42, uuid: 'u42' },
-        };
+        const userActor = makeActor({ user: { id: 42, uuid: 'u42' } });
 
         await withTestActor(
             () =>
@@ -391,7 +388,7 @@ describe('ZAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.user_id).toBe('caller-supplied');
+        expect(args.user_id).toBe('puter-u42');
     });
 
     it('omits user_id entirely for the system actor', async () => {

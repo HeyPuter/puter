@@ -30,8 +30,6 @@
  * a test file.
  */
 
-import { expect } from 'vitest';
-
 import type { Actor } from '../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
@@ -108,37 +106,33 @@ export const makeActorMatrix = (): Actor[] => {
     ];
 };
 
+/** Identifiers `makeActorMatrix()` should produce, in matrix order. */
+export const ACTOR_MATRIX_IDENTIFIERS: (string | undefined)[] = [
+    'puter-u42',
+    'puter-u42-app-abc',
+    'puter-u42-app-abc',
+    undefined,
+];
+
 /**
- * Asserts the four mock calls recorded from driving `makeActorMatrix()` through
- * a provider carry the expected identifier: full uuid, uuid+app, uuid+app via
- * access token, and undefined for the system actor. Pass `extraFields` for
- * providers that also send the same identifier under other field names (e.g.
- * `safety_identifier`, `user_id`, `prompt_cache_key`).
+ * Picks `fields` off the first argument of each recorded mock call, keyed by
+ * field, so a suite can compare what a provider sent against
+ * `expectedIdentifierFields(fields)` with one `toEqual`.
  */
-export const assertActorMatrixIdentifiers = (
+export const sentIdentifierFields = (
     calls: unknown[][],
-    extraFields?: string | string[],
-): void => {
-    type Call = Record<string, unknown>;
-    const [userOnly] = calls[0]! as [Call];
-    const [withApp] = calls[1]! as [Call];
-    const [tokenWithApp] = calls[2]! as [Call];
-    const [system] = calls[3]! as [Call];
+    fields: string[],
+): Record<string, unknown[]> =>
+    Object.fromEntries(
+        fields.map((field) => [
+            field,
+            calls.map((call) => (call[0] as Record<string, unknown>)[field]),
+        ]),
+    );
 
-    expect(userOnly.user).toBe('puter-u42');
-    expect(withApp.user).toBe('puter-u42-app-abc');
-    expect(tokenWithApp.user).toBe('puter-u42-app-abc');
-    expect(system.user).toBeUndefined();
-
-    const fields = extraFields
-        ? Array.isArray(extraFields)
-            ? extraFields
-            : [extraFields]
-        : [];
-    for (const field of fields) {
-        expect(userOnly[field]).toBe('puter-u42');
-        expect(withApp[field]).toBe('puter-u42-app-abc');
-        expect(tokenWithApp[field]).toBe('puter-u42-app-abc');
-        expect(system[field]).toBeUndefined();
-    }
-};
+export const expectedIdentifierFields = (
+    fields: string[],
+): Record<string, unknown[]> =>
+    Object.fromEntries(
+        fields.map((field) => [field, ACTOR_MATRIX_IDENTIFIERS]),
+    );
