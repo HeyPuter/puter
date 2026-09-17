@@ -86,7 +86,12 @@ export default function shareRecipientPicker ({
         <ul class="share-suggest-list" id="${list_id}" role="listbox" aria-label="${i18n('share_suggestions')}"></ul>
     </div>`);
     const $note = $(`<p class="share-suggest-note" hidden>${i18n('share_team_note')}</p>`);
-    $row.after($panel, $note);
+    // The list floats over what is below it rather than pushing it down: a
+    // dialog that grows and shrinks under the cursor is worse than one that is
+    // briefly covered. It goes *inside* the row so the row is its containing
+    // block — as a sibling it would resolve against whatever is positioned
+    // further up — and being out of flow, the row's own layout is untouched.
+    $row.addClass('share-suggest-anchor').append($panel).after($note);
 
     // The class is what the locked-field styling hangs on: each dialog's own
     // input rules match at a specificity a bare descendant selector loses to.
@@ -143,6 +148,51 @@ export default function shareRecipientPicker ({
         self: window.user?.username ?? null,
     });
 
+    // -- Placement --
+
+    // What the list needs beyond its own rows: the gap under the row, the
+    // panel's border and padding, and a little air at the clipping edge.
+    const CHROME = 24;
+    // How tall the list may grow before it scrolls, matching the CSS ceiling.
+    const MAX_HEIGHT = 232;
+    const MIN_HEIGHT = 120;
+
+    /**
+     * The box the list has to stay inside — the nearest ancestor that clips,
+     * which is the modal's scrolling body in one dialog and the window in the
+     * other. Falls back to the viewport.
+     */
+    const clip_box = () => {
+        let el = $row.get(0)?.parentElement;
+        while ( el && el !== document.body ) {
+            const style = getComputedStyle(el);
+            if ( /auto|scroll|hidden/.test(`${style.overflowY}${style.overflowX}`) ) {
+                return el.getBoundingClientRect();
+            }
+            el = el.parentElement;
+        }
+        return { top: 0, bottom: window.innerHeight || 0 };
+    };
+
+    /**
+     * Fits the open list to the room around the field. Being out of the flow,
+     * it would otherwise be cut off by that clipping ancestor rather than
+     * scroll; where below is too tight and above is roomier, it opens upwards.
+     */
+    const place = () => {
+        const row = $row.get(0)?.getBoundingClientRect();
+        if ( ! row ) return;
+        const clip = clip_box();
+        const below = clip.bottom - row.bottom - CHROME;
+        const above = row.top - clip.top - CHROME;
+        const up = below < MIN_HEIGHT && above > below;
+        $panel.toggleClass('share-suggest-above', up);
+        $panel.find('.share-suggest-list').css(
+            'max-height',
+            `${Math.round(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, up ? above : below)))}px`,
+        );
+    };
+
     // -- Rendering --
 
     /** The muted second line: what this row is. `i18n` encodes unless told not to. */
@@ -194,6 +244,7 @@ export default function shareRecipientPicker ({
                 .html(`<li class="share-suggest-loading" role="presentation">${i18n('share_suggest_loading')}</li>`);
             $panel.prop('hidden', false);
             $input.attr('aria-expanded', 'true');
+            place();
             paint_active();
             return;
         }
@@ -206,6 +257,7 @@ export default function shareRecipientPicker ({
             .html(shown.map((suggestion, index) => option_html(suggestion, index)).join(''));
         $panel.prop('hidden', false);
         $input.attr('aria-expanded', 'true');
+        place();
         paint_active();
     };
 
@@ -339,6 +391,8 @@ export default function shareRecipientPicker ({
         close();
     };
     $(document).on(`mousedown.${list_id}`, on_document_mousedown);
+    // The list follows the row on its own; only how much room it has changes.
+    $(window).on(`resize.${list_id}`, () => { if ( open ) place(); });
 
     // -- What the dialog needs from it --
 
@@ -402,6 +456,7 @@ export default function shareRecipientPicker ({
             destroyed = true;
             close();
             $(document).off(`mousedown.${list_id}`);
+            $(window).off(`resize.${list_id}`);
         },
     };
 }

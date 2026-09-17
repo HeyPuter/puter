@@ -136,6 +136,20 @@ describe('opening the list', () => {
         expect($('.share-suggest').prop('hidden')).toBe(true);
     });
 
+    it('floats off the row instead of taking part in the layout', async () => {
+        const { picker, $input } = mount();
+        picker.setTeams([ACME]);
+        $input.trigger('click');
+        await settle();
+
+        // Opening must not push anything down: the panel hangs off the row,
+        // which the anchor class makes a positioning context.
+        expect($('.row').hasClass('share-suggest-anchor')).toBe(true);
+        expect($('.share-suggest').parent().is('.row')).toBe(true);
+        // The list is capped to the room around the field, not left to grow.
+        expect($('.share-suggest-list').get(0).style.maxHeight).toMatch(/px$/);
+    });
+
     it('leaves out whoever the access list already covers', async () => {
         const { picker, $input } = mount({ excluded: () => ['user:bob', 'team:t-1'] });
         picker.setTeams([ACME]);

@@ -6626,8 +6626,8 @@ html.dark-mode .usage-table-show-less:hover {
 /* -- Recipient suggestions --
    Shared by this dialog and the Dashboard's share modal; each host sets the
    palette below through its own tokens (dashboard.css restates them for
-   .share-modal). The list sits in the flow rather than floating, so a
-   scrolling modal body or a bottom sheet can't clip it. */
+   .share-modal). The list is anchored to the recipient row and floats over
+   what follows it, so opening and closing it never resizes the dialog. */
 .share-dialog {
     --share-suggest-bg: #fff;
     --share-suggest-border: #dfe3e8;
@@ -6685,13 +6685,31 @@ html.dark-mode .usage-table-show-less:hover {
     box-shadow: 0 0 0 3px var(--select-ring);
 }
 
+/* The row the list hangs off. The row keeps its own margins, so the list
+   below it neither inherits nor disturbs the dialog's spacing. */
+.share-suggest-anchor {
+    position: relative;
+}
+
 .share-suggest {
-    margin: 6px 0 10px;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    margin: 0;
     border: 1px solid var(--share-suggest-border, #dfe3e8);
     border-radius: 10px;
     background: var(--share-suggest-bg, #fff);
-    box-shadow: 0 6px 20px var(--share-suggest-shadow, rgba(15, 23, 42, 0.12));
+    box-shadow: 0 8px 26px var(--share-suggest-shadow, rgba(15, 23, 42, 0.16));
     overflow: hidden;
+}
+
+/* Opened upwards where there isn't room below it — `place()` decides, and
+   the clipping ancestor it measures against is what would cut the list off. */
+.share-suggest.share-suggest-above {
+    top: auto;
+    bottom: calc(100% + 6px);
 }
 
 .share-suggest[hidden],
@@ -6700,6 +6718,8 @@ html.dark-mode .usage-table-show-less:hover {
     display: none;
 }
 
+/* `place()` narrows this to the room actually available; the value here is
+   the ceiling it clamps to. */
 .share-suggest-list {
     margin: 0;
     padding: 4px;
