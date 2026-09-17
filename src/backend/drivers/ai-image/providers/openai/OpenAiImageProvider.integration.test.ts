@@ -20,7 +20,7 @@
 /**
  * Integration test for the OpenAI image generation provider.
  *
- * Uses `gpt-image-1-mini` at low:1024x1024 — the cheapest OpenAI
+ * Uses `gpt-image-2` at low:1024x1024 — the cheapest OpenAI
  * image configuration ($0.005/image). Skipped when
  * `PUTER_TEST_AI_OPENAI_API_KEY` is unset.
  */
@@ -40,7 +40,7 @@ const ENV_VAR = 'PUTER_TEST_AI_OPENAI_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'OpenAiImageProvider (integration)',
     () => {
-        it('returns an image url/data from gpt-image-1-mini at low:1024x1024', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns an image url/data from gpt-image-2 at low:1024x1024', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new OpenAiImageProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -48,7 +48,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.generate({
-                    model: 'gpt-image-1-mini',
+                    model: 'gpt-image-2',
                     prompt: 'a tiny red dot on a white background',
                     ratio: { w: 1024, h: 1024 },
                 }),

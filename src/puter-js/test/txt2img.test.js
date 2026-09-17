@@ -5,7 +5,7 @@
 // all tests pin the cheapest model at minimal quality. The model is passed
 // explicitly because the driver's no-model default doesn't resolve when
 // called through the `ai-image` driver name (the SDK's default route).
-const IMG_TEST_OPTIONS = { model: "gpt-image-1-mini", quality: "low" };
+const IMG_TEST_OPTIONS = { model: "gpt-image-2", quality: "low" };
 
 // The test page runs as an app-scoped actor, so `puter_output_path` writes
 // must stay inside the app's own AppData directory; paths outside it are

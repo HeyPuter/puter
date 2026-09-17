@@ -612,6 +612,19 @@ describe('ai.txt2img driver payloads', () => {
         await expect(ai.txt2img({})).rejects.toMatchObject({ code: 'prompt_required' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
+
+    it('txt2img leaves normalize off the wire even when ai.normalize is set', async () => {
+        // Image results already share one shape, so the chat-only switch is
+        // not forwarded and cannot change what txt2img returns.
+        FakeXHR.respondWith = () => ({ success: true, result: 'data:image/png;base64,QUJD' });
+        ai.normalize = true;
+        try {
+            await ai.txt2img('a cat');
+            expect('normalize' in lastBody().args).toBe(false);
+        } finally {
+            ai.normalize = undefined;
+        }
+    });
 });
 
 describe('ai.txt2vid driver payloads', () => {

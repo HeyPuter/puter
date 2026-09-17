@@ -30,15 +30,70 @@ export type CloudflareImageModel = IImageModel & {
     billingScheme: CloudflareBillingScheme;
     defaultSteps?: number;
     requiresMultipart?: boolean;
+    maxSteps?: number;
+    fixedSteps?: number;
+    outputMime?: string;
+    minDimension?: number;
+    maxDimension?: number;
+    fixedRatio?: { w: number; h: number };
+    supportsNegativePrompt?: boolean;
+    supportsImageBytes?: boolean;
+    requiresInputImage?: boolean;
 };
 
 // Source: Cloudflare Workers AI docs and model pages.
 // Pricing values are in USD microcents for billing units.
 export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
     {
+        id: '@cf/bytedance/stable-diffusion-xl-lightning',
+        puterId: 'workers-ai:bytedance/stable-diffusion-xl-lightning',
+        name: 'SDXL Lightning',
+        costs_currency: 'usd-microcents',
+        index_cost_key: 'step',
+        costs: { step: 0 },
+        billingScheme: 'step-only',
+        defaultSteps: 20,
+        maxSteps: 20,
+        minDimension: 256,
+        maxDimension: 2048,
+        supportsNegativePrompt: true,
+    },
+    {
+        id: '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+        puterId: 'workers-ai:stabilityai/stable-diffusion-xl-base-1.0',
+        name: 'Stable Diffusion XL Base 1.0',
+        costs_currency: 'usd-microcents',
+        index_cost_key: 'step',
+        costs: { step: 0 },
+        billingScheme: 'step-only',
+        defaultSteps: 20,
+        maxSteps: 20,
+        minDimension: 256,
+        maxDimension: 2048,
+        supportsNegativePrompt: true,
+    },
+    {
+        id: '@cf/runwayml/stable-diffusion-v1-5-inpainting',
+        puterId: 'workers-ai:runwayml/stable-diffusion-v1-5-inpainting',
+        name: 'Stable Diffusion 1.5 Inpainting',
+        costs_currency: 'usd-microcents',
+        index_cost_key: 'step',
+        costs: { step: 0 },
+        billingScheme: 'step-only',
+        defaultSteps: 20,
+        maxSteps: 20,
+        minDimension: 256,
+        maxDimension: 2048,
+        supportsNegativePrompt: true,
+        supportsImageBytes: true,
+        requiresInputImage: true,
+    },
+    {
         puterId: 'workers-ai:black-forest-labs/flux.1-schnell',
         id: '@cf/black-forest-labs/flux-1-schnell',
-        aliases: ['black-forest-labs/flux.1-schnell'],
+        // No bare `black-forest-labs/flux.1-schnell` alias: it is the retired
+        // Together spelling, and a shared alias would route Together callers
+        // here whenever Together is not configured.
         name: 'FLUX.1 Schnell',
         costs_currency: 'usd-microcents',
         index_cost_key: 'step',
@@ -48,16 +103,21 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
         },
         billingScheme: 'tile-plus-step',
         defaultSteps: 4,
+        maxSteps: 8,
+        outputMime: 'image/jpeg',
+        fixedRatio: { w: 1024, h: 1024 },
     },
     {
         puterId: 'workers-ai:leonardo/lucid-origin',
         id: '@cf/leonardo/lucid-origin',
         aliases: ['leonardo/lucid-origin'],
         name: 'Lucid Origin',
+        maxDimension: 2500,
+        maxSteps: 40,
         costs_currency: 'usd-microcents',
         index_cost_key: 'step',
         costs: {
-            tile_512: 699600,
+            tile_512: 700000,
             step: 13200,
         },
         billingScheme: 'tile-plus-step',
@@ -66,8 +126,10 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
     {
         puterId: 'workers-ai:leonardo/phoenix-1.0',
         id: '@cf/leonardo/phoenix-1.0',
+        supportsNegativePrompt: true,
         aliases: ['leonardo/phoenix-1.0'],
         name: 'Phoenix 1.0',
+        maxDimension: 2048,
         costs_currency: 'usd-microcents',
         index_cost_key: 'step',
         costs: {
@@ -91,6 +153,8 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
         billingScheme: 'flux2-dev-tile-step',
         defaultSteps: 25,
         requiresMultipart: true,
+        minDimension: 256,
+        maxDimension: 1920,
     },
     {
         puterId: 'workers-ai:black-forest-labs/flux.2-klein-4b',
@@ -104,7 +168,10 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
             output_tile_512: 28700,
         },
         billingScheme: 'flux2-klein-4b-tile',
+        fixedSteps: 4,
         requiresMultipart: true,
+        minDimension: 256,
+        maxDimension: 1920,
     },
     {
         puterId: 'workers-ai:black-forest-labs/flux.2-klein-9b',
@@ -119,6 +186,9 @@ export const CLOUDFLARE_IMAGE_GENERATION_MODELS: CloudflareImageModel[] = [
             input_image_mp: 200000,
         },
         billingScheme: 'flux2-klein-9b-mp',
+        fixedSteps: 4,
         requiresMultipart: true,
+        minDimension: 256,
+        maxDimension: 1920,
     },
 ];
