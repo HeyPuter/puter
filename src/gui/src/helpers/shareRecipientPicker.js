@@ -76,8 +76,13 @@ export default function shareRecipientPicker ({
     const list_id = `share-suggest-list-${++picker_seq}`;
 
     const $field = $('<div class="share-suggest-field"></div>');
+    // Both dialogs focus this field as they open, and an element that leaves
+    // the document — which is what moving it into the wrapper does — takes its
+    // focus with it. Put it back rather than leaving the caller to notice.
+    const had_focus = document.activeElement === $input.get(0);
     $input.before($field);
     $field.append($input);
+    if ( had_focus ) $input.get(0)?.focus({ preventScroll: true });
     const $clear = $(`<button type="button" class="share-suggest-clear" hidden
         aria-label="${i18n('share_clear_recipient')}" title="${i18n('share_clear_recipient')}">${clearIcon}</button>`);
     $field.append($clear);

@@ -38,7 +38,7 @@ beforeAll(async () => {
 let mounted = [];
 
 /** Renders the markup both dialogs share and attaches a picker to it. */
-const mount = (opts = {}) => {
+const mount = ({ focus_first = false, ...opts } = {}) => {
     document.body.innerHTML = `
         <div class="host">
             <div class="row">
@@ -47,6 +47,8 @@ const mount = (opts = {}) => {
             </div>
         </div>`;
     const $input = $('.recipient');
+    // Both dialogs focus the field before the picker is wired onto it.
+    if ( focus_first ) $input.get(0).focus();
     const picker = shareRecipientPicker({
         $input,
         $row: $('.row'),
@@ -92,6 +94,15 @@ afterEach(() => {
     mounted.forEach((picker) => picker.destroy());
     mounted = [];
     document.body.innerHTML = '';
+});
+
+describe('wiring onto the field', () => {
+    it('keeps the focus the dialog put there before wiring', () => {
+        const { $input } = mount({ focus_first: true });
+        // Moving the field into the wrapper takes it out of the document for
+        // an instant, which is enough to drop focus if nobody puts it back.
+        expect(document.activeElement).toBe($input.get(0));
+    });
 });
 
 describe('opening the list', () => {
