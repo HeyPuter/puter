@@ -30,7 +30,7 @@ import {
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserUserAuditFilter } from '../../stores/permission/PermissionStore';
-import { MEMBER_PAGE_CAP, type TeamRow } from '../../stores/team/TeamStore';
+import { type TeamRow } from '../../stores/team/TeamStore';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
 import {
@@ -1388,6 +1388,10 @@ export class ShareService extends PuterService {
             entry.id,
         );
 
+        // What they re-shared to teams goes too: a group grant left behind is
+        // dormant, and springs back if the issuer ever requalifies.
+        let revoked = await this.#revokeGroupSharesBy(actor, entry, issuerId);
+
         // The whole subtree, not just this node: `manage` inherits downwards,
         // so a grant on a descendant can rest on authority held here.
         const rows = (
@@ -1396,7 +1400,7 @@ export class ShareService extends PuterService {
             (row: { issuer_user_id: number }) =>
                 Number(row.issuer_user_id) === issuerId,
         );
-        if (rows.length === 0) return 0;
+        if (rows.length === 0) return revoked;
 
         const [nodes, holders] = await Promise.all([
             this.stores.fsEntry.getEntriesByIds(
@@ -1411,7 +1415,6 @@ export class ShareService extends PuterService {
             ),
         ]);
 
-        let revoked = 0;
         for (const row of rows) {
             const holderId = Number(row.holder_user_id);
             const node = nodes.get(Number(row.fsentry_id));
@@ -1449,6 +1452,65 @@ export class ShareService extends PuterService {
                 holderId,
                 seen,
             );
+        }
+        return revoked;
+    }
+
+    /** Withdraw every team-held grant `issuerId` made in this subtree. */
+    async #revokeGroupSharesBy(
+        actor: Actor,
+        entry: FSEntry,
+        issuerId: number,
+    ): Promise<number> {
+        const rows = (
+            await this.stores.share.listGroupSharesBySubtree(entry.id)
+        ).filter(
+            (row: { issuer_user_id: number }) =>
+                Number(row.issuer_user_id) === issuerId,
+        );
+        if (rows.length === 0) return 0;
+
+        const nodes = await this.stores.fsEntry.getEntriesByIds(
+            rows.map((row: { fsentry_id: number }) => Number(row.fsentry_id)),
+        );
+        let revoked = 0;
+        for (const row of rows) {
+            const node = nodes.get(Number(row.fsentry_id));
+            // Deleted teams included: their grants are still revocable.
+            const team = await this.stores.team.getByIdIncludingDeleted(
+                Number(row.holder_group_id),
+            );
+            if (!node || !team) continue;
+            let authorized = false;
+            for (const permission of entryPermissions(node.uuid)) {
+                if (
+                    !(await this.services.permission.canManagePermission(
+                        actor,
+                        permission,
+                    ))
+                ) {
+                    continue;
+                }
+                authorized = true;
+                if (
+                    await this.services.permission.revokeUserGroupPermission(
+                        actor,
+                        team.uid,
+                        permission,
+                        { reason: 'unshared' },
+                        { issuerUserId: issuerId },
+                    )
+                ) {
+                    revoked++;
+                }
+            }
+            // Gated as the user path is: a surviving grant keeps its index row.
+            if (!authorized) continue;
+            await this.stores.share.deleteActiveGroup({
+                holderGroupId: Number(row.holder_group_id),
+                fsentryId: node.id,
+                issuerUserId: issuerId,
+            });
         }
         return revoked;
     }
@@ -2273,7 +2335,9 @@ export class ShareService extends PuterService {
      * asking the user to rebuild it.
      *
      * `updateMetadata` merges rather than replaces, and refreshes the cached
-     * row, so the switch bites on the very next share.
+     * row, so the switch bites on the very next share. Deliberately does not
+     * gate team-delivered shares; blocking the sender, or leaving the team,
+     * does.
      */
     async setBlockAllSenders(
         actor: Actor,
@@ -2289,7 +2353,9 @@ export class ShareService extends PuterService {
     /**
      * Refuse further shares from `username`. Existing shares stand: access
      * someone already has is theirs until it is withdrawn, and a control
-     * labelled "block" silently revoking it would be a surprise.
+     * labelled "block" silently revoking it would be a surprise. Team-delivered
+     * items from this sender stop being listed, announced or pushed while the
+     * block stands; the grants are untouched, so unblocking restores the view.
      */
     async blockSender(
         actor: Actor,
@@ -2753,17 +2819,39 @@ export class ShareService extends PuterService {
 
         // Whatever a member re-shared goes with them, as on the user path, and
         // first: clearing the group grant would strip the `manage` it needs.
+        // Swept by the rows that exist, not by a capped member page.
         let revoked = 0;
-        const members = await this.stores.team.listMembers(team.uid, {
-            limit: MEMBER_PAGE_CAP,
-        });
         const issuerSet = new Set(issuers);
-        for (const member of members.items) {
-            const memberId = Number(member.user_id);
-            // The owner's own grants do not derive from this one, and an
-            // issuer's are handled by the revoke loop below.
-            if (memberId === entry.userId || issuerSet.has(memberId)) continue;
-            revoked += await this.#revokeDownstream(me, entry, memberId);
+        // Sweep only when this call takes the team's last grant on the entry:
+        // while another issuer's grant stands, members keep the very authority
+        // their re-shares rest on, and revoking those would orphan live access.
+        const teamStillGranted = (
+            await this.stores.share.listGroupSharesByFsentry(entry.id)
+        ).some(
+            (row: { holder_group_id: number; issuer_user_id: number }) =>
+                Number(row.holder_group_id) === team.id &&
+                !issuerSet.has(Number(row.issuer_user_id)),
+        );
+        if (!teamStillGranted) {
+            const candidates = (
+                await this.stores.share.listIssuerIdsBySubtree(entry.id)
+            ).filter(
+                // The owner and the issuers are handled by the revoke loop below.
+                (id: number) => id !== entry.userId && !issuerSet.has(id),
+            );
+            // One walk: two members can have re-shared to each other.
+            const seen = new Set<number>();
+            for (const memberId of await this.stores.team.memberIdsAmong(
+                team.uid,
+                candidates,
+            )) {
+                revoked += await this.#revokeDownstream(
+                    me,
+                    entry,
+                    memberId,
+                    seen,
+                );
+            }
         }
 
         const permissions = entryPermissions(entry.uuid);
