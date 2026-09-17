@@ -183,6 +183,14 @@ async function UIWindowShare (options) {
     });
     $share_btn.prop('disabled', true);
 
+    // Enter shares, the way it submits the Dashboard's dialog. Bound after the
+    // picker, which takes the press for itself while it is choosing a row.
+    $recipient.on('keydown', (e) => {
+        if ( e.key !== 'Enter' || e.isDefaultPrevented() ) return;
+        if ( $share_btn.prop('disabled') ) return;
+        $share_btn.trigger('click');
+    });
+
     const render = (shares) => {
         shown_shares = Array.isArray(shares) ? shares : [];
         row_teams.clear();
