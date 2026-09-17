@@ -161,6 +161,37 @@ describe('sharedViewLink', () => {
         expect(shared).toEqual(paths.slice(0, SHARE_DEEP_LINK_ITEMS_LIMIT));
     });
 
+    it('carries the issuing app as its own parameter, or not at all', () => {
+        const path = `/alice/${UID}/a.txt`;
+        const link = sharedViewLink('https://puter.com', [path], 'draw-app');
+        expect(link).toBe(
+            `https://puter.com/?shared=${encodeURIComponent(path)}&shared_app=draw-app`,
+        );
+        expect(new URL(link).searchParams.get('shared_app')).toBe('draw-app');
+        // No app, no parameter — for a null the same as for an omission.
+        expect(sharedViewLink('https://puter.com', [path], null)).toBe(
+            sharedViewLink('https://puter.com', [path]),
+        );
+        expect(shareDeepLink('https://puter.com', path, 'draw-app')).toBe(link);
+    });
+
+    it('encodes an app value that would otherwise break the query string', () => {
+        const link = sharedViewLink('https://puter.com', [], 'a&b=c');
+        expect(new URL(link).searchParams.get('shared_app')).toBe('a&b=c');
+    });
+
+    it('reserves room for the app before spending the length cap on items', () => {
+        const paths = Array.from(
+            { length: SHARE_DEEP_LINK_ITEMS_LIMIT },
+            (_, i) => `/alice/${UID}/${'quarterly report '.repeat(8)}${i}.pdf`,
+        );
+        const app = `app-${'x'.repeat(60)}`;
+        const link = sharedViewLink('https://puter.com', paths, app);
+        expect(link.length).toBeLessThanOrEqual(SHARE_DEEP_LINK_MAX_LENGTH);
+        // The app survives however many items wanted the space.
+        expect(new URL(link).searchParams.get('shared_app')).toBe(app);
+    });
+
     // Twenty ordinary names already run to several kilobytes once encoded, so
     // the count alone is no guard; the link itself has to stay short enough.
     it('stops adding items before the link outgrows what mail clients tolerate', () => {
