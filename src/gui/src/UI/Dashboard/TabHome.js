@@ -427,27 +427,28 @@ const TabHome = {
         }
     },
 
-    async _loadUsageDataUncached($el_window) {
-        // Load plan data — fetch live from /marketplace/subscriptions/current
-        // rather than reading `window.user.subscription` (which is set once
-        // from whoami at page-load and goes stale after subscribe / portal
-        // cancel until a hard refresh).
+    /**
+     * The plan card, read live rather than from the whoami copy, which goes
+     * stale. Not knowing the plan is not the same as being on the free one,
+     * so a read that fails returns without touching the card.
+     */
+    async _renderPlanCard($el_window) {
+        let subscription = null;
         try {
-            let subscription = null;
-            try {
-                const resp = await fetch(
-                    `${window.api_origin}/marketplace/subscriptions/current`,
-                    {
-                        headers: { Authorization: `Bearer ${puter.authToken}` },
-                    },
-                );
-                if (resp.ok) {
-                    const data = await resp.json();
-                    subscription = data?.subscription ?? null;
-                }
-            } catch {
-                // fall through to free state
-            }
+            const resp = await fetch(
+                `${window.api_origin}/marketplace/subscriptions/current`,
+                { headers: { Authorization: `Bearer ${puter.authToken}` } },
+            );
+            // A refusal is not a free plan: a seat owing a password change 403s.
+            if (!resp.ok) return;
+            const data = await resp.json();
+            subscription = data?.subscription ?? null;
+        } catch (e) {
+            console.error('Failed to load plan data:', e);
+            return;
+        }
+
+        try {
 
             const pastDue =
                 !!subscription && subscription.status === 'past_due';
@@ -535,8 +536,12 @@ const TabHome = {
                     }
                 });
         } catch (e) {
-            console.error('Failed to load plan data:', e);
+            console.error('Failed to render plan card:', e);
         }
+    },
+
+    async _loadUsageDataUncached($el_window) {
+        await this._renderPlanCard($el_window);
 
         // Load storage data
         try {
