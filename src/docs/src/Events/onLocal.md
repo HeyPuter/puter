@@ -32,7 +32,7 @@ Called with a single `{ event }` object per delivery. `event.op === 'gap'` means
 
 - `onError` (Function): Called with `{ message, code }` if the subscription lapses — the connection was lost and re-subscribing failed. The subscription is over at that point; call `onLocal()` again to resume. Without it, a lapse is reported on the console.
 - `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
-- `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject and on a share handle.
+- `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject.
 
 ## Return value
 
@@ -57,7 +57,6 @@ The promise rejects with `{ message, code }`:
 | `invalid_kv_pattern` | A `kv:` subject has a `*` somewhere other than the end, or a `?`. |
 | `invalid_kv_handle_key` | A `kv:<handle>:…` subject names no key, or one that tries to leave the handle's granted region. |
 | `invalid_include_value` | `includeValue` is not a boolean, or was asked for on a subject that is not `kv:`. |
-| `events_kv_handle_no_values` | `includeValue` on a share-handle subject: a handle grants watching a region, not reading it. |
 | `events_cross_app_disabled` | The subject names another app's key-value data and that is not enabled here. |
 | `forbidden` | The target app does not share its data, or this app has not been granted `app-data:<appId>:kv:read` on it. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |

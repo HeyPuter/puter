@@ -167,7 +167,7 @@
  * @property {number} [timeout] How long to wait for the server to answer
  *   `subscribe`, in milliseconds. Default `30000`.
  * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
- *   value on each event as `event.value`. Refused on a share handle.
+ *   value on each event as `event.value`.
  */
 
 /**
@@ -195,7 +195,7 @@
  *   itself — unix seconds or an ISO-8601 string, and it has to be in the
  *   future.
  * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
- *   value on each event as `event.value`. Refused on a share handle.
+ *   value on each event as `event.value`.
  */
 
 /**

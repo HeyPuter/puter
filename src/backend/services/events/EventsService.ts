@@ -1129,22 +1129,15 @@ const parseIncludeValue = (value: unknown): true | undefined => {
 };
 
 /**
- * A value rides only on a key-value row, and never through a share handle: the
- * grant behind a handle is to watch a region, not to read it, and a delivery
- * carrying the value would be a read the grant never gave. Decided on the raw
- * subject, before anything is resolved, so the refusal names this and not
- * whatever resolution would have said.
+ * A value rides only on a key-value row — the other families have no value to
+ * name. Decided on the raw subject, before anything is resolved, so the refusal
+ * names this and not whatever resolution would have said.
  */
 const assertValueDeliverable = (rawSubject: string): void => {
     if (parseSubject(rawSubject).family !== 'kv')
         throw badRequest(
             'includeValue applies to kv: subjects only',
             'invalid_include_value',
-        );
-    if (kvHandleFromSubject(rawSubject) !== null)
-        throw badRequest(
-            'A share handle does not deliver values',
-            'events_kv_handle_no_values',
         );
 };
 
@@ -1159,16 +1152,15 @@ const inlineKvValue = (value: unknown): { value: unknown } | undefined => {
 };
 
 /**
- * The value rides only where the row asked for it and its holder owns the
- * namespace — never across a share handle, whose grant is to watch, not read.
+ * The value rides only where the row asked for it. A share-handle row is no
+ * exception: the owner minted the handle over that region, and the delivery
+ * re-check that stops a revoked handle stops its values with it.
  */
 const valueAsRowAskedFor = (
     row: DispatchSubscription,
     event: ProjectedKvEvent,
 ): ProjectedKvEvent => {
-    if (event.value === undefined) return event;
-    if (row.includeValue === true && row.holderUserId === row.ownerUserId)
-        return event;
+    if (event.value === undefined || row.includeValue === true) return event;
     const { value: _value, ...withoutValue } = event;
     return withoutValue;
 };

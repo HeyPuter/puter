@@ -28,7 +28,7 @@ puter.events.onPersistent(options)
 - `handler` (Function | String | Object): The handler source this subscription was written against. Sent as a **hash**, never as source: the subscription binds only if that hash matches what is published under `handlerName`, which is why `handlerName` is required alongside it. Accepts a function, a source string, or `{ file: '~/AppData/…/handler.js' }`.
 - `context` (Object): Values the handler needs, delivered to it as a frozen `ctx`. **Capped at 4 KB serialized** — see below.
 - `expiresAt` (Number | String): When the subscription ends by itself — unix seconds or an ISO-8601 string, and it has to be in the future.
-- `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject and on a share handle.
+- `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject.
 
 ## Background delivery takes the user's consent
 
@@ -115,7 +115,6 @@ The promise rejects with `{ message, code }`:
 | `invalid_targets` | A target outside `socket`/`worker`/`push`, `push` on a `single` subscription (which may not target it), or `worker` on a subscription with no app. |
 | `invalid_expires_at` | `expiresAt` is not a future time. |
 | `invalid_include_value` | `includeValue` is not a boolean, or was asked for on a subject that is not `kv:`. |
-| `events_kv_handle_no_values` | `includeValue` on a share-handle subject: a handle grants watching a region, not reading it. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
 | `events_subscription_limit` | This account already holds the maximum number of persistent subscriptions. |
 | `events_durable_requires_account` | Called from a temporary (anonymous) account, which gets session subscriptions only. |
