@@ -61,7 +61,7 @@ Sharing a file or folder with **anyone with the link** ([`puter.fs.share()`](/FS
 | Provider | Limit |
 |----------|-------|
 | xAI | Up to 5 reference images; larger requests fail with `bad_request`. |
-| Together | Image routes are excluded for required third-party data sharing; generation fails before any upstream call. See [data use](/AI/image-models#data-use). |
+| Together | Image routes are excluded for required third-party data sharing; generation fails before any upstream call. |
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Schnell: 1–8 steps; Lucid Origin: 1–40; Phoenix and FLUX.2 Dev: 1–50. Klein uses exactly 4 steps; SDXL and Inpainting use 1–20 steps. |
 | Replicate | At most 10 references, subject to a model's lower limit; FLUX 1.1 Pro accepts one reference. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For additional models with explicit width/height controls, pixel dimensions round to multiples of 8 and clamp to schema bounds; omitted bounds default to 64–4096 per side. Predictions expire after 10 minutes; polls are 2 seconds apart. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
 | BytePlus | Pro: 10 references; other Seedream models: 14. |

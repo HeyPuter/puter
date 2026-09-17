@@ -100,14 +100,6 @@ let sidebar = [
                 path: '/AI/txt2img',
             },
             {
-                title: 'Image models and pricing',
-                page_title: 'Image models and pricing',
-                title_tag: 'Image models and pricing',
-                icon: '/assets/img/ai.svg',
-                source: '/AI/image-models.md',
-                path: '/AI/image-models',
-            },
-            {
                 title: '<code>txt2speech()</code>',
                 page_title: '<code>puter.ai.txt2speech()</code>',
                 title_tag: 'puter.ai.txt2speech()',

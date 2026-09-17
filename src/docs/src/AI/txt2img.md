@@ -65,7 +65,7 @@ const { result: models } = await puter.drivers.call(
 console.table(models.map(({ id, provider }) => ({ id, provider })));
 ```
 
-See the [image model catalog and pricing sources](/AI/image-models) for the included models and price units.
+See the [AI model directory](https://developer.puter.com/ai/models/) for the included models and price units.
 
 `puter.ai.listModels()` lists chat models. The image catalog above describes configured integrations; upstream account access and availability can still vary.
 
@@ -73,7 +73,7 @@ See the [image model catalog and pricing sources](/AI/image-models) for the incl
 
 - Gemini `gemini-3-pro-image` and `gemini-3.1-flash-image` use stable endpoints. Their previous `-preview` spellings remain aliases. `gemini-2.5-flash-image` is scheduled for retirement on October 2, 2026. Google's table names `gemini-3.1-flash-image-preview` as its replacement; that preview id itself retired on June 25, 2026 in favor of `gemini-3.1-flash-image`, the default here. See [Google's deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations).
 - OpenAI has deprecated `gpt-image-1`, `gpt-image-1-mini`, and `gpt-image-1.5`, with shutdowns on October 23, 2026 (`gpt-image-1`) and December 1, 2026 (the other two). They stay routable by id until then but are hidden from the catalog listing; after shutdown they will fail with `bad_request`. Use `gpt-image-2` or a `gpt-image-2.5-*` model for new work. `chatgpt-image-latest` was never offered. `replicate:openai/gpt-image-1.5` is also available through Replicate. See [OpenAI's deprecation schedule](https://developers.openai.com/api/docs/deprecations).
-- All cataloged Together image routes are excluded because they require a third-party data-sharing opt-in. This includes Imagen 4; its retirement through Together has not been confirmed. Excluded routes are not listed and reject generation before contacting the provider. See [data-use details](/AI/image-models#data-use). Previously retired Together aliases still fail as unavailable. To use Cloudflare Schnell, select `@cf/black-forest-labs/flux-1-schnell` or `workers-ai:black-forest-labs/flux.1-schnell`.
+- All cataloged Together image routes are excluded because they require a third-party data-sharing opt-in. This includes Imagen 4; its retirement through Together has not been confirmed. Excluded routes reject generation before contacting the provider. Previously retired Together aliases still fail as unavailable. To use Cloudflare Schnell, select `@cf/black-forest-labs/flux-1-schnell` or `workers-ai:black-forest-labs/flux.1-schnell`.
 - Cloudflare `@cf/black-forest-labs/flux-2-dev` timed out on every live request on September 16, 2026, including 512×512 at 4 steps, while the Klein variants respond normally. It stays listed pending a Cloudflare-side fix.
 - xAI `grok-imagine-image-2.0` is available. `grok-imagine-image-quality` is scheduled to redirect to the new model on November 2, 2026; the original `grok-imagine-image` remains available. See [xAI's release notes](https://docs.x.ai/developers/release-notes).
 
@@ -138,7 +138,7 @@ Available when `provider: 'xai'` or inferred from model (`grok-imagine-image`, a
 
 #### Together Options
 
-Together image routes are excluded under the [data-use policy](/AI/image-models#data-use). Existing provider IDs and the Together-only SDK options (`image_url`, `image_base64`, `mask_image_url`, `mask_image_base64`, `prompt_strength`, and `response_format` as `'base64'`/`'url'`) remain recognized for compatibility but have no effect, and selecting an excluded route rejects with `bad_request`, including in test mode.
+Together image routes are excluded because they require a third-party data-sharing opt-in. Existing provider IDs and the Together-only SDK options (`image_url`, `image_base64`, `mask_image_url`, `mask_image_base64`, `prompt_strength`, and `response_format` as `'base64'`/`'url'`) remain recognized for compatibility but have no effect, and selecting an excluded route rejects with `bad_request`, including in test mode.
 
 #### Cloudflare Options
 
@@ -200,7 +200,7 @@ const image = await puter.ai.txt2img("A colorful ceramic cup", {
 document.body.append(image);
 ```
 
-Billing follows the selected model and tier: per image, per input/output megapixel, or per second of reported prediction runtime. Runtime-priced entries use a 60-second estimate for the initial credit check and record actual runtime after generation; runtime is billed up to the 10-minute prediction deadline, so a long run can exceed the estimate. See the [image model catalog and pricing sources](/AI/image-models).
+Billing follows the selected model and tier: per image, per input/output megapixel, or per second of reported prediction runtime. Runtime-priced entries use a 60-second estimate for the initial credit check and record actual runtime after generation; runtime is billed up to the 10-minute prediction deadline, so a long run can exceed the estimate. See the [AI model directory](https://developer.puter.com/ai/models/).
 
 The original Replicate entries also support these options:
 
