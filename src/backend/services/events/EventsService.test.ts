@@ -2210,26 +2210,30 @@ describe('cross-user kv handles', () => {
         expect(wire).not.toContain(`u${userId}`);
     });
 
-    it('never delivers values: a handle grants watching, not reading', async () => {
+    it('hands a guest the value when it asked, keyed relative to the handle', async () => {
         mintHandle();
-        await expect(
-            service.subscribe(actorFor(guestId), socketId, {
+        vi.useFakeTimers();
+        const asking = (
+            await service.subscribe(actorFor(guestId), socketId, {
                 subject: `kv:${handle}:*`,
                 includeValue: true,
-            }),
-        ).rejects.toSatisfy(
-            (err: unknown) =>
-                isHttpError(err) &&
-                err.legacyCode === 'events_kv_handle_no_values',
-        );
+            })
+        ).sub;
+        const silent = (await subscribeAsGuest(`kv:${handle}:*`)).sub;
+        expect(asking.includeValue).toBe(true);
 
-        // And a value on the wire never reaches a guest row either way.
-        vi.useFakeTimers();
-        const { sub } = await subscribeAsGuest(`kv:${handle}:*`);
-        await dispatchKv([`${PREFIX}title`], { values: ['secret'] });
+        await dispatchKv([`${PREFIX}title`], { values: ['hello'] });
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
-        expect(sent[0].envelope.subId).toBe(sub.subId);
-        expect(sent[0].envelope.event).not.toHaveProperty('value');
+
+        const byId = new Map(
+            sent.map((one) => [one.envelope.subId, one.envelope.event]),
+        );
+        expect(byId.get(asking.subId)).toMatchObject({
+            subject: `kv:${handle}:title`,
+            key: 'title',
+            value: 'hello',
+        });
+        expect(byId.get(silent.subId)).not.toHaveProperty('value');
     });
 
     it('delivers every key under the granted region', async () => {
