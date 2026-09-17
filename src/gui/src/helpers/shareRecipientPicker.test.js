@@ -196,6 +196,39 @@ describe('opening the list', () => {
         expect($('.share-suggest').hasClass('share-suggest-above')).toBe(true);
     });
 
+    it('holds the panel back rather than flashing a loading box', async () => {
+        const { picker, $input } = mount();
+        picker.setTeams([ACME]);
+        $input.trigger('click');
+
+        // A store that answers in a blink would otherwise put up a box that
+        // the next paint replaces — or, with nothing to suggest, removes.
+        expect($('.share-suggest').prop('hidden')).toBe(true);
+        await settle();
+        expect(options()).toEqual(['ann@example.com', 'Acme', 'bob', 'carol']);
+    });
+
+    it('says it is loading once the wait is worth mentioning', async () => {
+        puter.kv.get = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve([]), 600)));
+        const { picker, $input } = mount();
+        picker.setTeams([ACME]);
+        $input.trigger('click');
+        await new Promise((resolve) => setTimeout(resolve, 400));
+
+        expect($('.share-suggest').prop('hidden')).toBe(false);
+        expect($('.share-suggest-loading').length).toBe(1);
+    });
+
+    it('leaves Escape to the dialog while the list is still on its way', async () => {
+        puter.kv.get = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve([]), 600)));
+        const { $input } = mount();
+        $input.trigger('click');
+
+        const event = $.Event('keydown', { key: 'Escape' });
+        $input.trigger(event);
+        expect(event.isPropagationStopped()).toBe(false);
+    });
+
     it('leaves out whoever the access list already covers', async () => {
         const { picker, $input } = mount({ excluded: () => ['user:bob', 'team:t-1'] });
         picker.setTeams([ACME]);

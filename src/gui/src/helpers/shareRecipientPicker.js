@@ -122,6 +122,21 @@ export default function shareRecipientPicker ({
     let active = -1;
     let open = false;
 
+    /**
+     * How long a load may take before the list admits it is loading. Long
+     * enough to cover an ordinary round trip, short enough that a slow one
+     * still says something.
+     */
+    const WAIT_GRACE = 250;
+    /** @type {ReturnType<typeof setTimeout>|null} */ let wait_timer = null;
+    let waiting = false;
+
+    const stop_waiting = () => {
+        if ( wait_timer !== null ) clearTimeout(wait_timer);
+        wait_timer = null;
+        waiting = false;
+    };
+
     // -- Data --
 
     /** Loaded on first use, not on open: a dialog nobody types in costs nothing. */
@@ -249,6 +264,18 @@ export default function shareRecipientPicker ({
     const render = () => {
         if ( destroyed ) return;
         if ( ! loaded ) {
+            // A store that answers in a blink should not flash a box the next
+            // paint replaces — or, for the many accounts with nothing to
+            // suggest, removes again. Until the wait is worth saying, whatever
+            // the panel already shows stays, and a first open stays shut.
+            if ( ! waiting ) {
+                wait_timer ??= setTimeout(() => {
+                    wait_timer = null;
+                    waiting = true;
+                    if ( open ) render();
+                }, WAIT_GRACE);
+                return;
+            }
             shown = [];
             active = -1;
             $panel.find('.share-suggest-list')
@@ -259,6 +286,7 @@ export default function shareRecipientPicker ({
             paint_active();
             return;
         }
+        stop_waiting();
         shown = current_suggestions();
         // Nothing to offer is not worth a panel saying so: what the user typed
         // is a perfectly good recipient, and an empty box would only cover it.
@@ -284,9 +312,13 @@ export default function shareRecipientPicker ({
     const close = () => {
         open = false;
         active = -1;
+        stop_waiting();
         $panel.prop('hidden', true);
         $input.attr('aria-expanded', 'false').removeAttr('aria-activedescendant');
     };
+
+    /** Whether the list is on screen, as opposed to on its way there. */
+    const listed = () => open && ! $panel.prop('hidden');
 
     const move = (step) => {
         if ( shown.length === 0 ) return;
@@ -359,9 +391,9 @@ export default function shareRecipientPicker ({
             return;
         }
         if ( e.key === 'Escape' ) {
-            if ( ! open ) return;
             // The dialogs close on Escape from the document; a list that is up
-            // spends the first press.
+            // spends the first press, but a list still loading spends nothing.
+            if ( ! listed() ) return;
             e.preventDefault();
             e.stopPropagation();
             close();
