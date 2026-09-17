@@ -52,6 +52,48 @@ import type {
     ReadEntriesByPathsOptions,
 } from './types.js';
 
+// Sort fields a recursive listing accepts, mapped to the SQL expression they
+// order by. `name` orders by full path: across depths, bare names interleave
+// subtrees, while path keeps every child next to its parent. NULLs drop out of
+// keyset comparisons, so nullable columns are coalesced here and in the seek.
+const DESCENDANT_SORT_EXPRESSIONS = {
+    name: 'path',
+    modified: 'COALESCE(modified, 0)',
+    size: 'COALESCE(size, -1)',
+    type: 'is_dir',
+} as const;
+
+type DescendantSortField = keyof typeof DESCENDANT_SORT_EXPRESSIONS;
+
+// Cursors are opaque to callers but arrive from the wire, so the sort they pin
+// is validated rather than trusted.
+const toDescendantSortField = (value: unknown): DescendantSortField => {
+    if (
+        typeof value === 'string' &&
+        Object.prototype.hasOwnProperty.call(DESCENDANT_SORT_EXPRESSIONS, value)
+    ) {
+        return value as DescendantSortField;
+    }
+    throw new HttpError(400, 'unsupported sort field', {
+        legacyCode: 'bad_request',
+    });
+};
+
+// The value the next page seeks from — must match the sort expression above.
+const descendantSortValue = (row: FSEntryRow, sortBy: DescendantSortField) => {
+    switch (sortBy) {
+        case 'modified':
+            return row.modified ?? 0;
+        case 'size':
+            return row.size ?? -1;
+        case 'type':
+            return row.is_dir;
+        case 'name':
+        default:
+            return row.path;
+    }
+};
+
 const ENTRY_CACHE_TTL_SECONDS = 60;
 const BULK_QUERY_CHUNK_SIZE = 200;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
@@ -2733,13 +2775,20 @@ export class FSEntryStore extends PuterStore {
     /**
      * Cursor-paginated descendants of a directory, limited to `maxDepth` levels
      * below the prefix. Prefix + user_id scan (same index as
-     * `listDescendantsByPath`) with a portable slash-count depth filter. Keyset
-     * pagination on `path ASC` — path is unique per user, so no id tiebreaker.
+     * `listDescendantsByPath`) with a portable slash-count depth filter.
+     * Keyset-paginated on the requested sort; the cursor pins it, so a later
+     * page can't switch sorts mid-sequence.
      */
     async listDescendantsPage(
         userId: number,
         pathPrefix: string,
-        options: { limit?: number; cursor?: string | null; maxDepth: number },
+        options: {
+            limit?: number;
+            cursor?: string | null;
+            maxDepth: number;
+            sortBy?: DescendantSortField | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        },
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const normalizedPrefix = this.#normalizePath(pathPrefix);
         if (normalizedPrefix === '/') {
@@ -2752,20 +2801,66 @@ export class FSEntryStore extends PuterStore {
             this.#slashCount(normalizedPrefix) + Math.max(1, options.maxDepth);
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
-        const payload = decodeCursor(options.cursor) as
-            | { p: string }
+        const rawPayload = decodeCursor(options.cursor) as
+            | { v?: unknown; id?: number; s?: string; o?: string; p?: string }
             | undefined;
-        const seek = payload ? 'AND path > ?' : '';
-        const params: unknown[] = payload
-            ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
-            : [userId, likePattern, maxSlashes, limit + 1];
+        // Cursors minted before this listing honored the sort carried only the
+        // last path, always ascending.
+        const payload =
+            rawPayload && rawPayload.v === undefined
+                ? { v: rawPayload.p, s: 'name', o: 'asc' }
+                : rawPayload;
+
+        const requestedSort = options.sortBy ?? null;
+        const requestedOrder = options.sortOrder ?? null;
+        if (
+            payload &&
+            ((requestedSort && payload.s !== requestedSort) ||
+                (requestedOrder && payload.o !== requestedOrder))
+        ) {
+            throw new HttpError(400, 'cursor does not match requested sort', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        const sortBy = toDescendantSortField(
+            requestedSort ?? payload?.s ?? 'name',
+        );
+        const sortOrder =
+            (requestedOrder ?? payload?.o) === 'desc' ? 'desc' : 'asc';
+        const sortExpr = DESCENDANT_SORT_EXPRESSIONS[sortBy];
+        const dir = sortOrder === 'desc' ? 'DESC' : 'ASC';
+        const cmp = sortOrder === 'desc' ? '<' : '>';
+
+        // A name sort orders on path, which is unique within one user's tree
+        // and so is already a total order; the other fields repeat across the
+        // subtree and fall back on `id`.
+        const tiebreak = sortBy !== 'name';
+        const seekId = Number(payload?.id);
+        const seek = !payload
+            ? ''
+            : tiebreak && Number.isFinite(seekId)
+              ? `AND (${sortExpr} ${cmp} ? OR (${sortExpr} = ? AND id ${cmp} ?))`
+              : `AND ${sortExpr} ${cmp} ?`;
+        const seekParams = !payload
+            ? []
+            : tiebreak && Number.isFinite(seekId)
+              ? [payload.v, payload.v, seekId]
+              : [payload.v];
+        const params: unknown[] = [
+            userId,
+            likePattern,
+            maxSlashes,
+            ...seekParams,
+            limit + 1,
+        ];
 
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()}
              FROM fsentries
              WHERE user_id = ? AND path LIKE ? ESCAPE '!'
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
-             ORDER BY path ASC
+             ORDER BY ${sortExpr} ${dir}${tiebreak ? `, id ${dir}` : ''}
              LIMIT ?`,
             params,
         )) as unknown as FSEntryRow[];
@@ -2777,7 +2872,12 @@ export class FSEntryStore extends PuterStore {
         let cursor: string | undefined;
         if (hasMore) {
             const last = pageRows[pageRows.length - 1]!;
-            cursor = encodeCursor({ p: last.path });
+            cursor = encodeCursor({
+                v: descendantSortValue(last, sortBy),
+                ...(tiebreak ? { id: Number(last.id) } : {}),
+                s: sortBy,
+                o: sortOrder,
+            });
         }
 
         return { entries, ...(cursor ? { cursor } : {}) };
