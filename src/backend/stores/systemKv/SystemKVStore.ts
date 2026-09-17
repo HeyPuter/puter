@@ -771,9 +771,10 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         keys: string[],
         op: KvMutation,
+        values?: unknown[],
     ): Promise<void> {
         await this.#invalidate(namespace, keys);
-        this.#emitMutation(actor, namespace, keys, op);
+        this.#emitMutation(actor, namespace, keys, op, values);
     }
 
     /**
@@ -786,6 +787,7 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         keys: string[],
         op: KvMutation,
+        values?: unknown[],
     ): void {
         // Internal system data has no subscribable subject, and it is written
         // often enough that the emit itself would be the cost.
@@ -803,9 +805,20 @@ export class SystemKVStore extends PuterStore {
                 return;
             }
             if (keys.length === 0) return;
+            const unique = [...new Set(keys)];
             this.clients.event.emit(
                 'kv.mutated',
-                { namespace, userId, keys: [...new Set(keys)], op },
+                {
+                    namespace,
+                    userId,
+                    keys: unique,
+                    op,
+                    // Callers hand values aligned with `keys`; a deduped set
+                    // would misalign them, so only a dedupe-free batch carries.
+                    ...(values && unique.length === keys.length
+                        ? { values }
+                        : {}),
+                },
                 {},
             );
         } catch {
@@ -1215,7 +1228,7 @@ export class SystemKVStore extends PuterStore {
             ttl: expireAt,
             ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
         });
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(actor, namespace, [key], 'set', [value]);
 
         return {
             res: true,
@@ -1286,7 +1299,13 @@ export class SystemKVStore extends PuterStore {
         }));
 
         const response = await this.clients.dynamo.batchPut(putParams);
-        await this.#committed(actor, namespace, [...byKey.keys()], 'set');
+        await this.#committed(
+            actor,
+            namespace,
+            [...byKey.keys()],
+            'set',
+            [...byKey.values()].map((item) => item.value),
+        );
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -1311,7 +1330,7 @@ export class SystemKVStore extends PuterStore {
             namespace,
             key,
         });
-        await this.#committed(actor, namespace, [key], 'del');
+        await this.#committed(actor, namespace, [key], 'del', [null]);
         return {
             res: true,
             usage: addUsage(
@@ -1344,7 +1363,7 @@ export class SystemKVStore extends PuterStore {
             { namespace, key },
             { returnOld: true },
         );
-        await this.#committed(actor, namespace, [key], 'del');
+        await this.#committed(actor, namespace, [key], 'del', [null]);
 
         const old = response.Attributes as
             | { value?: unknown; ttl?: number }
@@ -1401,7 +1420,13 @@ export class SystemKVStore extends PuterStore {
                 key: { namespace, key },
             })),
         );
-        await this.#committed(actor, namespace, uniqueKeys, 'del');
+        await this.#committed(
+            actor,
+            namespace,
+            uniqueKeys,
+            'del',
+            uniqueKeys.map((): unknown => null),
+        );
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -1837,7 +1862,9 @@ export class SystemKVStore extends PuterStore {
             );
             response = await runUpdate();
         }
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(actor, namespace, [key], 'set', [
+            response.Attributes?.value,
+        ]);
 
         const usage = addUsage(
             probeUsage,
@@ -1911,7 +1938,9 @@ export class SystemKVStore extends PuterStore {
             valueAttributeValues,
             renderer.names,
         );
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(actor, namespace, [key], 'set', [
+            response.Attributes?.value,
+        ]);
 
         const usage = addUsage(
             probeUsage,
@@ -1954,7 +1983,9 @@ export class SystemKVStore extends PuterStore {
                 undefined,
                 renderer.names,
             );
-            await this.#committed(actor, namespace, [key], 'set');
+            await this.#committed(actor, namespace, [key], 'set', [
+                response.Attributes?.value,
+            ]);
             return {
                 res: response.Attributes?.value,
                 usage: addUsage(
@@ -2051,7 +2082,9 @@ export class SystemKVStore extends PuterStore {
             renderer.names,
         );
 
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(actor, namespace, [key], 'set', [
+            response.Attributes?.value,
+        ]);
 
         const usage = addUsage(
             probeUsage,

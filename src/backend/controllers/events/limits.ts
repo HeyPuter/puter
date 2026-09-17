@@ -263,6 +263,14 @@ export const EVENTS_WORKER_LIST_LIMIT = userWindow('events:workers:list', 120);
 export const EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT = 50;
 
 /**
+ * Largest key-value value a delivery inlines, in serialized bytes. A value over
+ * this is left out and the subscriber re-reads the key: a delivery fans out to
+ * many rows, may cross regions and may sit in a backlog, none of which is sized
+ * for the store's own ceiling.
+ */
+export const EVENTS_KV_VALUE_MAX_BYTES = 16 * 1024;
+
+/**
  * Broadcast deliveries per minute, per subscription.
  *
  * Ten a second sustained is far past what a UI can render and well past what a

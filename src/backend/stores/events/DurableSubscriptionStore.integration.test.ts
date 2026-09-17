@@ -136,6 +136,20 @@ describe('creating a subscription', () => {
         });
     });
 
+    it('remembers whether deliveries carry the value, off by default', async () => {
+        const { row: asking } = await durable().create(
+            input({ includeValue: true }),
+        );
+        const { row: silent } = await durable().create(input());
+
+        await expect(durable().getBySubId(asking.subId)).resolves.toMatchObject(
+            { includeValue: true },
+        );
+        await expect(
+            durable().getBySubId(silent.subId),
+        ).resolves.not.toHaveProperty('includeValue');
+    });
+
     it('names a session`s row for the account, not an app', async () => {
         const { row } = await durable().create(input());
         expect(row.subId.startsWith('user#')).toBe(true);

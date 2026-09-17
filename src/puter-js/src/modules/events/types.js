@@ -39,7 +39,7 @@
 /**
  * One key-value change. It carries `key` where a filesystem event carries `uid`
  * and `path` — a KV change happens to a key in a store, and there is no node to
- * name — and never the new value, so a delivery cannot become a read.
+ * name — and the new value only where the subscription asked for it.
  *
  * @typedef {Object} PuterKvEvent
  * @property {string} id Unique id for this event.
@@ -47,6 +47,10 @@
  * @property {'set' | 'del' | 'expire'} op `set` for a write, `del` for a
  *   removal, `expire` when only the key's lifetime changed.
  * @property {string} key The key the event is about.
+ * @property {unknown} [value] What the key holds after the change — the
+ *   written value on a `set`, `null` on a `del`. Present only on a
+ *   subscription made with `includeValue`, and left out when the value is
+ *   over 16 KB serialized; an `expire` never carries one.
  * @property {boolean} self `true` when the change was made by the account
  *   holding the subscription.
  * @property {number} ts Milliseconds since the epoch.
@@ -162,6 +166,8 @@
  *   on the console.
  * @property {number} [timeout] How long to wait for the server to answer
  *   `subscribe`, in milliseconds. Default `30000`.
+ * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
+ *   value on each event as `event.value`. Refused on a share handle.
  */
 
 /**
@@ -188,6 +194,8 @@
  * @property {number | string} [expiresAt] When the subscription ends by
  *   itself — unix seconds or an ISO-8601 string, and it has to be in the
  *   future.
+ * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
+ *   value on each event as `event.value`. Refused on a share handle.
  */
 
 /**
@@ -210,6 +218,8 @@
  * @property {Array<'socket' | 'worker' | 'push'>} targets Transports its
  *   deliveries may take.
  * @property {'broadcast' | 'single'} delivery Its delivery class.
+ * @property {boolean} includeValue Whether its `kv:` deliveries carry the
+ *   key's new value.
  * @property {string | null} handlerName The handler it is bound to.
  * @property {string | null} appUid The app that created it, or `null` for one
  *   an account session made.
