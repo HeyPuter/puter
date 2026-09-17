@@ -47,6 +47,8 @@ import {
 } from '../../util/concurrency.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { listClientShares } from '../share/clientShare.js';
+import { SHARE_LIST_LIMIT } from '../share/limits.js';
+import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterController } from '../types.js';
 import { STORAGE_OP_COSTS } from '../../services/metering/costs.js';
 import {
@@ -991,6 +993,17 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, entry.path, 'see');
 
         const wantsSize = this.#toBoolean(body.return_size);
+        const wantsShares = this.#toBoolean(body.return_shares);
+        // `return_shares` is the share-listing route's work, so it spends from
+        // the share-listing budget too, not just `fs:stat`'s.
+        if (
+            wantsShares &&
+            !(await consumeRouteRateLimit(req, SHARE_LIST_LIMIT))
+        ) {
+            throw new HttpError(429, 'Too many requests.', {
+                legacyCode: 'too_many_requests',
+            });
+        }
         const [subtreeSize, suggestedApps, shareFlags, shares] =
             await Promise.all([
                 entry.isDir && wantsSize
@@ -998,7 +1011,7 @@ export class FSController extends PuterController {
                     : undefined,
                 this.services.suggestedApps.getSuggestedApps(entry),
                 this.services.share.shareFlags(actor, [entry]),
-                this.#toBoolean(body.return_shares)
+                wantsShares
                     ? listClientShares(
                           this.services.share,
                           this.clients.event,
@@ -2234,8 +2247,7 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
