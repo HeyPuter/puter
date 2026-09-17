@@ -6623,6 +6623,188 @@ html.dark-mode .usage-table-show-less:hover {
     flex: none;
 }
 
+/* -- Recipient suggestions --
+   Shared by this dialog and the Dashboard's share modal; each host sets the
+   palette below through its own tokens (dashboard.css restates them for
+   .share-modal). The list sits in the flow rather than floating, so a
+   scrolling modal body or a bottom sheet can't clip it. */
+.share-dialog {
+    --share-suggest-bg: #fff;
+    --share-suggest-border: #dfe3e8;
+    --share-suggest-hover: #eef1f4;
+    --share-suggest-shadow: rgba(15, 23, 42, 0.12);
+    --share-suggest-fg: #3e5362;
+    --share-suggest-muted: #7f8b99;
+    --share-suggest-picked-bg: #eef4fb;
+}
+
+.share-suggest-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+/* The field locks once an offer is chosen: a team is shared with by uid, so
+   its name left editable would go out as a username. */
+.share-suggest-picked .share-suggest-input,
+.share-suggest-picked .share-suggest-input:focus {
+    padding-right: 30px;
+    background-color: var(--share-suggest-picked-bg, #eef4fb);
+    cursor: default;
+}
+
+.share-suggest-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    transform: translateY(-50%);
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--share-suggest-muted, #7f8b99);
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .share-suggest-clear:hover {
+        background: var(--share-suggest-hover, #eef1f4);
+        color: var(--share-suggest-fg, #3e5362);
+    }
+}
+
+.share-suggest-clear:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.share-suggest {
+    margin: 6px 0 10px;
+    border: 1px solid var(--share-suggest-border, #dfe3e8);
+    border-radius: 10px;
+    background: var(--share-suggest-bg, #fff);
+    box-shadow: 0 6px 20px var(--share-suggest-shadow, rgba(15, 23, 42, 0.12));
+    overflow: hidden;
+}
+
+.share-suggest[hidden],
+.share-suggest-note[hidden],
+.share-suggest-clear[hidden] {
+    display: none;
+}
+
+.share-suggest-list {
+    margin: 0;
+    padding: 4px;
+    max-height: 232px;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.share-suggest-option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .share-suggest-option:hover {
+        background: var(--share-suggest-hover, #eef1f4);
+    }
+}
+
+/* Keyboard highlight. Not :focus — focus stays in the field, as the combobox
+   pattern requires, and aria-activedescendant carries it to the reader. */
+.share-suggest-option.share-suggest-active {
+    background: var(--share-suggest-hover, #eef1f4);
+}
+
+.share-suggest-avatar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+}
+
+/* A team is not a person, so it gets a glyph rather than an initial. */
+.share-suggest-avatar-team {
+    background: var(--share-suggest-hover, #eef1f4);
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+.share-suggest-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.share-suggest-name,
+.share-suggest-sub {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.share-suggest-name {
+    font-size: 13.5px;
+    color: var(--share-suggest-fg, #3e5362);
+}
+
+.share-suggest-sub {
+    font-size: 12px;
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+.share-suggest-loading {
+    padding: 10px 9px;
+    font-size: 13px;
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+/* What sharing with a whole team means; shown only while one is chosen. */
+.share-suggest-note {
+    margin: 8px 0 12px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+/* Touch: rows grow for real, the clear button keeps its 22px visual and
+   hit-tests at 44x44 through a centered pseudo-element — the same trick the
+   share modal's icon buttons use. */
+@media (pointer: coarse) {
+    .share-suggest-option {
+        min-height: 44px;
+    }
+    .share-suggest-clear::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 .share-dialog-heading {
     font-size: 13px;
     font-weight: 500;
