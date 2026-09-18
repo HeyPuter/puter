@@ -1822,6 +1822,44 @@ describe('FSController.readdirEntries recursive', () => {
         ).toEqual(['l1a', 'l1a/l2a', 'l1a/l2a/l3a', 'l1a/l2a/l3a/l4a', 'l1b']);
     });
 
+    it('sorts a recursive listing, paging in the same order', async () => {
+        const { actor, base } = await makeTree();
+        // A recursive `name` sort is path order, so descending walks the
+        // subtree backwards.
+        const descending = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 10,
+            sortBy: 'name',
+            sortOrder: 'desc',
+        })) as { items: Array<{ path: string }> };
+        expect(
+            descending.items.map((e) => e.path.slice(base.length + 1)),
+        ).toEqual(['l1b', 'l1a/l2a/l3a/l4a', 'l1a/l2a/l3a', 'l1a/l2a', 'l1a']);
+
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await readdir(actor, {
+                path: base,
+                recursive: true,
+                depth: 10,
+                sortOrder: 'desc',
+                limit: 2,
+                cursor,
+            })) as { items: Array<{ path: string }>; cursor?: string };
+            seen.push(...page.items.map((e) => e.path.slice(base.length + 1)));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(seen).toEqual([
+            'l1b',
+            'l1a/l2a/l3a/l4a',
+            'l1a/l2a/l3a',
+            'l1a/l2a',
+            'l1a',
+        ]);
+    });
+
     it('counts the subtree with includeTotal', async () => {
         const { actor, base } = await makeTree();
         const page = (await readdir(actor, {

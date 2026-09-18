@@ -120,7 +120,8 @@
  * large directories.
  * @property {string | null} [cursor] Opaque continuation cursor from a previous page.
  * @property {boolean} [includeTotal] Include a `total` count of every entry across all pages.
- * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`.
+ * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`. With
+ * `recursive`, a `name` sort orders by full path.
  * @property {'asc' | 'desc'} [sortOrder] Sort direction. Default is `asc`.
  * @property {boolean} [recursive] Whether to also list the contents of subdirectories. Defaults to
  * `false`.

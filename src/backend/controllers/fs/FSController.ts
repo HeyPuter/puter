@@ -1140,8 +1140,8 @@ export class FSController extends PuterController {
             Object.prototype.hasOwnProperty.call(body, 'cursor') ||
             includeTotal;
 
-        // Undocumented: `recursive` lists descendants (prefix scan) up to
-        // `depth` levels below the target. Always paginated; sorts by path.
+        // `recursive` lists descendants (prefix scan) up to `depth` levels
+        // below the target. Always paginated.
         const recursive = this.#toBoolean(body.recursive) === true;
 
         if (this.#isRootPathRef(body)) {
@@ -1230,6 +1230,8 @@ export class FSController extends PuterController {
                             ? body.cursor
                             : undefined,
                     maxDepth,
+                    sortBy,
+                    sortOrder,
                 },
             );
             await this.#attachSuggestedApps(page.entries);

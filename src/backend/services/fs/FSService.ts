@@ -3067,12 +3067,19 @@ export class FSService extends PuterService {
 
     /**
      * Cursor-paginated nested listing: descendants of `path` up to `maxDepth`
-     * levels deep, ordered by path. Owner-scoped by `userId` + path prefix.
+     * levels deep. Owner-scoped by `userId` + path prefix. Sorts as asked; a
+     * `name` sort orders by full path so subtrees stay grouped.
      */
     async listDirectoryTreePage(
         userId: number,
         path: string,
-        options: { limit?: number; cursor?: string | null; maxDepth: number },
+        options: {
+            limit?: number;
+            cursor?: string | null;
+            maxDepth: number;
+            sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        },
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         return this.stores.fsEntry.listDescendantsPage(userId, path, options);
     }
