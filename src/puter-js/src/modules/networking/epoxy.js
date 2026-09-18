@@ -84,7 +84,7 @@ export let initEpoxy = async ({ wispToken, wispServer }) => {
         wispServer,
         () => ({
             builders: [createPuterPasswordBuilder(runtime, wispToken)],
-            requiredExts: [0x02],
+            requiredExts: [],
         }),
     );
 
