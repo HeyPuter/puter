@@ -17,17 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIAlert from '../UIAlert.js';
-import UIPrompt from '../UIPrompt.js';
 import teamActionButton from './teamActionIcons.js';
+import UIDashboardDialog from './UIDashboardDialog.js';
 import {
     annotateMembers,
     auditActionKey,
-    auditSlice,
-    canDeleteAccount,
     auditReasonKey,
+    auditSlice,
+    avatarHue,
+    billingSummaryKey,
+    canDeleteAccount,
+    initialOf,
     membersBillingSummary,
     memberPlanLabel,
+    parseTimestamp,
     sortMembers,
 } from './teamsConsole.js';
 
@@ -43,17 +46,15 @@ const AUDIT_ROWS_PER_PAGE = 10;
 /** In flight, so `init` and the initial-route `onActivate` don't both load. */
 let loadPromise = null;
 
-const modalOptions = ($el_window) => ({
-    parent_uuid: $el_window.attr('data-element_uuid'),
-    backdrop: true,
-    close_on_backdrop_click: true,
-    parent_center: true,
-    stay_on_top: true,
-});
+/** Every dialog here is the dashboard's overlay card, mounted in the window. */
+const dialog = ($el_window, opts) => UIDashboardDialog({ $container: $el_window, ...opts });
 
-const dateText = (value) => {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString();
+const dateText = (value) => parseTimestamp(value)?.toLocaleDateString() ?? '';
+
+/** The record needs the hour: several entries share a day. */
+const dateTimeText = (value) => {
+    const date = parseTimestamp(value);
+    return date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
 };
 
 const teamName = (team) => team?.name || team?.handle || i18n('teams_untitled');
@@ -63,18 +64,69 @@ const setTabVisible = ($el_window, visible) => {
     $el_window.find('.dashboard-sidebar-item[data-section="teams"]').toggle(visible);
 };
 
+// Inline like the other tabs' card icons: one-place glyphs, not shared assets.
+const SVG = (body) =>
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const ICONS = {
+    team: SVG('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
+    directory: SVG('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><circle cx="11" cy="9.5" r="2"/><path d="M7.5 15a4 4 0 0 1 7 0"/>'),
+    copy: SVG('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
+    check: SVG('<path d="M20 6L9 17l-5-5"/>'),
+    close: SVG('<path d="M18 6L6 18"/><path d="M6 6l12 12"/>'),
+    warning: SVG('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
+};
+
 // -- Rendering ------------------------------------------------------------
+
+/** A lettered tile in place of a picture: team accounts have none. */
+const renderAvatar = (name, extraClass = '') => {
+    const hue = avatarHue(name);
+    return `<span class="teams-avatar${extraClass}" style="--teams-avatar-hue: ${hue};" aria-hidden="true">${html_encode(initialOf(name))}</span>`;
+};
 
 const renderTeamPicker = () => {
     if ( state.teams.length < 2 ) return '';
-    let h = '<div class="teams-picker">';
-    h += `<label for="teams-picker-select">${i18n('teams_team')}</label>`;
-    h += '<select id="teams-picker-select" class="teams-picker-select">';
+    let h = `<select class="teams-picker-select" aria-label="${html_encode(i18n('teams_team', [], false))}">`;
     for ( const team of state.teams ) {
         const selected = team.uid === state.selected?.uid ? ' selected' : '';
         h += `<option value="${html_encode(team.uid)}"${selected}>${html_encode(teamName(team))}</option>`;
     }
-    h += '</select></div>';
+    h += '</select>';
+    return h;
+};
+
+/** Name, handle and headcount for the selected team, plus who you are in it. */
+const renderHero = () => {
+    const team = state.selected;
+    const count = state.members.length;
+    let h = '<div class="dashboard-card teams-panel teams-hero">';
+    h += '<div class="teams-hero-main">';
+    h += renderAvatar(teamName(team), ' teams-avatar-lg');
+    h += '<div class="teams-info">';
+    h += '<div class="teams-info-title">';
+    h += `<strong>${html_encode(teamName(team))}</strong>`;
+    h += `<span class="teams-role">${i18n(team.isOwner ? 'teams_role_owner' : 'teams_role_member')}</span>`;
+    h += '</div>';
+    const meta = [];
+    // Nothing here sets a handle, so its absence is not worth a label.
+    if ( team.handle ) meta.push(html_encode(`@${team.handle}`));
+    meta.push(i18n(count === 1 ? 'teams_member_count_one' : 'teams_member_count', { count }));
+    h += `<span class="teams-info-meta">${meta.join('<span class="teams-dot" aria-hidden="true">·</span>')}</span>`;
+    h += '</div></div>';
+    const picker = renderTeamPicker();
+    const rename = team.isOwner ? `<button class="button teams-rename">${i18n('teams_rename')}</button>` : '';
+    if ( picker || rename ) h += `<div class="teams-hero-actions">${picker}${rename}</div>`;
+    h += '</div>';
+    return h;
+};
+
+const renderCardHead = (title, hint, count = null) => {
+    let h = '<div class="teams-card-head">';
+    h += `<h3>${title}`;
+    if ( count !== null ) h += `<span class="teams-count">${count}</span>`;
+    h += '</h3>';
+    if ( hint ) h += `<p class="teams-panel-hint">${hint}</p>`;
+    h += '</div>';
     return h;
 };
 
@@ -84,56 +136,82 @@ const planCell = (member) => {
     return i18n(`teams_member_plan_${label.kind}`);
 };
 
+const renderStatus = (member) => {
+    const kind = member.disabled ? 'disabled' : 'active';
+    return `<span class="teams-status teams-status-${kind}">${i18n(`teams_member_state_${kind}`)}</span>`;
+};
+
+const renderIdentity = (username, subline) => {
+    const you = username === window.user?.username;
+    let h = '<div class="teams-identity">';
+    h += renderAvatar(username);
+    h += '<div class="teams-identity-text">';
+    h += `<span class="teams-identity-name">${html_encode(username)}`;
+    if ( you ) h += `<span class="teams-you">${i18n('share_you')}</span>`;
+    h += '</span>';
+    if ( subline ) h += `<span class="teams-identity-sub">${subline}</span>`;
+    h += '</div></div>';
+    return h;
+};
+
+const renderMemberActions = (member) => {
+    if ( ! member.orgOwned ) return '';
+    const forMember = { 'data-username': member.username };
+    let h = '<div class="teams-member-actions">';
+    if ( window.team_billing_ui && state.plan?.status === 'ready' ) {
+        h += teamActionButton({
+            className: 'teams-plan-change',
+            icon: 'plan',
+            label: i18n('teams_plan_change'),
+            attrs: { ...forMember, 'data-uuid': member.uuid ?? '' },
+        });
+    }
+    h += teamActionButton({
+        className: 'teams-reset',
+        icon: 'credential',
+        label: i18n('teams_reissue_credential'),
+        attrs: forMember,
+    });
+    h += member.disabled
+        ? teamActionButton({
+            className: 'teams-enable',
+            icon: 'enable',
+            label: i18n('teams_enable_account'),
+            attrs: forMember,
+        })
+        : teamActionButton({
+            className: 'teams-disable',
+            icon: 'suspend',
+            label: i18n('teams_disable_account'),
+            danger: true,
+            attrs: forMember,
+        });
+    if ( canDeleteAccount(member) ) {
+        h += teamActionButton({
+            className: 'teams-delete-account',
+            icon: 'remove',
+            label: i18n('teams_delete_account'),
+            danger: true,
+            attrs: forMember,
+        });
+    }
+    h += '</div>';
+    return h;
+};
+
+// `data-label` repeats the column heading so the phone layout, which drops
+// the header row, can print it beside each value.
+const labelled = (key) => `data-label="${html_encode(i18n(key, [], false))}"`;
+
 const renderMemberRow = (member) => {
     const username = html_encode(member.username);
     let h = `<tr class="teams-member-row${member.disabled ? ' teams-member-disabled' : ''}" data-username="${username}">`;
-    h += `<td>${username}</td>`;
-    h += `<td>${i18n(member.orgOwned ? 'teams_member_provisioned' : 'teams_member_joined')}</td>`;
-    h += `<td>${i18n(member.disabled ? 'teams_member_state_disabled' : 'teams_member_state_active')}</td>`;
-    h += `<td>${html_encode(dateText(member.createdAt))}</td>`;
-    h += `<td>${planCell(member)}</td>`;
-    h += '<td class="teams-member-actions">';
-    if ( member.orgOwned ) {
-        const forMember = { 'data-username': member.username };
-        if ( window.team_billing_ui && state.plan?.status === 'ready' ) {
-            h += teamActionButton({
-                className: 'teams-plan-change',
-                icon: 'plan',
-                label: i18n('teams_plan_change'),
-                attrs: { ...forMember, 'data-uuid': member.uuid ?? '' },
-            });
-        }
-        h += teamActionButton({
-            className: 'teams-reset',
-            icon: 'credential',
-            label: i18n('teams_reissue_credential'),
-            attrs: forMember,
-        });
-        h += member.disabled
-            ? teamActionButton({
-                className: 'teams-enable',
-                icon: 'enable',
-                label: i18n('teams_enable_account'),
-                attrs: forMember,
-            })
-            : teamActionButton({
-                className: 'teams-disable',
-                icon: 'suspend',
-                label: i18n('teams_disable_account'),
-                danger: true,
-                attrs: forMember,
-            });
-        if ( canDeleteAccount(member) ) {
-            h += teamActionButton({
-                className: 'teams-delete-account',
-                icon: 'remove',
-                label: i18n('teams_delete_account'),
-                danger: true,
-                attrs: forMember,
-            });
-        }
-    }
-    h += '</td></tr>';
+    h += `<td class="teams-cell-identity">${renderIdentity(member.username, i18n(member.orgOwned ? 'teams_member_provisioned' : 'teams_member_joined'))}</td>`;
+    h += `<td ${labelled('teams_member_state')}>${renderStatus(member)}</td>`;
+    h += `<td ${labelled('teams_member_since')}>${html_encode(dateText(member.createdAt))}</td>`;
+    h += `<td ${labelled('teams_member_plan')}>${planCell(member)}</td>`;
+    h += `<td class="teams-cell-actions">${renderMemberActions(member)}</td>`;
+    h += '</tr>';
     return h;
 };
 
@@ -142,20 +220,21 @@ const renderMembers = () => {
     const summary = membersBillingSummary(annotated);
 
     let h = '<div class="dashboard-card teams-panel">';
-    h += `<h3>${i18n('teams_accounts')}</h3>`;
-    const billingKey = summary.billed === 1 ? 'teams_billing_summary_one' : 'teams_billing_summary';
-    h += `<p class="teams-billing-note">${i18n(billingKey, { billed: summary.billed, disabled: summary.disabled })}</p>`;
+    h += renderCardHead(
+        i18n('teams_accounts'),
+        i18n(billingSummaryKey(summary), { billed: summary.billed, disabled: summary.disabled }),
+        annotated.length,
+    );
 
     if ( annotated.length === 0 ) {
         h += `<p class="teams-empty">${i18n('teams_no_accounts')}</p>`;
     } else {
-        h += '<div class="teams-table-wrapper"><table class="teams-table"><thead><tr>';
-        h += `<th>${i18n('username')}</th>`;
-        h += `<th>${i18n('teams_member_kind')}</th>`;
+        h += '<div class="teams-table-wrapper"><table class="teams-table teams-members-table"><thead><tr>';
+        h += `<th>${i18n('teams_member_account')}</th>`;
         h += `<th>${i18n('teams_member_state')}</th>`;
         h += `<th>${i18n('teams_member_since')}</th>`;
         h += `<th>${i18n('teams_member_plan')}</th>`;
-        h += `<th>${i18n('teams_member_actions')}</th>`;
+        h += `<th class="teams-cell-actions"><span class="sr-only">${i18n('teams_member_actions')}</span></th>`;
         h += '</tr></thead><tbody>';
         for ( const member of sortMembers(annotated) ) h += renderMemberRow(member);
         h += '</tbody></table></div>';
@@ -166,48 +245,52 @@ const renderMembers = () => {
 
 const renderAddAccount = () => {
     let h = '<div class="dashboard-card teams-panel">';
-    h += `<h3>${i18n('teams_add_account')}</h3>`;
-    h += `<p class="teams-panel-hint">${i18n('teams_add_account_hint')}</p>`;
-    h += `<p class="teams-panel-hint">${i18n('teams_add_account_email_hint')}</p>`;
-    h += '<div class="teams-form">';
-    h += `<input class="teams-new-username" type="text" autocomplete="off" spellcheck="false" placeholder="${html_encode(i18n('username'))}">`;
-    h += `<input class="teams-new-email" type="email" autocomplete="off" spellcheck="false" placeholder="${html_encode(i18n('teams_email_optional'))}">`;
-    h += `<button class="button button-primary teams-add-btn">${i18n('teams_add_account')}</button>`;
+    h += renderCardHead(i18n('teams_add_account'), i18n('teams_add_account_hint'));
+    h += '<form class="teams-form" novalidate>';
+    h += '<div class="teams-field">';
+    h += `<label for="teams-new-username">${i18n('username')}</label>`;
+    h += '<input id="teams-new-username" class="teams-new-username" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required>';
     h += '</div>';
-    h += '<div class="teams-credential" style="display:none;"></div>';
+    h += '<div class="teams-field">';
+    h += `<label for="teams-new-email">${i18n('teams_email_optional')}</label>`;
+    h += '<input id="teams-new-email" class="teams-new-email" type="email" autocomplete="off" spellcheck="false">';
+    h += '</div>';
+    h += `<button type="submit" class="button button-primary teams-add-btn">${i18n('teams_add_account')}</button>`;
+    h += '</form>';
+    h += `<p class="teams-field-help">${i18n('teams_add_account_email_hint')}</p>`;
+    h += '<div class="teams-credential" role="status" aria-live="polite" style="display:none;"></div>';
     h += '</div>';
     return h;
 };
 
-const renderAudit = () => {
+const renderAudit = ({ title, hint }) => {
     let h = '<div class="dashboard-card teams-panel">';
-    h += `<h3>${i18n('teams_audit')}</h3>`;
-    h += `<p class="teams-panel-hint">${i18n('teams_audit_hint')}</p>`;
+    h += renderCardHead(title, hint, state.audit.length || null);
 
     if ( state.audit.length === 0 ) {
         h += `<p class="teams-empty">${i18n('teams_no_audit')}</p>`;
     } else {
-        h += '<div class="teams-table-wrapper"><table class="teams-table"><thead><tr>';
-        h += `<th>${i18n('teams_audit_when')}</th>`;
-        h += `<th>${i18n('teams_audit_action')}</th>`;
-        h += `<th>${i18n('teams_audit_account')}</th>`;
-        h += `<th>${i18n('teams_audit_actor')}</th>`;
-        h += '</tr></thead><tbody>';
         const { items, page, pages, from, to, total } = auditSlice(
             state.audit,
             state.auditPage,
             AUDIT_ROWS_PER_PAGE,
         );
+        h += '<div class="teams-table-wrapper"><table class="teams-table teams-audit-table"><thead><tr>';
+        h += `<th>${i18n('teams_audit_action')}</th>`;
+        h += `<th>${i18n('teams_audit_account')}</th>`;
+        h += `<th>${i18n('teams_audit_actor')}</th>`;
+        h += `<th>${i18n('teams_audit_when')}</th>`;
+        h += '</tr></thead><tbody>';
         for ( const entry of items ) {
             const actionKey = auditActionKey(entry.action);
             const reasonKey = auditReasonKey(entry.reason);
             h += '<tr>';
-            h += `<td>${html_encode(dateText(entry.createdAt))}</td>`;
-            h += `<td>${actionKey ? i18n(actionKey) : html_encode(entry.action)}`;
+            h += `<td class="teams-cell-action">${actionKey ? i18n(actionKey) : html_encode(entry.action)}`;
             if ( reasonKey ) h += ` <span class="teams-audit-reason">${i18n(reasonKey)}</span>`;
             h += '</td>';
-            h += `<td>${html_encode(entry.username ?? '')}</td>`;
-            h += `<td>${html_encode(entry.actorUsername ?? '')}</td>`;
+            h += `<td ${labelled('teams_audit_account')}>${html_encode(entry.username ?? '')}</td>`;
+            h += `<td ${labelled('teams_audit_actor')}>${html_encode(entry.actorUsername ?? '')}</td>`;
+            h += `<td ${labelled('teams_audit_when')} class="teams-cell-when">${html_encode(dateTimeText(entry.createdAt))}</td>`;
             h += '</tr>';
         }
         h += '</tbody></table></div>';
@@ -227,17 +310,13 @@ const renderAudit = () => {
 /** Colleagues, by name. No state, no dates, no actions — none are theirs. */
 const renderRoster = () => {
     let h = '<div class="dashboard-card teams-panel">';
-    h += `<h3>${i18n('teams_roster')}</h3>`;
-    h += `<p class="teams-panel-hint">${i18n('teams_roster_hint')}</p>`;
+    h += renderCardHead(i18n('teams_roster'), i18n('teams_roster_hint'), state.members.length || null);
     if ( state.members.length === 0 ) {
         h += `<p class="teams-empty">${i18n('teams_roster_empty')}</p>`;
     } else {
         h += '<ul class="teams-roster">';
         for ( const member of sortMembers(state.members) ) {
-            const you = member.username === window.user?.username;
-            h += `<li class="teams-roster-name">${html_encode(member.username)}`;
-            if ( you ) h += ` <span class="teams-roster-you">(${i18n('share_you')})</span>`;
-            h += '</li>';
+            h += `<li class="teams-roster-name">${renderIdentity(member.username)}</li>`;
         }
         h += '</ul>';
     }
@@ -247,44 +326,37 @@ const renderRoster = () => {
 
 /** What a member sees: who else is here, their own entries, nothing admin. */
 const renderMemberView = () => {
-    let h = '<div class="dashboard-card teams-panel">';
-    h += `<h3>${i18n('teams_your_record')}</h3>`;
-    h += `<p class="teams-panel-hint">${i18n('teams_your_record_hint', { team: teamName(state.selected) })}</p>`;
-    h += '</div>';
-    return h + renderRoster() + renderAudit();
+    return renderHero()
+        + renderRoster()
+        + renderAudit({
+            title: i18n('teams_your_record'),
+            hint: i18n('teams_your_record_hint', { team: teamName(state.selected) }),
+        });
 };
 
 const renderDirectory = () => {
     const on = state.selected?.directoryEnabled === true;
-    let h = '<div class="dashboard-card teams-panel">';
-    h += `<h2>${i18n('teams_directory')}</h2>`;
-    h += `<p class="teams-panel-hint">${i18n('teams_directory_hint')}</p>`;
-    h += '<label class="teams-directory-toggle">';
-    h += `<input type="checkbox" class="teams-directory-check"${on ? ' checked' : ''}>`;
-    h += `<span>${i18n('teams_directory_label')}</span>`;
+    let h = '<div class="dashboard-card dashboard-settings-card teams-directory">';
+    h += '<div class="dashboard-settings-card-content">';
+    h += `<div class="dashboard-settings-card-icon">${ICONS.directory}</div>`;
+    h += '<div class="dashboard-settings-card-info">';
+    h += `<strong>${i18n('teams_directory_label')}</strong>`;
+    h += `<span class="teams-directory-note">${i18n(on ? 'teams_directory_on_note' : 'teams_directory_off_note')}</span>`;
+    h += '</div></div>';
+    h += '<label class="dashboard-switch teams-directory-toggle">';
+    h += `<input type="checkbox" class="teams-directory-check"${on ? ' checked' : ''} aria-label="${html_encode(i18n('teams_directory_label', [], false))}">`;
+    h += '<span class="dashboard-switch-slider"></span>';
     h += '</label>';
-    h += `<p class="teams-directory-note">${i18n(on ? 'teams_directory_on_note' : 'teams_directory_off_note')}</p>`;
     h += '</div>';
     return h;
 };
 
 const renderOwnerView = () => {
-    let h = '<div class="dashboard-card teams-panel teams-card">';
-    h += '<div class="teams-info">';
-    h += `<strong>${html_encode(teamName(state.selected))}</strong>`;
-    // Nothing here sets a handle, so its absence was a label for something the
-    // owner could neither act on nor need.
-    if ( state.selected.handle ) {
-        h += `<span>${html_encode(`@${state.selected.handle}`)}</span>`;
-    }
-    h += '</div>';
-    h += `<button class="button teams-rename">${i18n('teams_rename')}</button>`;
-    h += '</div>';
-
+    let h = renderHero();
     h += renderDirectory();
     h += renderAddAccount();
     h += renderMembers();
-    h += renderAudit();
+    h += renderAudit({ title: i18n('teams_audit'), hint: i18n('teams_audit_hint') });
 
     h += '<div class="dashboard-danger-zone">';
     h += `<h3>${i18n('teams_danger_zone')}</h3>`;
@@ -298,21 +370,49 @@ const renderOwnerView = () => {
     return h;
 };
 
+/** Placeholder cards the size of the ones about to arrive, so nothing jumps. */
+const renderSkeleton = () => {
+    let h = `<div class="teams-skeleton" role="status" aria-busy="true"><span class="sr-only">${i18n('teams_loading')}</span>`;
+    h += '<div class="dashboard-card teams-panel teams-skeleton-card teams-skeleton-hero"><i class="teams-skeleton-tile"></i><span><i style="width: 40%"></i><i style="width: 25%"></i></span></div>';
+    for ( let i = 0; i < 2; i++ ) {
+        h += '<div class="dashboard-card teams-panel teams-skeleton-card"><span><i style="width: 30%"></i><i style="width: 70%"></i><i style="width: 55%"></i></span></div>';
+    }
+    h += '</div>';
+    return h;
+};
+
+const renderState = ({ icon, title, hint, action, tone = '' }) => {
+    let h = `<div class="dashboard-card teams-panel teams-state${tone ? ` teams-state-${tone}` : ''}">`;
+    h += `<div class="teams-state-art">${icon}</div>`;
+    h += `<h3>${title}</h3>`;
+    if ( hint ) h += `<p class="teams-panel-hint">${hint}</p>`;
+    if ( action ) h += action;
+    h += '</div>';
+    return h;
+};
+
 const renderBody = () => {
     // Nothing at all where teams are off: an empty panel is the honest
     // rendering of a feature this deployment does not have.
     if ( state.status === 'unavailable' ) return '';
-    if ( state.status === 'loading' ) return `<p class="teams-empty">${i18n('teams_loading')}</p>`;
-    if ( state.status === 'error' ) return `<p class="teams-empty">${i18n('teams_load_failed')}</p>`;
-    if ( state.teams.length === 0 ) {
-        let h = '<div class="dashboard-card teams-panel">';
-        h += `<h3>${i18n('teams_create_team')}</h3>`;
-        h += `<p class="teams-panel-hint">${i18n('teams_create_team_hint')}</p>`;
-        h += `<button class="button button-primary teams-create">${i18n('teams_create_team')}</button>`;
-        h += '</div>';
-        return h;
+    if ( state.status === 'loading' ) return renderSkeleton();
+    if ( state.status === 'error' ) {
+        return renderState({
+            icon: ICONS.warning,
+            tone: 'warning',
+            title: i18n('teams_load_failed'),
+            action: `<button class="button teams-retry">${i18n('retry')}</button>`,
+        });
     }
-    return renderTeamPicker() + (state.selected?.isOwner ? renderOwnerView() : renderMemberView());
+    if ( state.teams.length === 0 ) {
+        return renderState({
+            icon: ICONS.team,
+            title: i18n('teams_create_team'),
+            hint: i18n('teams_create_team_hint'),
+            action: `<button class="button button-primary teams-create">${i18n('teams_create_team')}</button>`,
+        });
+    }
+    return state.selected?.isOwner ? renderOwnerView() : renderMemberView();
 };
 
 const paint = ($el_window) => {
@@ -418,38 +518,39 @@ const showSeatLimit = async ($el_window, e) => {
     const canUpgrade = typeof window.UIUpgradeAccount === 'function';
     let message = `<p>${limit ? i18n('teams_seat_limit', { limit }) : html_encode(e.message)}</p>`;
     message += `<p>${i18n('teams_seat_limit_upgrade')}</p>`;
-    const answer = await UIAlert({
-        type: 'warning',
+    const answer = await dialog($el_window, {
+        title: i18n('teams_add_account', [], false),
+        tone: 'warning',
         message,
         buttons: canUpgrade
             ? [
-                { label: i18n('teams_see_plans'), value: 'upgrade', type: 'primary' },
-                { label: i18n('cancel'), value: 'no' },
+                { label: i18n('cancel', [], false), value: 'no' },
+                { label: i18n('teams_see_plans', [], false), value: 'upgrade', type: 'primary' },
             ]
-            : [{ label: i18n('ok'), value: 'no' }],
-        ...modalOptions($el_window),
+            : [{ label: i18n('ok', [], false), value: 'no', type: 'primary' }],
     });
     if ( answer === 'upgrade' ) new window.UIUpgradeAccount().open_as_window();
 };
 
 const showError = ($el_window, e) => {
     if ( e?.code === 'seat_limit_reached' ) return showSeatLimit($el_window, e);
-    return UIAlert({
-        type: 'error',
-        message: e?.message ?? i18n('error_unknown_cause'),
-        ...modalOptions($el_window),
+    return dialog($el_window, {
+        title: i18n('something_went_wrong', [], false),
+        tone: 'error',
+        message: html_encode(e?.message ?? i18n('error_unknown_cause', [], false)),
     });
 };
 
+/** `label` names the action and titles the dialog; `kind` colours its button. */
 const confirm = async ($el_window, message, label, kind = 'danger') => {
-    const answer = await UIAlert({
-        type: 'confirm',
+    const answer = await dialog($el_window, {
+        title: label,
+        tone: kind === 'danger' ? 'danger' : undefined,
         message,
         buttons: [
+            { label: i18n('cancel', [], false), value: 'no' },
             { label, value: 'yes', type: kind },
-            { label: i18n('cancel'), value: 'no' },
         ],
-        ...modalOptions($el_window),
     });
     return answer === 'yes';
 };
@@ -457,10 +558,33 @@ const confirm = async ($el_window, message, label, kind = 'danger') => {
 /** Shown once and never retrievable, so it stays on screen until dismissed. */
 const showCredential = ($el_window, username, temporaryPassword) => {
     const $box = $el_window.find(`${SECTION} .teams-credential`);
-    let h = `<strong>${i18n('teams_credential_heading', { username })}</strong>`;
-    h += `<code class="teams-credential-value">${html_encode(temporaryPassword)}</code>`;
-    h += `<span>${i18n('teams_credential_once')}</span>`;
+    let h = '<div class="teams-credential-head">';
+    h += `<strong>${i18n('teams_credential_heading', { username })}</strong>`;
+    h += `<button type="button" class="teams-credential-dismiss" aria-label="${html_encode(i18n('close', [], false))}">${ICONS.close}</button>`;
+    h += '</div>';
+    h += '<div class="teams-credential-row">';
+    h += `<code class="teams-credential-value" tabindex="-1">${html_encode(temporaryPassword)}</code>`;
+    h += `<button type="button" class="button button-small teams-credential-copy" data-value="${html_encode(temporaryPassword)}">${ICONS.copy}<span>${i18n('copy')}</span></button>`;
+    h += '</div>';
+    h += `<span class="teams-credential-note">${i18n('teams_credential_once')}</span>`;
     $box.html(h).show();
+    $box.find('.teams-credential-value').trigger('focus');
+};
+
+/** Confirms on the button itself; a toast would appear away from the value. */
+const copyCredential = async ($button) => {
+    try {
+        await navigator.clipboard.writeText($button.attr('data-value') ?? '');
+    } catch {
+        // Selecting the value is the fallback: it is one keystroke from copied.
+        const node = $button.closest('.teams-credential').find('.teams-credential-value')[0];
+        if ( node ) window.getSelection()?.selectAllChildren(node);
+        return;
+    }
+    $button.addClass('teams-copied').html(`${ICONS.check}<span>${i18n('teams_credential_copied')}</span>`);
+    setTimeout(() => {
+        $button.removeClass('teams-copied').html(`${ICONS.copy}<span>${i18n('copy')}</span>`);
+    }, 1800);
 };
 
 const addAccount = async ($el_window) => {
@@ -470,7 +594,7 @@ const addAccount = async ($el_window) => {
     const email = $el_window.find(`${SECTION} .teams-new-email`).val().trim();
 
     const $button = $el_window.find(`${SECTION} .teams-add-btn`);
-    $button.prop('disabled', true);
+    $button.prop('disabled', true).addClass('teams-busy');
     try {
         const created = await puter.teams.createMember(state.selected.uid, {
             username,
@@ -481,7 +605,7 @@ const addAccount = async ($el_window) => {
     } catch (e) {
         await showError($el_window, e);
     } finally {
-        $el_window.find(`${SECTION} .teams-add-btn`).prop('disabled', false);
+        $el_window.find(`${SECTION} .teams-add-btn`).prop('disabled', false).removeClass('teams-busy');
     }
 };
 
@@ -489,7 +613,7 @@ const reissueCredential = async ($el_window, username) => {
     const ok = await confirm(
         $el_window,
         `<p>${i18n('teams_confirm_reissue', { username })}</p>`,
-        i18n('teams_reissue_credential'),
+        i18n('teams_reissue_credential', [], false),
     );
     if ( ! ok ) return;
     try {
@@ -506,7 +630,7 @@ const setMemberEnabled = async ($el_window, username, enabled) => {
         const ok = await confirm(
             $el_window,
             `<p>${i18n('teams_confirm_disable', { username })}</p>`,
-            i18n('teams_disable_account'),
+            i18n('teams_disable_account', [], false),
         );
         if ( ! ok ) return;
     }
@@ -521,11 +645,14 @@ const setMemberEnabled = async ($el_window, username, enabled) => {
 };
 
 const renameTeam = async ($el_window) => {
-    const name = await UIPrompt({
+    const name = await dialog($el_window, {
+        title: i18n('teams_rename', [], false),
         message: i18n('teams_rename_prompt'),
-        placeholder: i18n('teams_team_name'),
-        defaultValue: state.selected.name ?? '',
-        ...modalOptions($el_window),
+        input: { placeholder: i18n('teams_team_name', [], false), value: state.selected.name ?? '' },
+        buttons: [
+            { label: i18n('cancel', [], false), value: false },
+            { label: i18n('teams_rename', [], false), value: 'ok', type: 'primary' },
+        ],
     });
     if ( name === false || name.trim() === '' ) return;
     try {
@@ -540,7 +667,7 @@ const deleteMemberAccount = async ($el_window, username) => {
     const ok = await confirm(
         $el_window,
         i18n('teams_confirm_delete_account', { username }),
-        i18n('teams_delete_account'),
+        i18n('teams_delete_account', [], false),
     );
     if ( ! ok ) return;
     try {
@@ -558,7 +685,7 @@ const setDirectoryEnabled = async ($el_window, enabled) => {
         const ok = await confirm(
             $el_window,
             i18n('teams_directory_confirm'),
-            i18n('teams_directory_confirm_action'),
+            i18n('teams_directory_confirm_action', [], false),
             // Reversible, and the wording says so — red would overstate it.
             'primary',
         );
@@ -575,10 +702,14 @@ const setDirectoryEnabled = async ($el_window, enabled) => {
 };
 
 const createTeam = async ($el_window) => {
-    const name = await UIPrompt({
+    const name = await dialog($el_window, {
+        title: i18n('teams_create_team', [], false),
         message: i18n('teams_create_team_prompt'),
-        placeholder: i18n('teams_team_name'),
-        ...modalOptions($el_window),
+        input: { placeholder: i18n('teams_team_name', [], false) },
+        buttons: [
+            { label: i18n('cancel', [], false), value: false },
+            { label: i18n('teams_create_team', [], false), value: 'ok', type: 'primary' },
+        ],
     });
     if ( name === false || name.trim() === '' ) return;
     try {
@@ -595,7 +726,7 @@ const deleteTeam = async ($el_window) => {
         $el_window,
         `<p>${i18n('teams_confirm_delete_team', { team: teamName(state.selected) })}</p>`
         + `<p>${i18n('teams_confirm_delete_billing')}</p>`,
-        i18n('teams_delete_team'),
+        i18n('teams_delete_team', [], false),
     );
     if ( ! ok ) return;
     try {
@@ -639,7 +770,22 @@ const TabTeams = {
             state.auditPage += 1;
             paint($el_window);
         });
-        $el_window.on('click', `${SECTION} .teams-add-btn`, () => addAccount($el_window));
+        // Submit rather than click, so Enter in either field adds the account too.
+        $el_window.on('submit', `${SECTION} .teams-form`, (e) => {
+            e.preventDefault();
+            addAccount($el_window);
+        });
+        $el_window.on('click', `${SECTION} .teams-credential-copy`, function () {
+            copyCredential($(this));
+        });
+        $el_window.on('click', `${SECTION} .teams-credential-dismiss`, () => {
+            $el_window.find(`${SECTION} .teams-credential`).hide().empty();
+        });
+        $el_window.on('click', `${SECTION} .teams-retry`, () => {
+            state.status = 'loading';
+            paint($el_window);
+            refresh($el_window);
+        });
         $el_window.on('click', `${SECTION} .teams-create`, () => createTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-rename`, () => renameTeam($el_window));
         $el_window.on('click', `${SECTION} .teams-delete`, () => deleteTeam($el_window));
