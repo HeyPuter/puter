@@ -254,6 +254,14 @@ let sidebar = [
                 path: '/Auth/getUser',
             },
             {
+                title: '<code>getProfilePicture()</code>',
+                page_title: '<code>puter.auth.getProfilePicture()</code>',
+                title_tag: 'puter.auth.getProfilePicture()',
+                icon: '/assets/img/function.svg',
+                source: '/Auth/getProfilePicture.md',
+                path: '/Auth/getProfilePicture',
+            },
+            {
                 title: '<code>getMonthlyUsage()</code>',
                 page_title: '<code>puter.auth.getMonthlyUsage()</code>',
                 title_tag: 'puter.auth.getMonthlyUsage()',

@@ -331,6 +331,39 @@ export class AuthModule extends PuterModule {
     };
 
     /**
+     * Reads a user's public profile picture. Resolves to null when unavailable
+     * or invalid, including authentication, file-read, and JSON parsing failures.
+     *
+     * @param {string} [username] Defaults to the signed-in user's username.
+     * @returns {Promise<string | null>} A base64 image data URL, or null.
+     */
+    async getProfilePicture (username) {
+        try {
+            // An optional avatar lookup must not open a sign-in prompt.
+            if ( ! this.authToken ) return null;
+
+            if ( username === undefined ) {
+                username = (await this.getUser()).username;
+            }
+            if ( typeof username !== 'string' || ! /^[a-z0-9_-]+$/i.test(username) ) {
+                return null;
+            }
+
+            const blob = await this.puter.fs.read(`/${username}/Public/.profile`);
+            const profile = JSON.parse(await blob.text());
+            if ( ! profile || typeof profile !== 'object' || Array.isArray(profile) ) {
+                return null;
+            }
+            const picture = profile.picture;
+            return typeof picture === 'string' &&
+                /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/]+={0,2}$/i.test(picture)
+                ? picture : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * Signs the user out of this app by discarding its auth token.
      *
      * @type {() => void}
