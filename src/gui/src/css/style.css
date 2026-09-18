@@ -2241,6 +2241,69 @@ label {
     color: #5f6368;
 }
 
+/* -- Logo strip above the login / signup forms -- */
+.auth-logo-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto;
+}
+
+.auth-logo {
+    width: 40px;
+    height: 40px;
+    display: block;
+    padding: 15px;
+    background-color: blue;
+    border-radius: 5px;
+    box-sizing: content-box;
+}
+
+/* In a sign-in popup: opener favicon, dashed link, Puter logo. */
+.auth-opener-logo {
+    position: relative;
+    width: 70px;
+    height: 70px;
+    border-radius: 5px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.auth-opener-logo-fallback,
+.auth-opener-logo-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border-radius: 5px;
+    background-color: #fff;
+    object-fit: contain;
+}
+
+/* The favicon fills the tile, like the Puter tile beside it. */
+.auth-opener-logo-img {
+    padding: 0;
+}
+
+/* Under the favicon; only seen once that one is dropped. */
+.auth-opener-logo-fallback {
+    padding: 15px;
+    opacity: 0.85;
+    outline: 1px solid rgba(0, 0, 0, 0.12);
+    outline-offset: -1px;
+}
+
+/* 6px dash, 8px gap; the width ends on a dash so both tiles are touched. */
+.auth-logo-connector {
+    width: 80px;
+    height: 2px;
+    background: repeating-linear-gradient(to right, #b0b5bb 0 6px, transparent 6px 14px);
+}
+
 .signup-c2a-clickable, .login-c2a-clickable {
     border: none;
     background: none;
