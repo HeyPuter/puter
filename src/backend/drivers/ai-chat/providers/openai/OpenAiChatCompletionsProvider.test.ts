@@ -42,11 +42,16 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiChatProvider } from './OpenAiChatCompletionsProvider.js';
@@ -268,6 +273,46 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_completion_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
+    });
+
+    it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValue(baseCompletion);
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'gpt-5-nano',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(sentIdentifierFields(createMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
+    });
+
+    it('forwards a caller-supplied prompt_cache_key instead of the derived identifier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5-nano',
+                    messages: [{ role: 'user', content: 'hello' }],
+                    prompt_cache_key: 'caller-key',
+                }),
+            makeActor({ user: { id: 42, uuid: 'u42', username: 'alice' } }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.prompt_cache_key).toBe('caller-key');
+        expect(args.safety_identifier).toBe('puter-u42');
     });
 
     it('resolves the namespaced GPT-6 Astra alias', async () => {

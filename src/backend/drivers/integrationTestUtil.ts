@@ -31,7 +31,7 @@
  */
 
 import type { Actor } from '../core/actor.js';
-import { SYSTEM_ACTOR } from '../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
 import type { MeteringService } from '../services/metering/MeteringService.js';
 
@@ -84,4 +84,55 @@ export const withTestActor = <T>(
 ): Promise<T> =>
     Promise.resolve(
         runWithContext({ actor, requestId: 'integration-test' }, fn),
+    );
+
+/**
+ * The four actor shapes provider tests exercise: a direct user session, the
+ * user's own app, an app-issued access token (attributed through
+ * `effectiveApp`), and the system actor. Shared so identifiers are tested
+ * identically across providers instead of copied per suite.
+ */
+export const makeActorMatrix = (): Actor[] => {
+    const user = { id: 42, uuid: 'u42', username: 'alice' };
+    const app = { uid: 'app-abc' };
+    return [
+        makeActor({ user }),
+        makeActor({ user, app }),
+        makeActor({
+            user,
+            accessToken: { uid: 'tok-1', issuer: makeActor({ user, app }) },
+        }),
+        SYSTEM_ACTOR,
+    ];
+};
+
+/** Identifiers `makeActorMatrix()` should produce, in matrix order. */
+export const ACTOR_MATRIX_IDENTIFIERS: (string | undefined)[] = [
+    'puter-u42',
+    'puter-u42-app-abc',
+    'puter-u42-app-abc',
+    undefined,
+];
+
+/**
+ * Picks `fields` off the first argument of each recorded mock call, keyed by
+ * field, so a suite can compare what a provider sent against
+ * `expectedIdentifierFields(fields)` with one `toEqual`.
+ */
+export const sentIdentifierFields = (
+    calls: unknown[][],
+    fields: string[],
+): Record<string, unknown[]> =>
+    Object.fromEntries(
+        fields.map((field) => [
+            field,
+            calls.map((call) => (call[0] as Record<string, unknown>)[field]),
+        ]),
+    );
+
+export const expectedIdentifierFields = (
+    fields: string[],
+): Record<string, unknown[]> =>
+    Object.fromEntries(
+        fields.map((field) => [field, ACTOR_MATRIX_IDENTIFIERS]),
     );

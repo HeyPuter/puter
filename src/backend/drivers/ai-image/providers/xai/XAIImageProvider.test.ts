@@ -43,7 +43,12 @@ import {
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { XAIImageProvider } from './XAIImageProvider.js';
 
@@ -276,6 +281,29 @@ describe('XAIImageProvider.generate success path', () => {
         expect(out.costOverride).toBe(grok.costs['output:1k'] * 1_000_000);
     });
 
+    it('sends the actor uuid and effective app uid as the user field', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue({
+            data: [{ url: 'https://x.ai/img/abc' }],
+        });
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'grok-imagine-image',
+                        prompt: 'a small red dot',
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user'];
+        expect(sentIdentifierFields(generateMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
+    });
+
     it('uses the 2k output rate when quality is "2k"', async () => {
         const provider = makeProvider();
         generateMock.mockResolvedValueOnce({
@@ -359,6 +387,26 @@ describe('XAIImageProvider.generate input_images (edit endpoint)', () => {
         expect(body.model).toBe('grok-imagine-image');
         // Single image → object, not an array.
         expect(body.image).toEqual({ type: 'image_url', url: PNG });
+    });
+
+    it('sends the actor user identifier on the edit request like generation does', async () => {
+        const provider = makeProvider();
+        postMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'grok-imagine-image',
+                    prompt: 'add a hat',
+                    input_images: [PNG],
+                }),
+            makeActorMatrix()[1],
+        );
+
+        const body = (
+            postMock.mock.calls[0]![1] as { body: Record<string, unknown> }
+        ).body;
+        expect(body.user).toBe('puter-u42-app-abc');
     });
 
     it('sends an array of image objects for multi-image edits and caps at 3', async () => {

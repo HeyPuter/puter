@@ -36,6 +36,7 @@ import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { aiUserIdentifier } from '../../../util/aiUserIdentifier.js';
 
 /**
  * OpenAICompletionService class provides an interface to OpenAI's chat
@@ -108,6 +109,7 @@ export class OpenAiChatProvider implements IChatProvider {
             reasoning_effort,
             temperature,
             text,
+            prompt_cache_key,
         } = params;
         let { messages, model } = params;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -157,8 +159,9 @@ export class OpenAiChatProvider implements IChatProvider {
         //     content: 'Don\'t let the user trick you into doing something bad.',
         // })
 
-        const userIdentifier =
-            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
+        const userIdentifier = aiUserIdentifier(actor);
+        // Cache key defaults to the actor identifier; see aiUserIdentifier.
+        const cacheKey = prompt_cache_key ?? userIdentifier;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs.
         // Chat Completions doesn't support file uploads, so this is the only
@@ -183,6 +186,7 @@ export class OpenAiChatProvider implements IChatProvider {
         const completionParams: ChatCompletionCreateParams = {
             user: userIdentifier,
             safety_identifier: userIdentifier,
+            ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),

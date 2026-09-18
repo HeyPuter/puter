@@ -43,7 +43,7 @@ import {
 } from 'vitest';
 
 import type { Actor } from '../../../../core/actor.js';
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -361,35 +361,68 @@ describe('MetaProvider.complete request shape', () => {
 
     it('derives safety_identifier from the actor and truncates it to 64 chars', async () => {
         createMock.mockResolvedValueOnce(OK_COMPLETION);
-        const userActor: Actor = {
+        const userActor = makeActor({
             user: { id: 42, uuid: 'u42', username: 'alice' },
             app: { id: 7, uid: 'a'.repeat(80) },
-        };
+        });
 
         await complete(makeProvider(), {}, userActor);
 
         const identifier = createMock.mock.calls[0]![0].safety_identifier;
-        expect(identifier.startsWith('puter-42-a')).toBe(true);
+        expect(identifier.startsWith('puter-u42-a')).toBe(true);
         expect(identifier.length).toBe(64);
     });
 
-    it('prefers an explicit custom.safety_identifier over the actor-derived one', async () => {
+    it('attributes the app through effectiveApp for access-token actors', async () => {
         createMock.mockResolvedValueOnce(OK_COMPLETION);
-        const userActor: Actor = { user: { id: 42, uuid: 'u42' } };
+        const tokenActor = makeActor({
+            user: { id: 42, uuid: 'u42', username: 'alice' },
+            accessToken: {
+                uid: 'tok-1',
+                issuer: makeActor({
+                    user: { id: 42, uuid: 'u42', username: 'alice' },
+                    app: { id: 7, uid: 'app-abc' },
+                }),
+            },
+        });
+
+        await complete(makeProvider(), {}, tokenActor);
+
+        expect(createMock.mock.calls[0]![0].safety_identifier).toBe(
+            'puter-u42-app-abc',
+        );
+    });
+
+    it('ignores a caller-supplied custom.safety_identifier', async () => {
+        createMock.mockResolvedValueOnce(OK_COMPLETION);
+        const userActor = makeActor({ user: { id: 42, uuid: 'u42' } });
         await complete(
             makeProvider(),
             { custom: { safety_identifier: 'caller-supplied' } },
             userActor,
         );
         expect(createMock.mock.calls[0]![0].safety_identifier).toBe(
-            'caller-supplied',
+            'puter-u42',
         );
     });
 
-    it('omits safety_identifier for the system actor (no user.id)', async () => {
+    it('omits safety_identifier for the system actor', async () => {
         createMock.mockResolvedValueOnce(OK_COMPLETION);
         await complete(makeProvider());
         expect('safety_identifier' in createMock.mock.calls[0]![0]).toBe(false);
+    });
+
+    it('defaults prompt_cache_key to the actor identifier when not supplied', async () => {
+        createMock.mockResolvedValueOnce(OK_COMPLETION);
+        const userActor = makeActor({
+            user: { id: 42, uuid: 'u42', username: 'alice' },
+        });
+
+        await complete(makeProvider(), {}, userActor);
+
+        expect(createMock.mock.calls[0]![0].prompt_cache_key).toBe(
+            'puter-u42',
+        );
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
