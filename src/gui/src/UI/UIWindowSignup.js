@@ -26,6 +26,7 @@ import UIWindowLogin from './UIWindowLogin.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
+import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
 
 function UIWindowSignup(options) {
     options = options ?? {};
@@ -49,7 +50,12 @@ function UIWindowSignup(options) {
         h +=
             '<div style="margin: 0 auto;">';
         // logo
-        h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 10px; background-color: blue; border-radius: 5px;${logo_clickable ? ' cursor: pointer;' : ''}">`;
+        h += authLogoHeader({
+            logoSrc: window.icons['logo-white.svg'],
+            logoClickable: logo_clickable,
+            openerOrigin: window.embedded_in_popup ? window.openerOrigin : '',
+            openerFallbackSrc: window.icons['website.svg'],
+        });
         // close button
         if (!options.has_head && options.show_close_button !== false) {
             h += '<div class="generic-close-window-button"> &times; </div>';
@@ -170,6 +176,7 @@ function UIWindowSignup(options) {
                         .get(0)
                         .focus({ preventScroll: true });
                 }
+                wireAuthLogoHeader(el_window);
                 if (logo_clickable) {
                     $(el_window)
                         .find('.auth-logo')
