@@ -8980,3 +8980,300 @@ body.dashboard-mode .notifications-close-all {
         flex: 1;
     }
 }
+
+/* ======================================
+   Dashboard dialog (confirm / alert / prompt)
+   ====================================== */
+
+.dashboard-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--dashboard-shadow-overlay, rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    z-index: 1000;
+}
+
+.dashboard-dialog-overlay.dashboard-dialog-show {
+    opacity: 1;
+}
+
+.dashboard-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(440px, 100%);
+    max-height: 100%;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
+    overflow: hidden;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+
+.dashboard-dialog-overlay.dashboard-dialog-show .dashboard-dialog {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.dashboard-dialog:focus {
+    outline: none;
+}
+
+.dashboard-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+
+.dashboard-dialog-title {
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dashboard-dialog-close {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-dialog-close svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (hover: hover) {
+    .dashboard-dialog-close:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard-dialog-close:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-dialog-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 20px 18px;
+    overflow-y: auto;
+}
+
+.dashboard-dialog-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.dashboard-dialog-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-dialog-danger .dashboard-dialog-icon,
+.dashboard-dialog-error .dashboard-dialog-icon {
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-dialog-warning .dashboard-dialog-icon {
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+}
+
+.dashboard-dialog-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.dashboard-dialog-message {
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+}
+
+.dashboard-dialog-message p {
+    margin: 0 0 10px;
+}
+
+.dashboard-dialog-message p:last-child {
+    margin-bottom: 0;
+}
+
+.dashboard-dialog-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dashboard-dialog-field > span {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard-dialog-input {
+    width: 100%;
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.dashboard-dialog-input:focus {
+    outline: none;
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+
+.dashboard-dialog-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 88px;
+    height: 36px;
+    padding: 0 16px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.dashboard-dialog-btn-primary {
+    border-color: var(--dashboard-link);
+    background: var(--dashboard-link);
+    color: #fff;
+}
+
+.dashboard-dialog-btn-danger {
+    border-color: #f00808;
+    background: #f00808;
+    color: #fff;
+}
+
+@media (hover: hover) {
+    .dashboard-dialog-btn-quiet:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+
+    .dashboard-dialog-btn-primary:hover {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+
+    .dashboard-dialog-btn-danger:hover {
+        background: #d90707;
+        border-color: #d90707;
+    }
+}
+
+.dashboard-dialog-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .dashboard-dialog-btn {
+        min-height: 44px;
+        height: auto;
+        padding: 10px 18px;
+    }
+}
+
+/* Mobile: dock to the bottom as a slide-up sheet, like the other modals. */
+@media (max-width: 600px) {
+    .dashboard-dialog-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .dashboard-dialog {
+        width: 100%;
+        max-width: none;
+        max-height: 92vh;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        transform: translateY(24px);
+    }
+
+    .dashboard-dialog-overlay.dashboard-dialog-show .dashboard-dialog {
+        transform: translateY(0);
+    }
+
+    .dashboard-dialog-footer {
+        flex-direction: column-reverse;
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .dashboard-dialog-btn {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-dialog-overlay,
+    .dashboard-dialog {
+        transition: none;
+    }
+}

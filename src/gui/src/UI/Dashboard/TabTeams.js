@@ -17,9 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIAlert from '../UIAlert.js';
-import UIPrompt from '../UIPrompt.js';
 import teamActionButton from './teamActionIcons.js';
+import UIDashboardDialog from './UIDashboardDialog.js';
 import {
     annotateMembers,
     auditActionKey,
@@ -47,13 +46,8 @@ const AUDIT_ROWS_PER_PAGE = 10;
 /** In flight, so `init` and the initial-route `onActivate` don't both load. */
 let loadPromise = null;
 
-const modalOptions = ($el_window) => ({
-    parent_uuid: $el_window.attr('data-element_uuid'),
-    backdrop: true,
-    close_on_backdrop_click: true,
-    parent_center: true,
-    stay_on_top: true,
-});
+/** Every dialog here is the dashboard's overlay card, mounted in the window. */
+const dialog = ($el_window, opts) => UIDashboardDialog({ $container: $el_window, ...opts });
 
 const dateText = (value) => parseTimestamp(value)?.toLocaleDateString() ?? '';
 
@@ -524,38 +518,39 @@ const showSeatLimit = async ($el_window, e) => {
     const canUpgrade = typeof window.UIUpgradeAccount === 'function';
     let message = `<p>${limit ? i18n('teams_seat_limit', { limit }) : html_encode(e.message)}</p>`;
     message += `<p>${i18n('teams_seat_limit_upgrade')}</p>`;
-    const answer = await UIAlert({
-        type: 'warning',
+    const answer = await dialog($el_window, {
+        title: i18n('teams_add_account', [], false),
+        tone: 'warning',
         message,
         buttons: canUpgrade
             ? [
-                { label: i18n('teams_see_plans'), value: 'upgrade', type: 'primary' },
-                { label: i18n('cancel'), value: 'no' },
+                { label: i18n('cancel', [], false), value: 'no' },
+                { label: i18n('teams_see_plans', [], false), value: 'upgrade', type: 'primary' },
             ]
-            : [{ label: i18n('ok'), value: 'no' }],
-        ...modalOptions($el_window),
+            : [{ label: i18n('ok', [], false), value: 'no', type: 'primary' }],
     });
     if ( answer === 'upgrade' ) new window.UIUpgradeAccount().open_as_window();
 };
 
 const showError = ($el_window, e) => {
     if ( e?.code === 'seat_limit_reached' ) return showSeatLimit($el_window, e);
-    return UIAlert({
-        type: 'error',
-        message: e?.message ?? i18n('error_unknown_cause'),
-        ...modalOptions($el_window),
+    return dialog($el_window, {
+        title: i18n('something_went_wrong', [], false),
+        tone: 'error',
+        message: html_encode(e?.message ?? i18n('error_unknown_cause', [], false)),
     });
 };
 
+/** `label` names the action and titles the dialog; `kind` colours its button. */
 const confirm = async ($el_window, message, label, kind = 'danger') => {
-    const answer = await UIAlert({
-        type: 'confirm',
+    const answer = await dialog($el_window, {
+        title: label,
+        tone: kind === 'danger' ? 'danger' : undefined,
         message,
         buttons: [
+            { label: i18n('cancel', [], false), value: 'no' },
             { label, value: 'yes', type: kind },
-            { label: i18n('cancel'), value: 'no' },
         ],
-        ...modalOptions($el_window),
     });
     return answer === 'yes';
 };
@@ -618,7 +613,7 @@ const reissueCredential = async ($el_window, username) => {
     const ok = await confirm(
         $el_window,
         `<p>${i18n('teams_confirm_reissue', { username })}</p>`,
-        i18n('teams_reissue_credential'),
+        i18n('teams_reissue_credential', [], false),
     );
     if ( ! ok ) return;
     try {
@@ -635,7 +630,7 @@ const setMemberEnabled = async ($el_window, username, enabled) => {
         const ok = await confirm(
             $el_window,
             `<p>${i18n('teams_confirm_disable', { username })}</p>`,
-            i18n('teams_disable_account'),
+            i18n('teams_disable_account', [], false),
         );
         if ( ! ok ) return;
     }
@@ -650,11 +645,14 @@ const setMemberEnabled = async ($el_window, username, enabled) => {
 };
 
 const renameTeam = async ($el_window) => {
-    const name = await UIPrompt({
+    const name = await dialog($el_window, {
+        title: i18n('teams_rename', [], false),
         message: i18n('teams_rename_prompt'),
-        placeholder: i18n('teams_team_name'),
-        defaultValue: state.selected.name ?? '',
-        ...modalOptions($el_window),
+        input: { placeholder: i18n('teams_team_name', [], false), value: state.selected.name ?? '' },
+        buttons: [
+            { label: i18n('cancel', [], false), value: false },
+            { label: i18n('teams_rename', [], false), value: 'ok', type: 'primary' },
+        ],
     });
     if ( name === false || name.trim() === '' ) return;
     try {
@@ -669,7 +667,7 @@ const deleteMemberAccount = async ($el_window, username) => {
     const ok = await confirm(
         $el_window,
         i18n('teams_confirm_delete_account', { username }),
-        i18n('teams_delete_account'),
+        i18n('teams_delete_account', [], false),
     );
     if ( ! ok ) return;
     try {
@@ -687,7 +685,7 @@ const setDirectoryEnabled = async ($el_window, enabled) => {
         const ok = await confirm(
             $el_window,
             i18n('teams_directory_confirm'),
-            i18n('teams_directory_confirm_action'),
+            i18n('teams_directory_confirm_action', [], false),
             // Reversible, and the wording says so — red would overstate it.
             'primary',
         );
@@ -704,10 +702,14 @@ const setDirectoryEnabled = async ($el_window, enabled) => {
 };
 
 const createTeam = async ($el_window) => {
-    const name = await UIPrompt({
+    const name = await dialog($el_window, {
+        title: i18n('teams_create_team', [], false),
         message: i18n('teams_create_team_prompt'),
-        placeholder: i18n('teams_team_name'),
-        ...modalOptions($el_window),
+        input: { placeholder: i18n('teams_team_name', [], false) },
+        buttons: [
+            { label: i18n('cancel', [], false), value: false },
+            { label: i18n('teams_create_team', [], false), value: 'ok', type: 'primary' },
+        ],
     });
     if ( name === false || name.trim() === '' ) return;
     try {
@@ -724,7 +726,7 @@ const deleteTeam = async ($el_window) => {
         $el_window,
         `<p>${i18n('teams_confirm_delete_team', { team: teamName(state.selected) })}</p>`
         + `<p>${i18n('teams_confirm_delete_billing')}</p>`,
-        i18n('teams_delete_team'),
+        i18n('teams_delete_team', [], false),
     );
     if ( ! ok ) return;
     try {

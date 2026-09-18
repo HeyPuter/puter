@@ -2,8 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
-vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
-vi.mock('../UIPrompt.js', () => ({ default: vi.fn() }));
+vi.mock('./UIDashboardDialog.js', () => ({ default: vi.fn() }));
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
