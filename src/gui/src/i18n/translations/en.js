@@ -867,6 +867,7 @@ const en = {
         sign_in_with_provider: 'Sign in with %%',
         sign_up_with_provider: 'Sign up with %%',
         sign_up_with_email: 'Sign up using email',
+        popup_opener_uses_puter: '%strong% is powered by Puter for its AI and cloud features.\nUse your Puter account to continue.',
         oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
         // Login Window

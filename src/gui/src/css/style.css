@@ -2224,7 +2224,7 @@ label {
 
 .login-form-title, .signup-form-title {
     text-align: center;
-    margin-top: 0;
+    margin-top: 10px;
     padding-bottom: 15px;
     font-size: 21px;
     font-weight: 500;
@@ -2233,8 +2233,12 @@ label {
     text-shadow: 1px 1px #ffffff1c;
 }
 
-.signup-form-title {
-    margin-top: 10px;
+
+.auth-opener-notice {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 16px;
+    color: #5f6368;
 }
 
 .signup-c2a-clickable, .login-c2a-clickable {

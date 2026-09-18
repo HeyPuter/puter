@@ -278,7 +278,11 @@ async function UIWindowLogin (options) {
         h += '</div>';
         // title
         h += '<div style="padding:10px 20px; text-align:center; margin-bottom:0;">';
-        h += `<h1 style="font-size:18px; margin-bottom:0;">${i18n('log_in')}</h1>`;
+        h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
+        // In a sign-in popup, say which site brought the user here.
+        if (window.embedded_in_popup && window.openerOrigin) {
+            h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(window.openerOrigin).hostname])}</p>`;
+        }
         h += '</div>';
         // form
         h += '<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">';
