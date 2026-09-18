@@ -265,7 +265,7 @@ export class AppDriver extends PuterDriver {
         try {
             app = await this.appStore.create(fields, {
                 ownerUserId: actor.user.id,
-                appOwner: actor.app?.id ?? null,
+                appOwner: actor.effectiveApp?.id ?? null,
             });
         } catch (err) {
             if (!isUniqueViolation(err)) throw err;
@@ -369,7 +369,7 @@ export class AppDriver extends PuterDriver {
         for (const app of apps) {
             if (
                 !app.protected ||
-                actor.app?.uid === app.uid ||
+                actor.effectiveApp?.uid === app.uid ||
                 actor.user?.id === app.owner_user_id
             ) {
                 localVisible.add(app);
@@ -836,7 +836,7 @@ export class AppDriver extends PuterDriver {
     async #canReadApp(app, actor) {
         if (!app.protected) return true;
         // Self-app access
-        if (actor.app?.uid === app.uid) return true;
+        if (actor.effectiveApp?.uid === app.uid) return true;
         // Owner access
         if (actor.user?.id === app.owner_user_id) return true;
         // Permission check
@@ -857,10 +857,11 @@ export class AppDriver extends PuterDriver {
 
     async #checkWriteAccess(app, actor) {
         // App actor matching app_owner
+        const ownApp = actor.effectiveApp;
         let hasAccess = false;
-        if (!actor.app?.id) {
+        if (!ownApp?.id) {
             hasAccess = actor.user?.id === app.owner_user_id;
-        } else if (actor.app.id === app.app_owner) {
+        } else if (ownApp.id === app.app_owner) {
             hasAccess = actor.user?.id === app.owner_user_id;
         }
         // System-wide write

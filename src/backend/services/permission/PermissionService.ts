@@ -18,7 +18,13 @@
  */
 
 import type { Actor } from '../../core/actor';
-import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
+import {
+    actorUid,
+    isAppActor,
+    isPlainUserActor,
+    isSystemActor,
+    userRelatedActor,
+} from '../../core/actor';
 import { Context, runWithContext } from '../../core/context';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Span } from '../../util/span.js';
@@ -357,7 +363,7 @@ export class PermissionService extends PuterService {
         // excluded: an app-under-user is gated by its own implicit grant map
         // and an access token by its issuer, both of which recurse into a
         // scan of the user actor and so still see this floor.
-        if (!actor.app && !actor.accessToken && actor.user?.id) {
+        if (isPlainUserActor(actor) && actor.user?.id) {
             const granted = options.find((option) =>
                 Object.prototype.hasOwnProperty.call(
                     default_user_permissions,
@@ -411,7 +417,7 @@ export class PermissionService extends PuterService {
             // -- scanners (formerly PERMISSION_SCANNERS) --
             // Run in parallel — matches v1's `Promise.all(ps)` in the
             // scan-permission Sequence. Each scanner has a cheap actor-shape
-            // guard at the top (e.g. `if (!actor.app) return` for app-only
+            // guard at the top (e.g. `if (!isAppActor(actor)) return` for app-only
             // ones) so the ones that don't apply to this actor fall out
             // immediately. Scanners only push into `reading`; they don't
             // read each other's writes, so there are no ordering hazards.
@@ -527,7 +533,7 @@ export class PermissionService extends PuterService {
         reading: ReadingNode[],
         state: ScanState,
     ): Promise<void> {
-        if (actor.app || actor.accessToken) return;
+        if (!isPlainUserActor(actor)) return;
         const subReadings = await this.validateUserPerms({
             actor,
             permissions: options,
@@ -541,7 +547,7 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
-        if (actor.app || actor.accessToken) return;
+        if (!isPlainUserActor(actor)) return;
         if (!actor.user?.id) return;
 
         const rows = await this.stores.permission.readUserGroupPerms(
@@ -572,6 +578,9 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
+        // `app`, not `effectiveApp`: a token gets the issuer's grants through
+        // `#scanAccessToken`, bounded by its own rows. Reading the chain here
+        // would hand it the issuing app's grants unbounded.
         if (!actor.app) return;
         const issuerActor = userRelatedActor(actor);
         const issuerReading = await this.scan(issuerActor, options);
@@ -625,7 +634,8 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
-        if (!actor.app || !actor.user?.id || !actor.app.id) return;
+        // Direct app only — see `#scanUserAppImplied`.
+        if (!actor.app?.id || !actor.user?.id) return;
         const rows = await this.stores.permission.readUserAppPerms(
             actor.user.id,
             actor.app.id,
@@ -652,7 +662,8 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
-        if (!actor.app || !actor.app.id) return;
+        // Direct app only — see `#scanUserAppImplied`.
+        if (!actor.app?.id) return;
         const rows = await this.stores.permission.readDevAppPerms(
             actor.app.id,
             options,
@@ -1179,9 +1190,8 @@ export class PermissionService extends PuterService {
         const requestActor = Context.get('actor') as Actor | undefined;
         const acting =
             actor.effectiveApp ??
-            actor.app ??
             (requestActor?.user?.id === actor.user?.id
-                ? (requestActor?.effectiveApp ?? requestActor?.app)
+                ? requestActor?.effectiveApp
                 : null);
         return acting?.uid ? { appUid: acting.uid } : null;
     }
@@ -1384,7 +1394,7 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         // Before the rewrite: the pseudo-permission resolvers it runs refuse an
         // app actor themselves, and this says why in the caller's own terms.
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1429,7 +1439,7 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1510,7 +1520,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1545,7 +1555,7 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1668,7 +1678,7 @@ export class PermissionService extends PuterService {
                     ...this.#cacheGenerationKeys(actor.accessToken.authorized),
                 );
             }
-        } else if (actor.app && actor.user?.uuid) {
+        } else if (isAppActor(actor) && actor.user?.uuid) {
             keys.push(`user:${actor.user.uuid}`);
         }
         return Array.from(new Set(keys));

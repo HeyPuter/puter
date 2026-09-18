@@ -17,19 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-export { Context, runWithContext, type KnownContextFields } from './context';
-export {
-    type Actor,
-    type ActorApp,
-    type ActorAccessToken,
-    SYSTEM_ACTOR,
-    SYSTEM_ACTOR_UUID,
-    isSystemActor,
-    isAppActor,
-    isAccessTokenActor,
-    isPlainUserActor,
-    actorUid,
-    assertResolvedActor,
-    makeActor,
-    userRelatedActor,
-} from './actor';
+import type { Actor } from '../../core/actor.js';
+
+/**
+ * Per-caller identifier passed to an upstream provider so it can bucket abuse
+ * signals by account instead of by our whole tenancy. `<userId>[:<appUid>]`, on
+ * the app the caller acts as — a token an app issued belongs to that app's
+ * bucket, not to the account's.
+ *
+ * Empty string when there is no user to name, which is what every provider
+ * treats as "unattributed".
+ */
+export const upstreamUserIdentifier = (
+    actor: Actor | undefined | null,
+): string => {
+    const userId = actor?.user?.id;
+    if (userId === undefined || userId === null) return '';
+    const appUid = actor?.effectiveApp?.uid;
+    return appUid ? `${userId}:${appUid}` : `${userId}`;
+};

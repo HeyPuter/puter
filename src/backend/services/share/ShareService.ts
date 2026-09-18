@@ -19,7 +19,12 @@
 
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import { makeActor, userRelatedActor, type Actor } from '../../core/actor';
+import {
+    isPlainUserActor,
+    makeActor,
+    userRelatedActor,
+    type Actor,
+} from '../../core/actor';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
@@ -3244,7 +3249,7 @@ export class ShareService extends PuterService {
      * token, where each one is a cached scan.
      */
     async #reachableBy(actor: Actor, entries: FSEntry[]): Promise<Set<string>> {
-        if (!actor.app && !actor.accessToken) {
+        if (isPlainUserActor(actor)) {
             return new Set(entries.map((entry) => entry.uuid));
         }
         const checks = await Promise.all(
@@ -3263,7 +3268,7 @@ export class ShareService extends PuterService {
         entry: FSEntry,
         mode: AclMode,
     ): Promise<boolean> {
-        if (!actor.app && !actor.accessToken) return true;
+        if (isPlainUserActor(actor)) return true;
         return this.services.acl.check(actor, this.#descriptorFor(entry), mode);
     }
 

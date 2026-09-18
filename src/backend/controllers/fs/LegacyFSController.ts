@@ -24,6 +24,7 @@ import { posix as pathPosix } from 'node:path';
 import {
     assertResolvedActor,
     isAccessTokenActor,
+    isAppActor,
     makeActor,
 } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -1291,15 +1292,14 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const isApp = Boolean((actor as { app?: unknown }).app);
+        const actingApp = actor.effectiveApp;
         const signingCfg = signingConfigFromAppConfig(this.config);
 
         // Apps can only sign inside their AppData root.
         let appDataRoot: string | null = null;
-        if (isApp) {
-            const username = (actor as { user?: { username?: string } }).user
-                ?.username;
-            const appUid = (actor as { app?: { uid?: string } }).app?.uid;
+        if (actingApp) {
+            const username = actor.user?.username;
+            const appUid = actingApp.uid;
             if (!username || !appUid)
                 throw new HttpError(403, 'Forbidden', {
                     legacyCode: 'forbidden',
@@ -1795,7 +1795,7 @@ export class LegacyFSController extends PuterController {
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        if ((actor as { app?: unknown }).app) {
+        if (actor.effectiveApp) {
             throw new HttpError(
                 403,
                 'This endpoint is only available to user sessions',
@@ -1889,8 +1889,10 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const actorApp = (actor as { app?: { uid?: string } }).app;
-        if (!actorApp?.uid || actorApp.uid !== appUid) {
+        // The app acting directly, not one that merely issued the credential:
+        // claiming a root dir is the app itself asking, and a token is not it.
+        const callerApp = isAppActor(actor) ? actor.effectiveApp : null;
+        if (callerApp?.uid !== appUid) {
             throw new HttpError(
                 403,
                 'Only the app itself may request its root dir',

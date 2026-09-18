@@ -238,7 +238,7 @@ export class EventsWorkerDeployer {
         const user = await stores.user.getById(ownerUserId);
         if (!user?.id || !user.uuid || !user.username || user.suspended)
             return null;
-        return { user } as Actor & {
+        return { user, effectiveApp: null } as Actor & {
             user: { id: number; uuid: string; username: string };
         };
     }

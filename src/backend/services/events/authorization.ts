@@ -150,7 +150,8 @@ export const deliveryGenerationTag = async (
     deps: Pick<EventAclDeps, 'getCacheGeneration'>,
 ): Promise<string> => {
     const keys = [actorUid(actor)];
-    if (actor.app && actor.user?.uuid) keys.push(`user:${actor.user.uuid}`);
+    if (actor.effectiveApp && actor.user?.uuid)
+        keys.push(`user:${actor.user.uuid}`);
     const generations = await Promise.all(
         keys.map((key) => deps.getCacheGeneration(key)),
     );

@@ -42,6 +42,12 @@ export interface ActorAccessToken {
 
 export interface Actor {
     user: Partial<UserRow>;
+    /**
+     * The app this actor carries _directly_, empty on an access token an app
+     * issued. Answers "is this an app acting as itself" — `isAppActor` is
+     * usually the clearer way to ask — and never "which app is acting", which
+     * reads as "no app" for a token and falls open.
+     */
     app?: ActorApp | null;
     /**
      * The app this actor ultimately acts as: its own `app`, else the app of its
@@ -100,6 +106,16 @@ export const isSystemActor = (actor: Actor | undefined | null): boolean => {
 export const isAppActor = (actor: Actor | undefined | null): boolean => {
     return !!actor?.app && !isAccessTokenActor(actor);
 };
+
+/**
+ * The account acting as itself, through nothing: no app and no token of any
+ * kind. Narrower than `isAccountContext`, which also admits a full-access token
+ * — use this where the distinction is "a browser session" rather than "the
+ * account's own reach".
+ */
+export const isPlainUserActor = (
+    actor: Pick<Actor, 'app' | 'accessToken'> | undefined | null,
+): boolean => !!actor && !actor.app && !actor.accessToken;
 
 export const isAccessTokenActor = (
     actor: Actor | undefined | null,

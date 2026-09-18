@@ -106,7 +106,7 @@ export class ZAIProvider implements IChatProvider {
         const userId =
             customParams.user_id ??
             (actor?.user?.id
-                ? `puter-${actor.user.id}${actor.app?.uid ? `-${actor.app.uid}` : ''}`.slice(
+                ? `puter-${actor.user.id}${actor.effectiveApp?.uid ? `-${actor.effectiveApp?.uid}` : ''}`.slice(
                       0,
                       128,
                   )
@@ -164,7 +164,7 @@ export class ZAIProvider implements IChatProvider {
                 );
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor,
+                    actor!,
                     `zai:${modelUsed.id}`,
                     costsOverrideFromModel,
                 );

@@ -835,11 +835,10 @@ describe('allowedAppIdsGate', () => {
         expect(got).toBeUndefined();
     });
 
-    it('passes any access token issued by an app, allowed or not', () => {
-        // The check reads `actor.app`, which an access-token actor never
-        // carries — its app lives on `effectiveApp`, one hop through the
-        // issuer. Both directions pass, which is why an appId-gated route
-        // cannot treat this gate as proof of app identity.
+    it('judges an access token by the app that issued it', () => {
+        // An access-token actor carries no app of its own — its app is one hop
+        // down the chain, through the issuer — so reading the direct `app`
+        // would let a token from any app through an appId-gated route.
         const gate = allowedAppIdsGate(['app-allowed']);
         const tokenIssuedBy = (appUid: string) => ({
             actor: {
@@ -854,7 +853,9 @@ describe('allowedAppIdsGate', () => {
             },
         });
         expect(runGate(gate, tokenIssuedBy('app-allowed'))).toBeUndefined();
-        expect(runGate(gate, tokenIssuedBy('app-other'))).toBeUndefined();
+        expect(runGate(gate, tokenIssuedBy('app-other'))).toBeInstanceOf(
+            HttpError,
+        );
     });
 
     it('passes when the actor.app.uid is in the allow-list', () => {
