@@ -77,6 +77,7 @@ import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
+import { issueUserAppToken } from './userAppToken.js';
 import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
@@ -281,20 +282,32 @@ export class AuthController extends PuterController {
         const expectedAppUid =
             await this.services.auth.appUidFromOrigin(reqOrigin);
 
-        const { resolve, promise } = Promise.withResolvers<void>();
-
+        // A magic link consumed before this page started polling left the
+        // token parked for it. It is only taken once the audience check
+        // below would pass, so a poll from the wrong origin leaves it for
+        // the page it was minted for; a live relay is only needed when
+        // nothing is parked.
         let token: string | null = null;
-        const listener = (_key: string, value: { authtoken: string }) => {
-            token = value.authtoken;
-            resolve();
-        };
-        this.clients.event.on(`pubsub.login.${session}`, listener);
+        const parked = await this.services.magicLink.peekLandingPickup(session);
+        if (parked && this.#tokenIsForApp(parked, expectedAppUid)) {
+            await this.services.magicLink.burnLandingPickup(session);
+            token = parked;
+        }
 
-        const timeout = new Promise<void>((resolve) =>
-            setTimeout(resolve, 10000),
-        );
-        await Promise.race([promise, timeout]);
-        this.clients.event.off(`pubsub.login.${session}`, listener);
+        if (!token) {
+            const { resolve, promise } = Promise.withResolvers<void>();
+            const listener = (_key: string, value: { authtoken: string }) => {
+                token = value.authtoken;
+                resolve();
+            };
+            this.clients.event.on(`pubsub.login.${session}`, listener);
+
+            const timeout = new Promise<void>((resolve) =>
+                setTimeout(resolve, 10000),
+            );
+            await Promise.race([promise, timeout]);
+            this.clients.event.off(`pubsub.login.${session}`, listener);
+        }
         if (!token) {
             throw new HttpError(408, 'Request timeout.', {
                 legacyCode: 'request_timeout',
@@ -3823,120 +3836,20 @@ export class AuthController extends PuterController {
         rateLimit: { ...AUTH_CHECK_LIMIT, scope: 'app-token', limit: 120 },
     })
     async handleGetUserAppToken(req: Request, res: Response): Promise<void> {
-        let { app_uid } = req.body ?? {};
-        const { origin } = req.body ?? {};
-        const resolvedFromOrigin = !app_uid && !!origin;
-        if (!app_uid && origin) {
-            app_uid = await this.services.auth.appUidFromOrigin(origin);
-        }
-        if (!app_uid) {
-            throw new HttpError(400, 'Missing `app_uid` or `origin`', {
-                legacyCode: 'bad_request',
-            });
-        }
+        const { app_uid, origin } = req.body ?? {};
+        const issued = await issueUserAppToken(this.#layers(), req.actor!, {
+            appUid: app_uid,
+            origin,
+        });
+        res.json(issued);
+    }
 
-        let app = await this.stores.app.getByUid(app_uid);
-        if (!app && resolvedFromOrigin) {
-            // Hosted-subdomain origins get the site owner stamped as the
-            // app's creator at bootstrap; external origins stay unowned.
-            const ownerUserId =
-                await this.services.auth.subdomainOwnerIdFromOrigin(origin);
-            app = await this.stores.app.createFromOrigin(app_uid, origin, {
-                ownerUserId,
-            });
-            // An origin's uid is a deterministic uuidv5, so a deleted app
-            // reappears here under the identical uid. Withdraw any cross-app
-            // data grants left pointing at it before this new row can inherit
-            // consent the user gave its predecessor. Only *this* path can reuse
-            // a uid: `AppStore.create` mints a random uuid4, which no deleted
-            // app can ever hold again.
-            //
-            // Called directly rather than through `app.changed`: the token is
-            // issued below, so this has to be able to stop that, and
-            // `emitAndWait` swallows listener errors. Letting it throw is the
-            // point — a sweep that failed leaves the old grants live against an
-            // app whoever controls the origin now has just claimed.
-            await this.services.appPermission.withdrawAppDataGrants(
-                app_uid,
-                'uid reused by a new app',
-            );
-        }
-        if (!app) {
-            throw new HttpError(404, `App ${app_uid} does not exist`, {
-                legacyCode: 'not_found',
-            });
-        }
-
-        const userPermGrantPromise =
-            this.services.permission.grantUserAppPermission(
-                req.actor!,
-                app_uid,
-                'flag:app-is-authenticated',
-                {},
-                {},
-            );
-
-        const tokenPromise = this.services.auth.getUserAppToken(
-            req.actor!,
-            app_uid,
-        );
-
-        const missingFSPathPromise = (async () => {
-            // Ensure the app's per-user AppData directory exists.
-            // v1 did this in LLMkdir with the app icon as thumbnail
-            // on first app open. mkdir is idempotent (returns
-            // existing dir without rewriting), and
-            // createMissingParents seeds `/<username>/AppData` if
-            // the user never had one. Path lookups in FSEntryStore
-            // have a recursive-CTE fallback (mirrors v1's
-            // `convert_path_to_fsentry` walk-down) so legacy rows
-            // with a NULL `path` column still resolve and get
-            // backfilled on first read.
-            const username = req.actor!.user?.username;
-            const userId = req.actor!.user?.id;
-            if (username && userId) {
-                await this.services.fs.mkdir(userId, {
-                    path: `/${username}/AppData/${app_uid}`,
-                    createMissingParents: true,
-                    thumbnail: (app as { icon?: string | null }).icon ?? null,
-                } as never);
-            }
-        })();
-
-        const [, token] = await Promise.all([
-            userPermGrantPromise,
-            tokenPromise,
-            missingFSPathPromise,
-        ]);
-
-        try {
-            const a = app as {
-                id?: number;
-                uid?: string;
-                index_url?: string | null;
-                owner_user_id?: number | null;
-                name?: string | null;
-            };
-            this.clients.event?.emit(
-                'puter.app.authenticated' as never,
-                {
-                    app_uid,
-                    app: {
-                        id: a.id,
-                        uid: a.uid,
-                        index_url: a.index_url ?? null,
-                        owner_user_id: a.owner_user_id ?? null,
-                        name: a.name ?? null,
-                    },
-                    user_id: req.actor!.user?.id ?? null,
-                } as never,
-                {},
-            );
-        } catch {
-            // Fine if failed
-        }
-
-        res.json({ token, app_uid });
+    #layers() {
+        return {
+            clients: this.clients,
+            stores: this.stores,
+            services: this.services,
+        };
     }
 
     @Post('/auth/check-app', {
