@@ -8022,33 +8022,652 @@ body.dashboard-mode .notifications-close-all {
     }
 }
 
+
 /* ======================================
    Teams tab
    ====================================== */
 
+/* Kept in the DOM for screen readers; a tooltip or layout carries it visually. */
+.dashboard-section-teams .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
 .teams-panel {
-    padding: 20px 24px;
+    padding: 22px 24px;
+}
+
+/* -- Buttons: the settings cards' outline style, one accent for the primary -- */
+
+.dashboard-section-teams .button {
+    height: 36px;
+    line-height: 34px;
+    padding: 0 16px;
+    color: var(--dashboard-text-primary);
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.dashboard-section-teams .button-small {
+    height: 30px;
+    line-height: 28px;
+    padding: 0 12px;
+    font-size: 13px;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .button:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+}
+
+.dashboard-section-teams .button:focus-visible {
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-section-teams .button:active {
+    background: var(--dashboard-hover);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-primary);
+    box-shadow: none;
+}
+
+/* Base .button:disabled hard-codes light greys with !important. */
+.dashboard-section-teams .button:disabled {
+    background: var(--dashboard-card-background) !important;
+    border-color: var(--dashboard-border) !important;
+    color: var(--dashboard-text-muted) !important;
+    text-shadow: none !important;
+}
+
+.dashboard-section-teams .button-primary {
+    background: var(--dashboard-link);
+    border-color: var(--dashboard-link);
+    color: #fff;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .button-primary:hover {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+}
+
+.dashboard-section-teams .button-primary:active {
+    background: var(--dashboard-link-hover);
+    border-color: var(--dashboard-link-hover);
+    color: #fff;
+}
+
+.dashboard-section-teams .button-primary:disabled {
+    background: var(--dashboard-link) !important;
+    border-color: var(--dashboard-link) !important;
+    color: #fff !important;
+    opacity: 0.6;
+}
+
+.dashboard-section-teams .button-danger {
+    background: #f00808;
+    border-color: #f00808;
+    color: #fff;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .button-danger:hover {
+        background: #d90707;
+        border-color: #d90707;
+    }
+}
+
+.dashboard-section-teams .button-danger:active {
+    background: #c20606;
+    border-color: #c20606;
+    color: #fff;
+}
+
+/* -- Hero: the selected team -- */
+
+.teams-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.teams-hero-main {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+/* Lettered tile in place of a picture; hue comes from the name, per row. */
+.teams-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 600;
+    background: hsl(var(--teams-avatar-hue, 213) 70% 94%);
+    color: hsl(var(--teams-avatar-hue, 213) 55% 38%);
+    user-select: none;
+}
+
+.teams-avatar-lg {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.teams-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.teams-info-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.teams-info strong {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--dashboard-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.teams-role {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--select-tint);
+    color: var(--select-color);
+    white-space: nowrap;
+}
+
+.teams-info-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-dot {
+    margin: 0 6px;
+    color: var(--dashboard-text-muted);
+}
+
+.teams-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.teams-picker-select {
+    height: 36px;
+    max-width: 220px;
+    padding: 0 32px 0 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background-color: var(--dashboard-card-background);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+    color: var(--dashboard-text-primary);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    text-overflow: ellipsis;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.teams-picker-select:focus-visible {
+    outline: none;
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* -- Card headings -- */
+
+.teams-card-head {
     margin-bottom: 16px;
 }
 
 .teams-panel h3 {
-    margin: 0 0 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
     font-size: 15px;
     font-weight: 600;
     color: var(--dashboard-text-card-title);
 }
 
-.teams-panel-hint,
-.teams-billing-note,
-.teams-empty {
-    margin: 0 0 16px 0;
+.teams-count {
+    display: inline-block;
+    min-width: 20px;
+    padding: 0 7px;
+    border-radius: 999px;
+    line-height: 20px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-hint);
+    background: var(--dashboard-input-background);
+}
+
+.teams-panel-hint {
+    margin: 4px 0 0;
     font-size: 13px;
     line-height: 1.5;
     color: var(--dashboard-text-hint);
 }
 
 .teams-empty {
-    margin-bottom: 0;
+    margin: 0;
+    padding: 6px 0 2px;
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+/* -- Directory: a settings row with the shared switch -- */
+
+.teams-directory .dashboard-settings-card-info span {
+    white-space: normal;
+    line-height: 1.45;
+}
+
+.teams-directory-toggle {
+    margin: 0;
+}
+
+/* -- Add an account -- */
+
+.teams-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+}
+
+.teams-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.teams-field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+
+.teams-form input {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.teams-form input:focus {
+    outline: none;
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.teams-field-help {
+    margin: 10px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-section-teams .teams-busy {
+    opacity: 0.75;
+}
+
+/* Shown once and never retrievable, so it is deliberately hard to miss. */
+.teams-credential {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 12px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 13px;
+}
+
+.teams-credential-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.teams-credential-head strong {
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.teams-credential-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin: -4px -6px 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+@media (hover: hover) {
+    .teams-credential-dismiss:hover {
+        opacity: 1;
+        background: rgba(0, 0, 0, 0.06);
+    }
+}
+
+.teams-credential-dismiss:focus-visible {
+    outline: none;
+    opacity: 1;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.teams-credential-dismiss svg {
+    width: 14px;
+    height: 14px;
+}
+
+.teams-credential-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.teams-credential-value {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 8px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    user-select: all;
+    word-break: break-all;
+    outline: none;
+}
+
+.teams-credential-value:focus-visible {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-section-teams .teams-credential-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+}
+
+.teams-credential-copy svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dashboard-section-teams .teams-copied {
+    color: var(--dashboard-success-text);
+    border-color: var(--dashboard-success-border);
+}
+
+.teams-credential-note {
+    line-height: 1.5;
+}
+
+/* -- Tables: hairlines only, no grid -- */
+
+.teams-table-wrapper {
+    overflow-x: auto;
+}
+
+.teams-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    color: var(--dashboard-text-primary);
+}
+
+.teams-table th {
+    padding: 0 10px 10px;
+    border-bottom: 1px solid var(--dashboard-border);
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dashboard-text-muted);
+    white-space: nowrap;
+}
+
+.teams-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--dashboard-border);
+    vertical-align: middle;
+}
+
+.teams-table th:first-child,
+.teams-table td:first-child {
+    padding-left: 0;
+}
+
+.teams-table th:last-child,
+.teams-table td:last-child {
+    padding-right: 0;
+}
+
+.teams-table tbody tr:last-child td {
+    border-bottom: none;
+    padding-bottom: 4px;
+}
+
+.teams-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.teams-identity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.teams-identity-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.teams-identity-sub {
+    font-size: 12px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-you {
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-hint);
+}
+
+.teams-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.teams-status::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.teams-status-active {
+    color: var(--dashboard-success-text);
+}
+
+.teams-status-disabled {
+    color: var(--dashboard-text-muted);
+}
+
+/* Suspended accounts stay legible: they are still on the bill. */
+.teams-member-disabled td,
+.teams-member-disabled .teams-identity-sub {
+    color: var(--dashboard-text-muted);
+}
+
+.teams-member-disabled .teams-avatar {
+    filter: grayscale(1);
+    opacity: 0.7;
+}
+
+.teams-cell-actions {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.teams-member-actions {
+    display: inline-flex;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.dashboard-section-teams .teams-member-actions .button-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    line-height: 1;
+    border-radius: 8px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    box-shadow: none;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .teams-member-actions .button-icon:hover {
+        background: var(--dashboard-input-background);
+        color: var(--dashboard-text-primary);
+    }
+
+    .dashboard-section-teams .teams-member-actions .button-icon.button-danger:hover {
+        background: var(--dashboard-danger-background);
+        color: var(--dashboard-danger-text);
+    }
+}
+
+.dashboard-section-teams .teams-member-actions .button-icon:active {
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-section-teams .teams-member-actions .button-icon:focus-visible {
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.teams-member-actions .button-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.teams-cell-action {
+    font-weight: 500;
+}
+
+.teams-audit-reason {
+    font-weight: 400;
+    color: var(--dashboard-text-muted);
+}
+
+.teams-cell-when {
+    color: var(--dashboard-text-hint);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
 .teams-pager {
@@ -8057,12 +8676,15 @@ body.dashboard-mode .notifications-close-all {
     justify-content: space-between;
     gap: 12px;
     margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--dashboard-border);
     flex-wrap: wrap;
 }
 
 .teams-pager-count {
     font-size: 13px;
     color: var(--dashboard-text-hint);
+    font-variant-numeric: tabular-nums;
 }
 
 .teams-pager-buttons {
@@ -8070,60 +8692,122 @@ body.dashboard-mode .notifications-close-all {
     gap: 8px;
 }
 
-.teams-pager-buttons .button:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
+/* -- Roster (member view) -- */
 
 .teams-roster {
     list-style: none;
     margin: 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
 }
 
 .teams-roster-name {
-    padding: 7px 0;
-    font-size: 14px;
-    color: var(--dashboard-text-primary);
+    padding: 10px 0;
     border-bottom: 1px solid var(--dashboard-border);
 }
 
 .teams-roster-name:last-child {
     border-bottom: none;
+    padding-bottom: 2px;
 }
 
-.teams-roster-you {
-    font-size: 13px;
-    color: var(--dashboard-text-hint);
+/* -- Empty / error states -- */
+
+.teams-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 40px 24px 44px;
 }
 
-.teams-member-actions .button-icon {
-    display: inline-flex;
+.teams-state-art {
+    display: flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    margin-right: 6px;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 16px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
 }
 
-.teams-member-actions .button-icon svg {
-    width: 15px;
-    height: 15px;
+.teams-state-art svg {
+    width: 26px;
+    height: 26px;
 }
 
-/* Kept in the DOM for screen readers; the tooltip carries it visually. */
-.teams-member-actions .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
+.teams-state-warning .teams-state-art {
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
 }
+
+.teams-state h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--dashboard-text-primary);
+}
+
+.teams-state .teams-panel-hint {
+    max-width: 400px;
+    margin-top: 6px;
+}
+
+.teams-state .button {
+    margin-top: 20px;
+}
+
+/* -- Loading skeleton -- */
+
+.teams-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.teams-skeleton-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.teams-skeleton-card > span {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.teams-skeleton-card i,
+.teams-skeleton-tile {
+    display: block;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--dashboard-hover) 25%, var(--dashboard-border) 50%, var(--dashboard-hover) 75%);
+    background-size: 200% 100%;
+    animation: teams-shimmer 1.4s linear infinite;
+}
+
+.teams-skeleton-tile {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    flex-shrink: 0;
+}
+
+@keyframes teams-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .teams-skeleton-card i,
+    .teams-skeleton-tile {
+        animation: none;
+    }
+}
+
+/* -- Plan picker (rendered by the billing extension) -- */
 
 .teams-plan-list {
     list-style: none;
@@ -8160,150 +8844,139 @@ body.dashboard-mode .notifications-close-all {
     color: var(--dashboard-text-muted);
 }
 
-.teams-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
+/* -- Dark mode -- */
+
+@media (prefers-color-scheme: dark) {
+    .teams-avatar {
+        background: hsl(var(--teams-avatar-hue, 213) 35% 24%);
+        color: hsl(var(--teams-avatar-hue, 213) 70% 80%);
+    }
+
+    .teams-credential-dismiss:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
 }
 
-.teams-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-}
-
-.teams-info strong {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--dashboard-text-card-title);
-}
-
-.teams-info span {
-    font-size: 13px;
-    color: var(--dashboard-text-hint);
-}
-
-.teams-picker {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: var(--dashboard-text-hint);
-}
-
-.teams-picker-select,
-.teams-form input {
-    padding: 7px 10px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 8px;
-    background: var(--dashboard-input-background);
-    color: inherit;
-    font-size: 13px;
-}
-
-.teams-form {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.teams-form input {
-    flex: 1 1 160px;
-    min-width: 0;
-}
-
-/* Shown once and never retrievable, so it is deliberately hard to miss. */
-.teams-credential {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 16px;
-    padding: 12px 16px;
-    border: 1px solid var(--dashboard-warning-border);
-    border-radius: 8px;
-    background: var(--dashboard-warning-background);
-    color: var(--dashboard-warning-text);
-    font-size: 13px;
-}
-
-.teams-credential-value {
-    font-family: monospace;
-    font-size: 15px;
-    user-select: all;
-    word-break: break-all;
-}
-
-.teams-table-wrapper {
-    overflow-x: auto;
-}
-
-.teams-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-}
-
-.teams-table th {
-    padding: 7px 8px;
-    border: 1px solid var(--dashboard-border);
-    background: var(--dashboard-input-background);
-    text-align: left;
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-.teams-table td {
-    padding: 7px 8px;
-    border: 1px solid var(--dashboard-border);
-    vertical-align: middle;
-}
-
-/* Suspended accounts stay legible: they are still on the bill. */
-.teams-member-disabled td {
-    color: var(--dashboard-text-muted);
-}
-
-.teams-member-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    border-left: none;
-}
-
-.teams-audit-reason {
-    color: var(--dashboard-text-muted);
-}
+/* -- Phone: cards stack, tables become labelled rows -- */
 
 @media (max-width: 768px) {
-    .teams-card {
+    .teams-panel {
+        padding: 18px 16px;
+    }
+
+    .teams-hero {
         flex-direction: column;
         align-items: stretch;
         gap: 16px;
     }
 
-    .teams-card .button,
+    .teams-hero-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .teams-hero-actions .button,
+    .teams-picker-select {
+        width: 100%;
+        max-width: none;
+    }
+
+    .teams-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .teams-form .button {
         width: 100%;
     }
 
-    .teams-form input {
-        flex-basis: 100%;
+    .teams-table thead {
+        display: none;
     }
-}
 
-.teams-directory-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 4px 0 10px;
-    cursor: pointer;
-}
+    .teams-table,
+    .teams-table tbody,
+    .teams-table tr,
+    .teams-table td {
+        display: block;
+    }
 
-.teams-directory-note {
-    margin: 0;
-    font-size: 13px;
-    opacity: 0.7;
+    .teams-table tr {
+        padding: 12px 0;
+        border-bottom: 1px solid var(--dashboard-border);
+    }
+
+    .teams-table tbody tr:last-child {
+        border-bottom: none;
+        padding-bottom: 2px;
+    }
+
+    .teams-table td,
+    .teams-table th:first-child,
+    .teams-table td:first-child,
+    .teams-table tbody tr:last-child td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 0;
+        border: none;
+    }
+
+    .teams-table td[data-label]::before {
+        content: attr(data-label);
+        flex-shrink: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--dashboard-text-muted);
+    }
+
+    .teams-cell-identity {
+        padding-bottom: 8px !important;
+    }
+
+    .teams-cell-actions {
+        width: auto;
+        justify-content: flex-end;
+        padding-top: 8px !important;
+    }
+
+    .teams-cell-actions:empty {
+        display: none;
+    }
+
+    /* Touch targets, with an edge: nothing hovers here to reveal them. */
+    .dashboard-section-teams .teams-member-actions .button-icon {
+        width: 40px;
+        height: 40px;
+        border-color: var(--dashboard-border);
+    }
+
+    /* The settings cards stack on phones; a switch reads better beside its label. */
+    .dashboard-section-teams .teams-directory {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .teams-cell-when {
+        white-space: normal;
+        text-align: right;
+    }
+
+    .teams-credential-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .dashboard-section-teams .teams-credential-copy {
+        justify-content: center;
+    }
+
+    .teams-pager {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .teams-pager-buttons .button {
+        flex: 1;
+    }
 }
