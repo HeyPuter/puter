@@ -145,11 +145,13 @@ export const accountSocketRoom = (userId: number | string): string =>
 /**
  * Which rooms a socket joins. An app socket gets its own per-(user, app) room
  * and never the user room, which carries the whole `outer.gui.*` fan and is the
- * reason app actors were refused outright.
+ * reason app actors were refused outright. Scoped on the app the socket acts
+ * as, so a credential an app issued lands in that app's room rather than the
+ * account's.
  */
 export const socketRoomsFor = (actor: Actor): string[] => {
     const userId = String(actor.user!.id);
-    const appUid = isAppActor(actor) ? actor.app?.uid : undefined;
+    const appUid = actor.effectiveApp?.uid;
     return [
         appUid ? appSocketRoom(userId, appUid) : userId,
         accountSocketRoom(userId),

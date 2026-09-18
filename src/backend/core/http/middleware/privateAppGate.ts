@@ -451,16 +451,21 @@ export async function resolvePrivateIdentity(opts: {
  * match the host the request is being made against. A token minted for app A —
  * e.g. when the visitor authorized a third-party app — must not be honored as
  * identity on app B's private host, even when the underlying user happens to
- * have entitlement to B. User-only actors (no `actor.app`) are unaffected: a
- * plain session token is portable by design.
+ * have entitlement to B. User-only actors are unaffected: a plain session token
+ * is portable by design.
+ *
+ * "No app anywhere in the chain" is the portable case, so read `effectiveApp` —
+ * an app-issued access token has no `app` of its own and would otherwise pass
+ * as a plain session on any private host.
  */
 function actorMatchesExpectedApp(
     actor: Actor,
     expectedAppUid: string | undefined,
 ): boolean {
     if (!expectedAppUid) return true;
-    if (!actor.app?.uid) return true;
-    return actor.app.uid === expectedAppUid;
+    const app = actor.effectiveApp;
+    if (!app) return true;
+    return app.uid === expectedAppUid;
 }
 
 /**

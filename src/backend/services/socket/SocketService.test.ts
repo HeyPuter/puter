@@ -20,7 +20,7 @@
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import type { PuterServer } from '../../server.js';
 import {
     allocateEphemeralPort,
@@ -70,10 +70,10 @@ describe('decideSocketAuth', () => {
     const userActor: Actor = {
         user: { id: 1, uuid: 'u-1', username: 'u' },
     };
-    const appActor: Actor = {
+    const appActor: Actor = makeActor({
         user: { id: 1, uuid: 'u-1', username: 'u' },
         app: { uid: 'app-1', id: 2 },
-    };
+    });
     const accessTokenActor: Actor = {
         user: { id: 1, uuid: 'u-1', username: 'u' },
         accessToken: {
@@ -213,10 +213,12 @@ describe('socketRoomsFor', () => {
     });
 
     it('keeps an app out of the user room and in its own', () => {
-        const rooms = socketRoomsFor({
-            user: { id: 7, uuid: 'u-7', username: 'u' },
-            app: { uid: 'app-1' },
-        });
+        const rooms = socketRoomsFor(
+            makeActor({
+                user: { id: 7, uuid: 'u-7', username: 'u' },
+                app: { uid: 'app-1' },
+            }),
+        );
         expect(rooms).toEqual(['u7:aapp-1', accountSocketRoom(7)]);
         expect(rooms).not.toContain('7');
     });

@@ -35,7 +35,7 @@ import {
     WriteRequest,
     WriteResponse,
 } from '../../controllers/fs/requestTypes.js';
-import { Actor } from '../../core/actor.js';
+import { Actor, isAppActor, isPlainUserActor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -229,7 +229,7 @@ export class FSService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
 
                 const stripped = PermissionUtil.stripManageArms(permission);
@@ -263,7 +263,7 @@ export class FSService extends PuterService {
             check: async ({ actor, permission }): Promise<unknown> => {
                 // Apps are bounded by their user through a separate path;
                 // widening them here would let one outrun that bound.
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
 
                 const stripped = PermissionUtil.stripManageArms(permission);
@@ -326,9 +326,9 @@ export class FSService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (!actor.app || actor.accessToken) return undefined;
+                if (!isAppActor(actor)) return undefined;
                 const username = actor.user?.username;
-                const appUid = actor.app.uid;
+                const appUid = actor.effectiveApp!.uid;
                 if (!username || !appUid) return undefined;
 
                 const stripped = permission.replaceAll(
@@ -3528,9 +3528,8 @@ export class FSService extends PuterService {
     async #assertCrossAppDeleteAllowed(path: string): Promise<void> {
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor) return;
-        // Through the issuer chain: a token actor has no `app` of its own, so
-        // keying off `actor.app` would skip the guard — failing open where the
-        // paired implicator fails closed.
+        // The app the caller acts as, not the one it carries directly: a token
+        // actor has no `app` of its own and would skip the guard.
         const app = actor.effectiveApp;
         if (!app) return;
         const username = actor.user?.username;

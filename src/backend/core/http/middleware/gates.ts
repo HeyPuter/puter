@@ -22,7 +22,7 @@ import {
     isCardVerificationEnabled,
     type CardFallbackDeps,
 } from '../../../util/cardFallback';
-import type { Actor } from '../../actor';
+import { isAppActor, isPlainUserActor, type Actor } from '../../actor';
 import { HttpError } from '../HttpError';
 import type { AccountGateUser, VerificationFactor } from '../types';
 import { assertVerifiedEmail } from '../verifiedEmail';
@@ -118,7 +118,7 @@ export const requireUserActorGate = (
             next(rejectAuth(req));
             return;
         }
-        const appBlocked = !!actor.app;
+        const appBlocked = isAppActor(actor);
         const tokenBlocked =
             !!actor.accessToken &&
             !(opts.allowFullAccess && actor.accessToken.fullAccess);
@@ -146,7 +146,7 @@ export const assertNotUserSession = (
     actor: Pick<Actor, 'app' | 'accessToken' | 'session'> | null | undefined,
 ): void => {
     if (!actor) return; // anonymous requests are the auth gate's problem
-    if (actor.app || actor.accessToken) return;
+    if (!isPlainUserActor(actor)) return;
     // App-less workers hold a session-type token with `kind='worker'`: a
     // revocable deployment credential, not a browser sign-in.
     if (actor.session?.kind === 'worker') return;
@@ -229,7 +229,7 @@ export const adminOnlyGate = (
             return;
         }
         const chainApp = req.actor?.effectiveApp ?? null;
-        if (chainApp && !(opts.appGated && req.actor?.app?.uid)) {
+        if (chainApp && !(opts.appGated && isAppActor(req.actor))) {
             next(
                 new HttpError(403, 'Only admins may request this resource', {
                     legacyCode: 'forbidden',
@@ -464,19 +464,17 @@ export const assertNotSuspended = (user: AccountGateUser | undefined): void => {
 };
 
 /**
- * Reject app-under-user actors whose `actor.app.uid` is not allow-listed.
- * Actors with no `app` of their own pass, including access tokens an app
- * issued, since this reads `app` and not `effectiveApp`. Use it to keep other
- * apps out, never as proof an app is present; a route that sets
- * `allowAccessToken` has to check `effectiveApp` itself.
+ * Reject actors acting as an app that is not allow-listed — the app they carry
+ * directly, or the one that issued their access token. Actors with no app
+ * anywhere in the chain pass. Use it to keep other apps out, never as proof an
+ * app is present.
  */
 export const allowedAppIdsGate = (
     allowedAppUids: readonly string[],
 ): RequestHandler => {
     const allowList = new Set(allowedAppUids);
     return (req, _res, next) => {
-        // Deliberately `app`, not `effectiveApp`: see the note above.
-        const appUid = req.actor?.app?.uid;
+        const appUid = req.actor?.effectiveApp?.uid;
         if (appUid && !allowList.has(appUid)) {
             next(
                 new HttpError(403, 'This app may not request this resource', {

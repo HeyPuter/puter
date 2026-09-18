@@ -20,7 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
-import { SYSTEM_ACTOR_UUID } from '../../core/actor.js';
+import { SYSTEM_ACTOR_UUID, makeActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -285,10 +285,11 @@ describe('ACLService.check — the owner of a home directory', () => {
 
 // -- App actors ---------------------------------------------------------
 
-const appActor = (username: string, appUid = 'app-1'): Actor => ({
-    user: { uuid: `u-${username}`, id: 9, username },
-    app: { uid: appUid, id: 9 },
-});
+const appActor = (username: string, appUid = 'app-1'): Actor =>
+    makeActor({
+        user: { uuid: `u-${username}`, id: 9, username },
+        app: { uid: appUid, id: 9 },
+    });
 
 describe('ACLService.check — app-under-user', () => {
     it('reaches its own AppData directory under its own user without a grant', async () => {
@@ -739,7 +740,10 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
     it('refuses to stat or set with a non-user issuer or holder', async () => {
         const issuer = await makeUser();
         const holder = await makeUser();
-        const asApp: Actor = { ...issuer, app: { uid: 'app-1', id: 1 } };
+        const asApp: Actor = makeActor({
+            ...issuer,
+            app: { uid: 'app-1', id: 1 },
+        });
         const res = await ownedResource(issuer);
 
         await expect(
@@ -748,7 +752,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         await expect(
             acl.statUserUser(
                 issuer,
-                { ...holder, app: { uid: 'a', id: 1 } },
+                makeActor({ ...holder, app: { uid: 'a', id: 1 } }),
                 res,
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
@@ -885,10 +889,11 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 { ownerUserId },
             );
 
-        const asApp = (user: Actor, app: { uid: string; id: number }): Actor => ({
-            user: user.user,
-            app: { uid: app.uid, id: app.id },
-        });
+        const asApp = (user: Actor, app: { uid: string; id: number }): Actor =>
+            makeActor({
+                user: user.user,
+                app: { uid: app.uid, id: app.id },
+            });
 
         it('does not hand an app its user’s shared access', async () => {
             const issuer = await makeUser();

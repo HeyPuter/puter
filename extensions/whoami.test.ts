@@ -8,6 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { makeActor } from '../src/backend/core/actor.ts';
 import { runWithContext } from '../src/backend/core/context.ts';
 import { configContainer } from '../src/backend/exports.ts';
 import { PuterServer } from '../src/backend/server.ts';
@@ -130,10 +131,10 @@ describe('whoami extension — handleWhoami', () => {
 
             await runWithContext(
                 {
-                    actor: {
+                    actor: makeActor({
                         user: { uuid: seat.uuid, id: seat.id as number },
                         app: { uid: 'app-1' },
-                    },
+                    }),
                 },
                 () => handleWhoami(makeReq(), res),
             );
@@ -262,10 +263,10 @@ describe('whoami extension — handleWhoami', () => {
 
         await runWithContext(
             {
-                actor: {
+                actor: makeActor({
                     user: { uuid: user.uuid, id: user.id as number },
                     app: { uid: 'app-test-actor' },
-                },
+                }),
             },
             () => handleWhoami(makeReq(), res),
         );
@@ -314,10 +315,10 @@ describe('whoami extension — handleWhoami', () => {
         const { res, captured } = makeRes();
         await runWithContext(
             {
-                actor: {
+                actor: makeActor({
                     user: { uuid: user.uuid, id: user.id as number },
                     app: { uid: 'app-test-actor' },
-                },
+                }),
             },
             () => handleWhoami(makeReq(), res),
         );
@@ -345,11 +346,11 @@ describe('whoami extension — handleWhoami', () => {
         expect(stored?.card_fingerprint).toBe('fp_ABC123');
 
         for (const actor of [
-            { user: { uuid: user.uuid, id: user.id as number } },
-            {
+            makeActor({ user: { uuid: user.uuid, id: user.id as number } }),
+            makeActor({
                 user: { uuid: user.uuid, id: user.id as number },
                 app: { uid: 'app-test-actor' },
-            },
+            }),
         ]) {
             const { res, captured } = makeRes();
             await runWithContext({ actor }, () =>

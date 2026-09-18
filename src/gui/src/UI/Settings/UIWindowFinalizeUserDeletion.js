@@ -18,6 +18,7 @@
  */
 
 import { openRevalidatePopup } from '../../util/openid.js';
+import { fetchWithSessionCookieRetry, isSessionAuthError } from '../../util/sessionAuth.js';
 import UIWindow from '../UIWindow.js';
 
 async function UIWindowFinalizeUserDeletion (options) {
@@ -120,8 +121,11 @@ async function UIWindowFinalizeUserDeletion (options) {
         const REVALIDATE_POPUP_TEXT = i18n('revalidate_sign_in_popup') || 'Sign in with your linked account in the popup.';
         let revalidated = false;
 
+        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie).
+        // On a 401 caused by a missing/bad cookie the wrapper mints the cookie
+        // from the GUI bearer token via /session/sync-cookie and retries once.
         const doDeleteRequest = async (body = {}) => {
-            return fetch(apiUrl, {
+            const send = () => fetch(apiUrl, {
                 method: 'POST',
                 credentials: 'include',
                 headers: {
@@ -129,10 +133,21 @@ async function UIWindowFinalizeUserDeletion (options) {
                 },
                 body: JSON.stringify(body),
             });
+            return fetchWithSessionCookieRetry(send, { origin, authToken: window.auth_token });
         };
 
         const showError = (msg) => {
             $(el_window).find('.error-message').html(html_encode(msg)).show();
+        };
+
+        // Session cookie is absent and couldn't be minted from the bearer
+        // token. Don't hard-logout — that drops the window and looks like the
+        // deletion went through. Prompt sign-in so the cookie gets set and the
+        // user can decide again.
+        const onReauthRequired = (data) => {
+            showError(i18n('reauth_required_message'));
+            $(el_window).find('.proceed-with-user-deletion').removeClass('disabled');
+            window.handleReauthRequired({ reason: data.reason, auth_id: data.auth_id });
         };
 
         $(el_window).find('.proceed-with-user-deletion').on('click', async function () {
@@ -164,8 +179,8 @@ async function UIWindowFinalizeUserDeletion (options) {
                 $(el_window).find('.proceed-with-user-deletion').removeClass('disabled');
                 const res = await doDeleteRequest({});
                 const data = await res.json().catch(() => ({}));
-                if ( res.status === 401 ) {
-                    window.logout(); return;
+                if ( isSessionAuthError(res, data) ) {
+                    onReauthRequired(data); return;
                 }
                 if ( res.ok && data.success ) {
                     window.user.deleted = true; window.logout(); return;
@@ -181,6 +196,9 @@ async function UIWindowFinalizeUserDeletion (options) {
                     const retryData = await retry.json().catch(() => ({}));
                     if ( retry.ok && retryData.success ) {
                         window.user.deleted = true; window.logout(); return;
+                    }
+                    if ( isSessionAuthError(retry, retryData) ) {
+                        onReauthRequired(retryData); return;
                     }
                     showError(retryData.message || 'Request failed');
                     return;
@@ -200,8 +218,8 @@ async function UIWindowFinalizeUserDeletion (options) {
             );
             const data = await res.json().catch(() => ({}));
 
-            if ( res.status === 401 ) {
-                window.logout();
+            if ( isSessionAuthError(res, data) ) {
+                onReauthRequired(data);
                 return;
             }
             if ( res.ok && data.success ) {
@@ -229,11 +247,11 @@ async function UIWindowFinalizeUserDeletion (options) {
                     window.logout();
                     return;
                 }
+                if ( isSessionAuthError(retry, retryData) ) {
+                    onReauthRequired(retryData);
+                    return;
+                }
                 showError(retryData.message || 'Request failed');
-                return;
-            }
-            if ( res.status === 403 && data.code === 'session_required' ) {
-                showError(data.message || i18n('session_required', [], false) || 'This action requires a full session.');
                 return;
             }
             showError(data.message || 'Request failed');

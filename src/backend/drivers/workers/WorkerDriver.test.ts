@@ -9,7 +9,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { Actor } from '../../core/actor.js';
+import { Actor, makeActor as resolveActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -30,17 +30,18 @@ describe('WorkerDriver', () => {
     });
 
     let actor: Actor;
-    const makeActor = (overrides: Partial<Actor> = {}): Actor => ({
-        user: {
-            uuid: `test-user-${Math.random().toString(36).slice(2)}`,
-            id: 1,
-            username: 'test-user',
-            email: 'test@test.com',
-            email_confirmed: true,
-        },
-        app: { uid: 'test-app', id: 1 },
-        ...overrides,
-    });
+    const makeActor = (overrides: Partial<Actor> = {}): Actor =>
+        resolveActor({
+            user: {
+                uuid: `test-user-${Math.random().toString(36).slice(2)}`,
+                id: 1,
+                username: 'test-user',
+                email: 'test@test.com',
+                email_confirmed: true,
+            },
+            app: { uid: 'test-app', id: 1 },
+            ...overrides,
+        });
     beforeEach(() => {
         actor = makeActor();
     });
@@ -60,16 +61,17 @@ describe('WorkerDriver', () => {
     const actorFor = (
         user: { id: number; uuid: string; username: string },
         app?: { uid: string; id: number },
-    ): Actor => ({
-        user: {
-            uuid: user.uuid,
-            id: user.id,
-            username: user.username,
-            email: `${user.username}@test.com`,
-            email_confirmed: true,
-        },
-        app,
-    });
+    ): Actor =>
+        resolveActor({
+            user: {
+                uuid: user.uuid,
+                id: user.id,
+                username: user.username,
+                email: `${user.username}@test.com`,
+                email_confirmed: true,
+            },
+            app,
+        });
 
     describe('actor scoping', () => {
         it('rejects calls without an actor in context', async () => {

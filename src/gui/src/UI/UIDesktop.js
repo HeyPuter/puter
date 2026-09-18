@@ -1366,7 +1366,8 @@ async function UIDesktop (options) {
                 posargs = JSON.parse(window.app_query_params.posargs);
             }
             // `?file=<path>` opens that file with the app, the same as
-            // double-clicking it would.
+            // double-clicking it would — but the link picked both, so the user
+            // is asked before the app is given the file.
             const file_path = window.url_query_params.get('file');
             launch_app({
                 app: window.app_launched_from_url.name,
@@ -1374,7 +1375,7 @@ async function UIDesktop (options) {
                 readURL: window.url_query_params.get('readURL'),
                 maximized: window.url_query_params.get('maximized'),
                 params: window.app_query_params ?? [],
-                ...(file_path ? { file_path } : {}),
+                ...(file_path ? { file_path, confirm_file_access: true } : {}),
                 ...(posargs ? {
                     args: {
                         command_line: { args: posargs },

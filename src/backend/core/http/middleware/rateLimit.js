@@ -538,16 +538,15 @@ function resolveKey(req, scope, strategy) {
 /**
  * Bucket identity for an authenticated actor: `<user>[:<app>][:<worker>]`.
  *
- * The app segment is the app the actor acts as (`effectiveApp`, so an access
- * token minted by an app lands in that app's bucket). The worker segment is the
- * worker's session uid, unique per (user, app, worker name). Without these, a
- * busy app or worker drains the limit shared by everything else the same user
- * runs.
+ * The app segment is the app the actor acts as, so an access token minted by an
+ * app lands in that app's bucket. The worker segment is the worker's session
+ * uid, unique per (user, app, worker name). Without these, a busy app or worker
+ * drains the limit shared by everything else the same user runs.
  */
 function actorKey(actor, userId) {
     const parts = [userId];
-    const app = actor.effectiveApp ?? actor.app;
-    if (app?.uid) parts.push(app.uid);
+    const appUid = actor.effectiveApp?.uid;
+    if (appUid) parts.push(appUid);
     if (actor.session?.kind === 'worker' && actor.session.uid) {
         parts.push(actor.session.uid);
     }

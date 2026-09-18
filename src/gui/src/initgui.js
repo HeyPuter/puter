@@ -212,7 +212,8 @@ const postAuthActions = async (action) => {
                 }
             }
             // `?file=<path>` opens that file with the app, the same as
-            // double-clicking it would.
+            // double-clicking it would — but the link picked both, so the user
+            // is asked before the app is given the file.
             const file_path = window.url_query_params.get('file');
             // The server titles /app/<name> pages after the app, so the
             // launch's lazy base-title capture would keep the app's name
@@ -270,7 +271,7 @@ const postAuthActions = async (action) => {
                     maximized: true,
                     params: app_query_params,
                     readURL: window.url_query_params.get('readURL'),
-                    ...(file_path ? { file_path } : {}),
+                    ...(file_path ? { file_path, confirm_file_access: true } : {}),
                     ...(app_obj ? { app_obj } : {}),
                     ...(posargs ? {
                         args: {

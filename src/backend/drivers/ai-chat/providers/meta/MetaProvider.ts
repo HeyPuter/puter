@@ -154,7 +154,8 @@ export class MetaProvider implements IChatProvider {
         // Reasoning is always on for Muse Spark — `reasoning_effort: 'none'`
         // is a 400 — so a request to switch it off is dropped, not forwarded.
         const requestedEffort = (reasoning_effort ?? reasoning?.effort) as
-            string | undefined;
+            | string
+            | undefined;
         const effort =
             requestedEffort && requestedEffort !== 'none'
                 ? requestedEffort
@@ -170,7 +171,7 @@ export class MetaProvider implements IChatProvider {
         const safetyIdentifier =
             customParams.safety_identifier ??
             (actor?.user?.id
-                ? `puter-${actor.user.id}${actor.app?.uid ? `-${actor.app.uid}` : ''}`.slice(
+                ? `puter-${actor.user.id}${actor.effectiveApp?.uid ? `-${actor.effectiveApp?.uid}` : ''}`.slice(
                       0,
                       SAFETY_IDENTIFIER_MAX_LENGTH,
                   )

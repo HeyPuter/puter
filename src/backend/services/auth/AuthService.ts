@@ -18,7 +18,12 @@
  */
 
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
-import { makeActor, type Actor } from '../../core/actor';
+import {
+    isAppActor,
+    isPlainUserActor,
+    makeActor,
+    type Actor,
+} from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     ASSET_WINDOW_SECONDS,
@@ -80,7 +85,7 @@ export class AuthService extends PuterService {
             shortcut: true,
             matches: (permission: string) => permission.startsWith('user:'),
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.uuid) return undefined;
                 if (permission === `user:${actor.user.uuid}:email:read`) {
                     return {};
@@ -378,7 +383,8 @@ export class AuthService extends PuterService {
      * arbitrary app (the GUI's app-launch delegation).
      */
     #assertAppDelegationAllowed(actor: Actor, appUid: string): void {
-        if ((actor.app || actor.accessToken) && actor.app?.uid !== appUid) {
+        const callerApp = isAppActor(actor) ? actor.effectiveApp : null;
+        if (!isPlainUserActor(actor) && callerApp?.uid !== appUid) {
             throw new HttpError(
                 403,
                 'Actor cannot mint a token for another app',
@@ -432,7 +438,8 @@ export class AuthService extends PuterService {
         actor: Actor,
         appUid: string,
     ): Promise<void> {
-        if (actor.app?.uid === appUid) return;
+        const callerApp = isAppActor(actor) ? actor.effectiveApp : null;
+        if (callerApp?.uid === appUid) return;
 
         const forbidden = () =>
             new HttpError(403, 'Actor cannot mint a token for another app', {
@@ -440,8 +447,8 @@ export class AuthService extends PuterService {
             });
 
         // Root user session: unchanged: may bind a worker to any app.
-        if (!actor.app && !actor.accessToken) return;
-        if (!actor.app) {
+        if (isPlainUserActor(actor)) return;
+        if (!callerApp) {
             // Scoped access tokens are bound to their issuing identity and
             // never delegate; full-access ones may name an app of their user's.
             if (!actor.accessToken?.fullAccess) throw forbidden();
@@ -454,7 +461,7 @@ export class AuthService extends PuterService {
 
         const app = await this.stores.app.getByUid(appUid);
         if (!app) throw forbidden();
-        if (Number(app.app_owner) !== Number(actor.app.id)) throw forbidden();
+        if (Number(app.app_owner) !== Number(callerApp.id)) throw forbidden();
         if (Number(app.owner_user_id) !== Number(actor.user.id))
             throw forbidden();
     }
@@ -1432,7 +1439,7 @@ export class AuthService extends PuterService {
         const wantsFullAccess = permissions.some(
             ([p]) => p === FULL_API_ACCESS,
         );
-        if (wantsFullAccess && actor.app) {
+        if (wantsFullAccess && actor.effectiveApp) {
             throw new HttpError(403, 'Apps may not mint full-access tokens', {
                 legacyCode: 'forbidden',
             });
@@ -1488,10 +1495,11 @@ export class AuthService extends PuterService {
         const expiresAt = this.#hardExpiryFromExpiresIn(options.expiresIn);
 
         // App-issued access tokens parent to the issuing app's session row
-        // so cascading the app authorization kills its scoped tokens. User-
-        // issued tokens (no actor.app) stay top-level.
+        // so cascading the app authorization kills its scoped tokens. Tokens
+        // issued with no app in the chain stay top-level.
+        const issuingApp = actor.effectiveApp;
         const parent_session_id =
-            actor.app && actor.session ? actor.session.uid : null;
+            issuingApp && actor.session ? actor.session.uid : null;
 
         const tokenSession = await this.stores.session.create(
             actor.user.id as number,
@@ -1518,13 +1526,13 @@ export class AuthService extends PuterService {
             session_uid: tokenSession.uuid,
             auth_id,
         };
-        if (actor.app) {
-            jwtPayload.app_uid = actor.app.uid;
+        if (issuingApp) {
+            jwtPayload.app_uid = issuingApp.uid;
         }
         // Full-access is carried as a signed claim (not a stored permission
         // row): it's the single source of truth read at auth time into
         // `actor.accessToken.fullAccess`, which both `requireNonAccessTokenGate`
-        // and the permission scan consult. The `actor.app` block above already
+        // and the permission scan consult. The app check above already
         // rejected app-issued full-access mints.
         if (wantsFullAccess) {
             jwtPayload.full_access = true;
@@ -1561,7 +1569,7 @@ export class AuthService extends PuterService {
                 [
                     tokenUid,
                     actor.user.id ?? null,
-                    actor.app?.id ?? null,
+                    issuingApp?.id ?? null,
                     permission,
                     extra ? JSON.stringify(extra) : '{}',
                 ],
