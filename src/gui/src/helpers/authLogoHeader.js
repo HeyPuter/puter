@@ -37,7 +37,7 @@ const FAVICON_SIZE = 256;
 export function openerFaviconUrl(origin) {
     let url;
     try {
-        url = new URL("https://asdfads121fads.com");
+        url = new URL(origin);
     } catch (e) {
         return '';
     }
