@@ -19,37 +19,35 @@
 
 import UIWindow from './UIWindow.js';
 import {
-    POLL_INTERVAL_MS,
     appHostOf,
     buildRequestBody,
-    generatePopupSecret,
     looksLikeEmail,
 } from '../helpers/magicLinkSignIn.js';
 
 /**
- * Passwordless sign-in for a third-party site's popup. Shows which site is
- * asking, sends a sign-in link to the prefilled email (the button doubles
- * as resend), then waits for the link to be clicked and resolves with the
- * opener's token.
+ * Passwordless sign-in. Sends a sign-in link to the email and then only says
+ * to check the inbox: the sign-in finishes on the tab the link opens, and
+ * this window is left behind.
  *
- * Resolves with `{ token, app_uid }` once the link is used, or `false`
- * if the window is closed.
+ * With `opener_origin`, this is a third-party site's popup: the window shows
+ * which site is asking and the link signs the user in to that site, landing
+ * on `return_url`. Without it, the link signs the user in to Puter itself.
+ *
+ * Resolves with `{ next: 'login' }` when the user asks for the password
+ * window instead, or `false` if the window is closed.
  */
 async function UIWindowMagicLinkSignIn (options) {
     options = options ?? {};
-    const host = appHostOf(options.opener_origin);
-    const session = options.session ?? window.uuidv4();
-    const popupSecret = generatePopupSecret();
+    const puter_mode = ! options.opener_origin;
+    const host = puter_mode ? '' : appHostOf(options.opener_origin);
 
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
-        let poll = null;
         let settled = false;
 
         const settle = (value) => {
             if ( settled ) return;
             settled = true;
-            if ( poll ) clearInterval(poll);
             resolve(value);
         };
 
@@ -59,8 +57,11 @@ async function UIWindowMagicLinkSignIn (options) {
         h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
         h += '</div>';
         h += '<div style="padding:10px 20px; text-align:center; margin-bottom:0;">';
-        h += `<h1 style="font-size:18px; margin-bottom:6px;">${i18n('magic_link_title')}</h1>`;
-        h += `<p style="margin:0; font-size:13px; color:#5f6b7a; line-height:18px;">${i18n('magic_link_app_uses_puter', { host })}</p>`;
+        h += `<h1 class="login-form-title">${i18n('magic_link_title')}</h1>`;
+        // A third-party site's popup says which site brought the user here.
+        if ( ! puter_mode ) {
+            h += `<p class="auth-opener-notice">${i18n('magic_link_app_uses_puter', [host])}</p>`;
+        }
         h += '</div>';
         h += '<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">';
 
@@ -70,9 +71,16 @@ async function UIWindowMagicLinkSignIn (options) {
         h += `<input id="magic-link-email-${internal_id}" class="magic-link-email" type="email" value="${html_encode(options.email ?? '')}" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off"/>`;
         h += '</div>';
         h += `<button type="submit" class="magic-link-send-btn button button-primary button-block button-normal">${i18n('magic_link_continue')}</button>`;
-        h += '<div class="magic-link-status-msg" style="visibility:hidden; min-height:36px; margin-top:12px; line-height:18px; font-size:13px; text-align:center;"></div>';
+        h += `<p class="signup-terms">${i18n('magic_link_tos_fineprint', [], false)}</p>`;
+        h += '<div class="magic-link-error-msg" style="display:none; color:#e74c3c; line-height:18px; font-size:13px; text-align:center;"></div>';
         h += '</form>';
+        // Sent state: the rest happens from the inbox.
+        h += '<div class="magic-link-sent" style="display:none; width:100%; max-width:400px; margin:0 auto; line-height:20px; font-size:14px; text-align:center;"></div>';
 
+        h += '</div>';
+        // password sign-in link
+        h += '<div class="c2a-wrapper" style="padding:15px;">';
+        h += `<button class="login-c2a-clickable magic-link-login-c2a">${i18n('magic_link_log_in_c2a')}</button>`;
         h += '</div>';
         h += '</div>';
 
@@ -109,48 +117,30 @@ async function UIWindowMagicLinkSignIn (options) {
         });
 
         const $form = $(el_window).find('.magic-link-form');
-        const $status = $(el_window).find('.magic-link-status-msg');
+        const $error = $(el_window).find('.magic-link-error-msg');
         const $sendBtn = $(el_window).find('.magic-link-send-btn');
 
-        const showStatus = (message, color) => {
-            $status.html(html_encode(message)).css({ color, visibility: 'visible' });
+        const showError = (message) => {
+            $error.html(html_encode(message)).show();
         };
-        const showError = (message) => showStatus(message, '#e74c3c');
-        const showSuccess = (message) => showStatus(message, '#2e7d32');
-
-        const startPolling = () => {
-            if ( poll ) clearInterval(poll);
-            poll = setInterval(async () => {
-                try {
-                    const resp = await fetch(`${window.api_origin}/auth/magic-link/wait`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ session, popup_secret: popupSecret }),
-                    });
-                    if ( ! resp.ok ) return;
-                    const data = await resp.json();
-                    if ( ! data?.auth_token ) return;
-                    settle({ token: data.auth_token, app_uid: data.app_uid });
-                    $(el_window).close();
-                } catch {
-                    // Network hiccup; the next tick tries again.
-                }
-            }, POLL_INTERVAL_MS);
+        const showSent = (email) => {
+            $form.hide();
+            $(el_window).find('.magic-link-sent')
+                .html(html_encode(i18n('magic_link_sent_message', { email }, false)))
+                .show();
         };
 
         const sendLink = async () => {
             const email = String($(el_window).find('.magic-link-email').val() ?? '').trim();
-            $status.css('visibility', 'hidden');
+            $error.hide();
             if ( ! looksLikeEmail(email) ) {
                 showError(i18n('magic_link_invalid_email', [], false));
                 return;
             }
             const body = buildRequestBody({
                 email,
-                session,
                 returnUrl: options.return_url,
                 openerOrigin: options.opener_origin,
-                popupSecret,
             });
             if ( ! body ) {
                 showError(i18n('magic_link_request_failed', [], false));
@@ -172,8 +162,7 @@ async function UIWindowMagicLinkSignIn (options) {
                     showError(i18n('magic_link_request_failed', [], false));
                     return;
                 }
-                showSuccess(i18n('magic_link_sent_message', { email }, false));
-                startPolling();
+                showSent(email);
             } catch {
                 showError(i18n('magic_link_request_failed', [], false));
             } finally {
@@ -186,6 +175,11 @@ async function UIWindowMagicLinkSignIn (options) {
             sendLink();
         });
 
+        $(el_window).find('.magic-link-login-c2a').on('click', () => {
+            // Settle before closing: on_close would otherwise settle with false.
+            settle({ next: 'login' });
+            $(el_window).close();
+        });
     });
 }
 

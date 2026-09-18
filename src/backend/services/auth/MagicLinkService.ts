@@ -1,6 +1,5 @@
-import crypto from 'node:crypto';
 import type { Request } from 'express';
-import { v4 as uuidv4, validate as validateUuid } from 'uuid';
+import { v4 as uuidv4 } from 'uuid';
 import validator from 'validator';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types';
@@ -16,9 +15,8 @@ const TOKEN_SCOPE = 'magic-link';
 const TOKEN_PURPOSE = 'magic-link';
 /** How long an emailed link stays valid. */
 export const MAGIC_LINK_TTL_SECONDS = 15 * 60;
-/** How long a consumed link's token waits for the popup / landing page. */
+/** How long a consumed link's app token waits for the landing page. */
 export const MAGIC_LINK_PICKUP_TTL_SECONDS = 2 * 60;
-const MIN_POPUP_SECRET_LENGTH = 16;
 
 /** Error codes the consume page may surface in a redirect. */
 export const MAGIC_LINK_ERRORS = [
@@ -33,14 +31,14 @@ interface LinkClaims {
     purpose: string;
     jti: string;
     email: string;
+    /**
+     * Lookup key the app's landing page collects its token by; minted here so
+     * no client has to know it ahead of time.
+     */
     session: string;
     return_url: string;
-    opener_origin: string;
-}
-
-interface RequestRecord {
-    popupSecretHash: string;
-    session: string;
+    /** The app the link signs the user in to; null when it is Puter itself. */
+    opener_origin: string | null;
 }
 
 interface PickupRecord {
@@ -54,9 +52,6 @@ export class MagicLinkFailure extends Error {
     }
 }
 
-const hashSecret = (secret: string): string =>
-    crypto.createHash('sha256').update(secret).digest('hex');
-
 const parseOrigin = (value: unknown): string | null => {
     if (typeof value !== 'string' || !value) return null;
     try {
@@ -69,21 +64,20 @@ const parseOrigin = (value: unknown): string | null => {
 };
 
 /**
- * Passwordless sign-in for third-party sites: a popup on the GUI origin asks
- * for a link, the user clicks it in their inbox, and the consume page signs
- * them in and mints the opener's app token. The link is a signed, single-use
- * token; the popup and the app's landing page each pick the result up through
- * their own short-lived key.
+ * Passwordless sign-in. A window on the GUI origin asks for a link, the user
+ * clicks it in their inbox, and the consume page signs them in. The window that
+ * asked is abandoned: the sign-in continues on the tab the link opens. Asked
+ * for by a third-party site's popup, the link also mints that opener's app
+ * token, parks it under a short-lived key, and lands the user back on the site,
+ * whose page collects the token by that key. Asked for by Puter's own login
+ * window, it signs the user in to Puter and lands them on the desktop. The link
+ * is a signed, single-use token.
  */
 export class MagicLinkService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
     #requestKey(jti: string): string {
         return `magiclink:req:${jti}`;
-    }
-
-    #popupKey(session: string): string {
-        return `magiclink:popup:${session}`;
     }
 
     #landingKey(session: string): string {
@@ -100,10 +94,8 @@ export class MagicLinkService extends PuterService {
      */
     async request(input: {
         email: unknown;
-        session: unknown;
         returnUrl: unknown;
         openerOrigin: unknown;
-        popupSecret: unknown;
     }): Promise<void> {
         const email = typeof input.email === 'string' ? input.email.trim() : '';
         if (!email || !validator.isEmail(email)) {
@@ -111,41 +103,49 @@ export class MagicLinkService extends PuterService {
                 legacyCode: 'bad_request',
             });
         }
-        if (typeof input.session !== 'string' || !validateUuid(input.session)) {
-            throw new HttpError(400, 'session is required.', {
-                legacyCode: 'bad_request',
-            });
-        }
-        if (
-            typeof input.popupSecret !== 'string' ||
-            input.popupSecret.length < MIN_POPUP_SECRET_LENGTH
-        ) {
-            throw new HttpError(400, 'popup_secret is required.', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const openerOrigin = parseOrigin(input.openerOrigin);
-        if (!openerOrigin) {
-            throw new HttpError(400, 'opener_origin is required.', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const returnUrl =
-            typeof input.returnUrl === 'string' ? input.returnUrl : '';
-        // The link lands the user on `return_url` with a sign-in session id,
-        // so it must belong to the site that asked — never a third origin.
-        if (!returnUrl || parseOrigin(returnUrl) !== openerOrigin) {
+        const guiOrigin = (this.config.origin ?? '').replace(/\/$/, '');
+        const hasOpener =
+            input.openerOrigin !== undefined &&
+            input.openerOrigin !== null &&
+            input.openerOrigin !== '';
+        const openerOrigin = hasOpener ? parseOrigin(input.openerOrigin) : null;
+        if (hasOpener && !openerOrigin) {
             throw new HttpError(
                 400,
-                'return_url must be on the opener origin.',
-                { legacyCode: 'invalid_return_url' },
+                'opener_origin must be an http(s) origin.',
+                {
+                    legacyCode: 'bad_request',
+                },
             );
         }
+        let returnUrl =
+            typeof input.returnUrl === 'string' ? input.returnUrl : '';
+        if (openerOrigin) {
+            // The link lands the user on `return_url` with a sign-in session
+            // id, so it must belong to the site that asked — never a third
+            // origin.
+            if (!returnUrl || parseOrigin(returnUrl) !== openerOrigin) {
+                throw new HttpError(
+                    400,
+                    'return_url must be on the opener origin.',
+                    { legacyCode: 'invalid_return_url' },
+                );
+            }
+        } else {
+            // Puter's own sign-in lands on the desktop, or on another page of
+            // the GUI when one is named.
+            if (!returnUrl) returnUrl = `${guiOrigin}/`;
+            if (parseOrigin(returnUrl) !== guiOrigin) {
+                throw new HttpError(
+                    400,
+                    'return_url must be on the GUI origin.',
+                    { legacyCode: 'invalid_return_url' },
+                );
+            }
+        }
         const jti = uuidv4();
-        const record: RequestRecord = {
-            popupSecretHash: hashSecret(input.popupSecret),
-            session: input.session,
-        };
+        const session = uuidv4();
+        const record = { session };
         await this.clients.redis.set(
             this.#requestKey(jti),
             JSON.stringify(record),
@@ -157,7 +157,7 @@ export class MagicLinkService extends PuterService {
             purpose: TOKEN_PURPOSE,
             jti,
             email,
-            session: input.session,
+            session,
             return_url: returnUrl,
             opener_origin: openerOrigin,
         };
@@ -168,13 +168,15 @@ export class MagicLinkService extends PuterService {
                 expiresIn: MAGIC_LINK_TTL_SECONDS,
             },
         );
-        const origin = (this.config.origin ?? '').replace(/\/$/, '');
-        const link = `${origin}/auth/magic-link/consume?token=${encodeURIComponent(token)}`;
+        const link = `${guiOrigin}/auth/magic-link/consume?token=${encodeURIComponent(token)}`;
 
         const sent = await this.clients.email.send(
             email,
             'magic_link_sign_in',
-            { link, app_host: new URL(openerOrigin).host },
+            {
+                link,
+                app_host: openerOrigin ? new URL(openerOrigin).host : null,
+            },
         );
         if (sent === null) {
             // No transport: the email client already printed the message,
@@ -198,7 +200,6 @@ export class MagicLinkService extends PuterService {
     ): Promise<{
         user: UserRow;
         claims: LinkClaims;
-        popupSecretHash: string;
     }> {
         if (typeof token !== 'string' || !token) {
             throw new MagicLinkFailure('link_expired');
@@ -217,13 +218,13 @@ export class MagicLinkService extends PuterService {
             this.#requestKey(claims.jti),
         );
         if (!raw) throw new MagicLinkFailure('link_expired');
-        const record = JSON.parse(raw) as RequestRecord;
+        const record = JSON.parse(raw) as { session: string };
         if (record.session !== claims.session) {
             throw new MagicLinkFailure('link_expired');
         }
 
         const user = await this.#resolveUser(claims.email, req);
-        return { user, claims, popupSecretHash: record.popupSecretHash };
+        return { user, claims };
     }
 
     async #resolveUser(email: string, req: Request): Promise<UserRow> {
@@ -430,53 +431,19 @@ export class MagicLinkService extends PuterService {
     // -- Pickup -------------------------------------------------------
 
     /**
-     * Park the opener's token for both readers. The popup proves it is the one
-     * that asked with its secret; the landing page is bound to the app's origin
-     * by `/login/wait` and takes its copy exactly once.
+     * Park an app's token for the app's landing page, which is bound to the
+     * app's origin by `/login/wait` and takes its copy exactly once.
      */
-    async storePickup(
+    async storeLandingPickup(
         session: string,
-        popupSecretHash: string,
         pickup: PickupRecord,
     ): Promise<void> {
-        const value = JSON.stringify({ ...pickup, popupSecretHash });
-        await this.clients.redis
-            .pipeline()
-            .set(
-                this.#popupKey(session),
-                value,
-                'EX',
-                MAGIC_LINK_PICKUP_TTL_SECONDS,
-            )
-            .set(
-                this.#landingKey(session),
-                JSON.stringify(pickup),
-                'EX',
-                MAGIC_LINK_PICKUP_TTL_SECONDS,
-            )
-            .exec();
-    }
-
-    async readPopupPickup(
-        session: unknown,
-        popupSecret: unknown,
-    ): Promise<PickupRecord | null> {
-        if (typeof session !== 'string' || !validateUuid(session)) return null;
-        if (typeof popupSecret !== 'string' || !popupSecret) return null;
-        const raw = await this.clients.redis.get(this.#popupKey(session));
-        if (!raw) return null;
-        const stored = JSON.parse(raw) as PickupRecord & {
-            popupSecretHash: string;
-        };
-        const expected = Buffer.from(stored.popupSecretHash);
-        const actual = Buffer.from(hashSecret(popupSecret));
-        if (
-            expected.length !== actual.length ||
-            !crypto.timingSafeEqual(expected, actual)
-        ) {
-            return null;
-        }
-        return { token: stored.token, app_uid: stored.app_uid };
+        await this.clients.redis.set(
+            this.#landingKey(session),
+            JSON.stringify(pickup),
+            'EX',
+            MAGIC_LINK_PICKUP_TTL_SECONDS,
+        );
     }
 
     /**

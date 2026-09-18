@@ -88,13 +88,14 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
  * @typedef {Object} SignInOptions
  * @property {boolean} [attempt_temp_user_creation] Create a temporary user instead of prompting.
  * @property {boolean} [request_auth] Let the user re-pick their account even when this site already holds a token.
- * @property {string} [email] Sign in with an emailed link, prefilled with this address.
- * @property {string} [returnUrl] Where the link lands the user afterwards. Required with `email`; must be on this page's origin.
+ * @property {string} [email] Open the popup on the sign-in link window, prefilled with this address.
+ * @property {string} [returnUrl] Where a sign-in link lands the user afterwards. Defaults to this page's URL; must be on this page's origin.
  */
 
 /**
- * The problem with an `email` sign-in request, as the rejection object, or
- * null when there is none. Checked before any popup opens.
+ * The problem with the `email` or `returnUrl` of a sign-in request, as the
+ * rejection object, or null when there is none. Checked before any popup
+ * opens.
  *
  * @param {SignInOptions} options
  * @param {string | null} pageOrigin
@@ -102,13 +103,12 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
  * @internal
  */
 export const validateSignInOptions = (options, pageOrigin) => {
-    if ( options.email === undefined ) return null;
-    if ( typeof options.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(options.email.trim()) ) {
+    if ( options.email !== undefined && (
+        typeof options.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(options.email.trim())
+    ) ) {
         return { error: 'invalid_email', msg: '`email` must be an email address.' };
     }
-    if ( options.returnUrl === undefined ) {
-        return { error: 'return_url_required', msg: '`returnUrl` is required when signing in with `email`.' };
-    }
+    if ( options.returnUrl === undefined ) return null;
     let target;
     try {
         target = new URL(String(options.returnUrl));
@@ -125,18 +125,21 @@ export const validateSignInOptions = (options, pageOrigin) => {
 };
 
 /**
- * Query parameters that turn the sign-in popup into a magic-link popup.
+ * Query parameters that let the sign-in popup offer a sign-in link: where
+ * the link lands, and the address to start on when the caller knows it.
  *
  * @param {SignInOptions} options
- * @param {string} signinSession
+ * @param {string | null} pageHref
  * @returns {string}
  * @internal
  */
-const magicLinkParams = (options, signinSession) => {
-    if ( options.email === undefined ) return '';
-    return `&email=${encodeURIComponent(options.email.trim())}` +
-        `&return_url=${encodeURIComponent(String(options.returnUrl))}` +
-        `&signin_session=${signinSession}`;
+const signInLinkParams = (options, pageHref) => {
+    const returnUrl = options.returnUrl ?? pageHref;
+    let params = returnUrl ? `&return_url=${encodeURIComponent(String(returnUrl))}` : '';
+    if ( options.email !== undefined ) {
+        params += `&email=${encodeURIComponent(options.email.trim())}`;
+    }
+    return params;
 };
 
 /**
@@ -165,11 +168,15 @@ export class AuthModule extends PuterModule {
      * call that finds no token) sets it, which is the behaviour its own popup
      * used to carry as `?request_auth=true`.
      *
-     * `email` switches the popup to a passwordless sign-in link: the address
-     * is prefilled, Puter emails a link, and clicking it signs the user in
-     * and returns them to `returnUrl`, which must be on this page's origin.
-     * Rejects with `{ error: 'invalid_email' }`, `{ error: 'return_url_required' }`
-     * or `{ error: 'invalid_return_url' }` before opening anything.
+     * The popup always offers a passwordless sign-in link next to the
+     * password and federated options. Clicking the emailed link signs the
+     * user in on the tab it opens, which lands on `returnUrl` (this page by
+     * default; it must be on this page's origin) already signed in. The
+     * popup and this promise are left behind: closing the popup rejects it
+     * as usual. `email` opens the popup on the link window with the address
+     * prefilled, for a site that already knows it.
+     * Rejects with `{ error: 'invalid_email' }` or `{ error: 'invalid_return_url' }`
+     * before opening anything.
      *
      * @type {(options?: SignInOptions) => Promise<SignInResult>}
      */
@@ -198,7 +205,7 @@ export class AuthModule extends PuterModule {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = this.#messageID++;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}${magicLinkParams(options, signinsession)}`;
+            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}${signInLinkParams(options, typeof location !== 'undefined' ? location.href : null)}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.

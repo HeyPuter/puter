@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
 import { makeActor } from '../../core/actor.js';
-import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
     MAGIC_LINK_ERRORS,
@@ -27,8 +26,10 @@ const appendQueryParam = (url: string, key: string, value: string): string => {
 export class MagicLinkController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         // -- POST /auth/magic-link/request ----------------------------
-        // Only the sign-in popup asks for links, so this is gated to the GUI
-        // origin: an arbitrary site must not be able to mail anyone links.
+        // Only the GUI's own windows ask for links, so this is gated to the
+        // GUI origin: an arbitrary site must not be able to mail anyone links.
+        // `opener_origin` names the third-party site a popup is signing in;
+        // without it the link signs the user in to Puter itself.
         router.post(
             '/auth/magic-link/request',
             {
@@ -56,45 +57,11 @@ export class MagicLinkController extends PuterController {
                 const body = req.body ?? {};
                 await this.services.magicLink.request({
                     email: body.email,
-                    session: body.session,
                     returnUrl: body.return_url,
                     openerOrigin: body.opener_origin,
-                    popupSecret: body.popup_secret,
                 });
                 // Same answer whether or not the address has an account.
                 res.json({ success: true });
-            },
-        );
-
-        // -- POST /auth/magic-link/wait -------------------------------
-        // The popup's pickup. The session id also travels in the landing
-        // URL, so on its own it is not proof of anything; the popup secret
-        // is what says this caller is the popup that asked for the link.
-        router.post(
-            '/auth/magic-link/wait',
-            {
-                subdomain: 'api',
-                guiOriginOnly: true,
-                rateLimit: {
-                    scope: 'magic-link-wait',
-                    limit: 600,
-                    window: 15 * 60_000,
-                    key: 'ip',
-                },
-            },
-            async (req: Request, res: Response) => {
-                const body = req.body ?? {};
-                const pickup = await this.services.magicLink.readPopupPickup(
-                    body.session,
-                    body.popup_secret,
-                );
-                if (!pickup) {
-                    // Same shape as `/login/wait`: nothing arrived yet.
-                    throw new HttpError(408, 'Request timeout.', {
-                        legacyCode: 'request_timeout',
-                    });
-                }
-                res.json({ auth_token: pickup.token, app_uid: pickup.app_uid });
             },
         );
 
@@ -126,7 +93,7 @@ export class MagicLinkController extends PuterController {
                     }
                     throw e;
                 }
-                const { user, claims, popupSecretHash } = consumed;
+                const { user, claims } = consumed;
 
                 const meta = {
                     ip: req.ip || req.socket?.remoteAddress,
@@ -148,6 +115,13 @@ export class MagicLinkController extends PuterController {
                     },
                 );
 
+                if (!claims.opener_origin) {
+                    // Puter's own sign-in: the cookie above is the whole
+                    // result, and the desktop picks it up on landing.
+                    res.redirect(302, claims.return_url);
+                    return;
+                }
+
                 const actor = makeActor({
                     user,
                     session: {
@@ -165,9 +139,8 @@ export class MagicLinkController extends PuterController {
                     { origin: claims.opener_origin },
                 );
 
-                await this.services.magicLink.storePickup(
+                await this.services.magicLink.storeLandingPickup(
                     claims.session,
-                    popupSecretHash,
                     issued,
                 );
                 // Anyone already long-polling `/login/wait` hears it now.

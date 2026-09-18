@@ -33,9 +33,9 @@ puter.auth.signIn(options)
 
 - `request_auth`: A boolean value that asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button.
 
-- `email`: Sign the user in with an emailed link instead of a password. The popup opens with this address prefilled, tells the user that your site uses Puter, and sends them a sign-in link. Clicking the link signs them in (creating and confirming a Puter account if the address is new) and resolves this promise. Use it when your app already knows who the user is, for example from your own login, so they never have to invent a Puter password. Users who already have a Puter account can still pick password or federated sign-in from the same popup.
+- `email`: Open the popup on the sign-in link window with this address prefilled, instead of on the password window. The popup tells the user that your site is powered by Puter, emails them a sign-in link, and asks them to check their inbox. Clicking the link signs them in (creating and confirming a Puter account if the address is new) and lands them on `returnUrl`, already signed in. The tab that opened the popup is left behind, so this promise does not resolve on that path; treat the landing page as where the user continues. Use it when your app already knows who the user is, for example from your own login, so they never have to invent a Puter password. The sign-in link is also offered as an option on the password window, so users can reach it without this.
 
-- `returnUrl`: Required with `email`. The page the link sends the user to after signing in, typically `location.href`. It must be on the same origin as the page calling `signIn()`; when the user lands there, Puter.js signs that page in too, so the flow works even if the link is opened on another device.
+- `returnUrl`: The page a sign-in link sends the user to after signing in. Defaults to the current page. It must be on the same origin as the page calling `signIn()`; when the user lands there, Puter.js signs that page in, so the flow works even if the link is opened on another device.
 
 ## Return value
 
@@ -52,8 +52,6 @@ The promise will reject with an object containing an `error` code and a human-re
 - `not_available_in_app`: `signIn()` was called from an app running on Puter. An app is already signed in as the user who launched it — the Puter session hands it a token at launch — so there is nothing for the popup to do. Use `puter.auth.getUser()` to read who that is.
 
 - `invalid_email`: `email` was given but is not an email address.
-
-- `return_url_required`: `email` was given without a `returnUrl`.
 
 - `invalid_return_url`: `returnUrl` is not an absolute http(s) URL on this page's origin.
 

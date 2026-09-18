@@ -178,7 +178,7 @@ export default suite('auth', {
             return 'resolved';
         };
         t.assert.equal(await rejection({ email: 'not-an-email', returnUrl: 'https://a.example/' }), 'invalid_email');
-        t.assert.equal(await rejection({ email: 'user@example.com' }), 'return_url_required');
+        t.assert.equal(await rejection({ returnUrl: 'not a url' }), 'invalid_return_url');
         t.assert.equal(await rejection({ email: 'user@example.com', returnUrl: 'not a url' }), 'invalid_return_url');
         t.assert.equal(await rejection({ email: 'user@example.com', returnUrl: 'ftp://a.example/' }), 'invalid_return_url');
     },

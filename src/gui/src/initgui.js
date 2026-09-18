@@ -29,6 +29,7 @@ import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowMagicLinkSignIn from './UI/UIWindowMagicLinkSignIn.js';
+import { magicLinkOffered, nextAuthWindow } from './helpers/magicLinkSignIn.js';
 import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.js';
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
@@ -1462,52 +1463,58 @@ window.initgui = async function (options) {
         ) {
             // A site that already knows the user's email asks for a
             // sign-in link instead of a password. The link's landing page
-            // mints the opener's token, so the popup hands it over itself
-            // and is done; the usual signup window only appears when the
-            // link window was dismissed.
-            let use_password_flow = true;
-            if (window.url_query_params.has('email')) {
-                const magic = await UIWindowMagicLinkSignIn({
-                    email: window.url_query_params.get('email'),
-                    session: window.url_query_params.get('signin_session'),
-                    opener_origin: window.openerOrigin,
-                    return_url: window.url_query_params.get('return_url'),
-                    show_close_button: false,
-                    window_options: {
-                        has_head: false,
-                        cover_page: true,
-                    },
-                });
-                if (magic?.token) {
-                    window.opener?.postMessage(
-                        {
-                            msg: 'puter.token',
-                            success: true,
-                            token: magic.token,
-                            app_uid: magic.app_uid,
-                            msg_id: window.url_query_params.get('msg_id'),
-                        },
-                        new URL(window.openerOrigin).origin,
-                    );
-                    window.close();
-                    window.open('', '_self').close();
-                    return;
+            // collects the opener's token, so this popup is left behind
+            // once the link is sent. The user can move between the link
+            // window and the password windows; each one resolves with
+            // where to go next, and `true` means a password window signed
+            // them in.
+            const popup_window_options = {
+                has_head: false,
+                cover_page: true,
+            };
+            const magic_offered = magicLinkOffered({
+                embeddedInPopup: window.embedded_in_popup,
+                openerOrigin: window.openerOrigin,
+                params: window.url_query_params,
+            });
+            let magic_email = window.url_query_params.get('email');
+            // A site that passed an email starts on the link window; anyone
+            // else starts on signup and can pick the link from login.
+            let next = magic_offered && magic_email ? 'magic' : 'signup';
+            let signed_in = false;
+            while (next) {
+                let result;
+                if (next === 'magic') {
+                    // With the opener's return URL the link signs the user
+                    // in to the opener's site and lands on its page; without
+                    // it the link signs them in to Puter and lands on the
+                    // desktop.
+                    result = await UIWindowMagicLinkSignIn({
+                        email: magic_email,
+                        ...(magic_offered ? {
+                            opener_origin: window.openerOrigin,
+                            return_url: window.url_query_params.get('return_url'),
+                        } : {}),
+                        show_close_button: false,
+                        window_options: popup_window_options,
+                    });
+                } else {
+                    const UIWindowPassword = next === 'login' ? UIWindowLogin : UIWindowSignup;
+                    result = await UIWindowPassword({
+                        reload_on_success: false,
+                        send_confirmation_code: true,
+                        show_close_button: false,
+                        window_options: popup_window_options,
+                    });
+                    if (result === true) {
+                        signed_in = true;
+                        break;
+                    }
                 }
-                use_password_flow = magic === false;
+                if (result?.email) magic_email = result.email;
+                next = nextAuthWindow(result);
             }
-            // show signup window
-            if (
-                use_password_flow &&
-                await UIWindowSignup({
-                    reload_on_success: false,
-                    send_confirmation_code: true,
-                    show_close_button: false,
-                    window_options: {
-                        has_head: false,
-                        cover_page: true,
-                    },
-                })
-            ) {
+            if (signed_in) {
                 // Completing signup in a sign-in popup is the user asking to
                 // be signed in to the opener.
                 window.popup_signin_consent = true;

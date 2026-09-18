@@ -17,10 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Pure pieces of the magic-link sign-in popup, kept out of the window so
-// they can be unit tested.
-
-export const POLL_INTERVAL_MS = 2000;
+// Pure pieces of the sign-in link window, kept out of the window so they
+// can be unit tested.
 
 /** Origin of a URL, or null when it is not an http(s) URL. */
 export const originOf = (value) => {
@@ -49,37 +47,45 @@ export const appHostOf = (origin) => {
     }
 };
 
+/**
+ * Whether a sign-in popup carries its opener's return URL, so a sign-in link
+ * can land the user back on the opener's site.
+ */
+export const magicLinkOffered = ({ embeddedInPopup, openerOrigin, params }) =>
+    !!embeddedInPopup &&
+    originOf(openerOrigin) !== null &&
+    returnUrlAllowed(params?.get('return_url'), openerOrigin);
+
+/**
+ * Which auth window to open after one settles, or null when the user is
+ * done. A window asks for another by resolving `{ next: 'login' | 'signup' | 'magic', email? }`.
+ */
+export const nextAuthWindow = (result) => {
+    const next = result?.next;
+    return next === 'login' || next === 'signup' || next === 'magic' ? next : null;
+};
+
 /** Loose client-side email check; the backend validates for real. */
 export const looksLikeEmail = (value) =>
     typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
-/** A secret only the popup holds; it proves the popup is the one that asked. */
-export const generatePopupSecret = (randomBytes = defaultRandomBytes) => {
-    const bytes = randomBytes(32);
-    let out = '';
-    for ( const b of bytes ) out += b.toString(16).padStart(2, '0');
-    return out;
-};
-
-const defaultRandomBytes = (n) => {
-    const bytes = new Uint8Array(n);
-    globalThis.crypto.getRandomValues(bytes);
-    return bytes;
-};
-
 /**
- * The popup's request body for `/auth/magic-link/request`, or null when the
- * inputs can't make a valid one.
+ * The request body for `/auth/magic-link/request`, or null when the inputs
+ * can't make a valid one. With an opener origin the link signs the user in
+ * to that site and lands on `returnUrl`; without one it signs them in to
+ * Puter itself and the backend lands them on the desktop.
  */
-export const buildRequestBody = ({ email, session, returnUrl, openerOrigin, popupSecret }) => {
+export const buildRequestBody = ({ email, returnUrl, openerOrigin }) => {
+    if ( !looksLikeEmail(email) ) return null;
+    const body = { email: email.trim() };
+    if ( openerOrigin === undefined || openerOrigin === null || openerOrigin === '' ) {
+        return body;
+    }
     const origin = originOf(openerOrigin);
-    if ( !looksLikeEmail(email) || !session || !origin || !popupSecret ) return null;
-    if ( !returnUrlAllowed(returnUrl, origin) ) return null;
+    if ( !origin || !returnUrlAllowed(returnUrl, origin) ) return null;
     return {
-        email: email.trim(),
-        session,
+        ...body,
         return_url: returnUrl,
         opener_origin: origin,
-        popup_secret: popupSecret,
     };
 };
