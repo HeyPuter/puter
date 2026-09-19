@@ -24,6 +24,22 @@ import { HttpError } from '../core/http/HttpError.js';
  * ...) on failure. Returns the value on success.
  */
 
+/**
+ * Protocols accepted for app origins and `index_url` values. Anything outside
+ * this list is an XSS/SSRF primitive when the value ends up as `iframe.src`.
+ * Shared by AuthService.#originFromUrl, AppStore.createFromOrigin, and
+ * AppDriver.#validateInput — keep them in sync by importing this constant.
+ */
+export const WEB_AND_EXTENSION_PROTOCOLS = [
+    'http:',
+    'https:',
+    'chrome-extension:',
+    'moz-extension:',
+    'safari-extension:',
+    'safari-web-extension:',
+    'extension:',
+];
+
 export function validateString(
     value,
     { key, maxLen, regex, required = true, allowEmpty = false } = {},

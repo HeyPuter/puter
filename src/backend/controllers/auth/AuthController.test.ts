@@ -3099,6 +3099,22 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(bootstrapped).toBeTruthy();
         expect(bootstrapped?.owner_user_id).toBe(owner!.id);
     });
+
+    it('supports browser extension origins in handleGetUserAppToken', async () => {
+        const origin = 'chrome-extension://cafneielldmiliebnkhaeaaibinihgpb';
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        expect(body.app_uid).toMatch(/^app-/);
+        const bootstrapped = await server.stores.app.getByUid(body.app_uid);
+        expect(bootstrapped).toBeTruthy();
+        expect(bootstrapped?.index_url).toBe(origin);
+    });
 });
 
 // ── Access tokens: create + revoke ─────────────────────────────────

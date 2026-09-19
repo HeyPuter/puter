@@ -1631,13 +1631,26 @@ describe('AuthService (integration)', () => {
             'data:text/html,<script>alert(1)</script>',
             'file:///etc/passwd',
             'vbscript:msgbox(1)',
-        ])('throws 400 for non-http(s) scheme %s', async (origin) => {
+        ])('throws 400 for unsafe non-web/non-extension scheme %s', async (origin) => {
             // These parse fine via `new URL()` but must never become a
             // bootstrap app `index_url` — that would be a stored XSS /
             // code-execution vector when launched as `iframe.src`.
             await expect(
                 authService.appUidFromOrigin(origin),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it.each([
+            'chrome-extension://cafneielldmiliebnkhaeaaibinihgpb',
+            'moz-extension://f4b30177-3e5e-49b4-bb50-32df6ff09033',
+            'safari-extension://f4b30177-3e5e-49b4-bb50-32df6ff09033',
+            'safari-web-extension://f4b30177-3e5e-49b4-bb50-32df6ff09033',
+            'extension://my-extension-id',
+        ])('resolves browser extension origin %s to a deterministic app uid', async (origin) => {
+            const a = await authService.appUidFromOrigin(origin);
+            const b = await authService.appUidFromOrigin(origin);
+            expect(a).toBe(b);
+            expect(a).toMatch(/^app-/);
         });
     });
 

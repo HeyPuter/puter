@@ -48,6 +48,7 @@ import {
     validateJsonObject,
     validateString,
     validateUrl,
+    WEB_AND_EXTENSION_PROTOCOLS,
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
 
@@ -632,6 +633,7 @@ export class AppDriver extends PuterDriver {
                 key: 'index_url',
                 maxLen: 3000,
                 required: isCreate,
+                protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
             // Only enforce on new/changed values so rows that already
             // carry a reserved host (migration-seeded builtins) can still

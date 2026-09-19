@@ -25,6 +25,7 @@ import {
     type Actor,
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import {
     ASSET_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
@@ -1697,14 +1698,17 @@ export class AuthService extends PuterService {
     #originFromUrl(url: string): string | null {
         try {
             const parsed = new URL(url);
-            // A real web origin is always http(s). `new URL()` happily parses
-            // `javascript:`, `data:`, `file:`, `vbscript:`, etc.; if one of
-            // those slips through it ends up persisted as an app `index_url`
-            // (see AppStore.createFromOrigin) and later loaded as `iframe.src`
-            // — an XSS/code-execution primitive. Reject anything that isn't
-            // http(s) so the bootstrap path matches AppDriver's validateUrl
-            // allow-list.
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            // A real web or extension origin is http(s) or a browser extension
+            // scheme. `new URL()` happily parses `javascript:`, `data:`, `file:`,
+            // `vbscript:`, etc.; if one of those slips through it ends up
+            // persisted as an app `index_url` (see AppStore.createFromOrigin)
+            // and later loaded as `iframe.src` — an XSS/code-execution primitive.
+            // Reject anything that isn't http(s) or a browser extension scheme
+            // so the bootstrap path matches AppDriver's validateUrl allow-list.
+            if (!WEB_AND_EXTENSION_PROTOCOLS.includes(parsed.protocol)) {
+                return null;
+            }
+            if (!parsed.hostname) {
                 return null;
             }
             return this.#normalizedOrigin(parsed);

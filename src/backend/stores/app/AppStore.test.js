@@ -785,6 +785,16 @@ describe('AppStore CRUD and cache invalidation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('creates an origin-bootstrap app for a browser extension origin', async () => {
+        const uid = `app-ext-${Math.random().toString(36).slice(2, 10)}`;
+        const origin = 'chrome-extension://cafneielldmiliebnkhaeaaibinihgpb';
+
+        const app = await appStore.createFromOrigin(uid, origin);
+
+        expect(app.uid).toBe(uid);
+        expect(app.index_url).toBe(origin);
+    });
+
     it('returns the existing row when the deterministic uid was already inserted', async () => {
         const uid = `app-origin-${Math.random().toString(36).slice(2, 10)}`;
         const origin = `https://${uid}.example.com`;
