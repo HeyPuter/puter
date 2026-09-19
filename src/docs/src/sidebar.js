@@ -406,6 +406,14 @@ let sidebar = [
                 source: '/FS/getShares.md',
                 path: '/FS/getShares',
             },
+            {
+                title: '<code>getShareLink()</code>',
+                page_title: '<code>puter.fs.getShareLink()</code>',
+                title_tag: 'puter.fs.getShareLink()',
+                icon: '/assets/img/function.svg',
+                source: '/FS/getShareLink.md',
+                path: '/FS/getShareLink',
+            },
         ],
     },
     {

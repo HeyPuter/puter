@@ -58,6 +58,7 @@ import { holdsPermissions } from './helpers/holdsPermissions.js';
 import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
+import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -211,10 +212,10 @@ const postAuthActions = async (action) => {
                     // malformed posargs: launch without them
                 }
             }
-            // `?file=<path>` opens that file with the app, the same as
+            // `?file=<path or uid>` opens that file with the app, the same as
             // double-clicking it would — but the link picked both, so the user
             // is asked before the app is given the file.
-            const file_path = window.url_query_params.get('file');
+            const fileLaunch = urlFileLaunchOptions(window.url_query_params.get('file'));
             // The server titles /app/<name> pages after the app, so the
             // launch's lazy base-title capture would keep the app's name
             // forever — preset the title to fall back to when the app's
@@ -271,7 +272,7 @@ const postAuthActions = async (action) => {
                     maximized: true,
                     params: app_query_params,
                     readURL: window.url_query_params.get('readURL'),
-                    ...(file_path ? { file_path, confirm_file_access: true } : {}),
+                    ...fileLaunch,
                     ...(app_obj ? { app_obj } : {}),
                     ...(posargs ? {
                         args: {
@@ -1486,10 +1487,12 @@ window.initgui = async function (options) {
             !(window.attempt_temp_user_creation && window.first_visit_ever)
         ) {
             // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
+            let currentUserUuid = window.user?.uuid ?? null;
             try {
                 const whoami_popup = await puter.os.user({
                     query: 'icon_size=64',
                 });
+                currentUserUuid = whoami_popup?.uuid ?? currentUserUuid;
                 await window.update_auth_data(
                     whoami_popup.token || window.auth_token,
                     whoami_popup,
@@ -1506,7 +1509,18 @@ window.initgui = async function (options) {
             // than the `oidc_login` query parameter it used to be read from:
             // as a bare parameter anyone could write it, and it suppresses the
             // one prompt standing between a link and a token.
-            if (window.oidcPopupReturn?.oidc_login) {
+            //
+            // The proof is bound to the account that completed OIDC, so it only
+            // stands in for the picker when that account is the one signed in
+            // here — otherwise a proof from one login would skip another
+            // browser's picker and mint that user a token unasked.
+            const proofMatchesCurrentUser =
+                window.oidcPopupReturn?.oidc_login &&
+                window.oidcPopupReturn?.user_uuid != null &&
+                currentUserUuid != null &&
+                String(window.oidcPopupReturn.user_uuid) ===
+                    String(currentUserUuid);
+            if (proofMatchesCurrentUser) {
                 picked_a_user_for_sdk_login = true;
                 await window.getUserAppToken(window.openerOrigin);
             } else {

@@ -323,6 +323,30 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * Every share row on a node and everything beneath it, whatever kind —
+     * user, group and link shares plus unclaimed invites.
+     * `listByFsentrySubtree` answers the narrower question; this one is for
+     * retiring the lot.
+     *
+     * @param {number} fsentryId
+     */
+    async listAllByFsentrySubtree(fsentryId) {
+        const rows = await this.clients.db.read(
+            'WITH RECURSIVE `subtree`(`id`) AS (' +
+                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
+                'UNION ALL ' +
+                'SELECT `f`.`id` FROM `fsentries` `f` ' +
+                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
+                ') ' +
+                'SELECT `share`.* FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
+                'ORDER BY `share`.`id`',
+            [fsentryId],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
      * Active shares on any of `fsentryIds` — a node plus its ancestors, which
      * the caller has already resolved to row ids.
      *
