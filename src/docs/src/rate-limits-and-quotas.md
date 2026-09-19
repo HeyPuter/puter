@@ -168,7 +168,7 @@ Sharing is bounded twice: on the calls, and on how many people one account can r
 | Recipients per request                       | 10           |
 | Items per request                            | 50           |
 
-The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need.
+The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need. `stat()` with `returnShares` does the same listing work, so it spends from this bucket too, on top of its own `stat` budget.
 
 A "new share" is one that gives someone access they didn't already have. Changing the mode on an existing share, or re-sharing an item the recipient already has, costs nothing. Over the daily limit, `share` fails with `share_daily_limit_reached`.
 

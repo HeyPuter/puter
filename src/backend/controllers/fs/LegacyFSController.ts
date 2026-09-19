@@ -51,6 +51,8 @@ import {
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { listClientShares } from '../share/clientShare.js';
+import { SHARE_LIST_LIMIT } from '../share/limits.js';
+import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterController } from '../types.js';
 import {
     FS_BATCH_CONCURRENT,
@@ -488,6 +490,13 @@ export class LegacyFSController extends PuterController {
         // callers working. `return_owner` is a no-op — `owner` is always set.
         if (getBoolean(body, 'return_versions')) shaped.versions = [];
         if (getBoolean(body, 'return_shares')) {
+            // Share-listing work spends the share-listing budget, not just
+            // `fs:stat`'s.
+            if (!(await consumeRouteRateLimit(req, SHARE_LIST_LIMIT))) {
+                throw new HttpError(429, 'Too many requests.', {
+                    legacyCode: 'too_many_requests',
+                });
+            }
             shaped.shares = await listClientShares(
                 this.services.share,
                 this.clients.event,
@@ -860,9 +869,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1308,8 +1315,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1932,10 +1938,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
