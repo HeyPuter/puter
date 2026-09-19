@@ -64,8 +64,15 @@ describe('ShareService', () => {
         const name = `f-${uuid.slice(0, 8)}.txt`;
         const path = `/${owner.username}/${name}`;
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
-            [uuid, name, path, owner.id, Math.floor(Date.now() / 1000)],
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                uuid,
+                name,
+                path,
+                owner.id,
+                server.clients.db.booleanValue(false),
+                Math.floor(Date.now() / 1000),
+            ],
         );
         const entry = await server.stores.fsEntry.getEntryByPath(path);
         if (!entry) throw new Error('fsentry not created');
@@ -85,17 +92,25 @@ describe('ShareService', () => {
         const now = Math.floor(Date.now() / 1000);
 
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 1, ?)',
-            [dirUuid, dirName, dirPath, owner.id, now],
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                dirUuid,
+                dirName,
+                dirPath,
+                owner.id,
+                server.clients.db.booleanValue(true),
+                now,
+            ],
         );
         const dirRow = await server.stores.fsEntry.getEntryByPath(dirPath);
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 fileUuid,
                 fileName,
                 `${dirPath}/${fileName}`,
                 owner.id,
+                server.clients.db.booleanValue(false),
                 now,
                 dirRow!.id,
                 dirUuid,
@@ -807,6 +822,130 @@ describe('ShareService', () => {
             expect(
                 await server.stores.share.listPendingOnFsentry(file.id),
             ).toEqual([]);
+        });
+
+        it("is not an app's to open, at any reach it was given", async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const file = await makeFile(owner.user);
+
+            for (const mode of ['read', 'write'] as const) {
+                const app = await makeApp(owner.user.id);
+                await grantAppReach(owner, app, file, mode);
+
+                await expect(
+                    share(asApp(owner, app), {
+                        uid: file.uuid,
+                        recipient: anyone,
+                        mode,
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 403,
+                    legacyCode: 'forbidden',
+                });
+            }
+            expect(await linkRows(file.id)).toEqual([]);
+
+            // The owner in person still can.
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            expect(await linkRows(file.id)).toHaveLength(1);
+        });
+
+        it("is not an app's to close either", async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const stranger = await makeUser();
+            const file = await makeFile(owner.user);
+            const app = await makeApp(owner.user.id);
+            await grantAppReach(owner, app, file);
+            const created = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+
+            await expect(
+                unshare(asApp(owner, app), {
+                    uid: file.uuid,
+                    recipient: anyone,
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+            await expect(
+                runWithContext({ actor: asApp(owner, app) }, () =>
+                    server.services.share.revokeSharedByMe(
+                        asApp(owner, app),
+                        created.uid,
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(stranger.actor, file.path)).toBe(true);
+
+            // The owner in person still can.
+            expect(
+                await unshare(owner.actor, {
+                    uid: file.uuid,
+                    recipient: anyone,
+                }),
+            ).toEqual({ revoked: 1 });
+        });
+
+        it('goes with a folder above it that changes owner', async () => {
+            const attacker = await makeUser();
+            paid.add(attacker.user.uuid);
+            const victim = await makeUser();
+            // On a plan too, so a row that survived would still answer.
+            paid.add(victim.user.uuid);
+            const stranger = await makeUser();
+            const { dir, file } = await makeDirWithFile(attacker.user);
+
+            // Theirs to open while they still own it.
+            await share(attacker.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'write',
+            });
+            expect(await canWrite(stranger.actor, file.path)).toBe(true);
+
+            // What a move into someone else's tree does: the whole subtree
+            // changes hands, and only its root reaches the cleanup.
+            for (const entry of [dir, file]) {
+                await server.stores.fsEntry.updateEntry(entry.uuid, {
+                    userId: victim.user.id,
+                });
+            }
+            const moved = await server.stores.fsEntry.getEntryByUuid(dir.uuid);
+            await server.services.share.onEntryOwnerChanged(moved!);
+
+            expect(await linkRows(file.id)).toEqual([]);
+            expect(await canWrite(stranger.actor, file.path)).toBe(false);
+        });
+
+        it('shows the owner a link row another issuer left behind', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const other = await makeUser();
+            const file = await makeFile(owner.user);
+
+            // Only a missed cleanup writes one of these, and hiding it is how
+            // the owner ends up unable to find the thing granting access.
+            await server.stores.share.upsertAnyone({
+                issuerUserId: other.user.id,
+                fsentryId: file.id,
+                mode: 'write',
+            });
+
+            expect(
+                (await server.services.share.listSharedByMe(owner.actor)).items,
+            ).toContainEqual(
+                expect.objectContaining({ anyone: true, entryUid: file.uuid }),
+            );
         });
     });
 
@@ -2314,6 +2453,149 @@ describe('ShareService', () => {
         ).toEqual([]);
     });
 
+    it('leaves a holder’s re-shares alone when the revoke reaches none of their authority', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const holder = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // Both delegates manage by the owner's grant; `delegate` gave the
+        // holder nothing at all.
+        for (const recipient of [delegate, holder]) {
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'manage',
+            });
+        }
+        await share(holder.actor, {
+            uid: file.uuid,
+            recipient: { username: third.user.username },
+            mode: 'read',
+        });
+
+        const result = await unshare(delegate.actor, {
+            uid: file.uuid,
+            recipient: { username: holder.user.username },
+        });
+
+        expect(result.revoked).toBe(0);
+        expect(await canRead(holder.actor, file.path)).toBe(true);
+        expect(await canRead(third.actor, file.path)).toBe(true);
+    });
+
+    it('leaves a re-share standing when manage survives on the folder above', async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const third = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        // Two grants of manage: one on the folder, one on the file itself.
+        for (const uid of [dir.uuid, file.uuid]) {
+            await share(owner.actor, {
+                uid,
+                recipient: { username: holder.user.username },
+                mode: 'manage',
+            });
+        }
+        await share(holder.actor, {
+            uid: file.uuid,
+            recipient: { username: third.user.username },
+            mode: 'read',
+        });
+
+        // Only the file's grant goes; the folder still carries manage.
+        await unshare(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: holder.user.username },
+        });
+
+        expect(await canRead(holder.actor, file.path)).toBe(true);
+        expect(await canRead(third.actor, file.path)).toBe(true);
+    });
+
+    it('still takes the re-shares when the revoke is what held them up', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const holder = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // `delegate` is a bystander here: the holder's manage is the owner's
+        // grant, and that is what the owner withdraws.
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: delegate.user.username },
+            mode: 'manage',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: holder.user.username },
+            mode: 'manage',
+        });
+        await share(holder.actor, {
+            uid: file.uuid,
+            recipient: { username: third.user.username },
+            mode: 'read',
+        });
+
+        await unshare(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: holder.user.username },
+        });
+
+        expect(await canRead(holder.actor, file.path)).toBe(false);
+        expect(await canRead(third.actor, file.path)).toBe(false);
+        expect(await canRead(delegate.actor, file.path)).toBe(true);
+    });
+
+    it('leaves a member’s re-shares alone when their manage is not the team’s', async () => {
+        const owner = await makeUser();
+        const member = await makeUser();
+        const bystander = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        const team = await server.stores.team.create({
+            ownerUserId: owner.user.id,
+            name: `t-${uuidv4().slice(0, 8)}`,
+        });
+        for (const each of [owner, member, bystander]) {
+            await server.stores.team.addMember(team.uid, each.user.id, {
+                orgOwned: false,
+            });
+        }
+
+        // The member manages the file in their own right; the team grant is
+        // plain read, and is all `bystander` has.
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: member.user.username },
+            mode: 'manage',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { team: team.uid },
+            mode: 'read',
+        });
+        await share(member.actor, {
+            uid: file.uuid,
+            recipient: { username: third.user.username },
+            mode: 'read',
+        });
+        expect(await canRead(bystander.actor, file.path)).toBe(true);
+
+        await unshare(owner.actor, {
+            uid: file.uuid,
+            recipient: { team: team.uid },
+        });
+
+        expect(await canRead(bystander.actor, file.path)).toBe(false);
+        expect(await canRead(member.actor, file.path)).toBe(true);
+        expect(await canRead(third.actor, file.path)).toBe(true);
+    });
+
     it('lets the owner clear a grant a delegate issued', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();
@@ -2650,12 +2932,13 @@ describe('ShareService', () => {
                 dirPath = `${dirPath}/${segment}`;
                 const uuid = uuidv4();
                 await server.clients.db.write(
-                    'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+                    'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                     [
                         uuid,
                         segment,
                         dirPath,
                         owner.user.id,
+                        server.clients.db.booleanValue(true),
                         now,
                         parentId,
                         parentUid,
@@ -2668,12 +2951,13 @@ describe('ShareService', () => {
             const uuid = uuidv4();
             const filePath = `${dirPath}/state.json`;
             await server.clients.db.write(
-                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     uuid,
                     'state.json',
                     filePath,
                     owner.user.id,
+                    server.clients.db.booleanValue(false),
                     now,
                     parentId,
                     parentUid,
@@ -2819,6 +3103,128 @@ describe('ShareService', () => {
             const listed = asAppActor.items.map((i) => i.entryUid);
             expect(listed).toContain(reachable.uuid);
             expect(listed).not.toContain(hidden.uuid);
+        });
+
+        it('cannot withdraw a share its user issued outside the app', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await grantAppReach(owner, app, file);
+
+            const result = await unshare(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+            });
+            expect(result.revoked).toBe(0);
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('cannot withdraw a share a manage delegate issued', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { username: third.user.username },
+                mode: 'read',
+            });
+            await grantAppReach(owner, app, file);
+
+            const result = await unshare(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: third.user.username },
+            });
+            expect(result.revoked).toBe(0);
+            expect(await canRead(third.actor, file.path)).toBe(true);
+            expect(await canRead(delegate.actor, file.path)).toBe(true);
+        });
+
+        it('cannot cancel an invite its user sent outside the app', async () => {
+            const owner = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            const email = `invited-${Math.random()
+                .toString(36)
+                .slice(2, 9)}@test.local`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+            await grantAppReach(owner, app, file);
+
+            const result = await unshare(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { email },
+            });
+            expect(result.revoked).toBe(0);
+            expect(
+                await server.stores.share.listPendingByEmail(email),
+            ).toHaveLength(1);
+        });
+
+        it('sees only the shares it issued when listing an item', async () => {
+            const owner = await makeUser();
+            const mine = await makeUser();
+            const theirs = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            const email = `invited-${Math.random()
+                .toString(36)
+                .slice(2, 9)}@test.local`;
+
+            await grantAppReach(owner, app, file);
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: mine.user.username },
+                mode: 'read',
+            });
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: theirs.user.username },
+                mode: 'read',
+            });
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const byApp = await runWithContext(
+                { actor: asApp(owner, app) },
+                () =>
+                    server.services.share.listSharesOf(asApp(owner, app), {
+                        uid: file.uuid,
+                    }),
+            );
+            expect(byApp.map((s) => s.holder.username)).toEqual([
+                mine.user.username,
+            ]);
+            expect(byApp.some((s) => s.recipientEmail)).toBe(false);
+
+            // The user's own session still sees all three.
+            const byOwner = await runWithContext({ actor: owner.actor }, () =>
+                server.services.share.listSharesOf(owner.actor, {
+                    uid: file.uuid,
+                }),
+            );
+            expect(byOwner).toHaveLength(3);
         });
     });
 
@@ -4023,6 +4429,44 @@ describe('ShareService', () => {
         expect((await server.stores.share.listByFsentry(file.id)).length).toBe(
             0,
         );
+    });
+
+    it('retires a team share on a descendant when the folder changes owner', async () => {
+        const attacker = await makeUser();
+        const victim = await makeUser();
+        const member = await makeUser();
+        const { dir, file } = await makeDirWithFile(attacker.user);
+
+        const team = await server.stores.team.create({
+            ownerUserId: attacker.user.id,
+            name: `t-${Math.random().toString(36).slice(2, 9)}`,
+        });
+        await server.stores.team.addMember(team.uid, attacker.user.id, {
+            orgOwned: false,
+        });
+        await server.stores.team.addMember(team.uid, member.user.id, {
+            orgOwned: false,
+        });
+        await share(attacker.actor, {
+            uid: file.uuid,
+            recipient: { team: team.uid },
+            mode: 'read',
+        });
+        expect(await canRead(member.actor, file.path)).toBe(true);
+
+        await server.stores.fsEntry.updateEntry(dir.uuid, {
+            userId: victim.user.id,
+        });
+        await server.stores.fsEntry.updateEntry(file.uuid, {
+            userId: victim.user.id,
+        });
+        const moved = await server.stores.fsEntry.getEntryByUuid(dir.uuid);
+        await server.services.share.onEntryOwnerChanged(moved!);
+
+        expect(
+            await server.stores.share.listAllByFsentrySubtree(dir.id),
+        ).toEqual([]);
+        expect(await canRead(member.actor, file.path)).toBe(false);
     });
 
     it('retires a whole burst of deletions in one flush', async () => {

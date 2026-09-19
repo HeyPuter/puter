@@ -12,7 +12,9 @@ This method lists who can reach a file or directory you own, or one you have `ma
 > read, and nothing more. Files its user owns but never handed to the app stay
 > out of reach, and `listShared()` shows an app only the shares it can reach.
 > Shares an app creates are attributed to the user and carry `issuedByApp`, so
-> the owner can tell them apart in [`getShares()`](/FS/getShares/).
+> the owner can tell them apart in [`getShares()`](/FS/getShares/) — and those
+> are the only ones an app can list or withdraw on an item. Opening an item to
+> anyone with the link is the owner's own call, never an app's.
 
 ## Syntax
 
@@ -43,6 +45,8 @@ A `Promise` that resolves to an array of share objects, each with `uid`, `mode`,
 `inheritedFrom` is the path of the shared ancestor an access comes from, or `null` when the share is on the item itself. Like `path`, it is masked when you are not the owner. Access inherited from a parent folder is **managed on that folder** — withdrawing it here is not possible, because the grant does not live on this item.
 
 The list includes shares granted by **anyone** holding `manage` on the item, not only your own. That is how an owner sees what someone they trusted has re-shared.
+
+That is the view from your own session. An **app** asking on your behalf is shown only the shares that app issued — another app's rows, a delegate's, and the addresses you invited are not its business, whatever reach you gave it on the item.
 
 If the item is open to **anyone with the link** (see [`share()`](/FS/share/)), that share is listed too, with `anyone: true` and a `null` `holder` — inherited from a folder above when the folder is what was opened. It is left out while the owner's plan does not cover link sharing, because nobody can use it then.
 

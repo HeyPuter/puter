@@ -64,7 +64,11 @@ import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types.js';
 import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
-import { isTildePath, normalizeAbsolutePath } from './resolveNode.js';
+import {
+    isOwnersTrash,
+    isTildePath,
+    normalizeAbsolutePath,
+} from './resolveNode.js';
 import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
@@ -2268,6 +2272,36 @@ export class FSService extends PuterService {
         };
     }
 
+    /**
+     * Read-only lookup of pending upload sessions, one per id in request order.
+     * Callers use it to re-authorize a session's target path before resuming or
+     * completing an upload, since the session outlives the access check
+     * `startWrite` made.
+     */
+    async getUploadSessions(
+        userId: number,
+        uploadIds: string[],
+    ): Promise<PendingUploadSession[]> {
+        if (uploadIds.length === 0) {
+            return [];
+        }
+        const sessions =
+            await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
+        return sessions.map((session) => {
+            if (!session) {
+                throw new HttpError(404, 'Upload session was not found', {
+                    legacyCode: 'not_found',
+                });
+            }
+            if (session.userId !== userId) {
+                throw new HttpError(403, 'Upload session access denied', {
+                    legacyCode: 'forbidden',
+                });
+            }
+            return session;
+        });
+    }
+
     async signMultipartParts(
         userId: number,
         request: SignMultipartPartsRequest,
@@ -4079,6 +4113,13 @@ export class FSService extends PuterService {
         this.#dispatchEvents('fs.move.node', updated, {
             movedFrom: { path: source.path },
         });
+
+        // Deleting is a move into Trash, and a grant follows its entry there,
+        // so recipients keep their access unless it is withdrawn here. Awaited,
+        // and after the events, so the holders still hear the item go.
+        if (isOwnersTrash(source, destinationParent)) {
+            await this.services.share.onEntryTrashed(updated);
+        }
         return updated;
     }
 

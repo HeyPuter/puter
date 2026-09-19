@@ -314,6 +314,7 @@ These cloud storage features are supported out of the box when using Puter.js:
 - **[`puter.fs.listShared()`](/FS/listShared/)** - List what others have shared with you
 - **[`puter.fs.listSharedByMe()`](/FS/listSharedByMe/)** - List everything you have shared out
 - **[`puter.fs.getShares()`](/FS/getShares/)** - List who has access to an item
+- **[`puter.fs.getShareLink()`](/FS/getShareLink/)** - Build a link that opens a file in an app
 
 ## Examples
 

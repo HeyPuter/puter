@@ -430,4 +430,17 @@
  * @typedef {GetSharesOptionsOwn & RequestCallbacks<Share[]>} GetSharesOptions
  */
 
+/**
+ * @typedef {Object} GetShareLinkOptionsOwn
+ * @property {string} [path] The file. Required when passing options as the only argument, unless
+ * `uid` is given.
+ * @property {string} [uid] The file, by UID. Can be used instead of `path`.
+ * @property {string} [appName] Name of the app the link opens the file with. Defaults to the app
+ * the code runs in.
+ */
+
+/**
+ * @typedef {GetShareLinkOptionsOwn & RequestCallbacks<string>} GetShareLinkOptions
+ */
+
 export {};

@@ -328,6 +328,9 @@ export class FSController extends PuterController {
             req.body,
         );
         this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
+        await this.#assertUploadSessionWriteAccess(req, userId, [
+            requestBody.uploadId,
+        ]);
 
         const response = await this.services.fs.completeUrlWrite(
             userId,
@@ -373,6 +376,11 @@ export class FSController extends PuterController {
         for (const requestBody of requests) {
             this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
         }
+        await this.#assertUploadSessionWriteAccess(
+            req,
+            userId,
+            requests.map((requestBody) => requestBody.uploadId),
+        );
         const response = await this.services.fs.batchCompleteUrlWrite(
             userId,
             requests,
@@ -433,6 +441,9 @@ export class FSController extends PuterController {
         res: Response<ClientSignMultipartPartsResponse>,
     ) {
         const userId = this.#getActorUserId(req);
+        await this.#assertUploadSessionWriteAccess(req, userId, [
+            req.body?.uploadId,
+        ]);
         const response = await this.services.fs.signMultipartParts(
             userId,
             req.body,
@@ -2508,6 +2519,40 @@ export class FSController extends PuterController {
                     pathAlreadyNormalized: options?.pathAlreadyNormalized,
                 });
             },
+        );
+    }
+
+    /**
+     * An upload session stays usable for as long as it lives, so the access
+     * `startWrite` checked has to be re-checked against the session's recorded
+     * target every time the caller signs more parts or completes the upload —
+     * otherwise a revoked sharee still lands bytes in the owner's tree.
+     */
+    async #assertUploadSessionWriteAccess(
+        req: Request,
+        userId: number,
+        uploadIds: Array<string | undefined>,
+    ): Promise<void> {
+        // A malformed id is left to the service, which owns that error shape.
+        const knownUploadIds = uploadIds.filter(
+            (uploadId): uploadId is string =>
+                typeof uploadId === 'string' && uploadId.length > 0,
+        );
+        if (knownUploadIds.length === 0) {
+            return;
+        }
+        const sessions = await this.services.fs.getUploadSessions(
+            userId,
+            knownUploadIds,
+        );
+        await this.#assertBatchWriteAccess(
+            req,
+            sessions.map((session) => ({
+                path: session.targetPath,
+                size: session.size,
+                overwrite: Boolean(session.overwriteTargetUid),
+            })),
+            { pathAlreadyNormalized: true },
         );
     }
 
