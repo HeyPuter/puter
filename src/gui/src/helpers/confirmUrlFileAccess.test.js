@@ -24,10 +24,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 globalThis.window = globalThis.window ?? {};
 globalThis.i18n = globalThis.i18n ?? ((key) => key);
 
-const { confirmUrlFileAccess } = await import('./confirmUrlFileAccess.js');
+const { confirmUrlFileAccess, urlFileLaunchOptions } = await import('./confirmUrlFileAccess.js');
 
 const APP = 'app-uid-1';
 const FILE = '/alice/Documents/notes.txt';
+const FILE_UID = '2b7d8c1e-4f3a-4b6c-9d1e-0a1b2c3d4e5f';
 
 let permissionDialog;
 const deps = (stat) => ({ stat, permissionDialog });
@@ -37,50 +38,79 @@ beforeEach(() => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
+describe('urlFileLaunchOptions', () => {
+    it('sends a uid and a path down different launch options, both gated', () => {
+        expect(urlFileLaunchOptions(FILE_UID)).toEqual({ file_uid: FILE_UID, confirm_file_access: true });
+        expect(urlFileLaunchOptions(FILE)).toEqual({ file_path: FILE, confirm_file_access: true });
+        expect(urlFileLaunchOptions('~/notes.txt')).toEqual({ file_path: '~/notes.txt', confirm_file_access: true });
+    });
+
+    it('is empty without a value', () => {
+        expect(urlFileLaunchOptions(null)).toEqual({});
+        expect(urlFileLaunchOptions('')).toEqual({});
+    });
+});
+
 describe('confirmUrlFileAccess', () => {
-    it('asks for write on the named file and reports the user allowing it', async () => {
-        const stat = vi.fn(async () => ({ is_dir: false }));
+    it('asks for write on the named file and hands it back when the user allows', async () => {
+        const stat = vi.fn(async () => ({ uid: FILE_UID, path: FILE, is_dir: false }));
         await expect(confirmUrlFileAccess(
             { path: FILE, appUid: APP, appName: 'notepad' }, deps(stat),
-        )).resolves.toBe(true);
+        )).resolves.toEqual({ uid: FILE_UID, path: FILE });
+        expect(stat).toHaveBeenCalledWith({ path: FILE });
         expect(permissionDialog).toHaveBeenCalledWith({
             app_uid: APP,
             app_name: 'notepad',
-            permission: `fs:${FILE}:write`,
+            permission: `fs:${FILE_UID}:write`,
             create: false,
         });
     });
 
+    it('resolves a uid the same way, with the path the viewer may use', async () => {
+        const masked = `/alice/${FILE_UID}/notes.txt`;
+        const stat = vi.fn(async () => ({ uid: FILE_UID, path: masked, is_dir: false }));
+        await expect(confirmUrlFileAccess(
+            { uid: FILE_UID, appUid: APP }, deps(stat),
+        )).resolves.toEqual({ uid: FILE_UID, path: masked });
+        expect(stat).toHaveBeenCalledWith({ uid: FILE_UID });
+        expect(permissionDialog).toHaveBeenCalledWith(expect.objectContaining({
+            permission: `fs:${FILE_UID}:write`,
+        }));
+    });
+
     it('reports a refusal when the user denies', async () => {
         permissionDialog = vi.fn(async () => false);
-        const stat = vi.fn(async () => ({ is_dir: false }));
+        const stat = vi.fn(async () => ({ uid: FILE_UID, path: FILE, is_dir: false }));
         await expect(confirmUrlFileAccess(
             { path: FILE, appUid: APP }, deps(stat),
-        )).resolves.toBe(false);
+        )).resolves.toBeNull();
     });
 
     it('refuses a directory without prompting — the grant would cover the tree', async () => {
-        const stat = vi.fn(async () => ({ is_dir: true }));
+        const stat = vi.fn(async () => ({ uid: 'dir-uid', path: '/alice', is_dir: true }));
         await expect(confirmUrlFileAccess(
             { path: '/alice', appUid: APP }, deps(stat),
-        )).resolves.toBe(false);
+        )).resolves.toBeNull();
         expect(permissionDialog).not.toHaveBeenCalled();
     });
 
-    it('refuses a path it cannot stat', async () => {
+    it('refuses a file it cannot stat', async () => {
         const stat = vi.fn(async () => { throw new Error('404'); });
         await expect(confirmUrlFileAccess(
             { path: FILE, appUid: APP }, deps(stat),
-        )).resolves.toBe(false);
+        )).resolves.toBeNull();
+        await expect(confirmUrlFileAccess(
+            { uid: FILE_UID, appUid: APP }, deps(stat),
+        )).resolves.toBeNull();
         expect(permissionDialog).not.toHaveBeenCalled();
     });
 
-    it('refuses without a path or an app to name the grant against', async () => {
-        const stat = vi.fn(async () => ({ is_dir: false }));
+    it('refuses without a file or an app to name the grant against', async () => {
+        const stat = vi.fn(async () => ({ uid: FILE_UID, path: FILE, is_dir: false }));
         await expect(confirmUrlFileAccess({ path: FILE }, deps(stat)))
-            .resolves.toBe(false);
+            .resolves.toBeNull();
         await expect(confirmUrlFileAccess({ appUid: APP }, deps(stat)))
-            .resolves.toBe(false);
+            .resolves.toBeNull();
         expect(stat).not.toHaveBeenCalled();
         expect(permissionDialog).not.toHaveBeenCalled();
     });

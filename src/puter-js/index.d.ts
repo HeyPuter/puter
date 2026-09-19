@@ -138,6 +138,7 @@ export type {
     DeleteOptions,
     FSItemRead,
     FSItemWithShares,
+    GetShareLinkOptions,
     GetSharesOptions,
     ListSharedByMeOptions,
     ListSharedOptions,

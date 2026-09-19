@@ -40,6 +40,7 @@ import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
 import launch_app from '../helpers/launchApp.js';
+import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
@@ -1365,17 +1366,16 @@ async function UIDesktop (options) {
             if ( window.app_query_params && window.app_query_params.posargs ) {
                 posargs = JSON.parse(window.app_query_params.posargs);
             }
-            // `?file=<path>` opens that file with the app, the same as
+            // `?file=<path or uid>` opens that file with the app, the same as
             // double-clicking it would — but the link picked both, so the user
             // is asked before the app is given the file.
-            const file_path = window.url_query_params.get('file');
             launch_app({
                 app: window.app_launched_from_url.name,
                 app_obj: window.app_launched_from_url,
                 readURL: window.url_query_params.get('readURL'),
                 maximized: window.url_query_params.get('maximized'),
                 params: window.app_query_params ?? [],
-                ...(file_path ? { file_path, confirm_file_access: true } : {}),
+                ...urlFileLaunchOptions(window.url_query_params.get('file')),
                 ...(posargs ? {
                     args: {
                         command_line: { args: posargs },
