@@ -29,7 +29,14 @@ export class PuterPeerServer extends EventTarget {
     #peerConfig;
     #wsconn = null;
     #channels = new Map();
-    #oncreateresolve = null;
+    /**
+     * The registration handshake in flight, and the socket it belongs to. A
+     * replaced socket must not settle its successor's handshake, so every
+     * path that settles one names the socket it is settling for.
+     *
+     * @type {{ ws: WebSocket, resolve: Function, reject: Function, timer: any } | null}
+     */
+    #pendingCreate = null;
     /** @type {PuterPeerOptions} */
     #options = {};
     #alive = false;
@@ -83,11 +90,16 @@ export class PuterPeerServer extends EventTarget {
 
         this.#alive = true;
         ws.onerror = null;
-        ws.onmessage = (event) => this.#message(event);
+        ws.onmessage = (event) => this.#message(event, ws);
         ws.onclose = (event) => {
             if ( this.#wsconn !== ws ) return;
             this.#alive = false;
             for ( const channel of this.#channels.values() ) channel.onunusable();
+            // A socket that dies before its reply fails its own registration
+            // now, rather than leaving it to time out beside a replacement.
+            this.#settleCreate(ws, (pending) => {
+                pending.reject(new Error('Connection closed unexpectedly'));
+            });
             this.#onSignallerLost(event);
         };
 
@@ -105,34 +117,47 @@ export class PuterPeerServer extends EventTarget {
 
         const inviteCode = await new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
-                this.#oncreateresolve = null;
-                reject(new Error('Server creation timed out'));
+                this.#settleCreate(ws, (pending) => {
+                    pending.reject(new Error('Server creation timed out'));
+                });
             }, CREATE_TIMEOUT_MS);
 
-            this.#oncreateresolve = (data) => {
-                clearTimeout(timer);
-                this.#oncreateresolve = null;
-                if ( data.success ) {
-                    resolve(data.invitecode ?? this.inviteCode);
-                } else {
-                    reject(signallerError(data.error, data.code));
-                }
-            };
+            this.#pendingCreate = { ws, resolve, reject, timer };
         }).catch((error) => {
-            this.#alive = false;
             ws.onclose = null;
             try {
                 ws.close();
             } catch {
                 // The failed registration is already unusable.
             }
-            if ( this.#wsconn === ws ) this.#wsconn = null;
+            // Only if this socket is still the live one: a registration that
+            // has already been replaced must not mark its successor dead.
+            if ( this.#wsconn === ws ) {
+                this.#alive = false;
+                this.#wsconn = null;
+            }
             throw error;
         });
 
         this.inviteCode = inviteCode;
         this.#startPing(ws);
         return inviteCode;
+    }
+
+    /**
+     * Settles the registration handshake `ws` is waiting on, if it is still
+     * the one in flight. Passing no socket settles whichever is, which is what
+     * closing the server does.
+     *
+     * @param {WebSocket | null} ws
+     * @param {(pending: { resolve: Function, reject: Function }) => void} settle
+     */
+    #settleCreate ( ws, settle ) {
+        const pending = this.#pendingCreate;
+        if ( ! pending || ( ws && pending.ws !== ws ) ) return;
+        clearTimeout(pending.timer);
+        this.#pendingCreate = null;
+        settle(pending);
     }
 
     #startPing ( ws ) {
@@ -203,17 +228,22 @@ export class PuterPeerServer extends EventTarget {
         this.dispatchEvent(new PuterPeerServerCloseEvent(reason));
     }
 
-    /** @param {Record<string, unknown>} envelope */
+    /**
+     * @param {Record<string, unknown>} envelope
+     * @returns {boolean} whether the envelope left
+     */
     relay ( envelope ) {
-        if ( ! this.#alive ) return;
+        if ( ! this.#alive ) return false;
         try {
             this.#wsconn.send(JSON.stringify({ server: envelope }));
+            return true;
         } catch {
             // The close handler updates signalling state.
+            return false;
         }
     }
 
-    async #message ( event ) {
+    async #message ( event, ws ) {
         let data;
         try {
             data = JSON.parse(event.data);
@@ -223,7 +253,14 @@ export class PuterPeerServer extends EventTarget {
         if ( ! data?.server ) return;
 
         if ( data.server.create ) {
-            this.#oncreateresolve?.(data.server.create);
+            const reply = data.server.create;
+            this.#settleCreate(ws, (pending) => {
+                if ( reply.success ) {
+                    pending.resolve(reply.invitecode ?? this.inviteCode);
+                } else {
+                    pending.reject(signallerError(reply.error, reply.code));
+                }
+            });
             return;
         }
         if ( data.server.connect ) {
@@ -259,6 +296,9 @@ export class PuterPeerServer extends EventTarget {
     close () {
         this.#closed = true;
         this.#stopPing();
+        this.#settleCreate(null, (pending) => {
+            pending.reject(new Error('The server was closed'));
+        });
         if ( this.#reconnectTimer ) clearTimeout(this.#reconnectTimer);
         this.#reconnectTimer = null;
         for ( const connection of this.connections.values() ) connection.close();

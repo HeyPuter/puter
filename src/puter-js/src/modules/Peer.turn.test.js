@@ -438,6 +438,31 @@ describe('connect as a guest', () => {
         ]);
     });
 
+    it('falls back to the public ICE servers when the relay request fails', async () => {
+        // Relays are an optimisation: an unreachable endpoint must not stop a
+        // connection that has usable fallback servers.
+        routeFetch({
+            '/peer/signaller-info': signallerInfo,
+            '/peer/guest-turn': () => {
+                throw new Error('network down');
+            },
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { peer } = makePeer();
+        try {
+            await peer.connect('HOST-1234', {
+                anonToken: '11111111-2222-3333-4444-555555555555',
+                turnGrant: 'grant-1',
+            });
+        } finally {
+            warn.mockRestore();
+        }
+
+        expect(FakeRTCPeerConnection.latest.config.iceServers).toEqual([
+            { urls: 'stun:fallback.test' },
+        ]);
+    });
+
     it('honors caller-supplied ICE servers without redeeming a grant', async () => {
         routeFetch({ '/peer/signaller-info': signallerInfo });
         const { peer } = makePeer();
@@ -471,5 +496,65 @@ describe('connect as a guest', () => {
         const sent = JSON.parse(FakeWebSocket.latest.sent[0]);
         expect(sent.client.connect.authToken).toBe('user-token');
         expect(callTo('/peer/guest-turn')).toBeUndefined();
+    });
+});
+
+describe('relay credentials under concurrency', () => {
+    const SERVERS_A = [{ urls: 'turn:a.test' }];
+    const SERVERS_B = [{ urls: 'turn:b.test' }];
+
+    it('does not cache one grant’s credentials under another’s name', async () => {
+        const pending = new Map();
+        fetchUrlMock.mockImplementation((url, opts) => {
+            const { grant } = JSON.parse(opts.body);
+            return new Promise((resolve) => pending.set(grant, resolve));
+        });
+        const { peer } = makePeer();
+
+        // Two guests load at once, and the later request answers first.
+        const a = peer.ensureTurnRelays({ turnGrant: 'grant-a' });
+        const b = peer.ensureTurnRelays({ turnGrant: 'grant-b' });
+        pending.get('grant-b')(respond({ iceServers: SERVERS_B, ttl: 600 }));
+        pending.get('grant-a')(respond({ iceServers: SERVERS_A, ttl: 600 }));
+
+        await expect(a).resolves.toEqual(SERVERS_A);
+        await expect(b).resolves.toEqual(SERVERS_B);
+
+        // Whatever the cache ended up holding, it must belong to the grant it
+        // is labelled with.
+        fetchUrlMock.mockClear();
+        await expect(
+            peer.ensureTurnRelays({ turnGrant: 'grant-b' }),
+        ).resolves.toEqual(SERVERS_B);
+        expect(fetchUrlMock).not.toHaveBeenCalled();
+    });
+
+    it('resolves without relays when the request throws', async () => {
+        routeFetch({
+            '/peer/guest-turn': () => {
+                throw new Error('network down');
+            },
+        });
+        const { peer } = makePeer();
+
+        await expect(
+            peer.ensureTurnRelays({ turnGrant: 'grant-1' }),
+        ).resolves.toBeUndefined();
+    });
+
+    it('resolves without relays when the reply cannot be read', async () => {
+        routeFetch({
+            '/peer/guest-turn': {
+                ok: true,
+                json: async () => {
+                    throw new SyntaxError('unexpected token');
+                },
+            },
+        });
+        const { peer } = makePeer();
+
+        await expect(
+            peer.ensureTurnRelays({ turnGrant: 'grant-1' }),
+        ).resolves.toBeUndefined();
     });
 });

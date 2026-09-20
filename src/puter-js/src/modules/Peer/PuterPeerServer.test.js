@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PuterPeerServer } from './PuterPeerServer.js';
 import { FakePeerConnection, flush } from './testFakes.js';
 
@@ -36,6 +36,7 @@ beforeEach(() => {
 
 afterEach(() => {
     globalThis.WebSocket = origWebSocket;
+    vi.useRealTimers();
 });
 
 const flushMicrotasks = async () => {
@@ -180,5 +181,48 @@ describe('PuterPeerServer connections', () => {
         await flush();
 
         expect(ws.sent.length).toBe(before);
+    });
+});
+
+describe('PuterPeerServer registration handshake', () => {
+    it('does not let an abandoned registration disable its replacement', async () => {
+        vi.useFakeTimers();
+        const server = await startServer();
+        const first = FakeWebSocket.latest;
+
+        // The signaller drops the socket, so a reconnect opens a second one.
+        first.onclose({ code: 1006 });
+        await vi.advanceTimersByTimeAsync(2_000);
+        const second = FakeWebSocket.latest;
+        expect(second).not.toBe(first);
+
+        // That one opens and asks to register, then dies before replying.
+        second.onopen();
+        await flushMicrotasks();
+        second.onclose({ code: 1006 });
+        await vi.advanceTimersByTimeAsync(4_000);
+
+        // The third registration succeeds.
+        const third = FakeWebSocket.latest;
+        expect(third).not.toBe(second);
+        third.onopen();
+        await flushMicrotasks();
+        await third.onmessage({
+            data: JSON.stringify({
+                server: { create: { success: true, invitecode: 'invite-3' } },
+            }),
+        });
+        await flushMicrotasks();
+
+        expect(server.inviteCode).toBe('invite-3');
+        expect(server.signallingAlive).toBe(true);
+
+        // Long enough for the abandoned registration's own timeout to have
+        // fired. It owns nothing now, so it settles nothing.
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(server.inviteCode).toBe('invite-3');
+        expect(server.signallingAlive).toBe(true);
+        expect(server.relay({ candidate: { candidate: null, id: 'c1' } })).toBe(true);
     });
 });

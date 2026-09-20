@@ -42,7 +42,10 @@ export function signallerError (message, code) {
  *
  * Subclasses supply `alive`, `close()`, and one send method per message:
  * `sendOffer(description, names)`, `sendAnswer(description, names)`,
- * `sendCandidate(candidate)` and `sendBye(reason)`.
+ * `sendCandidate(candidate)` and `sendBye(reason)`. Each send reports whether
+ * the message left, since a description that was applied locally and never
+ * reached the peer leaves the connection waiting for an answer that cannot
+ * come.
  */
 export class SignallingChannel {
     /** @type {(description: RTCSessionDescriptionInit, names?: Record<string, string>) => void} */
@@ -145,27 +148,30 @@ export class ClientSignallingChannel extends SignallingChannel {
     }
 
     sendOffer ( description, names ) {
-        this.#post({ offer: { offer: description, names } });
+        return this.#post({ offer: { offer: description, names } });
     }
 
     sendAnswer ( description, names ) {
-        this.#post({ answer: { answer: description, names } });
+        return this.#post({ answer: { answer: description, names } });
     }
 
     sendCandidate ( candidate ) {
-        this.#post({ candidate: { candidate } });
+        return this.#post({ candidate: { candidate } });
     }
 
     sendBye ( reason ) {
-        this.#post({ bye: { reason } });
+        return this.#post({ bye: { reason } });
     }
 
     #post ( payload ) {
-        if ( ! this.alive ) return;
+        if ( ! this.alive ) return false;
         try {
             this.#ws.send(JSON.stringify({ client: payload }));
+            return true;
         } catch {
-            // socket closed underneath us; recovery keys off `alive` instead
+            // The socket closed underneath us; the caller undoes whatever it
+            // had already applied locally.
+            return false;
         }
     }
 
@@ -235,24 +241,24 @@ export class ServerSignallingChannel extends SignallingChannel {
     // Every payload a peer server sends carries the connection id, since one
     // socket carries all of its clients.
     sendOffer ( description, names ) {
-        this.#post({ offer: { offer: description, names, id: this.#id } });
+        return this.#post({ offer: { offer: description, names, id: this.#id } });
     }
 
     sendAnswer ( description, names ) {
-        this.#post({ answer: { answer: description, names, id: this.#id } });
+        return this.#post({ answer: { answer: description, names, id: this.#id } });
     }
 
     sendCandidate ( candidate ) {
-        this.#post({ candidate: { candidate, id: this.#id } });
+        return this.#post({ candidate: { candidate, id: this.#id } });
     }
 
     sendBye ( reason ) {
-        this.#post({ bye: { reason, id: this.#id } });
+        return this.#post({ bye: { reason, id: this.#id } });
     }
 
     #post ( payload ) {
-        if ( ! this.alive ) return;
-        this.#server.relay(payload);
+        if ( ! this.alive ) return false;
+        return this.#server.relay(payload);
     }
 
     /** Nothing to close: the socket belongs to the server, not this channel. */
