@@ -21,7 +21,7 @@
  * Integration test for the Infron aggregator.
  *
  * Routes through Infron to a tiny upstream model
- * (`deepseek/deepseek-v4-flash`). Skipped when
+ * (`deepseek/deepseek-v4-pro`). Skipped when
  * `PUTER_TEST_AI_INFRON_API_KEY` is unset.
  */
 
@@ -46,7 +46,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))('InfronProvider (integration)', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'infron:deepseek/deepseek-v4-flash',
+                model: 'infron:deepseek/deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'Say hi in one word.' }],
                 max_tokens: 16,
             }),

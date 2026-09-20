@@ -53,35 +53,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
             completion_tokens: 750,
         },
     },
-    {
-        puterId: 'mistralai:mistralai/mistral-large-2512',
-        id: 'mistral-large-2512',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2025-12',
-        release_date: '2025-12-02',
-        name: 'Mistral Large 3',
-        aliases: [
-            'mistral-large-latest',
-            'mistral-large',
-            'mistralai/mistral-large-latest',
-            'mistralai/mistral-large-2512',
-        ],
-        context: 262_144,
-        max_tokens: 262_144,
-        description:
-            'State-of-the-art, open-weight, general-purpose multimodal model.',
-        provider: 'mistral',
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 50,
-            completion_tokens: 150,
-        },
-    },
+
     {
         puterId: 'mistralai:mistralai/mistral-small-2603',
         id: 'mistral-small-2603',
@@ -111,29 +83,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
             completion_tokens: 60,
         },
     },
-    {
-        puterId: 'mistralai:mistralai/zai-glm-5-2',
-        id: 'zai-glm-5-2',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        release_date: '2026-08-06',
-        name: 'Z.ai GLM 5.2',
-        aliases: ['glm-5-2'],
-        context: 1_000_000,
-        max_tokens: 128_000,
-        description:
-            'Third-party open-source model from Z.ai, hosted by Mistral for long-context coding and agentic workflows.',
-        provider: 'mistral',
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 140,
-            completion_tokens: 440,
-        },
-    },
+
     {
         puterId: 'mistralai:mistralai/codestral-2508',
         id: 'codestral-2508',

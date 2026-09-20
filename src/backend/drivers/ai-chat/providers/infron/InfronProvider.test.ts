@@ -91,7 +91,7 @@ const KV_KEY = 'infronChat:models';
 // Prices are USD per million tokens (Infron catalog convention).
 const SAMPLE_API_MODELS = [
     {
-        id: 'deepseek/deepseek-v4-flash',
+        id: 'deepseek/deepseek-v4-pro',
         display_name: 'DeepSeek: DeepSeek V4 Flash',
         category_type: 'LLM',
         supported_endpoint_types: ['openai'],
@@ -323,7 +323,7 @@ describe('InfronProvider model catalog', () => {
     it('list() prefixes ids with infron: and filters non-chat and display-only entries', async () => {
         const { provider } = makeProvider();
         const ids = await provider.list();
-        expect(ids).toContain('infron:deepseek/deepseek-v4-flash');
+        expect(ids).toContain('infron:deepseek/deepseek-v4-pro');
         expect(ids).toContain(provider.getDefaultModel());
         expect(ids).toContain('infron:anthropic/claude-haiku-4.5');
         expect(ids).not.toContain('infron:black-forest-labs/flux-2.1');
@@ -422,7 +422,7 @@ describe('InfronProvider model catalog', () => {
         expect(models).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    id: 'infron:deepseek/deepseek-v4-flash',
+                    id: 'infron:deepseek/deepseek-v4-pro',
                     costs: expect.objectContaining({
                         tokens: 1_000_000,
                         prompt: 1000,
@@ -454,14 +454,14 @@ describe('InfronProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'infron:deepseek/deepseek-v4-flash',
+                model: 'infron:deepseek/deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hello' }],
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
         // infron: prefix is dropped before the SDK call.
-        expect(args.model).toBe('deepseek/deepseek-v4-flash');
+        expect(args.model).toBe('deepseek/deepseek-v4-pro');
         // Infron requires `usage: { include: true }` to surface the
         // cost field — the provider always sets this.
         expect(args.usage).toEqual({ include: true });
@@ -535,7 +535,7 @@ describe('InfronProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'infron:deepseek/deepseek-v4-flash',
+                model: 'infron:deepseek/deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -546,7 +546,7 @@ describe('InfronProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'infron:deepseek/deepseek-v4-flash',
+                model: 'infron:deepseek/deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -581,7 +581,7 @@ describe('InfronProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'infron:deepseek/deepseek-v4-flash',
+                model: 'infron:deepseek/deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         )) as { usage: Record<string, number> };
@@ -590,7 +590,7 @@ describe('InfronProvider.complete non-stream output', () => {
         // single `billedUsage` line item priced at cost * 1e8.
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('infron:deepseek/deepseek-v4-flash');
+        expect(prefix).toBe('infron:deepseek/deepseek-v4-pro');
         expect(usage).toMatchObject({
             prompt: 100 - 10, // prompt_tokens - cached
             completion: 50,
@@ -626,12 +626,12 @@ describe('InfronProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'infron:deepseek/deepseek-v4-flash',
+                model: 'infron:deepseek/deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        // deepseek-v4-flash catalog pricing converted to microcents per
+        // deepseek-v4-pro catalog pricing converted to microcents per
         // token: prompt=$10/M → 1000, completion=$30/M → 3000; cache
         // reads fall back to the full prompt rate.
         const [usage, , , overrides] = recordSpy.mock.calls[0]!;
@@ -669,7 +669,7 @@ describe('InfronProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'infron:deepseek/deepseek-v4-flash',
+                model: 'infron:deepseek/deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -690,7 +690,7 @@ describe('InfronProvider.complete streaming', () => {
         // Cost-branch metering on the final chunk.
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('infron:deepseek/deepseek-v4-flash');
+        expect(prefix).toBe('infron:deepseek/deepseek-v4-pro');
         expect(overrides.billedUsage).toBe(0.00005 * 100_000_000);
     });
 });

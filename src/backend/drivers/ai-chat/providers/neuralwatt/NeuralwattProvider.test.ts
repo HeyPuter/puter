@@ -90,7 +90,7 @@ const KV_QUOTA_KEY = 'neuralwattChat:quota';
 
 const SAMPLE_API_MODELS = [
     {
-        id: 'deepseek-v4-flash',
+        id: 'deepseek-v4-pro',
         created: 1_700_000_000,
         max_model_len: 1_000_000,
         metadata: {
@@ -242,18 +242,18 @@ afterEach(() => {
 
 describe('Neuralwatt model mapping helpers', () => {
     it('strips the neuralwatt: prefix for upstream ids', () => {
-        expect(stripNeuralwattPrefix('neuralwatt:deepseek-v4-flash')).toBe(
-            'deepseek-v4-flash',
+        expect(stripNeuralwattPrefix('neuralwatt:deepseek-v4-pro')).toBe(
+            'deepseek-v4-pro',
         );
-        expect(stripNeuralwattPrefix('deepseek-v4-flash')).toBe(
-            'deepseek-v4-flash',
+        expect(stripNeuralwattPrefix('deepseek-v4-pro')).toBe(
+            'deepseek-v4-pro',
         );
     });
 
     it('maps catalog pricing into usd-cents cost keys and skips pricing_tbd', () => {
         const mapped = mapNeuralwattApiModel(SAMPLE_API_MODELS[0]!);
         expect(mapped).toMatchObject({
-            id: 'neuralwatt:deepseek-v4-flash',
+            id: 'neuralwatt:deepseek-v4-pro',
             costs_currency: 'usd-cents',
             input_cost_key: 'prompt_tokens',
             output_cost_key: 'completion_tokens',
@@ -341,7 +341,7 @@ describe('NeuralwattProvider model catalog', () => {
     it('list() prefixes ids and skips deprecated / pricing_tbd entries', async () => {
         const { provider } = makeProvider();
         const ids = await provider.list();
-        expect(ids).toContain('neuralwatt:deepseek-v4-flash');
+        expect(ids).toContain('neuralwatt:deepseek-v4-pro');
         expect(ids).toContain('neuralwatt:zai-org/GLM-5.1-FP8');
         expect(ids).toContain('GLM-5.1-FP8');
         expect(ids).not.toContain('neuralwatt:coming-soon-model');
@@ -396,13 +396,13 @@ describe('NeuralwattProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'neuralwatt:deepseek-v4-flash',
+                model: 'neuralwatt:deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hello' }],
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('deepseek-v4-flash');
+        expect(args.model).toBe('deepseek-v4-pro');
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -411,7 +411,7 @@ describe('NeuralwattProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'neuralwatt:deepseek-v4-flash',
+                model: 'neuralwatt:deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -422,7 +422,7 @@ describe('NeuralwattProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'neuralwatt:deepseek-v4-flash',
+                model: 'neuralwatt:deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -437,7 +437,7 @@ describe('NeuralwattProvider.complete request shape', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'neuralwatt:deepseek-v4-flash',
+                    model: 'neuralwatt:deepseek-v4-pro',
                     messages: [
                         {
                             role: 'user',
@@ -558,14 +558,14 @@ describe('NeuralwattProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'neuralwatt:deepseek-v4-flash',
+                model: 'neuralwatt:deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         )) as { usage: Record<string, number | string> };
 
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('neuralwatt:deepseek-v4-flash');
+        expect(prefix).toBe('neuralwatt:deepseek-v4-pro');
         expect(usage).toMatchObject({
             prompt_tokens: 100,
             completion_tokens: 50,
@@ -604,7 +604,7 @@ describe('NeuralwattProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'neuralwatt:deepseek-v4-flash',
+                model: 'neuralwatt:deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -665,7 +665,7 @@ describe('NeuralwattProvider.complete streaming', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'neuralwatt:deepseek-v4-flash',
+                model: 'neuralwatt:deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),

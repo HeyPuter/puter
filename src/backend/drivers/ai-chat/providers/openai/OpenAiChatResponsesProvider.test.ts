@@ -188,7 +188,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
     it('models() exposes Responses-only and dual-API entries', () => {
         const { provider } = makeProvider();
         const ids = provider.models().map((m: { id: string }) => m.id);
-        expect(ids).toContain('o3-pro');
+        expect(ids).toContain('o3');
         expect(ids).toContain('gpt-6-astra');
         expect(ids).not.toContain('gpt-5-nano-2025-08-07');
     });
@@ -199,15 +199,15 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
             .models({ no_restrictions: true })
             .map((m: { id: string }) => m.id);
         // Both responses-only AND chat-only ids should be present.
-        expect(ids).toContain('o3-pro');
+        expect(ids).toContain('o3');
         expect(ids).toContain('gpt-5-nano-2025-08-07');
     });
 
     it('list() flattens canonical ids and aliases for Responses models', () => {
         const { provider } = makeProvider();
         const ids = provider.list();
-        expect(ids).toContain('o3-pro');
-        expect(ids).toContain('openai/o3-pro');
+        expect(ids).toContain('o3');
+        expect(ids).toContain('openai/o3');
         expect(ids).toContain('gpt-6-astra');
         expect(ids).toContain('openai/gpt-6-astra');
     });
@@ -221,7 +221,7 @@ describe('OpenAiResponsesChatProvider.complete argument validation', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'o3-pro',
+                    model: 'o3',
                     messages: 'hello' as unknown as never,
                 }),
             ),
@@ -246,7 +246,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'hello' }],
                 max_tokens: 256,
                 temperature: 0.4,
@@ -254,7 +254,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         );
 
         const [args] = responsesCreateMock.mock.calls[0]!;
-        expect(args.model).toBe('o3-pro');
+        expect(args.model).toBe('o3');
         // Responses API takes `input`, not `messages`.
         expect(args.input).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_output_tokens).toBe(256);
@@ -267,7 +267,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools: [
                     {
@@ -305,7 +305,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'hi' }],
                 tool_choice: 'auto',
                 parallel_tool_calls: false,
@@ -346,11 +346,11 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect('reasoning_effort' in gpt5Args).toBe(false);
         expect('verbosity' in gpt5Args).toBe(false);
 
-        // o3-pro: not gpt-5 → forwards both.
+        // o3: not gpt-5 → forwards both.
         responsesCreateMock.mockResolvedValueOnce(baseResponse);
         await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'hi' }],
                 reasoning_effort: 'medium',
                 verbosity: 'low',
@@ -399,17 +399,17 @@ describe('OpenAiResponsesChatProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                // openai/o3-pro is an alias of o3-pro.
-                model: 'openai/o3-pro',
+                // openai/o3 is an alias of o3.
+                model: 'openai/o3',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(responsesCreateMock.mock.calls[0]![0].model).toBe('o3-pro');
+        expect(responsesCreateMock.mock.calls[0]![0].model).toBe('o3');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'openai:o3-pro',
+            'openai:o3',
             expect.any(Object),
         );
     });
@@ -455,7 +455,7 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -474,12 +474,12 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
 
-        // o3-pro costs: prompt=2000, completion=8000, cached=50.
-        const o3pro = OPEN_AI_MODELS.find((m) => m.id === 'o3-pro')!;
+        // o3 costs: prompt=2000, completion=8000, cached=50.
+        const o3pro = OPEN_AI_MODELS.find((m) => m.id === 'o3')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('openai:o3-pro');
+        expect(prefix).toBe('openai:o3');
         expect(usage).toEqual({
             prompt_tokens: 90,
             completion_tokens: 50,
@@ -549,7 +549,7 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'do a tool call' }],
             }),
         )) as { message: { tool_calls?: unknown[] } };
@@ -575,7 +575,7 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'o3-pro',
+                    model: 'o3',
                     messages: [{ role: 'user', content: 'silence' }],
                 }),
             ),
@@ -607,7 +607,7 @@ describe('OpenAiResponsesChatProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -633,11 +633,11 @@ describe('OpenAiResponsesChatProvider.complete streaming', () => {
             cached_tokens: 1,
         });
 
-        // o3-pro costs: prompt=2000, completion=8000, cached=50.
-        const o3pro = OPEN_AI_MODELS.find((m) => m.id === 'o3-pro')!;
+        // o3 costs: prompt=2000, completion=8000, cached=50.
+        const o3pro = OPEN_AI_MODELS.find((m) => m.id === 'o3')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('openai:o3-pro');
+        expect(prefix).toBe('openai:o3');
         expect(overrides).toEqual({
             prompt_tokens: 3 * Number(o3pro.costs.prompt_tokens),
             completion_tokens: 2 * Number(o3pro.costs.completion_tokens),
@@ -670,7 +670,7 @@ describe('OpenAiResponsesChatProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'o3-pro',
+                model: 'o3',
                 messages: [{ role: 'user', content: 'tool call' }],
                 stream: true,
             }),
@@ -735,7 +735,7 @@ describe('OpenAiResponsesChatProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'o3-pro',
+                    model: 'o3',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),

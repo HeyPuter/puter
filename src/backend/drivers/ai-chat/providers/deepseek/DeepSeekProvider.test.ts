@@ -145,9 +145,9 @@ describe('DeepSeekProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('DeepSeekProvider model catalog', () => {
-    it('returns deepseek-v4-flash as the default', () => {
+    it('returns deepseek-v4-pro as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('deepseek-v4-flash');
+        expect(provider.getDefaultModel()).toBe('deepseek-v4-pro');
     });
 
     it('exposes the static DEEPSEEK_MODELS list verbatim from models()', () => {
@@ -164,7 +164,7 @@ describe('DeepSeekProvider model catalog', () => {
                 expect(ids).toContain(a);
             }
         }
-        expect(ids).toContain('deepseek-v4-flash');
+        expect(ids).toContain('deepseek-v4-pro');
         expect(ids).toContain('deepseek-v4-pro');
         expect(ids).toContain('deepseek-chat');
         expect(ids).toContain('deepseek/deepseek-v4-pro');
@@ -190,13 +190,13 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hello' }],
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('deepseek-v4-flash');
+        expect(args.model).toBe('deepseek-v4-pro');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_tokens).toBe(1000);
     });
@@ -207,7 +207,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 256,
             }),
@@ -222,7 +222,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 0,
             }),
@@ -237,7 +237,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -261,7 +261,7 @@ describe('DeepSeekProvider.complete request shape', () => {
         ];
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools,
             }),
@@ -275,7 +275,7 @@ describe('DeepSeekProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -287,7 +287,7 @@ describe('DeepSeekProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -303,7 +303,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [
                     {
                         role: 'assistant',
@@ -344,7 +344,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [
                     {
                         role: 'assistant',
@@ -381,7 +381,7 @@ describe('DeepSeekProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'deepseek-v4-flash',
+                model: 'deepseek-v4-pro',
                 messages: [
                     { role: 'user', content: 'do tool call' },
                     {
