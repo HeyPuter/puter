@@ -44,9 +44,13 @@ export class PeerModule extends PuterModule {
      * to the default ICE servers.
      *
      * @param {{ turnGrant?: string }} [options]
-     * @returns {Promise<void>}
+     * @returns {Promise<RTCIceServer[] | undefined>} the relays, if there are any
      */
     async ensureTurnRelays (options = {}) {
+        // Credentials are tied to whoever is paying for them, so a change of
+        // source invalidates both the cached servers and a previous failure —
+        // otherwise a guest who tried before holding a grant would be stuck
+        // with the fallback for the rest of the page's life.
         const source = options.turnGrant ? `grant:${options.turnGrant}` : 'session';
         if ( source !== this.#turnSource ) {
             this.#turnSource = source;
@@ -54,34 +58,49 @@ export class PeerModule extends PuterModule {
             this.#turnFailed = false;
         }
 
-        if ( this.#turnFailed ) return;
-        if ( this.#turnServers && Date.now() - this.#turnStartedAt < this.#turnTTL * 1000 ) return;
-
-        const response = options.turnGrant
-            ? await fetchUrl(`${this.APIOrigin}/peer/guest-turn`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ grant: options.turnGrant }),
-            })
-            : await fetchUrl(`${this.APIOrigin}/peer/generate-turn`, {
-                method: 'POST',
-                includePuterAuth: true,
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-
-        if ( ! response.ok ) {
-            this.#turnFailed = true;
-            return;
+        if ( this.#turnFailed ) return undefined;
+        if ( this.#turnServers && Date.now() - this.#turnStartedAt < this.#turnTTL * 1000 ) {
+            return this.#turnServers;
         }
 
-        const { iceServers, ttl } = await response.json();
-        this.#turnServers = iceServers;
-        this.#turnTTL = ttl;
-        this.#turnStartedAt = Date.now();
+        try {
+            const response = options.turnGrant
+                ? await fetchUrl(`${this.APIOrigin}/peer/guest-turn`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ grant: options.turnGrant }),
+                })
+                : await fetchUrl(`${this.APIOrigin}/peer/generate-turn`, {
+                    method: 'POST',
+                    includePuterAuth: true,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+            if ( ! response.ok ) {
+                if ( this.#turnSource === source ) this.#turnFailed = true;
+                return undefined;
+            }
+
+            const { iceServers, ttl } = await response.json();
+            // Loads for two sources can overlap, and the cache holds one. The
+            // credentials are still returned to whoever asked for them; only
+            // the source that is current now gets to cache.
+            if ( this.#turnSource === source ) {
+                this.#turnServers = iceServers;
+                this.#turnTTL = ttl;
+                this.#turnStartedAt = Date.now();
+            }
+            return iceServers;
+        } catch {
+            // Relays are an optimisation, not a requirement: an unreachable
+            // endpoint or an unreadable reply leaves the fallback to serve.
+            if ( this.#turnSource === source ) this.#turnFailed = true;
+            return undefined;
+        }
     }
 
     async #loadMetadata () {
@@ -106,8 +125,8 @@ export class PeerModule extends PuterModule {
 
     async #iceServersFor (options) {
         if ( options?.iceServers ) return options.iceServers;
-        await this.ensureTurnRelays(options ?? {});
-        if ( this.#turnServers ) return this.#turnServers;
+        const iceServers = await this.ensureTurnRelays(options ?? {});
+        if ( iceServers ) return iceServers;
         console.warn('Unable to use TURN relays. Some connections may fail.');
         return this.#fallbackIceServers;
     }

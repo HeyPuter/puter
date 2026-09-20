@@ -95,15 +95,29 @@ describe('ICE recovery', () => {
         expect(closes).toEqual(['could not restore the connection']);
     });
 
-    it('treats an unanswered restart as the peer having gone', async () => {
+    it('tries again when a restart goes unanswered', async () => {
+        // A peer whose tab is throttled answers late, and the browser raises
+        // no further state change while the transport stays failed, so one
+        // silent restart must not end the connection.
         vi.useFakeTimers();
         const { conn, pc, closes } = await makeConnection();
 
         pc.setConnectionState('failed');
         await vi.advanceTimersByTimeAsync(8000);
-        await flush();
 
-        expect(pc.restarts).toBe(1);
+        expect(pc.restarts).toBe(2);
+        expect(conn.closed).toBe(false);
+        expect(closes).toEqual([]);
+    });
+
+    it('treats a peer that answers no restart at all as gone', async () => {
+        vi.useFakeTimers();
+        const { conn, pc, closes } = await makeConnection();
+
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(8000 * 3);
+
+        expect(pc.restarts).toBe(3);
         expect(conn.closed).toBe(true);
         expect(closes).toEqual(['the peer stopped responding']);
     });

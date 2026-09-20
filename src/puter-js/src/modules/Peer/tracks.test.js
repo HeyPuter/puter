@@ -204,3 +204,30 @@ describe('receiving', () => {
         expect(seen).toEqual(['0']);
     });
 });
+
+describe('remote names and a rejected description', () => {
+    it('keeps media the peer is still sending when the description fails', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        const ended = [];
+        conn.addEventListener('mediaended', (e) => ended.push(e.name));
+
+        channel.onoffer({ type: 'offer', sdp: 'a' }, { 0: 'screen' });
+        await flush();
+        pc.receiveTrack(track('video'), '0');
+        expect(conn.media.has('screen')).toBe(true);
+
+        // The names say the peer dropped 'screen', but the description they
+        // arrived with never applies - so the peer is still sending it.
+        pc.failRemoteDescription = true;
+        channel.onoffer({ type: 'offer', sdp: 'b' }, {});
+        await flush();
+
+        expect(ended).toEqual([]);
+        expect(conn.media.has('screen')).toBe(true);
+
+        // The name map is the one the live description established, so the
+        // next track on that m-section is still named.
+        pc.receiveTrack(track('audio', 'a2'), '0');
+        expect(conn.media.has('screen')).toBe(true);
+    });
+});

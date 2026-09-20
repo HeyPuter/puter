@@ -16,6 +16,9 @@ import {
 /** How many times ICE may be restarted before the connection is given up on. */
 const ICE_RESTART_LIMIT = 3;
 
+/** How long an answered restart is given to bring the transport back. */
+const TRANSPORT_SETTLE_TIMEOUT = 8000;
+
 /**
  * A WebRTC data channel connection to a peer, and the negotiation that keeps
  * it alive. Both ends of a connection are one of these; they differ only in
@@ -54,6 +57,7 @@ export class PuterPeerConnection extends EventTarget {
     #iceRestarts = 0;
     #recovering = false;
     #peerGone = false;
+    #transportWaiters = new Set();
 
     /**
      * @param {object} peerConfig
@@ -96,7 +100,7 @@ export class PuterPeerConnection extends EventTarget {
             polite,
             onerror: (error) => this.dispatchEvent(new PuterPeerConnectionErrorEvent(error)),
             localNames: () => this.#tracks.localNames(),
-            onRemoteNames: (names) => this.#tracks.applyRemoteNames(names),
+            onRemoteNames: (names) => this.#tracks.stageRemoteNames(names),
         });
 
         this.peerconnection.onconnectionstatechange = () => this.#onConnectionState();
@@ -190,6 +194,7 @@ export class PuterPeerConnection extends EventTarget {
     }
 
     #onConnectionState () {
+        this.#wakeTransportWaiters();
         switch ( this.peerconnection.connectionState ) {
             case 'connected':
                 this.#iceRestarts = 0;
@@ -227,29 +232,71 @@ export class PuterPeerConnection extends EventTarget {
      * ICE failure looks identical whether the peer hung up or the network
      * path died, so rather than guess, restart and see whether anyone is
      * still there to answer.
+     *
+     * One unanswered restart is not proof either - a peer whose tab is
+     * throttled answers late - so attempts run until the transport recovers
+     * or the budget is spent. The browser has no reason to raise another
+     * `connectionstatechange` while the state stays `failed`, so the retries
+     * belong in here rather than in the event.
      */
     async #recover () {
         if ( this.closed || this.#recovering ) return;
-
-        if ( this.#peerGone || ! this.#channel.alive ) {
-            this.#doclose('the peer is no longer reachable', undefined);
-            return;
-        }
-        if ( this.#iceRestarts >= ICE_RESTART_LIMIT ) {
-            this.#doclose('could not restore the connection', undefined);
-            return;
-        }
-
         this.#recovering = true;
-        this.#iceRestarts++;
-        this.#setLinkState('recovering', { attempt: this.#iceRestarts, of: ICE_RESTART_LIMIT });
         try {
-            await this.#negotiator.restartIce();
-        } catch {
-            this.#doclose('the peer stopped responding', undefined);
+            let unanswered = false;
+            while ( ! this.closed && this.peerconnection.connectionState === 'failed' ) {
+                if ( this.#peerGone || ! this.#channel.alive ) {
+                    this.#doclose('the peer is no longer reachable', undefined);
+                    return;
+                }
+                if ( this.#iceRestarts >= ICE_RESTART_LIMIT ) {
+                    this.#doclose(
+                        unanswered ? 'the peer stopped responding' : 'could not restore the connection',
+                        undefined,
+                    );
+                    return;
+                }
+
+                this.#iceRestarts++;
+                this.#setLinkState('recovering', { attempt: this.#iceRestarts, of: ICE_RESTART_LIMIT });
+                try {
+                    await this.#negotiator.restartIce();
+                    unanswered = false;
+                } catch {
+                    unanswered = true;
+                    continue;
+                }
+                // Answered: the new candidates need a moment to either take
+                // over or fail, and only then is another attempt warranted.
+                if ( this.peerconnection.connectionState === 'failed' ) {
+                    await this.#nextTransportChange(TRANSPORT_SETTLE_TIMEOUT);
+                }
+            }
         } finally {
             this.#recovering = false;
         }
+    }
+
+    /**
+     * Resolves on the next transport state change, or when `timeout` expires.
+     *
+     * @param {number} timeout
+     * @returns {Promise<void>}
+     */
+    #nextTransportChange ( timeout ) {
+        return new Promise((resolve) => {
+            const wake = () => {
+                clearTimeout(timer);
+                this.#transportWaiters.delete(wake);
+                resolve();
+            };
+            const timer = setTimeout(wake, timeout);
+            this.#transportWaiters.add(wake);
+        });
+    }
+
+    #wakeTransportWaiters () {
+        for ( const wake of [...this.#transportWaiters] ) wake();
     }
 
     #doclose ( reason, error ) {
@@ -257,6 +304,9 @@ export class PuterPeerConnection extends EventTarget {
         this.closed = true;
         this.connected = false;
 
+        // `close()` below need not raise another state change, so recovery is
+        // told directly that there is nothing left to wait for.
+        this.#wakeTransportWaiters();
         this.#setLinkState('closed');
         this.#negotiator.stop();
         this.#tracks.close();

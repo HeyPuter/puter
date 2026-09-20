@@ -52,6 +52,8 @@ export class FakePeerConnection {
     #listeners = new Map();
     /** Set to make the next setLocalDescription reject. */
     failLocalDescription = false;
+    /** Set to make the next setRemoteDescription reject. */
+    failRemoteDescription = false;
 
     constructor (config) {
         this.config = config;
@@ -105,6 +107,12 @@ export class FakePeerConnection {
 
     async setLocalDescription (description) {
         if ( this.signalingState === 'closed' ) throw new Error('InvalidStateError: closed');
+        if ( description?.type === 'rollback' ) {
+            this.localDescription = null;
+            this.signalingState = 'stable';
+            this.fire('signalingstatechange');
+            return;
+        }
         if ( this.failLocalDescription ) {
             this.failLocalDescription = false;
             throw new Error('setLocalDescription failed');
@@ -118,6 +126,10 @@ export class FakePeerConnection {
 
     async setRemoteDescription (description) {
         if ( this.signalingState === 'closed' ) throw new Error('InvalidStateError: closed');
+        if ( this.failRemoteDescription ) {
+            this.failRemoteDescription = false;
+            throw new Error('setRemoteDescription failed');
+        }
         if ( description.type === 'offer' ) {
             // 'have-local-offer' rolls back implicitly, which is what lets the
             // polite side accept an offer it collided with.
@@ -215,27 +227,27 @@ export class LoopbackChannel extends SignallingChannel {
     }
 
     sendOffer (description, names) {
-        this.#post({ offer: { offer: description, names } });
+        return this.#post({ offer: { offer: description, names } });
     }
 
     sendAnswer (description, names) {
-        this.#post({ answer: { answer: description, names } });
+        return this.#post({ answer: { answer: description, names } });
     }
 
     sendCandidate (candidate) {
-        this.#post({ candidate: { candidate } });
+        return this.#post({ candidate: { candidate } });
     }
 
     sendBye (reason) {
-        this.#post({ bye: { reason } });
+        return this.#post({ bye: { reason } });
     }
 
     /** Records the wire payload, then hands it to the peer to read as one. */
     #post (payload) {
-        if ( this.failSend ) throw new Error('signalling send failed');
-        if ( ! this._alive ) return;
+        if ( this.failSend || ! this._alive ) return false;
         this.delivered.push(payload);
         this.peer?.receive(payload);
+        return true;
     }
 
     close () {

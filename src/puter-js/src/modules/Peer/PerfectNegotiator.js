@@ -27,6 +27,13 @@ export class PerfectNegotiator {
     #tail = Promise.resolve();
     #waiters = new Set();
     #pendingCandidates = [];
+    /**
+     * Counts the local offers that have gone out. A caller waiting on a
+     * negotiation waits for one particular offer, so an unrelated exchange
+     * reaching `stable` - a track the peer added, say - cannot report someone
+     * else's ICE restart as having been answered.
+     */
+    #offerGeneration = 0;
 
     /**
      * @param {RTCPeerConnection} peerconnection
@@ -35,7 +42,7 @@ export class PerfectNegotiator {
      *   polite: boolean,
      *   onerror: (error: Error) => void,
      *   localNames?: () => Record<string, string>,
-     *   onRemoteNames?: (names: Record<string, string>) => void,
+     *   onRemoteNames?: (names: Record<string, string>) => import('./tracks.js').StagedNames | null,
      * }} options
      */
     constructor ( peerconnection, channel, { polite, onerror, localNames, onRemoteNames } ) {
@@ -44,7 +51,7 @@ export class PerfectNegotiator {
         this.#polite = polite;
         this.#onerror = onerror;
         this.#localNames = localNames ?? (() => ({}));
-        this.#onRemoteNames = onRemoteNames ?? (() => {});
+        this.#onRemoteNames = onRemoteNames ?? (() => null);
 
         this.#pc.onnegotiationneeded = () => this.#enqueue(() => this.#offer());
         this.#pc.onicecandidate = ({ candidate }) => {
@@ -108,10 +115,11 @@ export class PerfectNegotiator {
     }
 
     /**
-     * Restarts ICE and resolves once the peer has negotiated back. Rejecting
-     * is the clearest evidence available that the peer is gone rather than
-     * merely unreachable: signalling travels a different path from the broken
-     * media one, so a peer that is still there answers over it.
+     * Restarts ICE and resolves once the peer has answered the offer that
+     * carries the restart. Rejecting is the clearest evidence available that
+     * the peer is gone rather than merely unreachable: signalling travels a
+     * different path from the broken media one, so a peer that is still there
+     * answers over it.
      *
      * @param {number} [timeout]
      * @returns {Promise<void>}
@@ -133,10 +141,7 @@ export class PerfectNegotiator {
         this.#pc.onnegotiationneeded = null;
         this.#pc.onicecandidate = null;
         this.#pendingCandidates = [];
-        for ( const waiter of this.#waiters ) {
-            waiter.fail(new Error('The connection closed while negotiating'));
-        }
-        this.#waiters.clear();
+        this.#failWaiters(new Error('The connection closed while negotiating'));
     }
 
     #enqueue ( task ) {
@@ -151,12 +156,34 @@ export class PerfectNegotiator {
         try {
             this.#makingOffer = true;
             await this.#pc.setLocalDescription();
-            this.#channel.sendOffer(this.#pc.localDescription, this.#localNames());
+            const generation = ++this.#offerGeneration;
+            if ( ! this.#channel.sendOffer(this.#pc.localDescription, this.#localNames()) ) {
+                await this.#abandonOffer();
+                return;
+            }
+            this.#bindWaiters(generation);
         } catch ( e ) {
             this.#onerror(e);
         } finally {
             this.#makingOffer = false;
         }
+    }
+
+    /**
+     * An offer that never reached the peer leaves the connection waiting for
+     * an answer that cannot come, so it is rolled back to `stable` where the
+     * next negotiation can start from. Anything waiting fails now rather than
+     * spending its whole timeout on a signal that was never sent.
+     */
+    async #abandonOffer () {
+        try {
+            if ( this.#pc.signalingState === 'have-local-offer' ) {
+                await this.#pc.setLocalDescription({ type: 'rollback' });
+            }
+        } catch {
+            // Best effort: the failure reported below is what matters.
+        }
+        this.#failWaiters(new Error('The signalling connection is unavailable'));
     }
 
     async #applyOffer ( description, names ) {
@@ -169,11 +196,28 @@ export class PerfectNegotiator {
         this.#ignoreOffer = ! this.#polite && collision;
         if ( this.#ignoreOffer ) return;
 
+        // Our own offer is about to be rolled back, so whatever was waiting on
+        // it has to wait for the offer that replaces it.
+        const rebound = collision && this.#rebindWaiters();
+
         try {
             await this.#adopt(description, names);
             await pc.setLocalDescription();
-            this.#channel.sendAnswer(pc.localDescription, this.#localNames());
-            if ( pc.signalingState === 'stable' ) this.#settle();
+            const delivered = this.#channel.sendAnswer(pc.localDescription, this.#localNames());
+
+            if ( pc.signalingState === 'stable' ) {
+                // A side that only answers may renegotiate freely once the
+                // opening exchange is behind it - that is what future track
+                // additions need.
+                this.#mayOffer = true;
+                // Nothing raises the negotiation flag again for an offer that
+                // was rolled back, so the replacement has to be asked for -
+                // once there is a signalling path to carry it.
+                if ( rebound && delivered ) this.#enqueue(() => this.#offer());
+            }
+            if ( ! delivered ) {
+                this.#failWaiters(new Error('The signalling connection is unavailable'));
+            }
         } catch ( e ) {
             this.#onerror(e);
         }
@@ -184,7 +228,10 @@ export class PerfectNegotiator {
         if ( pc.signalingState === 'closed' ) return;
         try {
             await this.#adopt(description, names);
-            if ( pc.signalingState === 'stable' ) this.#settle();
+            if ( pc.signalingState === 'stable' ) {
+                this.#mayOffer = true;
+                this.#settleNegotiation();
+            }
         } catch ( e ) {
             this.#onerror(e);
         }
@@ -192,11 +239,19 @@ export class PerfectNegotiator {
 
     /**
      * Names go on before the description, because ontrack fires while one is
-     * being applied and a track has to be named by then.
+     * being applied and a track has to be named by then. Retiring the names
+     * the peer dropped waits until the description has actually applied: a
+     * description that is rejected leaves its tracks flowing.
      */
     async #adopt ( description, names ) {
-        if ( names ) this.#onRemoteNames(names);
-        await this.#pc.setRemoteDescription(description);
+        const staged = names ? this.#onRemoteNames(names) : null;
+        try {
+            await this.#pc.setRemoteDescription(description);
+        } catch ( e ) {
+            staged?.rollback();
+            throw e;
+        }
+        staged?.commit();
         await this.#flushCandidates();
     }
 
@@ -231,17 +286,46 @@ export class PerfectNegotiator {
         }
     }
 
-    #settle () {
-        // A side that only answers may renegotiate freely once the opening
-        // exchange is behind it - that is what future track additions need.
-        this.#mayOffer = true;
-        for ( const waiter of this.#waiters ) waiter.settle();
+    /** Ties everything waiting for a negotiation to the offer just sent. */
+    #bindWaiters ( generation ) {
+        for ( const waiter of this.#waiters ) {
+            if ( waiter.generation === null ) waiter.generation = generation;
+        }
+    }
+
+    /**
+     * Releases waiters from an offer that was discarded, so they attach to
+     * the next one instead. Reports whether anything was waiting.
+     */
+    #rebindWaiters () {
+        let rebound = false;
+        for ( const waiter of this.#waiters ) {
+            if ( waiter.generation === null ) continue;
+            waiter.generation = null;
+            rebound = true;
+        }
+        return rebound;
+    }
+
+    /** Settles the waiters whose offer this answer replied to. */
+    #settleNegotiation () {
+        for ( const waiter of [...this.#waiters] ) {
+            if ( waiter.generation === null ) continue;
+            this.#waiters.delete(waiter);
+            waiter.settle();
+        }
+    }
+
+    #failWaiters ( error ) {
+        for ( const waiter of this.#waiters ) waiter.fail(error);
         this.#waiters.clear();
     }
 
     #nextNegotiation ( timeout ) {
         return new Promise((resolve, reject) => {
             const waiter = {
+                /** The local offer this is waiting on; set once one is sent. */
+                generation: null,
                 settle: () => {
                     clearTimeout(timer);
                     resolve();

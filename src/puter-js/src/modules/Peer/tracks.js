@@ -14,6 +14,8 @@ const KINDS = ['audio', 'video'];
 
 /** @typedef {{ audio?: PuterPeerEncoding, video?: PuterPeerEncoding }} PuterPeerPublishOptions */
 
+/** @typedef {{ commit: () => void, rollback: () => void }} StagedNames */
+
 /**
  * Named media slots on one peer connection.
  *
@@ -151,21 +153,33 @@ export class TrackPublisher {
     }
 
     /**
-     * Adopts the names carried by a remote description, before it is applied
-     * so that an arriving track can be named on the spot. A name the peer no
-     * longer sends has ended, whether or not its track says so.
+     * Adopts the names carried by a remote description. The map goes on before
+     * the description is applied, so that an arriving track can be named on
+     * the spot, but the description may still be rejected - and one that is
+     * leaves the peer's existing tracks flowing. So retiring the names the
+     * peer no longer sends waits for `commit()`, and `rollback()` puts the
+     * previous map back.
      *
      * @param {Record<string, string>} names
-     * @returns {void}
+     * @returns {StagedNames}
      */
-    applyRemoteNames ( names ) {
-        const next = new Map(Object.entries(names ?? {}));
-        const live = new Set(next.values());
+    stageRemoteNames ( names ) {
+        const previous = this.#remoteNames;
+        this.#remoteNames = new Map(Object.entries(names ?? {}));
 
-        for ( const name of [...this.#remoteStreams.keys()] ) {
-            if ( ! live.has(name) ) this.#endRemote(name);
-        }
-        this.#remoteNames = next;
+        return {
+            commit: () => {
+                // A name the peer no longer sends has ended, whether or not
+                // its track says so.
+                const live = new Set(this.#remoteNames.values());
+                for ( const name of [...this.#remoteStreams.keys()] ) {
+                    if ( ! live.has(name) ) this.#endRemote(name);
+                }
+            },
+            rollback: () => {
+                this.#remoteNames = previous;
+            },
+        };
     }
 
     /** @returns {void} */

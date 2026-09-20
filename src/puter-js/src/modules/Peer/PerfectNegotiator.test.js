@@ -173,3 +173,62 @@ describe('PerfectNegotiator.restartIce', () => {
         await assertion;
     });
 });
+
+describe('PerfectNegotiator negotiation identity', () => {
+    it('does not let an unrelated negotiation answer a pending restart', async () => {
+        vi.useFakeTimers();
+        try {
+            const pc = new FakePeerConnection({});
+            // Nothing on the far end: whatever is sent goes unanswered.
+            const channel = new LoopbackChannel('polite');
+            const errors = [];
+            const negotiator = new PerfectNegotiator(pc, channel, {
+                polite: true,
+                onerror: (error) => errors.push(error),
+            });
+
+            negotiator.start();
+            await flush();
+            negotiator.acceptAnswer({ type: 'answer', sdp: 'opening-answer' });
+            await flush();
+
+            const restarted = negotiator.restartIce(5000);
+            const assertion = expect(restarted).rejects.toThrow('did not answer');
+            await flush();
+            expect(pc.signalingState).toBe('have-local-offer');
+
+            // The peer offers a track of its own. The polite side rolls its
+            // restart offer back to answer it, so that exchange reaches
+            // 'stable' without the restart ever having been answered.
+            negotiator.acceptOffer({ type: 'offer', sdp: 'their-track' });
+            await flush();
+
+            // The rolled-back restart is re-offered rather than reported done.
+            const offers = channel.delivered.filter((payload) => payload.offer);
+            expect(offers).toHaveLength(3);
+            expect(pc.signalingState).toBe('have-local-offer');
+
+            await vi.advanceTimersByTimeAsync(5000);
+            await assertion;
+            expect(errors).toEqual([]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('rolls an offer back when signalling could not carry it', async () => {
+        const { impolite } = makePair();
+        impolite.negotiator.start();
+        await flush();
+
+        impolite.channel.failSend = true;
+        const restarted = impolite.negotiator.restartIce(5000);
+        const assertion = expect(restarted).rejects.toThrow('signalling connection is unavailable');
+        await flush();
+
+        // An offer nobody received must not leave the connection waiting for
+        // an answer to it.
+        expect(impolite.pc.signalingState).toBe('stable');
+        await assertion;
+    });
+});
