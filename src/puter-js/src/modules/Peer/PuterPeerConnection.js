@@ -34,8 +34,6 @@ export class PuterPeerConnection extends EventTarget {
      */
     owner;
 
-    /** @type {string | undefined} */
-    room;
     connected = false;
     closed = false;
 
@@ -122,37 +120,13 @@ export class PuterPeerConnection extends EventTarget {
      * @returns {Promise<void>}
      */
     async connect ( invitecode, options = {} ) {
-        this.#channel.onattached = async (owner, grant, room) => {
+        this.#channel.onattached = (owner) => {
             this.owner = owner;
-            this.room = room;
-            await this.#adoptRelayedGrant(grant, options);
-            if ( this.closed ) return;
             // The connecting side makes the opening offer.
             this.#negotiator.start();
         };
         this.#channel.onrejected = (error) => this.#doclose(undefined, error);
         await this.#channel.open(invitecode, options);
-    }
-
-    /**
-     * Redeems a relay grant left by the host before making the first offer.
-     *
-     * @param {string | undefined} grant
-     * @param {PuterPeerOptions} options
-     */
-    async #adoptRelayedGrant (grant, options) {
-        if ( ! grant || ! options.anonToken || options.turnGrant || options.iceServers ) return;
-        if ( typeof this.#peerConfig.iceServersFor !== 'function' ) return;
-        try {
-            const iceServers = await this.#peerConfig.iceServersFor({ turnGrant: grant });
-            if ( this.closed || ! iceServers ) return;
-            this.peerconnection.setConfiguration({
-                iceTransportPolicy: this.#peerConfig.forceRelay ? 'relay' : 'all',
-                iceServers,
-            });
-        } catch (error) {
-            console.warn('Unable to use the host’s relays. Some connections may fail.', error);
-        }
     }
 
     /**
@@ -245,6 +219,8 @@ export class PuterPeerConnection extends EventTarget {
         try {
             let unanswered = false;
             while ( ! this.closed && this.peerconnection.connectionState === 'failed' ) {
+                // Signalling does not come back on its own, so a restart
+                // that cannot be offered never will be.
                 if ( this.#peerGone || ! this.#channel.alive ) {
                     this.#doclose('the peer is no longer reachable', undefined);
                     return;

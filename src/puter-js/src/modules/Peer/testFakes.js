@@ -226,6 +226,11 @@ export class LoopbackChannel extends SignallingChannel {
         this._alive = false;
     }
 
+    /** A server's socket comes back; the channel it carries works again. */
+    revive () {
+        this._alive = true;
+    }
+
     sendOffer (description, names) {
         return this.#post({ offer: { offer: description, names } });
     }

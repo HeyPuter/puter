@@ -1,39 +1,3 @@
-const ROOM_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
-const INVITE_CODE_RE = /^[A-Z0-9]{0,4}-[0-9A-F]{6}$/;
-
-/**
- * Whether a string is a room name rather than a generated invite code.
- *
- * @param {string} value
- * @returns {boolean}
- */
-export function isRoomName (value) {
-    return typeof value === 'string' && ROOM_NAME_RE.test(value) && !INVITE_CODE_RE.test(value);
-}
-
-/**
- * @param {string} signallerUrl
- * @param {string | undefined} room
- * @returns {string}
- */
-export function signallerUrlFor (signallerUrl, room) {
-    if ( ! room ) return signallerUrl;
-    const url = new URL(signallerUrl);
-    url.searchParams.set('room', room);
-    return url.toString();
-}
-
-/**
- * @param {string} message
- * @param {string} [code]
- * @returns {Error & { code?: string }}
- */
-export function signallerError (message, code) {
-    const error = /** @type {Error & { code?: string }} */ (new Error(message));
-    if ( code ) error.code = code;
-    return error;
-}
-
 /**
  * Carries SDP, ICE and hangups to the other end of one peer connection.
  * `PuterPeerConnection` owns the WebRTC state machine and reaches its peer
@@ -90,7 +54,7 @@ export class SignallingChannel {
  */
 export class ClientSignallingChannel extends SignallingChannel {
     /** Handshake accepted; carries the peer server's owner. */
-    /** @type {(owner: import('./types.js').PuterPeerUser, grant?: string, room?: string) => void | Promise<void>} */
+    /** @type {(owner: import('./types.js').PuterPeerUser) => void | Promise<void>} */
     onattached = () => {};
     /** @type {(error: Error) => void} */
     onrejected = () => {};
@@ -118,8 +82,7 @@ export class ClientSignallingChannel extends SignallingChannel {
      * @returns {Promise<void>}
      */
     async open ( invitecode, options = {} ) {
-        const room = ! options.port && isRoomName(invitecode) ? invitecode : undefined;
-        const ws = new WebSocket(signallerUrlFor(this.#peerConfig.signallerUrl, room));
+        const ws = new WebSocket(this.#peerConfig.signallerUrl);
         this.#ws = ws;
 
         await new Promise((resolve, reject) => {
@@ -196,11 +159,9 @@ export class ClientSignallingChannel extends SignallingChannel {
         if ( msg.connect ) {
             if ( msg.connect.success ) {
                 this.#attached = true;
-                return this.onattached(msg.connect.owner, msg.connect.grant, msg.connect.room);
-            } else {
-                return this.onrejected(signallerError(msg.connect.error, msg.connect.code));
+                return this.onattached(msg.connect.owner);
             }
-            return;
+            return this.onrejected(new Error(msg.connect.error));
         }
         if ( msg.disconnect ) {
             this.onpeergone(msg.disconnect.reason);
