@@ -2970,6 +2970,35 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(typeof body.token).toBe('string');
     });
 
+    // What decides whether a cancelled "Sign in with Puter" still hands over a token.
+    it('check-app reports an app the user never opened as unauthorized, with no token', async () => {
+        const untouched = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `ca-${uuidv4()}`,
+                title: 'Never opened',
+                index_url: 'https://never-opened.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckApp(
+                makeReq({ app_uid: untouched.uid }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({
+            app_uid: untouched.uid,
+            authenticated: false,
+        });
+    });
+
     it('check-app returns the {app_uid, authenticated} envelope shape', async () => {
         // Create a brand-new actor with no app-related history so the
         // permission scan can't cache-hit anything from prior tests, AND
@@ -3032,16 +3061,7 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
             authenticated: boolean;
             token?: string;
         };
-        expect(body.app_uid).toBe(otherApp.uid);
-        expect(typeof body.authenticated).toBe('boolean');
-        // Whether `authenticated` is true depends on the user's full
-        // permission set (default group, owned-app implicits, etc.) — this
-        // test only pins the response *shape*, since the substantive case
-        // (`authenticated: true` after a paired get-user-app-token) is
-        // covered by the test above.
-        if (!body.authenticated) {
-            expect(body.token).toBeUndefined();
-        }
+        expect(body).toEqual({ app_uid: otherApp.uid, authenticated: false });
     });
 
     it('falls back to origin → app_uid resolution and bootstraps a new app row', async () => {

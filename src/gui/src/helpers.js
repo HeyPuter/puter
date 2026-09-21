@@ -2573,7 +2573,7 @@ window.getUserAppToken = async function (origin) {
 
 window.checkUserSiteRelationship = async function (origin) {
     try {
-        const response = await fetch(`${window.api_origin }/auth/check-app `, {
+        const response = await fetch(`${window.api_origin }/auth/check-app`, {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${ window.auth_token}`,
