@@ -27,12 +27,7 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    | 'body'
-    | 'header'
-    | 'x-api-key'
-    | 'cookie'
-    | 'query'
-    | 'handshake';
+    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
 
 /** Express router methods plus the WebDAV verbs some endpoints use. */
 export type RouteMethod =
@@ -143,8 +138,10 @@ export interface RouteOptions {
     adminOnly?: boolean | string[];
 
     /**
-     * Reject app-under-user actors whose app is not listed. Actors with no app
-     * of their own pass; see `allowedAppIdsGate`. Implies `requireAuth`.
+     * Reject actors acting as an app that is not listed, whether carried
+     * directly or through the app that issued their access token. Actors with
+     * no app in the chain pass; see `allowedAppIdsGate`. Implies
+     * `requireAuth`.
      */
     allowedAppIds?: string[];
 
@@ -338,9 +335,7 @@ export type AuthRequired<O extends RouteOptions> = O extends {
                   ? true
                   : O extends {
                           requireSubscription:
-                              | true
-                              | readonly string[]
-                              | string[];
+                              true | readonly string[] | string[];
                       }
                     ? true
                     : O extends { requireReputation: string }

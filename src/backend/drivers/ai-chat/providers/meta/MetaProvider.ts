@@ -170,7 +170,7 @@ export class MetaProvider implements IChatProvider {
         const safetyIdentifier =
             customParams.safety_identifier ??
             (actor?.user?.id
-                ? `puter-${actor.user.id}${actor.app?.uid ? `-${actor.app.uid}` : ''}`.slice(
+                ? `puter-${actor.user.id}${actor.effectiveApp?.uid ? `-${actor.effectiveApp?.uid}` : ''}`.slice(
                       0,
                       SAFETY_IDENTIFIER_MAX_LENGTH,
                   )

@@ -22,8 +22,10 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
+import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
+import { makeActor } from '../../actor';
 import {
     buildAppCenterFallback,
     buildHostingConfig,
@@ -88,6 +90,10 @@ const isWorkersSourcePath = (urlPath: string): boolean =>
     urlPath
         .split('/')
         .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
+
+/** Inside some owner's top-level Trash, which is where Delete puts things. */
+const isTrashedPath = (path: string): boolean =>
+    /^\/[^/]+\/Trash(\/|$)/u.test(path);
 
 /**
  * Suggested value for `config.hosting_csp`. Not applied unless configured.
@@ -480,6 +486,49 @@ export const createPuterSiteMiddleware = (
                 .type('text/html; charset=UTF-8')
                 .send(SUBDOMAIN_404);
             return;
+        }
+
+        // A site rooted in someone else's directory stands on the `manage`
+        // grant that authorized publishing it, and serves that whole subtree
+        // with the ACL bypassed — so the grant is re-read on every request.
+        // Trash is its own check: a grant is keyed on the node, not its
+        // location, so it survives the owner deleting the directory. Sites
+        // rooted in their publisher's own tree skip all of this.
+        if (rootEntry.userId !== site.user_id) {
+            let stillPublishable = false;
+            if (!isTrashedPath(rootEntry.path)) {
+                try {
+                    stillPublishable = await layers.services.acl.check(
+                        makeActor({
+                            user: {
+                                id: owner.id,
+                                uuid: owner.uuid,
+                                username: owner.username,
+                            },
+                        }),
+                        {
+                            path: rootEntry.path,
+                            resolveAncestors: () =>
+                                layers.services.fs.getAncestorChain(
+                                    rootEntry.path,
+                                ),
+                        },
+                        MANAGE_PERM_PREFIX,
+                    );
+                } catch (e) {
+                    // Fail closed — an unreadable grant is not a held one.
+                    console.warn(
+                        '[puter-site] publish grant recheck failed',
+                        e,
+                    );
+                }
+            }
+            if (!stillPublishable) {
+                res.status(404)
+                    .type('text/html; charset=UTF-8')
+                    .send(SUBDOMAIN_404);
+                return;
+            }
         }
 
         // Resolve URL path → absolute FS path under the site root.

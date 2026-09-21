@@ -99,6 +99,7 @@ export interface DurableSubscriptionInput {
     context: string | null;
     permission: SubscriptionPermission;
     expiresAt: number | null;
+    includeValue?: true;
     /**
      * Plan-resolved caps this subscribe is held to. Omitted falls back to the
      * structural maximum, so a writer that never resolved a plan still cannot
@@ -248,6 +249,7 @@ const toRow = (row: Record<string, unknown>): DurableSubscription => ({
         row.context === null || row.context === undefined
             ? null
             : String(row.context),
+    ...(Number(row.include_value) === 1 ? { includeValue: true } : {}),
     expiresAt: asNumber(row.expires_at),
     suspendedAt: asNumber(row.suspended_at),
     suspendedReason:
@@ -260,8 +262,8 @@ const toRow = (row: Record<string, unknown>): DurableSubscription => ({
 const SELECT_COLUMNS =
     '`id`, `sub_id`, `token`, `owner_user_id`, `holder_user_id`, `app_uid`, ' +
     '`subject`, `anchor_uid`, `anchor_path`, `match`, `delivery`, `ops`, ' +
-    '`handler_name`, `targets`, `context`, `permission`, `suspended_at`, ' +
-    '`suspended_reason`, `expires_at`, `created_at`';
+    '`handler_name`, `targets`, `context`, `permission`, `include_value`, ' +
+    '`suspended_at`, `suspended_reason`, `expires_at`, `created_at`';
 
 export class DurableSubscriptionStore extends PuterStore {
     // -- Writes ------------------------------------------------------
@@ -321,6 +323,7 @@ export class DurableSubscriptionStore extends PuterStore {
             targets,
             handlerName: input.handlerName,
             context: input.context,
+            ...(input.includeValue ? { includeValue: true } : {}),
             expiresAt: input.expiresAt,
             suspendedAt: null,
             suspendedReason: null,
@@ -344,6 +347,7 @@ export class DurableSubscriptionStore extends PuterStore {
             targets: JSON.stringify(row.targets),
             context: row.context,
             permission: row.permission,
+            include_value: row.includeValue ? 1 : 0,
             expires_at: row.expiresAt,
             created_at: row.createdAt,
         });

@@ -19,6 +19,7 @@
 
 import type { Request, RequestHandler, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import { isPlainUserActor } from '../../actor';
 import { HttpError } from '../HttpError';
 import type { IConfig } from '../../../types';
 import type { UserStore, UserRow } from '../../../stores/user/UserStore';
@@ -99,12 +100,7 @@ export const createSessionCookieGate = (config: IConfig): RequestHandler => {
 export const createWebSessionActorGate = (): RequestHandler => {
     return (req, _res, next) => {
         const actor = req.actor;
-        if (
-            !actor?.user ||
-            !actor.session ||
-            (actor as { app?: unknown }).app ||
-            (actor as { accessToken?: unknown }).accessToken
-        ) {
+        if (!actor?.user || !actor.session || !isPlainUserActor(actor)) {
             return next(
                 new HttpError(401, 'Web session required', {
                     legacyCode: 'session_required',

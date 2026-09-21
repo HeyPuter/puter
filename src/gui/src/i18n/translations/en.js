@@ -423,6 +423,13 @@ const en = {
         share_access_level: 'Access level',
         share_access_level_for: 'Access level for {{recipient}}',
         share_add_people: 'Add people by email or username',
+        share_add_people_teams: 'Add people or teams',
+        share_suggestions: 'Suggestions',
+        share_suggest_loading: 'Loading suggestions…',
+        share_suggest_team: 'Team',
+        share_suggest_in_team: 'in {{team}}',
+        share_suggest_recent: 'Recently shared',
+        share_clear_recipient: 'Clear',
         share_who_has_access: 'Who has access',
         share_no_one: 'Not shared with anyone yet.',
         share_owner: 'Owner',
@@ -494,7 +501,6 @@ const en = {
         share_you: 'you',
         share_inherited_via: 'via {{folder}}',
         share_with: 'Share with:',
-        share_with_team: 'Or share with a team:',
         share_team_note:
             'Everyone in the team gets access, including anyone added to it later.',
         share_row_team: 'team',
@@ -540,6 +546,8 @@ const en = {
         storage_usage: 'Storage Usage',
         storage_puter_used: 'used by Puter',
         'your_plan': 'Your Plan',
+        plan_team_seat: 'Team account',
+        plan_team_managed: 'Managed by %%',
         taking_longer_than_usual: 'Taking a little longer than usual. Please wait...',
         teams: 'Teams',
         teams_subtitle: 'The accounts your team pays for',
@@ -862,6 +870,7 @@ const en = {
         sign_in_with_provider: 'Sign in with %%',
         sign_up_with_provider: 'Sign up with %%',
         sign_up_with_email: 'Sign up using email',
+        popup_opener_uses_puter: '%strong% is powered by Puter for its AI and cloud features.\nUse your Puter account to continue.',
         oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
         // Login Window

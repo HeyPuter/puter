@@ -302,6 +302,7 @@ export class OIDCController extends PuterController {
                     opener_origin: decoded.opener_origin ?? null,
                     msg_id: decoded.msg_id ?? null,
                     oidc_login: decoded.oidc_login === true,
+                    user_uuid: decoded.user_uuid ?? null,
                 });
             },
         );
@@ -924,6 +925,11 @@ if (window.opener) {
             // identity to mint a token for, so it needs the integrity this
             // state already carries — re-signed here, at the one point where
             // the round trip is known to have actually happened.
+            //
+            // `user_uuid` binds the proof to the account that just completed
+            // OIDC. Without it a proof from one login could be replayed in
+            // another signed-in browser to skip its account picker; the popup
+            // only honors `oidc_login` when this matches its current user.
             target = appendQueryParam(
                 target,
                 'opener_state',
@@ -931,6 +937,7 @@ if (window.opener) {
                     opener_origin: stateDecoded.opener_origin ?? null,
                     msg_id: stateDecoded.msg_id ?? null,
                     oidc_login: true,
+                    user_uuid: user.uuid,
                 }),
             );
         }

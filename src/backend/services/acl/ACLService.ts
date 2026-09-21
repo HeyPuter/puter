@@ -21,7 +21,12 @@ import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
 import type { Actor } from '../../core/actor';
-import { isSystemActor, makeActor } from '../../core/actor';
+import {
+    isAppActor,
+    isPlainUserActor,
+    isSystemActor,
+    makeActor,
+} from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -42,11 +47,7 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    | 'see'
-    | 'list'
-    | 'read'
-    | 'write'
-    | typeof MANAGE_PERM_PREFIX;
+    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -119,7 +120,7 @@ export class ACLService extends PuterService {
         const components = resource.path.slice(1).split('/');
 
         // Short-circuit: users accessing their own home directory.
-        if (!actor.app && !actor.accessToken) {
+        if (isPlainUserActor(actor)) {
             const username = actor.user.username;
             if (
                 username &&
@@ -133,9 +134,9 @@ export class ACLService extends PuterService {
         // Short-circuit: apps accessing their own AppData directory (under
         // any user). Shared-appdata access is handled below via the
         // per-user-permission gate.
-        if (actor.app && !actor.accessToken) {
+        if (isAppActor(actor)) {
             const username = actor.user.username;
-            const appUid = actor.app.uid;
+            const appUid = actor.effectiveApp!.uid;
             if (username) {
                 const appDataPath = `/${username}/AppData/${appUid}`;
                 if (
@@ -198,7 +199,7 @@ export class ACLService extends PuterService {
         }
 
         // App-under-user: underlying user must also hold the permission.
-        if (actor.app) {
+        if (isAppActor(actor)) {
             const userActor: Actor = { user: actor.user, effectiveApp: null };
             if (!(await this.check(userActor, resource, mode))) return false;
 
@@ -208,7 +209,7 @@ export class ACLService extends PuterService {
             if (
                 components[0] !== actor.user.username &&
                 components[1] === 'AppData' &&
-                components[2] === actor.app.uid
+                components[2] === actor.effectiveApp!.uid
             ) {
                 return true;
             }
@@ -331,7 +332,7 @@ export class ACLService extends PuterService {
         groupUid: string,
         resource: ResourceDescriptor,
     ): Promise<StatPermissionsResult> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
@@ -368,7 +369,7 @@ export class ACLService extends PuterService {
         mode: AclMode,
         options: { onlyIfHigher?: boolean } = {},
     ): Promise<boolean> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
@@ -458,11 +459,11 @@ export class ACLService extends PuterService {
         holder: Actor,
         resource: ResourceDescriptor,
     ): Promise<StatPermissionsResult> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
-        if (holder.app || holder.accessToken)
+        if (!isPlainUserActor(holder))
             throw new HttpError(403, 'holder must be a user actor', {
                 legacyCode: 'forbidden',
             });
@@ -509,11 +510,11 @@ export class ACLService extends PuterService {
         mode: AclMode,
         options: { onlyIfHigher?: boolean } = {},
     ): Promise<boolean> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
-        if (holder.app || holder.accessToken)
+        if (!isPlainUserActor(holder))
             throw new HttpError(403, 'holder must be a user actor', {
                 legacyCode: 'forbidden',
             });

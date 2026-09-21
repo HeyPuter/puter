@@ -423,6 +423,12 @@ export type EventMap = {
         userId: number;
         keys: string[];
         op: KvOp;
+        /**
+         * What each key holds after the change, aligned with `keys`: the
+         * written value on a `set`, `null` on a `del`. Absent when the write
+         * did not have it in hand, as an `expire` does not.
+         */
+        values?: unknown[];
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
@@ -688,6 +694,11 @@ export type EventMap = {
     // wildcard + veto semantics as the driver lifecycle above.
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
+    // Cost factor for recorded AI usage, keyed by driver and model:
+    // `ai.cost.factor.<driverName>.<provider>:<model>`. Emitted once per model
+    // per batch; the last listener to set `factor` wins.
+    [K in `ai.cost.factor.${string}`]: AiCostFactorEvent;
+} & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
 } & {
     /**
@@ -706,6 +717,18 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** Payload for `ai.cost.factor.<driver>.<model>` events. */
+export type AiCostFactorEvent = {
+    /** Driver doing the pricing, e.g. `ai-chat`. */
+    driver: string;
+    /** `<provider>:<model>` the usage is recorded under. */
+    model: string;
+    /** Who the usage is being charged to. */
+    actor: Actor;
+    /** Applied to the cost, starting at 1. Values <= 0 are ignored. */
+    factor: number;
+};
 
 /**
  * Phase of a request/method lifecycle. `reject` is emitted when a `before`
@@ -785,11 +808,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

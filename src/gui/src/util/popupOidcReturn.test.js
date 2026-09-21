@@ -44,8 +44,24 @@ describe('redeeming a proof', () => {
             oidc_login: true,
         });
         await expect(verifyOidcPopupReturn('signed.blob.here', '7')).resolves.toEqual(
-            { opener_origin: OPENER, oidc_login: true },
+            { opener_origin: OPENER, oidc_login: true, user_uuid: null },
         );
+    });
+
+    it('passes through the account the proof is bound to', async () => {
+        globalThis.fetch = serverSays({
+            opener_origin: OPENER,
+            msg_id: '7',
+            oidc_login: true,
+            user_uuid: 'user-A',
+        });
+        await expect(
+            verifyOidcPopupReturn('signed.blob.here', '7'),
+        ).resolves.toEqual({
+            opener_origin: OPENER,
+            oidc_login: true,
+            user_uuid: 'user-A',
+        });
     });
 
     it('sends the proof to the verify endpoint', async () => {
@@ -68,7 +84,11 @@ describe('redeeming a proof', () => {
         });
         await expect(
             verifyOidcPopupReturn('signed.blob.here', null),
-        ).resolves.toEqual({ opener_origin: OPENER, oidc_login: false });
+        ).resolves.toEqual({
+            opener_origin: OPENER,
+            oidc_login: false,
+            user_uuid: null,
+        });
     });
 });
 

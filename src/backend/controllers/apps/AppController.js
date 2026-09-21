@@ -186,14 +186,13 @@ export class AppController extends PuterController {
 
         // POST /rao — record a recent app open. When an app-under-user
         // actor calls this, the app id is already on the token — clients
-        // don't re-send it in the body. Fall back to `actor.app.uid`
+        // don't re-send it in the body. Fall back to the acting app's uid
         // before 400-ing for a missing body field.
         //
         // Authorization: only two callers are trusted to report opens —
         //   1. a root user actor (plain session, no `.app` and no access
         //      token), e.g. the GUI launching apps on behalf of the user;
-        //   2. the app-under-user actor for the app being reported, i.e.
-        //      `actor.app.uid === app_uid`.
+        //   2. the app-under-user actor for the app being reported.
         // Everything else — access tokens (regardless of issuer), asset
         // tokens, app actors reporting for a *different* app — is denied,
         // otherwise any authenticated party could inflate another app's
@@ -208,11 +207,11 @@ export class AppController extends PuterController {
             async (req, res) => {
                 const actor = req.actor;
                 const bodyAppUid = req.body?.app_uid;
-                const actorAppUid = actor?.app?.uid;
+                const callerAppUid = actor?.effectiveApp?.uid;
                 const app_uid =
                     typeof bodyAppUid === 'string' && bodyAppUid.length > 0
                         ? bodyAppUid
-                        : actorAppUid;
+                        : callerAppUid;
                 if (!app_uid || typeof app_uid !== 'string') {
                     throw new HttpError(400, 'Missing or invalid `app_uid`', {
                         legacyCode: 'bad_request',
@@ -231,7 +230,7 @@ export class AppController extends PuterController {
                     );
                 }
 
-                if (isAppActor(actor) && app_uid !== actorAppUid) {
+                if (isAppActor(actor) && app_uid !== callerAppUid) {
                     throw new HttpError(
                         403,
                         'App actors can only report opens for their own app',

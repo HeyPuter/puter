@@ -7,6 +7,7 @@ import type { TestContext } from '../harness/types.ts';
  * migration, and the SDK event bus those two report through.
  */
 type PuterAuthInternals = {
+    APIOrigin: string;
     authToken: string | null;
     env: string;
     triggerReauth: (signal?: {
@@ -32,6 +33,126 @@ const withoutToken = async (t: TestContext, fn: () => Promise<void>) => {
 };
 
 export default suite('auth', {
+    'getProfilePicture handles missing files, valid pictures, and malformed profiles':
+        async (t) => {
+            const username = t.env.users.user.username;
+            const directory = `/${username}/Public`;
+            const path = `${directory}/.profile`;
+            const picture =
+                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
+
+            t.assert.equal(
+                await t.puter.auth.getProfilePicture(username),
+                null,
+            );
+            await t.puter.fs.mkdir(directory);
+            try {
+                t.assert.equal(
+                    await t.puter.auth.getProfilePicture(username),
+                    null,
+                );
+                await t.puter.fs.write(
+                    path,
+                    JSON.stringify({ picture, name: 'Ignored' }),
+                );
+                t.assert.equal(
+                    await t.puter.auth.getProfilePicture(username),
+                    picture,
+                );
+                t.assert.equal(await t.puter.auth.getProfilePicture(), picture);
+
+                for (const content of [
+                    '',
+                    '{broken',
+                    'null',
+                    '[]',
+                    'true',
+                    '42',
+                    '"text"',
+                    '{}',
+                    ...[
+                        null,
+                        false,
+                        123,
+                        {},
+                        [],
+                        '',
+                        ' ',
+                        'https://example.com/avatar.png',
+                        'data:text/html;base64,SGk=',
+                        'data:image/png;base64,',
+                        'data:image/png;base64,%%%',
+                    ].map((picture) => JSON.stringify({ picture })),
+                ]) {
+                    await t.puter.fs.write(path, content);
+                    t.assert.equal(
+                        await t.puter.auth.getProfilePicture(username),
+                        null,
+                    );
+                }
+                await t.puter.fs.delete(path);
+                await t.puter.fs.mkdir(path);
+                t.assert.equal(
+                    await t.puter.auth.getProfilePicture(username),
+                    null,
+                );
+            } finally {
+                await t.puter.fs.delete(directory, { recursive: true });
+            }
+        },
+
+    'getProfilePicture respects access to another user profile': async (t) => {
+        const directory = `/${t.env.users.user.username}/Public`;
+        const path = `${directory}/.profile`;
+        const picture = 'data:image/png;base64,iVBORw0KGgo=';
+        await t.puter.fs.mkdir(directory);
+        try {
+            await t.puter.fs.write(path, JSON.stringify({ picture }));
+            t.puter.setAuthToken(t.env.users.other.token);
+            t.assert.equal(
+                await t.puter.auth.getProfilePicture(t.env.users.user.username),
+                null,
+            );
+            t.puter.setAuthToken(t.env.users.user.token);
+            await t.puter.fs.share(path, t.env.users.other.username, 'read');
+            t.puter.setAuthToken(t.env.users.other.token);
+            t.assert.equal(
+                await t.puter.auth.getProfilePicture(t.env.users.user.username),
+                picture,
+            );
+        } finally {
+            t.puter.setAuthToken(t.env.users.user.token);
+            await t.puter.fs.delete(directory, { recursive: true });
+        }
+    },
+
+    'getProfilePicture returns null while signed out or when user lookup fails':
+        async (t) => {
+            await withoutToken(t, async () => {
+                t.assert.equal(await t.puter.auth.getProfilePicture(), null);
+                t.assert.equal(
+                    await t.puter.auth.getProfilePicture(
+                        t.env.users.user.username,
+                    ),
+                    null,
+                );
+            });
+            const p = internals(t);
+            const origin = p.APIOrigin;
+            try {
+                p.APIOrigin = `${origin}/missing-profile-api`;
+                t.assert.equal(await t.puter.auth.getProfilePicture(), null);
+                t.assert.equal(
+                    await t.puter.auth.getProfilePicture(
+                        t.env.users.user.username,
+                    ),
+                    null,
+                );
+            } finally {
+                p.APIOrigin = origin;
+            }
+        },
+
     'getUser returns the authenticated user': async (t) => {
         const user = await t.puter.auth.getUser();
         t.assert.equal(user.username, t.env.users.user.username);

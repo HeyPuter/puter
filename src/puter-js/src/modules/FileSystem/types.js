@@ -120,7 +120,8 @@
  * large directories.
  * @property {string | null} [cursor] Opaque continuation cursor from a previous page.
  * @property {boolean} [includeTotal] Include a `total` count of every entry across all pages.
- * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`.
+ * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`. With
+ * `recursive`, a `name` sort orders by full path.
  * @property {'asc' | 'desc'} [sortOrder] Sort direction. Default is `asc`.
  * @property {boolean} [recursive] Whether to also list the contents of subdirectories. Defaults to
  * `false`.
@@ -427,6 +428,19 @@
 
 /**
  * @typedef {GetSharesOptionsOwn & RequestCallbacks<Share[]>} GetSharesOptions
+ */
+
+/**
+ * @typedef {Object} GetShareLinkOptionsOwn
+ * @property {string} [path] The file. Required when passing options as the only argument, unless
+ * `uid` is given.
+ * @property {string} [uid] The file, by UID. Can be used instead of `path`.
+ * @property {string} [appName] Name of the app the link opens the file with. Defaults to the app
+ * the code runs in.
+ */
+
+/**
+ * @typedef {GetShareLinkOptionsOwn & RequestCallbacks<string>} GetShareLinkOptions
  */
 
 export {};

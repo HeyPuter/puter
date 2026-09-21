@@ -47,7 +47,7 @@ function UIWindowSignup(options) {
 
         let h = '';
         h +=
-            '<div style="margin: 0 auto; max-width: 500px; min-width: 400px;">';
+            '<div style="margin: 0 auto;">';
         // logo
         h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 10px; background-color: blue; border-radius: 5px;${logo_clickable ? ' cursor: pointer;' : ''}">`;
         // close button
@@ -60,6 +60,10 @@ function UIWindowSignup(options) {
 
         // title
         h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
+        // In a sign-in popup, say which site brought the user here.
+        if (window.embedded_in_popup && window.openerOrigin) {
+            h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(window.openerOrigin).hostname])}</p>`;
+        }
         // signup form
         h += '<form class="signup-form">';
         // error msg

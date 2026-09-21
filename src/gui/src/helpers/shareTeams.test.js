@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+    colleagues_for_sharing,
+    forget_colleagues,
     team_for_share,
     team_label,
     teams_for_sharing,
@@ -15,6 +17,7 @@ const original_puter = globalThis.puter;
 globalThis.window = globalThis.window ?? {};
 beforeEach(() => {
     window.teams_ui = true;
+    forget_colleagues();
 });
 
 afterEach(() => {
@@ -59,6 +62,84 @@ describe('teams_for_sharing', () => {
     it('offers nothing against an SDK too old to have the module', async () => {
         globalThis.puter = {};
         await expect(teams_for_sharing()).resolves.toEqual([]);
+    });
+});
+
+describe('colleagues_for_sharing', () => {
+    const OTHER = { uid: 't-3', name: 'Ops', handle: 'ops' };
+
+    it('names each colleague by the team they were found in', async () => {
+        globalThis.puter = {
+            teams: {
+                listMembers: vi.fn(async (uid) => (uid === 't-1'
+                    ? [{ username: 'bob' }, { username: 'carol' }]
+                    : [{ username: 'dave' }])),
+            },
+        };
+        await expect(colleagues_for_sharing([ACME, OTHER])).resolves.toEqual([
+            { username: 'bob', teamName: 'Acme' },
+            { username: 'carol', teamName: 'Acme' },
+            { username: 'dave', teamName: 'Ops' },
+        ]);
+    });
+
+    it('lists someone in two teams once, under the first', async () => {
+        globalThis.puter = {
+            teams: { listMembers: vi.fn(async () => [{ username: 'bob' }]) },
+        };
+        await expect(colleagues_for_sharing([ACME, OTHER])).resolves.toEqual([
+            { username: 'bob', teamName: 'Acme' },
+        ]);
+    });
+
+    it('keeps the teams it could read when another is out of reach', async () => {
+        globalThis.puter = {
+            teams: {
+                listMembers: vi.fn(async (uid) => {
+                    if ( uid === 't-1' ) throw new Error('forbidden');
+                    return [{ username: 'dave' }];
+                }),
+            },
+        };
+        await expect(colleagues_for_sharing([ACME, OTHER])).resolves.toEqual([
+            { username: 'dave', teamName: 'Ops' },
+        ]);
+    });
+
+    it('asks once per set of teams, so reopening the dialog is free', async () => {
+        const listMembers = vi.fn(async () => [{ username: 'bob' }]);
+        globalThis.puter = { teams: { listMembers } };
+
+        await colleagues_for_sharing([ACME]);
+        await colleagues_for_sharing([ACME]);
+        expect(listMembers).toHaveBeenCalledTimes(1);
+
+        // A different set of teams is a different question.
+        await colleagues_for_sharing([ACME, OTHER]);
+        expect(listMembers).toHaveBeenCalledTimes(3);
+    });
+
+    it('caps the roster at one page rather than walking every one', async () => {
+        const listMembers = vi.fn(async () => []);
+        globalThis.puter = { teams: { listMembers } };
+        await colleagues_for_sharing([ACME]);
+        expect(listMembers).toHaveBeenCalledWith('t-1', { limit: 200 });
+    });
+
+    it('does not remember a failure, so the next dialog tries again', async () => {
+        const listMembers = vi.fn(async () => { throw new Error('offline'); });
+        globalThis.puter = { teams: { listMembers } };
+
+        await expect(colleagues_for_sharing([ACME])).resolves.toEqual([]);
+        await colleagues_for_sharing([ACME]);
+        expect(listMembers).toHaveBeenCalledTimes(2);
+    });
+
+    it('suggests nobody without a team, or against an SDK too old for it', async () => {
+        globalThis.puter = {};
+        await expect(colleagues_for_sharing([])).resolves.toEqual([]);
+        await expect(colleagues_for_sharing(undefined)).resolves.toEqual([]);
+        await expect(colleagues_for_sharing([ACME])).resolves.toEqual([]);
     });
 });
 

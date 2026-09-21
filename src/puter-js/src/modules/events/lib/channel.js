@@ -22,6 +22,18 @@ import { EventSubscription } from './subscription.js';
 
 /** @typedef {{ ok: true, sub?: SubscriptionView }} VerbAck */
 
+/**
+ * The `subscribe` body for one handle, the same on first subscribe and on
+ * every re-subscribe.
+ *
+ * @param {EventSubscription} sub
+ * @returns {{ subject: string, includeValue?: true }}
+ */
+const subscribePayload = (sub) => ({
+    subject: sub.subject,
+    ...(sub.includeValue ? { includeValue: true } : {}),
+});
+
 // The wire, fixed by the server: three verbs answered with an ack, one channel
 // events arrive on.
 const SUBSCRIBE_VERB = 'events.subscribe';
@@ -131,7 +143,7 @@ export class EventChannel {
         const sub = new EventSubscription(this, subject, handler, options);
         this.inflight++;
         try {
-            const response = await this.request(SUBSCRIBE_VERB, { subject }, timeoutFor(sub));
+            const response = await this.request(SUBSCRIBE_VERB, subscribePayload(sub), timeoutFor(sub));
             sub.apply(viewOf(response));
             this.subscriptions.add(sub);
             this.byId.set(/** @type {string} */ (sub.subId), sub);
@@ -313,7 +325,7 @@ export class EventChannel {
         for ( const sub of [...this.subscriptions] ) {
             if ( sub.subId !== null || sub.pending ) continue;
             sub.pending = true;
-            this.request(SUBSCRIBE_VERB, { subject: sub.subject }, timeoutFor(sub))
+            this.request(SUBSCRIBE_VERB, subscribePayload(sub), timeoutFor(sub))
                 .then(response => {
                     sub.pending = false;
                     const view = viewOf(response);
