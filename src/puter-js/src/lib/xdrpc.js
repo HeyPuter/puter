@@ -30,33 +30,57 @@ const defineOwn = (target, key, value) => {
 };
 
 /**
+ * A callback id travels to the other document, so it must not be guessable:
+ * any window able to reach ours can post `$SCOPE` messages, and `$SCOPE`
+ * itself is a public constant.
+ *
+ * @returns {string}
+ */
+const randomCallbackId = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+};
+
+/**
  * The CallbackManager is used to manage callbacks for RPCs.
  * It is used by the dehydrator and hydrator to store and retrieve
  * the functions that are being called remotely.
  */
 export class CallbackManager {
-    #messageId = 1;
-
     constructor () {
         this.callbacks = new Map();
     }
 
-    register_callback (callback) {
-        const id = this.#messageId++;
-        this.callbacks.set(id, callback);
+    /**
+     * Registers `callback` and binds it to `source`, the only window whose
+     * messages may invoke it later. A callback registered without a source
+     * can never be invoked from outside this document.
+     *
+     * @param {Function} callback
+     * @param {Window} [source]
+     * @returns {string}
+     */
+    register_callback (callback, source) {
+        const id = randomCallbackId();
+        this.callbacks.set(id, { callback, source });
         return id;
     }
 
-    attach_to_source (source) {
-        source.addEventListener('message', event => {
+    /**
+     * @param {Window} target
+     * @returns {void}
+     */
+    attach_to_source (target) {
+        target.addEventListener('message', event => {
             const { data } = event;
-            if ( data && typeof data === 'object' && data.$SCOPE === $SCOPE ) {
-                const { id, args } = data;
-                const callback = this.callbacks.get(id);
-                if ( callback ) {
-                    callback(...args);
-                }
+            if ( ! data || typeof data !== 'object' || data.$SCOPE !== $SCOPE ) {
+                return;
             }
+            const entry = this.callbacks.get(data.id);
+            // Only the window the callback was dehydrated for may invoke it,
+            // otherwise a sibling frame could drive another app's callbacks.
+            if ( ! entry || event.source !== entry.source ) return;
+            entry.callback(...(Array.isArray(data.args) ? data.args : []));
         });
     }
 }
@@ -68,15 +92,16 @@ export class CallbackManager {
  * so that they can be called when the RPC is invoked.
  */
 export class Dehydrator {
-    constructor ({ callbackManager }) {
+    constructor ({ callbackManager, source }) {
         this.callbackManager = callbackManager;
+        this.source = source;
     }
     dehydrate (value) {
         return this.dehydrate_value_(value);
     }
     dehydrate_value_ (value) {
         if ( typeof value === 'function' ) {
-            const id = this.callbackManager.register_callback(value);
+            const id = this.callbackManager.register_callback(value, this.source);
             return { $SCOPE, id };
         } else if ( Array.isArray(value) ) {
             return value.map(this.dehydrate_value_.bind(this));
