@@ -545,6 +545,8 @@ const en = {
         storage_usage: 'Storage Usage',
         storage_puter_used: 'used by Puter',
         'your_plan': 'Your Plan',
+        plan_team_seat: 'Team account',
+        plan_team_managed: 'Managed by %%',
         taking_longer_than_usual: 'Taking a little longer than usual. Please wait...',
         teams: 'Teams',
         teams_subtitle: 'The accounts your team pays for',
