@@ -21,6 +21,17 @@ import { PROCESS_IPC_ATTACHED, Service } from '../definitions.js';
 import launch_app from '../helpers/launchApp.js';
 import { expand_home_path } from '../helpers/expandHomePath.js';
 
+// The /apps endpoint serializes `godmode` as a boolean; older cached shapes used 0/1.
+const is_godmode = (app_info) =>
+    !! app_info && (app_info.godmode === true || app_info.godmode === 1);
+
+// `window.get_apps(name)` returns the app object for a single name, or [] when absent.
+const resolve_app = async (name) => {
+    if ( ! name ) return null;
+    const info = await window.get_apps(name);
+    return info && ! Array.isArray(info) ? info : null;
+};
+
 export class ExecService extends Service {
     static description = `
         Manages instances of apps on the Puter desktop.
@@ -52,6 +63,15 @@ export class ExecService extends Service {
     async launchApp ({ app_name, args, pseudonym, file_paths, items, background }, { ipc_context, msg_id } = {}) {
         const app = ipc_context?.caller?.app;
         const process = ipc_context?.caller?.process;
+
+        // A godmode target runs with the user's super token; only a godmode caller may launch one.
+        const target_app_info = await resolve_app(app_name);
+        if ( is_godmode(target_app_info) ) {
+            const caller_app_info = await resolve_app(process?.name);
+            if ( ! is_godmode(caller_app_info) ) {
+                throw new Error('Launching this app is not allowed.');
+            }
+        }
 
         // This mechanism will be replated with xdrpc soon
         const child_instance_id = window.uuidv4();
