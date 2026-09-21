@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { closestAspectRatio } from '../../imageDimensions.js';
+import { assertImagePrompt } from '../../imageValidation.js';
 import { GenerateContentResponse, GoogleGenAI } from '@google/genai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
@@ -74,26 +76,22 @@ export class GeminiImageProvider implements IImageProvider {
         let { ratio, input_images, quality } = params;
 
         const selectedModel =
-            this.models().find((m) => m.id === model) ||
-            this.models().find((m) => m.id === this.getDefaultModel())!;
+            this.models().find(
+                (m) => m.id === model || m.aliases?.includes(model ?? ''),
+            ) || this.models().find((m) => m.id === this.getDefaultModel())!;
 
         if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new HttpError(400, '`prompt` must be a non-empty string', {
-                legacyCode: 'bad_request',
-            });
-        }
+        assertImagePrompt(prompt);
 
         const allowedRatios = selectedModel.allowedRatios ?? [
             GEMINI_DEFAULT_RATIO,
         ];
-        ratio =
-            ratio && this.#isValidRatio(ratio, allowedRatios)
-                ? ratio
-                : allowedRatios[0];
+        ratio = ratio
+            ? closestAspectRatio(ratio, allowedRatios)
+            : allowedRatios[0];
 
         // Backwards compat: merge singular input_image into input_images
         if (input_image && (!input_images || input_images.length === 0)) {
@@ -127,6 +125,11 @@ export class GeminiImageProvider implements IImageProvider {
         }
 
         const actor = Context.get('actor');
+        if (!actor) {
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
+        }
 
         // --- Pre-flight cost estimation ---
         const inputImageCount = input_images?.length ?? 0;
@@ -138,10 +141,29 @@ export class GeminiImageProvider implements IImageProvider {
             selectedModel.costs.input,
         );
 
-        if (!quality) {
-            quality = selectedModel.allowedQualityLevels?.[0] ?? '';
-            params.quality = quality;
+        // Tiered models resolve `quality` case-insensitively against their
+        // catalog levels, as Together and xAI do; a tier the model lacks is
+        // the caller's mistake, not a missing token-table entry.
+        const tiers = (selectedModel.allowedQualityLevels ?? []).filter(
+            Boolean,
+        );
+        if (quality) {
+            const wanted = quality.trim().toLowerCase();
+            const requestedTier = tiers.find(
+                (tier) => tier.toLowerCase() === wanted,
+            );
+            if (tiers.length && !requestedTier) {
+                throw new HttpError(
+                    400,
+                    `Unsupported quality tier: ${quality}. Expected ${tiers.join(', ')}`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            quality = requestedTier ?? '';
+        } else {
+            quality = tiers[0] ?? '';
         }
+        params.quality = quality;
 
         // Estimate output image tokens
         const imageTokenKey = quality
@@ -345,7 +367,7 @@ export class GeminiImageProvider implements IImageProvider {
         if (!Number.isFinite(centsPerMillion) || (centsPerMillion ?? 0) <= 0)
             return 0;
 
-        return (tokenCount / 1_000_000) * (centsPerMillion as number);
+        return (tokenCount * (centsPerMillion as number)) / 1_000_000;
     }
 
     #toMicroCents(cents: number): number {
@@ -404,12 +426,5 @@ export class GeminiImageProvider implements IImageProvider {
         if (mimeType.length === 0) return undefined;
 
         return { mimeType, base64: data.substring(commaIdx + 1) };
-    }
-
-    #isValidRatio(
-        ratio: { w: number; h: number },
-        allowedRatios: { w: number; h: number }[],
-    ) {
-        return allowedRatios.some((r) => r.w === ratio.w && r.h === ratio.h);
     }
 }

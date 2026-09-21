@@ -32,6 +32,7 @@ import type { IGenerateParams } from './types.js';
 export {
     assertInputImageString,
     fetchImageAsBase64,
+    fetchImageBytes,
     isHttpUrl,
     parseDataUri,
     toBase64DataUri,

@@ -47,10 +47,7 @@ export interface WorkerInvocation {
  * count toward the run that suspends a subscription.
  */
 export type WorkerInvocationOutcome =
-    | 'settled'
-    | 'terminal'
-    | 'retriable'
-    | 'deferred';
+    'settled' | 'terminal' | 'retriable' | 'deferred';
 
 export interface WorkerInvokerSeam {
     invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;

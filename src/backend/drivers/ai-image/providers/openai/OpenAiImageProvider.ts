@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { assertImagePrompt } from '../../imageValidation.js';
+import { closestAspectRatio } from '../../imageDimensions.js';
+import { imageDataUri } from '../../imageOutput.js';
 import openai, { OpenAI, toFile } from 'openai';
 import {
     ImageEditParamsNonStreaming,
@@ -48,8 +51,8 @@ interface OpenAIImageUsage {
 
 /**
  * OpenAI image generation provider for v2. Supports the GPT Image models
- * (gpt-image-1, -1-mini, -1.5, -2, -2.5-sunburst, -2.5-flare), including
- * image-to-image editing via `input_images` (the `images.edit` endpoint).
+ * (gpt-image-2, -2.5-sunburst, -2.5-flare), including image-to-image editing
+ * via `input_images` (the `images.edit` endpoint).
  */
 export class OpenAiImageProvider implements IImageProvider {
     #meteringService: MeteringService;
@@ -98,7 +101,7 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     getDefaultModel(): string {
-        return 'gpt-image-1-mini';
+        return 'gpt-image-2';
     }
 
     async generate({
@@ -125,20 +128,13 @@ export class OpenAiImageProvider implements IImageProvider {
         }
         const hasInputImages = (input_images?.length ?? 0) > 0;
 
-        if (typeof prompt !== 'string') {
-            throw new HttpError(400, '`prompt` must be a string', {
-                legacyCode: 'bad_request',
-            });
-        }
+        assertImagePrompt(prompt);
 
         const validRatios = selectedModel?.allowedRatios;
         if (validRatios) {
-            if (
-                !ratio ||
-                !validRatios.some((r) => r.w === ratio.w && r.h === ratio.h)
-            ) {
-                ratio = validRatios[0]; // Default to the first allowed ratio
-            }
+            ratio = ratio
+                ? closestAspectRatio(ratio, validRatios)
+                : validRatios[0];
         } else {
             // Open-ended size models (gpt-image-2): conform to OpenAI's size
             // rules (16px multiples, 3840 cap, 3:1 ratio, pixel budget).
@@ -149,9 +145,14 @@ export class OpenAiImageProvider implements IImageProvider {
             ratio = { w: 1024, h: 1024 }; // Fallback ratio
         }
 
+        // Tier names match case-insensitively, as on every other provider;
+        // anything unrecognized falls back to the cheapest tier.
         const validQualities = selectedModel?.allowedQualityLevels;
-        if (validQualities && (!quality || !validQualities.includes(quality))) {
-            quality = validQualities[0]; // Default to the first allowed quality
+        if (validQualities) {
+            const wanted = quality?.trim().toLowerCase();
+            quality =
+                validQualities.find((tier) => tier.toLowerCase() === wanted) ??
+                validQualities[0];
         }
 
         const size = `${ratio.w}x${ratio.h}`;
@@ -177,6 +178,11 @@ export class OpenAiImageProvider implements IImageProvider {
         }
 
         const actor = Context.get('actor');
+        if (!actor) {
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
+        }
         const userIdentifier = upstreamUserIdentifier(actor);
 
         const estimatedPromptTokenCount =
@@ -287,7 +293,7 @@ export class OpenAiImageProvider implements IImageProvider {
         const url =
             result.data?.[0]?.url ||
             (result.data?.[0]?.b64_json
-                ? `data:image/png;base64,${result.data[0].b64_json}`
+                ? imageDataUri(result.data[0].b64_json)
                 : null);
 
         if (!url) {
@@ -344,10 +350,6 @@ export class OpenAiImageProvider implements IImageProvider {
         selectedModel: IImageModel,
         usage: OpenAIImageUsage,
     ): number {
-        if (!this.#isGptImageModel(selectedModel.id)) {
-            return 0;
-        }
-
         const textInputRate = this.#getCostRate(selectedModel, 'text_input');
         const textCachedInputRate =
             this.#getCostRate(selectedModel, 'text_cached_input') ??
@@ -453,10 +455,6 @@ export class OpenAiImageProvider implements IImageProvider {
         usage: OpenAIImageUsage,
         fallbackPriceInCents: number,
     ): number {
-        if (!this.#isGptImageModel(selectedModel.id)) {
-            return fallbackPriceInCents;
-        }
-
         if (usage.outputTokens <= 0) {
             return fallbackPriceInCents;
         }
@@ -509,11 +507,6 @@ export class OpenAiImageProvider implements IImageProvider {
         if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
             return 0;
         return Math.floor(value);
-    }
-
-    #isGptImageModel(model: string) {
-        // Covers gpt-image-1, gpt-image-1-mini, gpt-image-1.5, gpt-image-2, gpt-image-2.5-* and future variants.
-        return model.startsWith('gpt-image-');
     }
 
     // gpt-image-2/2.5 size rules: each edge in [16, 3840] and a multiple of 16,

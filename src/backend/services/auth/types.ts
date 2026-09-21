@@ -80,9 +80,7 @@ export interface AccessTokenPayload extends TokenPayloadBase {
 }
 
 export type AnyTokenPayload =
-    | SessionTokenPayload
-    | AppUnderUserTokenPayload
-    | AccessTokenPayload;
+    SessionTokenPayload | AppUnderUserTokenPayload | AccessTokenPayload;
 
 // -- Session row (from `sessions` table) ----------------------------
 
