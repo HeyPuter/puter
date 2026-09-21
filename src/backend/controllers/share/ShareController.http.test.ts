@@ -26,6 +26,7 @@ import {
     type PuterTestEnv,
 } from '../../testUtil.js';
 import { ShareController } from './ShareController.js';
+import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 
 /**
  * Route-level coverage for the sharing endpoints. The service unit tests drive
@@ -1068,5 +1069,157 @@ describe('share endpoints over HTTP', () => {
             // Security management stays closed to every access token.
             expect(route.options?.allowFullAccessToken).toBeUndefined();
         }
+    });
+
+    describe('an invited address over the wire', () => {
+        /** An app of the owner's, holding `mode` on one file, with a token. */
+        const appHolding = async (
+            owner: { username: string },
+            uid: string,
+            permission: (fileUid: string) => string,
+        ) => {
+            const user = await env.server.stores.user.getByUsername(
+                owner.username,
+            );
+            const actor = makeActor({ user: user! });
+            const app = await env.server.stores.app.create(
+                {
+                    name: `peek-app-${crypto.randomUUID().slice(0, 8)}`,
+                    title: 'Peek app',
+                    index_url: `https://peek-${crypto.randomUUID()}.test/`,
+                },
+                { ownerUserId: user!.id },
+            );
+            await runWithContext({ actor }, () =>
+                env.server.services.permission.grantUserAppPermission(
+                    actor,
+                    app.uid,
+                    permission(uid),
+                ),
+            );
+            const token = await env.server.services.auth.getUserAppToken(
+                actor,
+                app.uid,
+            );
+            return { ...app, token };
+        };
+
+        const invitedFile = async (owner: { username: string; token: string }) => {
+            const file = await makeFile(owner);
+            const email = `wire-${crypto.randomUUID().slice(0, 8)}@test.local`;
+            const res = await post('/share', owner.token, {
+                recipients: [email],
+                items: [{ uid: file.uid }],
+                mode: 'read',
+            });
+            expect(res.status).toBe(200);
+            return { file, email };
+        };
+
+        it('reaches the owner but not an app the file was handed to', async () => {
+            const owner = env.users.user;
+            const { file, email } = await invitedFile(owner);
+
+            // The owner asked, so the owner is told.
+            const mine = await get('/share/shares', owner.token, {
+                uid: file.uid,
+            });
+            expect(mine.status).toBe(200);
+            expect(await mine.text()).toContain(email);
+
+            // The app is answered, but bounded to the rows it issued — and it
+            // issued none, so the owner's invite is not among them.
+            const app = await appHolding(owner, file.uid, (u) => `fs:${u}:read`);
+            const peeked = await get('/share/shares', app.token, {
+                uid: file.uid,
+            });
+            expect(peeked.status).toBe(200);
+            const peekedBody = await peeked.text();
+            expect(peekedBody).not.toContain(email);
+            expect(JSON.parse(peekedBody).items).toEqual([]);
+
+            // `return_shares` is the same listing on an access-token surface.
+            const stat = await post('/fs/stat', app.token, {
+                uid: file.uid,
+                return_shares: true,
+            });
+            expect(stat.status).toBe(200);
+            const body = await stat.text();
+            expect(body).not.toContain(email);
+            expect(JSON.parse(body).shares).toEqual([]);
+        });
+
+        // The ticket's second route in: `ShareController` admits no access
+        // token, but `/fs/stat` does, and `return_shares` is the same listing.
+        it('withholds the listing from a list-scoped access token', async () => {
+            const owner = env.users.user;
+            const { file, email } = await invitedFile(owner);
+            const user = await env.server.stores.user.getByUsername(
+                owner.username,
+            );
+            const actor = makeActor({ user: user! });
+            const scoped = await runWithContext({ actor }, () =>
+                env.server.services.auth.createAccessToken(actor, [
+                    [`fs:${file.uid}:list`],
+                ]),
+            );
+
+            const stat = await post('/fs/stat', scoped, {
+                uid: file.uid,
+                return_shares: true,
+            });
+            expect(stat.status).toBe(200);
+            const body = await stat.text();
+            expect(body).not.toContain(email);
+            expect(JSON.parse(body).shares).toEqual([]);
+        });
+
+        // Withholding here would buy nothing: `shared-by-me` hands the same
+        // addresses to the same credential.
+        it('tells a full-access token what it could read from shared-by-me anyway', async () => {
+            const owner = env.users.user;
+            const { file, email } = await invitedFile(owner);
+            const user = await env.server.stores.user.getByUsername(
+                owner.username,
+            );
+            const actor = makeActor({ user: user! });
+            const pat = await runWithContext({ actor }, () =>
+                env.server.services.auth.createAccessToken(actor, [
+                    [FULL_API_ACCESS],
+                ]),
+            );
+
+            const outbound = await get('/share/shared-by-me', pat, {});
+            expect(outbound.status).toBe(200);
+            expect(await outbound.text()).toContain(email);
+
+            const listed = await get('/share/shares', pat, { uid: file.uid });
+            expect(listed.status).toBe(200);
+            expect(await listed.text()).toContain(email);
+        });
+
+        it('answers an app that was handed the item to manage', async () => {
+            const owner = env.users.user;
+            const { file, email } = await invitedFile(owner);
+            const app = await appHolding(
+                owner,
+                file.uid,
+                (u) => `manage:fs:${u}`,
+            );
+
+            const res = await get('/share/shares', app.token, {
+                uid: file.uid,
+            });
+            expect(res.status).toBe(200);
+            const text = await res.text();
+            // `manage` buys an app authority over the item, not sight of who
+            // else the owner invited to it.
+            expect(
+                JSON.parse(text).items.some(
+                    (i: { pending?: boolean }) => i.pending,
+                ),
+            ).toBe(false);
+            expect(text).not.toContain(email);
+        });
     });
 });

@@ -164,51 +164,64 @@
  * Options for `txt2img()`.
  *
  * @typedef {Object} Txt2ImgOptions
- * @property {string} [prompt] Text description of the image to generate.
- * @property {string} [model] Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'`
- * (OpenAI), or `'grok-imagine-image'` when `provider` is `'xai'`.
+ * @property {string} [prompt] Non-empty text description of the image to generate. Missing, blank,
+ * or non-string values reject with `prompt_required`.
+ * @property {string} [model] Image model to use (provider-specific). Without one, the provider's
+ * default applies: `'gpt-image-2'` (OpenAI, preferred when no provider is given),
+ * `'gemini-3.1-flash-image'` (Gemini), `'@cf/black-forest-labs/flux-1-schnell'` (Cloudflare),
+ * `'grok-imagine-image'` (xAI), `'black-forest-labs/flux-schnell'` (Replicate), or
+ * `'seedream-5-0-lite-260128'` (BytePlus).
  * @property {string} [quality] Image quality / output size tier. Interpretation is provider- and
  * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`),
  * `gpt-image-2` also accepts `'auto'`, and `gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` also
  * accept `'xhigh'` | `'max'` | `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
  * `'4K'` (availability varies by model).
- * @property {string} [input_image] An input image for image-to-image generation. Replicate and xAI
- * `grok-imagine-*` accept a URL; Gemini and OpenAI `gpt-image-*` expect a base64-encoded (or data-URI)
- * image (xAI also accepts base64/data-URI).
- * @property {string[]} [input_images] Multiple input images for image-to-image / multi-image
- * generation. Gemini and OpenAI `gpt-image-*` expect base64-encoded (or data-URI) images; Replicate
- * expects image URLs; xAI `grok-imagine-*` accepts either (up to 3 images).
+ * @property {string} [resolution] xAI output resolution: `'1k'` (default) or `'2k'`; model-specific resolution tier on Replicate.
+ * On `grok-imagine-image-2.0`, `quality` independently accepts `'low'`, `'medium'`, or `'auto'`.
+ * The older xAI models also accept the resolution through `quality` for compatibility.
+ * @property {string} [input_image] One reference image: a public URL, data URI, or raw base64.
+ * @property {string[]} [input_images] Reference images as URLs, data URIs, or raw base64.
+ * Model support varies. xAI accepts up to 5; Together and Cloudflare accept one.
  * @property {string} [input_image_mime_type] MIME type of the input image(s), e.g. `'image/png'`. Used
  * as a fallback when the type cannot be auto-detected (Gemini).
- * @property {string} [driver]
- * @property {string} [provider]
- * @property {string} [service]
+ * @property {string} [driver] Legacy driver ID, e.g. `'xai-image-generation'`.
+ * @property {string} [provider] Provider name: `'openai'`, `'gemini'`, `'together'`, `'cloudflare'`,
+ * `'xai'`, `'replicate'`, or `'byteplus'`. Full `*-image-generation` IDs also work.
+ * Prefers this provider when it offers the model; otherwise a known model selects its provider.
+ * Routes excluded by data policy reject with `bad_request`; Together image routes are currently excluded.
+ * @property {string} [service] Ignored; retained for compatibility. Use `provider` or `driver` to select a provider.
  * @property {{ w: number, h: number }} [ratio] Aspect ratio as `{ w, h }` (e.g. `{ w: 16, h: 9 }`).
- * Supported by OpenAI, Gemini, and Replicate.
- * @property {number} [width] Width of the image to generate, in pixels (Together). Default `1024`.
- * @property {number} [height] Height of the image to generate, in pixels (Together). Default `1024`.
- * @property {string} [aspect_ratio] Alternative way to specify the aspect ratio (Together).
- * @property {number} [steps] Number of generation/inference steps (Together, default `20`; Replicate
- * `flux-schnell`).
+ * Supported sizes and aspect ratios depend on the model.
+ * @property {number} [width] Width of the image to generate, in pixels; use with `height`.
+ * @property {number} [height] Height of the image to generate, in pixels; use with `width`.
+ * @property {string} [aspect_ratio] Alternative aspect ratio, e.g. `'16:9'`.
+ * @property {number} [steps] Number of generation/inference steps (Together default varies by model; Replicate
+ * models with sampling controls; Cloudflare limits vary by model).
  * @property {number} [seed] Seed used for generation; reuse to reproduce results (Together, Replicate).
  * @property {string} [negative_prompt] Prompt describing what NOT to guide the image generation toward
- * (Together).
- * @property {number} [n] Number of image results to generate (Together). Default `1`.
- * @property {string} [image_url] URL of an input image for models that support it (Together).
- * @property {string} [image_base64] Base64-encoded input image for image-to-image generation (Together).
- * @property {string} [mask_image_url] URL of a mask image for inpainting (Together).
- * @property {string} [mask_image_base64] Base64-encoded mask image for inpainting (Together).
- * @property {number} [prompt_strength] How strongly the prompt influences the output (Together).
+ * (Together, supported Cloudflare and Replicate models).
+ * @property {number} [n] Reserved for compatibility. Image generation currently returns one image; this option is ignored.
+ * @property {string} [image_url] URL of an input image for models that support it (Together; no effect while Together routes are excluded).
+ * @property {string} [image_base64] Base64-encoded input image for image-to-image generation (Together; no effect while Together routes are excluded).
+ * @property {string} [mask_image_url] URL of a mask image for inpainting (Together; no effect while Together routes are excluded).
+ * @property {string} [mask_image_base64] Base64-encoded mask image for inpainting (Together; no effect while Together routes are excluded).
+ * @property {string} [maskImage] Mask image URL, data URI, or raw base64 for supported Cloudflare and
+ * Replicate inpainting models. Supply an input image as well.
+ * @property {Record<string, unknown>} [providerOptions] Native options for Replicate catalog models,
+ * validated against the selected model's API schema. Common options take precedence.
+ * @property {number} [strength] Transformation strength for supported Cloudflare and Replicate image editing models.
+ * @property {number} [prompt_strength] How strongly the prompt influences the output (Together; no effect while Together routes are excluded).
  * @property {boolean} [disable_safety_checker] When `true`, disables the safety checker (Together,
  * Replicate).
  * @property {string} [response_format] Format of the image response. Together: `'base64'` | `'url'`.
  * Replicate: output format, e.g. `'webp'` | `'jpg'` | `'png'`.
- * @property {number} [guidance] Guidance scale (Replicate `flux-2-klein-9b-base`).
+ * @property {number} [guidance] Guidance scale (Cloudflare and supported Replicate models).
  * @property {boolean} [go_fast] Use the model's optimized fast mode (Replicate `flux-2-dev`). Defaults
  * to `true` for that model, and affects pricing.
  * @property {number} [output_quality] Output quality, 0-100 (Replicate, flux family).
- * @property {string} [output_megapixels] Approximate output size in megapixels (Replicate, flux
- * family), e.g. `'0.25'` | `'0.5'` | `'1'` | `'2'`.
+ * @property {string} [output_megapixels] Output size in megapixels on Replicate `flux-2-pro`,
+ * `flux-2-klein-*`, and `flux-schnell`, from the model's own list (e.g. `'0.25'` | `'0.5'` | `'1'` |
+ * `'2'` | `'4'`); ignored by `flux-2-dev` and `flux-1.1-pro`.
  * @property {number} [safety_tolerance] Safety tolerance level (Replicate `flux-2-pro`,
  * `flux-1.1-pro`).
  * @property {boolean} [prompt_upsampling] Enable prompt upsampling (Replicate `flux-1.1-pro`).

@@ -24,6 +24,7 @@ import { configContainer } from '../../exports.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types';
+import { encodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSEntry, FSEntryCreateInput } from './FSEntry.js';
 import { FSEntryStore } from './FSEntryStore.js';
@@ -1266,6 +1267,92 @@ describe('FSEntryStore listing and pagination', () => {
             store.listDescendantsPage(user.userId, '/', { maxDepth: 1 }),
         );
         expect(rootPage.statusCode).toBe(400);
+    });
+
+    it('sorts a descendant page by the requested field', async () => {
+        // Sizes: a=30, b=20, c=10, sub=null (a directory), sub/deep=5. The
+        // sort spans the whole subtree, so a nested entry sorts among the
+        // entries above it.
+        const bySize = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            { maxDepth: 5, sortBy: 'size', sortOrder: 'desc' },
+        );
+        expect(bySize.entries.map((entry) => entry.name)).toEqual([
+            'a.txt',
+            'b.txt',
+            'c.txt',
+            'deep.txt',
+            'sub',
+        ]);
+
+        // A name sort is path order: names alone would interleave depths.
+        const byName = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            { maxDepth: 5, sortBy: 'name' },
+        );
+        expect(byName.entries.map((entry) => entry.name)).toEqual([
+            'a.txt',
+            'b.txt',
+            'c.txt',
+            'sub',
+            'deep.txt',
+        ]);
+    });
+
+    it('pages a sorted descendant listing without dupes or gaps', async () => {
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        do {
+            const page = await store.listDescendantsPage(
+                user.userId,
+                parent.path,
+                {
+                    maxDepth: 5,
+                    limit: 2,
+                    sortBy: 'size',
+                    sortOrder: 'desc',
+                    cursor,
+                },
+            );
+            seen.push(...page.entries.map((entry) => entry.name));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(seen).toEqual(['a.txt', 'b.txt', 'c.txt', 'deep.txt', 'sub']);
+    });
+
+    it('pins the sort to the descendant cursor', async () => {
+        const first = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            { maxDepth: 5, limit: 1, sortBy: 'size' },
+        );
+        const mismatch = await caught(() =>
+            store.listDescendantsPage(user.userId, parent.path, {
+                maxDepth: 5,
+                limit: 1,
+                sortBy: 'modified',
+                cursor: first.cursor,
+            }),
+        );
+        expect(mismatch.statusCode).toBe(400);
+        expect(mismatch.message).toBe('cursor does not match requested sort');
+
+        // Cursors minted before the sort was honored carried only a path.
+        const legacy = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            {
+                maxDepth: 5,
+                cursor: encodeCursor({ p: `${parent.path}/b.txt` }),
+            },
+        );
+        expect(legacy.entries.map((entry) => entry.name)).toEqual([
+            'c.txt',
+            'sub',
+            'deep.txt',
+        ]);
     });
 
     it('counts descendants to a depth', async () => {

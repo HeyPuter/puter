@@ -83,10 +83,10 @@ describe('AuthService.createAccessToken', () => {
         // blanket account-wide token. This throws on actor shape, before any
         // DB / permission interaction, so the mock service is sufficient.
         const authService = createAuthService();
-        const appActor = {
+        const appActor = makeActor({
             user: { uuid: 'user-issuer', id: 1, username: 'issuer' },
             app: { id: 0, uid: 'app-x' },
-        } as Actor;
+        });
         await expect(
             authService.createAccessToken(appActor, [[FULL_API_ACCESS]]),
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
@@ -1297,10 +1297,10 @@ describe('AuthService (integration)', () => {
 
         it('createWorkerAppToken refuses an app actor targeting a different app (403)', async () => {
             const user = await makeUser();
-            const actor = {
+            const actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { uid: `app-${uuidv4()}` },
-            } as Actor;
+            });
             await expect(
                 authService.createWorkerAppToken(
                     actor,
@@ -1337,14 +1337,14 @@ describe('AuthService (integration)', () => {
                 user: { id: number; uuid: string; username: string },
                 app: { uid: string; id: number },
             ) =>
-                ({
+                makeActor({
                     user: {
                         id: user.id,
                         uuid: user.uuid,
                         username: user.username,
                     },
                     app: { uid: app.uid, id: app.id },
-                }) as Actor;
+                });
 
             it('mints a token scoped to an app the caller created', async () => {
                 const user = await makeUser();
@@ -1859,10 +1859,10 @@ describe('AuthService (integration)', () => {
         it('lets an app actor mint a token for its own app', async () => {
             const user = await makeUser();
             const ownApp = `app-${uuidv4()}`;
-            const actor = {
+            const actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { uid: ownApp },
-            } as Actor;
+            });
             const token = await authService.getUserAppToken(actor, ownApp);
             const decoded = server.services.token.verify('auth', token) as {
                 app_uid: string;
@@ -1872,10 +1872,10 @@ describe('AuthService (integration)', () => {
 
         it('refuses an app actor minting a token for a different app (403)', async () => {
             const user = await makeUser();
-            const actor = {
+            const actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { uid: `app-${uuidv4()}` },
-            } as Actor;
+            });
             await expect(
                 authService.getUserAppToken(actor, `app-${uuidv4()}`),
             ).rejects.toMatchObject({
@@ -2064,10 +2064,10 @@ describe('AuthService (integration)', () => {
             );
             expect(fileEntry).not.toBeNull();
 
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: 0, uid: appUid },
-            } as Actor;
+            });
 
             const jwt = await authService.createAccessToken(appActor, [
                 [`fs:${fileEntry!.uuid}:read`],
@@ -2113,10 +2113,10 @@ describe('AuthService (integration)', () => {
             );
             expect(fileEntry).not.toBeNull();
 
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: 0, uid: appUid },
-            } as Actor;
+            });
 
             await expect(
                 authService.createAccessToken(appActor, [

@@ -19,7 +19,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -159,6 +159,14 @@ describe('PermissionService.getHigherPermissions', () => {
         const service = createPermissionService();
         const higher = await service.getHigherPermissions('a:b:c');
         expect(higher).toEqual(expect.arrayContaining(['a:b:c', 'a:b', 'a']));
+    });
+
+    it('drops the bare fs parents, which no grant may hold', async () => {
+        const service = createPermissionService();
+        const higher = await service.getHigherPermissions('fs:some-uuid:write');
+        expect(higher).toContain('fs:some-uuid:write');
+        expect(higher).not.toContain('fs:some-uuid');
+        expect(higher).not.toContain('fs');
     });
 
     it('expands via registered exploders when the parent matches', async () => {
@@ -447,10 +455,10 @@ describe('PermissionService (integration)', () => {
         it('revokeUserAppPermission throws 403 when actor is an app-under-user', async () => {
             const { user } = await makeUserActor();
             const app = await makeApp(user.id);
-            const appActor = {
+            const appActor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             await expect(
                 permService.revokeUserAppPermission(
                     appActor,
@@ -473,10 +481,10 @@ describe('PermissionService (integration)', () => {
         it('revokeUserAppAll throws 403 when actor is an app-under-user', async () => {
             const { user } = await makeUserActor();
             const app = await makeApp(user.id);
-            const appActor = {
+            const appActor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             await expect(
                 permService.revokeUserAppAll(appActor, app.uid),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -572,10 +580,10 @@ describe('PermissionService (integration)', () => {
         it('revokeDevAppPermission throws 403 when actor is an app-under-user', async () => {
             const { user } = await makeUserActor();
             const app = await makeApp(user.id);
-            const appActor = {
+            const appActor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             await expect(
                 permService.revokeDevAppPermission(
                     appActor,
@@ -784,10 +792,10 @@ describe('PermissionService (integration)', () => {
                 ),
             );
 
-            const appActor = {
+            const appActor = makeActor({
                 user: targetActor.user,
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
 
             // Prime the app actor's cache with a "granted" reading.
             expect(await permService.check(appActor, permission)).toBe(true);
@@ -821,10 +829,10 @@ describe('PermissionService (integration)', () => {
                     permission,
                 ),
             );
-            const appActor = {
+            const appActor = makeActor({
                 user: targetActor.user,
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             expect(await permService.check(appActor, permission)).toBe(false);
 
             await runWithContext({ actor: issuerActor }, () =>
@@ -1380,10 +1388,10 @@ describe('PermissionService — scan paths', () => {
         it('gives every app the default implicit driver permissions', async () => {
             const { row, actor } = await makeGroupedUser();
             const app = await makeApp(row.id);
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: actor.user,
                 app: { uid: app.uid, id: app.id },
-            };
+            });
             expect(
                 await permService.check(appActor, 'driver:puter-kvstore'),
             ).toBe(true);
@@ -1398,11 +1406,11 @@ describe('PermissionService — scan paths', () => {
 
         it('gives a built-in app its extra hardcoded permissions', async () => {
             const { actor } = await makeGroupedUser();
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: actor.user,
                 // dev-center, from the builtin-apps bucket.
                 app: { uid: 'app-240a43f4-43b1-49bc-b9fc-c8ae719dab77', id: 1 },
-            };
+            });
             expect(
                 await permService.check(
                     appActor,
@@ -1414,10 +1422,10 @@ describe('PermissionService — scan paths', () => {
         it('resolves a user-to-app grant, and stops once revoked', async () => {
             const { row, actor } = await makeGroupedUser();
             const app = await makeApp(row.id);
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: actor.user,
                 app: { uid: app.uid, id: app.id },
-            };
+            });
             const permission = `zztest:u2a-${uuidv4()}:ii:read`;
             // The user must hold it for the app's delegation to terminate.
             await server.stores.permission.setFlatUserPerm(row.id, permission, {
@@ -1470,10 +1478,10 @@ describe('PermissionService — scan paths', () => {
                 );
             }
 
-            const visitorAppActor: Actor = {
+            const visitorAppActor: Actor = makeActor({
                 user: visitor.user,
                 app: { uid: app.uid, id: app.id },
-            };
+            });
             // A dev-app grant is issued by the developer, not the visitor, so
             // it is not generation-linked to the visitor's cache — readings
             // only lapse with the scan-cache TTL. Read past the cache so the

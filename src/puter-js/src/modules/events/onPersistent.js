@@ -62,6 +62,7 @@ export async function onPersistent (options = {}) {
         ...(options.expiresAt !== undefined && options.expiresAt !== null
             ? { expiresAt: options.expiresAt }
             : {}),
+        ...(options.includeValue ? { includeValue: true } : {}),
     };
 
     // Serialized only to check it against the cap before the round trip; the

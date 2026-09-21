@@ -19,9 +19,11 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+    isUuid,
     is_share_root,
     parent_path_for,
     parse_shared_path,
+    share_link_for,
     shared_crumbs_for,
     shared_uids_from_paths,
 } from './sharePaths.js';
@@ -135,5 +137,33 @@ describe('shared_crumbs_for', () => {
         ).map((c) => c.label);
         expect(labels).toEqual(['Contents', 'deep', 'f.txt']);
         expect(labels).not.toContain('Documents');
+    });
+});
+
+describe('share_link_for', () => {
+    it('addresses the item by owner and uid on the shared param', () => {
+        const link = share_link_for(
+            { owner: 'ann', uid: UID, name: 'Q3 report.txt' },
+            'https://puter.com/',
+        );
+        expect(link).toBe(
+            `https://puter.com/?shared=${encodeURIComponent(`/ann/${UID}/Q3 report.txt`)}`,
+        );
+        // What it names is what the GUI reads back.
+        expect(parse_shared_path(decodeURIComponent(link.split('?shared=')[1]))).toEqual({
+            owner: 'ann',
+            uid: UID,
+            segments: ['Q3 report.txt'],
+        });
+    });
+});
+
+describe('isUuid', () => {
+    it('accepts a uuid in either case and nothing else', () => {
+        expect(isUuid(UID)).toBe(true);
+        expect(isUuid(UID.toUpperCase())).toBe(true);
+        expect(isUuid(`/${UID}`)).toBe(false);
+        expect(isUuid('notes.txt')).toBe(false);
+        expect(isUuid(undefined)).toBe(false);
     });
 });

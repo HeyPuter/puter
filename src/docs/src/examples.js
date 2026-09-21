@@ -432,6 +432,12 @@ const examples = [
                 slug: 'fs-getShares',
                 source: '/playground/examples/fs-getShares.html',
             },
+            {
+                title: 'Link to a file in an app',
+                description: 'Build a link that opens a shared file in an app with Puter.js filesystem API. Run and modify this example in your browser.',
+                slug: 'fs-getShareLink',
+                source: '/playground/examples/fs-getShareLink.html',
+            },
         ],
     },
     {

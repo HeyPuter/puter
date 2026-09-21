@@ -113,6 +113,8 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [76, ['0081_event-subscriptions-indexes.sql']],
     [77, ['0082_temp-password-expiry.sql']],
     [78, ['0083_team-directory.sql']],
+    [79, ['0084_share-anyone-with-link.sql']],
+    [80, ['0085_event-subscriptions-include-value.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { makeActor } from '../../core/actor.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -382,10 +383,10 @@ describe('PeerController TURN', () => {
             json: async () => ({ iceServers: [] }),
         } as never);
         try {
-            const appActor = {
+            const appActor = makeActor({
                 ...userActor,
                 app: { uid: 'app-66666666-7777-8888-9999-aaaaaaaaaaaa' },
-            };
+            });
             await generateTurn(makeReq({ actor: appActor }), makeRes().res);
             const init = fetchSpy.mock.calls[0]![1] as RequestInit;
             const { customIdentifier } = JSON.parse(init.body as string) as {
@@ -667,10 +668,12 @@ describe('PeerController guest TURN', () => {
         });
 
         it('carries the app segment for an app-under-user host', () => {
-            const grant = mintGrant({
-                ...hostActor,
-                app: { uid: 'app-66666666-7777-8888-9999-aaaaaaaaaaaa' },
-            });
+            const grant = mintGrant(
+                makeActor({
+                    ...hostActor,
+                    app: { uid: 'app-66666666-7777-8888-9999-aaaaaaaaaaaa' },
+                }),
+            );
 
             const verified = verifyGuestGrant({
                 grant,

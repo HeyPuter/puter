@@ -120,7 +120,8 @@
  * large directories.
  * @property {string | null} [cursor] Opaque continuation cursor from a previous page.
  * @property {boolean} [includeTotal] Include a `total` count of every entry across all pages.
- * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`.
+ * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`. With
+ * `recursive`, a `name` sort orders by full path.
  * @property {'asc' | 'desc'} [sortOrder] Sort direction. Default is `asc`.
  * @property {boolean} [recursive] Whether to also list the contents of subdirectories. Defaults to
  * `false`.
@@ -311,9 +312,12 @@
  * as an email when it contains `@` and a username otherwise.
  *
  * A team is named by `team` (uid) or `teamHandle`, never as a bare
- * string -- that spelling already means an email or a username.
+ * string -- that spelling already means an email or a username. `{ anyone:
+ * true }` is anyone with the link: every signed-in account that can name the
+ * item, at `read` or `write`. Only the item's owner may set it, and only on a
+ * paid plan; the link stops working while the owner has none.
  *
- * @typedef {string | { email?: string, username?: string, team?: string, teamHandle?: string }} ShareRecipient
+ * @typedef {string | { email?: string, username?: string, team?: string, teamHandle?: string, anyone?: true }} ShareRecipient
  */
 
 /**
@@ -335,9 +339,13 @@
  * the listings, `listShared()` and `listSharedByMe()`.
  * @property {string | null} issuer Username of whoever granted it.
  * @property {string | null} holder Username of whoever received it. Null for a
- * team share, which has no individual holder -- see `holderTeam`.
+ * team share (see `holderTeam`) and for a link share (see `anyone`), neither
+ * of which has an individual holder.
  * @property {{ uid: string, name: string | null, handle: string | null }} [holderTeam]
  * The team this was shared with, when it was shared with one.
+ * @property {boolean} [anyone] True when this is the item's "anyone with the
+ * link" share: every signed-in account that names the item gets `mode`, while
+ * the owner's plan covers link sharing.
  * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
  * @property {string | null} [issuedByApp] UID of the app that asked for this
  * share, or `null` when a person made it directly.
@@ -420,6 +428,19 @@
 
 /**
  * @typedef {GetSharesOptionsOwn & RequestCallbacks<Share[]>} GetSharesOptions
+ */
+
+/**
+ * @typedef {Object} GetShareLinkOptionsOwn
+ * @property {string} [path] The file. Required when passing options as the only argument, unless
+ * `uid` is given.
+ * @property {string} [uid] The file, by UID. Can be used instead of `path`.
+ * @property {string} [appName] Name of the app the link opens the file with. Defaults to the app
+ * the code runs in.
+ */
+
+/**
+ * @typedef {GetShareLinkOptionsOwn & RequestCallbacks<string>} GetShareLinkOptions
  */
 
 export {};

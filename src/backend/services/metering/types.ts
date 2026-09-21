@@ -42,26 +42,19 @@ export interface UsageInput {
 export type UsageByType = {
     total: number;
     /**
-     * The part of `total` that was charged to the monthly subscription
-     * allowance. The allowance is consumed first; spend past it draws down the
-     * lifetime credit pool (`consumedPurchaseCredits`) instead, so the two
-     * pools never bill the same spend. Living on the month record, it resets
-     * with the month the way the allowance itself does. Absent on records from
-     * before the split was tracked — readers fall back to counting `total`
-     * against the allowance, capped at the allowance.
+     * The part of `total` charged to the monthly allowance; spend past it draws
+     * down purchased credits instead. Absent on records from before the split,
+     * where readers count `total` against the allowance, capped at it.
      */
     allowanceUsed?: number;
     /**
-     * Claim counter for folding the pre-split baseline into `allowanceUsed` on
-     * a record that predates it. 1 for the settle that claimed the fold; higher
-     * for concurrent settles that raced and lost and must not add the baseline
-     * again.
+     * Claim counter for folding the pre-split baseline into `allowanceUsed`; 1
+     * for the winner, higher for racers.
      */
     allowanceUsedBaselined?: number;
     /**
-     * Claim counter for the month's recurring charges — see
-     * `MONTHLY_CHARGE_CLAIM`. Absent until the first read or write of the
-     * month; 1 for whoever claimed it, higher for anyone who raced and lost.
+     * Claim counter for the month's recurring charges (`MONTHLY_CHARGE_CLAIM`);
+     * same semantics.
      */
     monthlyChargesApplied?: number;
 } & Partial<Record<Exclude<string, 'total'>, UsageRecord>>;
@@ -72,25 +65,17 @@ export interface AppTotals {
 }
 
 /**
- * Budget committed to an operation that hasn't finished yet.
- *
- * Released by the code that took it, on every path out — including failure. A
- * hold nobody releases expires on its own, so a lost release costs the account
- * the use of that budget for a while rather than forever.
+ * Budget committed to an in-flight operation. Release on every path out; an
+ * unreleased hold expires on its own.
  */
 export interface CreditHold {
     release(): Promise<void>;
     /**
-     * Push the hold's deadline out for an operation still running — a stream
-     * can outlive the default TTL, and a hold that expires mid-operation
-     * reopens the overspend window it was taken to close. Absent on the no-op
-     * hold; callers renew with `hold.extend?.()`.
+     * Push the deadline out for a long-running operation. Absent on the no-op
+     * hold.
      */
     extend?(): Promise<void>;
 }
 
-/**
- * The hold that holds nothing — for paths that take no hold but still release
- * one.
- */
+/** For paths that take no hold but still release one. */
 export const NO_CREDIT_HOLD: CreditHold = { release: async () => {} };

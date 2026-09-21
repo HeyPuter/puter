@@ -107,20 +107,14 @@ export type SubscriptionMetering = Pick<
 >;
 
 /**
- * What a surface asks for. `true` — any plan that isn't one of the free ones
- * (`FREE_SUBSCRIPTION_IDS`), so a plan added by an extension counts without
- * being named here. An array — the caller's own allowlist of policy ids, for
- * the narrower case of a feature that belongs to specific plans. `false` — no
- * requirement, the same as not declaring one.
+ * `true`: any plan outside `FREE_SUBSCRIPTION_IDS`. An array: only those policy
+ * ids. `false`: no requirement.
  */
 export type SubscriptionRequirement = boolean | readonly string[];
 
 /**
- * Validate a requirement declared on a route or a driver method. Throws at
- * boot, where the declaration is read, rather than letting a malformed one
- * decide live requests: an empty array reads as "subscribers only" to the next
- * person editing the file while admitting everybody, so it is an error, and
- * `false` has to be written deliberately.
+ * Validate a declared requirement at boot. An empty array is an error: it reads
+ * as "subscribers only" while admitting everybody.
  */
 export const validateSubscriptionRequirement = (
     value: unknown,
@@ -169,6 +163,59 @@ export const subscriptionEnforcementEnabled = (
     config.meteringEnforcement?.subscriptions !== false;
 
 /**
+ * The cases in which no plan is asked about at all: nothing was required, there
+ * is no metering to ask, plan gates are switched off, or the caller is the
+ * system. Shared by the check and the assertion so the two cannot drift.
+ */
+const subscriptionCheckWaived = (
+    metering: SubscriptionMetering | undefined,
+    actor: Actor | undefined,
+    requirement: SubscriptionRequirement,
+    config: EnforcementConfig,
+): boolean =>
+    requirement === false ||
+    (Array.isArray(requirement) && requirement.length === 0) ||
+    !metering ||
+    !subscriptionEnforcementEnabled(config) ||
+    Boolean(actor && isSystemActor(actor));
+
+/**
+ * Whether an actor's plan covers a plan-gated surface right now. The same
+ * question {@link assertActorHasSubscription} asks of a caller, as a yes or no —
+ * for an account that is not the caller (an owner whose link share is being
+ * read or listed), where there is no request to refuse.
+ */
+export const actorHasSubscription = async (
+    metering: SubscriptionMetering | undefined,
+    actor: Actor | undefined,
+    requirement: SubscriptionRequirement,
+    config: EnforcementConfig,
+): Promise<boolean> => {
+    if (subscriptionCheckWaived(metering, actor, requirement, config)) {
+        return true;
+    }
+    if (!actor?.user?.uuid) return false;
+    const subscription = await metering!.getActorSubscription(actor);
+    return subscriptionSatisfies(subscription.id, requirement);
+};
+
+/**
+ * Whether the actor is on a paid plan — the fact, not the gate. Unlike
+ * {@link actorHasSubscription} this ignores the enforcement switches: it is for
+ * a caller reading the plan as evidence (a paying account has a card on file
+ * with the billing provider) rather than as an entitlement to enforce. False
+ * with no metering to ask, or no account behind the actor.
+ */
+export const actorOnPaidPlan = async (
+    metering: SubscriptionMetering | undefined,
+    actor: Actor | undefined,
+): Promise<boolean> => {
+    if (!metering || !actor?.user?.uuid) return false;
+    const subscription = await metering.getActorSubscription(actor);
+    return subscriptionSatisfies(subscription.id, true);
+};
+
+/**
  * Reject a caller whose plan doesn't cover the surface they're calling.
  *
  * Unlike the credit check, a worker session is not exempt: a worker acts for an
@@ -180,16 +227,12 @@ export const subscriptionEnforcementEnabled = (
  * this normally costs a map lookup.
  */
 export const assertActorHasSubscription = async (
-    metering: SubscriptionMetering | undefined,
+    metering: SubscriptionMetering,
     actor: Actor | undefined,
     requirement: SubscriptionRequirement,
     config: EnforcementConfig,
 ): Promise<void> => {
-    if (requirement === false) return;
-    if (Array.isArray(requirement) && requirement.length === 0) return;
-    if (!metering) return;
-    if (!subscriptionEnforcementEnabled(config)) return;
-    if (actor && isSystemActor(actor)) return;
+    if (subscriptionCheckWaived(metering, actor, requirement, config)) return;
 
     if (!actor?.user?.uuid) {
         throw new HttpError(403, 'A subscription is required for this action', {
@@ -197,7 +240,7 @@ export const assertActorHasSubscription = async (
         });
     }
 
-    const subscription = await metering.getActorSubscription(actor);
+    const subscription = await metering!.getActorSubscription(actor);
     if (subscriptionSatisfies(subscription.id, requirement)) return;
 
     throw new HttpError(402, 'A subscription is required for this action', {

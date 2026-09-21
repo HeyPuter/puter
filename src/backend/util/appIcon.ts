@@ -76,7 +76,7 @@ const DATA_URL_REGEX =
 // the one allow-listed type without a fixed-offset magic number; a file that
 // buries its root past this much leading comment/PI text is not something we
 // need to accept.
-const SVG_SNIFF_WINDOW = 8 * 1024;
+export const SVG_SNIFF_WINDOW = 8 * 1024;
 
 /**
  * Decode strict base64 — no whitespace, correct padding, and byte-for-byte

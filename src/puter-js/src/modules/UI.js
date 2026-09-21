@@ -350,6 +350,11 @@ export class AppConnection extends EventListener {
         // TODO: Set this.#puterOrigin to the puter origin
 
         (globalThis.document) && window.addEventListener('message', event => {
+            // Relayed by the host environment; a window that guessed an
+            // appInstanceID must not be able to forge one directly.
+            if ( event.source !== this.messageTarget ) return;
+            if ( ! event.data ) return;
+
             if ( event.data.msg === 'messageToApp' ) {
                 if ( event.data.appInstanceID !== this.targetAppInstanceID ) {
                     // Message is from a different AppConnection; ignore it.
@@ -577,7 +582,7 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve);
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget);
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -648,6 +653,11 @@ export class UIModule extends EventListener {
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
         (globalThis.document) && window.addEventListener('message', async (e) => {
+            // Only the host environment drives these. Pinning the source
+            // rather than the origin keeps locally-hosted and self-hosted
+            // deployments working, and still rejects a sibling app iframe or
+            // a third-party page that framed us.
+            if ( e.source !== this.messageTarget ) return;
             if ( ! e.data ) return;
             // `error`
             if ( e.data.error ) {
@@ -1101,11 +1111,15 @@ export class UIModule extends EventListener {
      *
      * @internal
      * @param {string} code - The gate's error code.
+     * @param {{ factors?: string[] }} [details] - What the server said about
+     *   the gate. `factors` is present when a route asked for a verified
+     *   factor rather than the account being flagged: the verifications it
+     *   accepts, in the order to offer them.
      * @returns {Promise<boolean>}
      */
-    requestVerificationGate (code) {
+    requestVerificationGate (code, details = {}) {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestVerificationGate', resolve, { code });
+            this.#postMessageWithCallback('requestVerificationGate', resolve, { code, ...details });
         }).then((res) => res?.response === true);
     };
 
@@ -1455,13 +1469,18 @@ export class UIModule extends EventListener {
     }
 
     /**
-     * Asks the desktop to show its upgrade flow.
+     * Asks the desktop to show its upgrade flow. `details` say what was
+     * refused and why, so the desktop can explain the suggestion; the SDK
+     * fills them in when a call is refused for want of credit, a plan, or
+     * storage.
      *
+     * @param {import('../lib/types.js').UpgradeRequestDetails} [details]
      * @returns {Promise<unknown>}
      */
-    requestUpgrade () {
+    requestUpgrade (details) {
+        const { reason, method, message } = details ?? {};
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestUpgrade', resolve, { });
+            this.#postMessageWithCallback('requestUpgrade', resolve, { reason, method, message });
         });
     };
 
@@ -1817,7 +1836,8 @@ export class UIModule extends EventListener {
      *
      * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
      *   `create`: for an `fs:` permission naming a path that doesn't exist,
-     *   create it server-side after the user approves. See `puter.perms.request`.
+     *   create it server-side after the user approves. Defaults to `true`;
+     *   `false` opts out, `'dir'`/`'file'` force the kind. See `puter.perms.request`.
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
      *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
@@ -1906,9 +1926,9 @@ export class UIModule extends EventListener {
             const query = requested
                 .map(p => `permission=${encodeURIComponent(p)}`)
                 .join('&');
-            // Left out entirely when absent, so the URL is byte-identical to
-            // before this option existed.
-            const create_param = create ? `&create=${encodeURIComponent(create === true ? 'true' : create)}` : '';
+            // Left out when absent so the GUI applies its default; an explicit
+            // `false` has to travel, or the popup would create anyway.
+            const create_param = create === undefined ? '' : `&create=${encodeURIComponent(String(create))}`;
             const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}${create_param}`;
 
             // Guards against settling more than once across the message,

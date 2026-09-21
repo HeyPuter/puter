@@ -54,12 +54,7 @@ import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
 
 /** Why a deploy could not happen, for the callers that answer differently. */
 export type EventsDeployOutcome =
-    | 'deployed'
-    | 'stale'
-    | 'no-handlers'
-    | 'no-owner'
-    | 'throttled'
-    | 'failed';
+    'deployed' | 'stale' | 'no-handlers' | 'no-owner' | 'throttled' | 'failed';
 
 interface DeployLayers {
     config: IConfig;
@@ -238,7 +233,7 @@ export class EventsWorkerDeployer {
         const user = await stores.user.getById(ownerUserId);
         if (!user?.id || !user.uuid || !user.username || user.suspended)
             return null;
-        return { user } as Actor & {
+        return { user, effectiveApp: null } as Actor & {
             user: { id: number; uuid: string; username: string };
         };
     }

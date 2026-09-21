@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { assertImagePrompt } from './imageValidation.js';
 import crypto from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { assertNormalized } from '../../services/fs/resolveNode.js';
@@ -24,6 +25,7 @@ import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -32,6 +34,7 @@ import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageP
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
 import { OpenAiImageProvider } from './providers/openai/OpenAiImageProvider.js';
 import { ReplicateImageGenerationProvider } from './providers/replicate/ReplicateImageGenerationProvider.js';
+import { resolveImageSize } from './imageDimensions.js';
 import { TogetherImageProvider } from './providers/together/TogetherImageProvider.js';
 import { XAIImageProvider } from './providers/xai/XAIImageProvider.js';
 import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
@@ -70,12 +73,22 @@ export class ImageGenerationDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, IImageProvider> = {};
-    #modelIdMap: Record<string, IImageModel[]> = {};
+    #providers: Record<string, IImageProvider> = Object.create(null);
+    #modelIdMap: Record<string, IImageModel[]> = Object.create(null);
+    #excludedModelIdMap: Record<string, IImageModel[]> = Object.create(null);
+    #retiredModelAliases = new Map<
+        string,
+        { provider: string; reason?: string }
+    >();
 
-    override onServerStart() {
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
+
+    override async onServerStart() {
         this.#registerProviders();
-        this.#buildModelMap();
+        await this.#buildModelMap();
     }
 
     async models() {
@@ -83,9 +96,26 @@ export class ImageGenerationDriver extends PuterDriver {
         return Object.values(this.#modelIdMap)
             .flat()
             .filter((m) => {
-                if (seen.has(m.id)) return false;
-                seen.add(m.id);
+                if (m.delisted) return false;
+                const key = `${m.provider}:${m.id}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
                 return true;
+            })
+            .map((model) => {
+                if (!model.aliases) return model;
+                // Advertise only aliases that reach this entry without a
+                // provider hint; an alias another provider wins would route a
+                // caller who picked it from this entry somewhere else.
+                const aliases = model.aliases.filter((alias) => {
+                    const resolved = this.#resolveModel(alias);
+                    return (
+                        resolved != null &&
+                        resolved.provider === model.provider &&
+                        resolved.id === model.id
+                    );
+                });
+                return { ...model, aliases };
             })
             .sort((a, b) => {
                 if (a.provider === b.provider) return a.id.localeCompare(b.id);
@@ -131,10 +161,20 @@ export class ImageGenerationDriver extends PuterDriver {
         // Every provider reads these off `args`, and several index into them
         // directly rather than through the shared helpers, so the shape is
         // settled here — once — before any provider runs.
+        assertImagePrompt(args.prompt);
         assertInputImagesShape(args, 'image generation');
+        for (const option of ['quality', 'resolution'] as const) {
+            if (args[option] != null && typeof args[option] !== 'string') {
+                throw new HttpError(400, `${option} must be a string`, {
+                    legacyCode: 'bad_request',
+                });
+            }
+        }
 
-        const puterOutputPath = args.puter_output_path;
-        delete args.puter_output_path;
+        // Providers and lifecycle listeners each get their own view: the
+        // caller's `args` is re-emitted by reference in `.after`/`.error`
+        // payloads, so it is never mutated here.
+        const { puter_output_path: puterOutputPath, ...request } = args;
 
         // Validate the output path early — before spending credits.
         let resolvedOutputPath: string | undefined;
@@ -159,22 +199,85 @@ export class ImageGenerationDriver extends PuterDriver {
             typeof args.model === 'string'
                 ? args.model.trim().toLowerCase()
                 : undefined;
+        const providerHint = args.provider ?? Context.get('driverName');
         let intendedProvider =
-            args.provider ?? (Context.get('driverName') as string | undefined);
+            typeof providerHint === 'string'
+                ? providerHint.trim().toLowerCase()
+                : undefined;
+        if (intendedProvider === this.driverName) intendedProvider = undefined;
+        if (
+            intendedProvider &&
+            !intendedProvider.endsWith('-image-generation')
+        ) {
+            intendedProvider += '-image-generation';
+        }
+        if (
+            !modelId &&
+            intendedProvider &&
+            !this.#providers[intendedProvider]
+        ) {
+            throw new HttpError(
+                400,
+                `Image provider not available: ${providerHint}`,
+                {
+                    legacyCode: 'bad_request',
+                },
+            );
+        }
 
-        // Default: first registered provider's default model if none given
+        // Pick the first provider whose default model is available.
         if (!modelId && !intendedProvider) {
-            intendedProvider = Object.keys(this.#providers)[0];
+            intendedProvider = Object.keys(this.#providers).find((name) => {
+                const defaultModel = this.#providers[name].getDefaultModel();
+                return (
+                    this.#resolveModel(defaultModel, name)?.provider === name
+                );
+            });
         }
         if (!modelId && intendedProvider) {
-            modelId = this.#providers[intendedProvider]?.getDefaultModel();
+            modelId = this.#providers[intendedProvider]
+                ?.getDefaultModel()
+                .trim()
+                .toLowerCase();
         }
         if (!modelId)
             throw new HttpError(400, 'Missing `model`', {
                 legacyCode: 'bad_request',
             });
 
+        const excludedModels =
+            this.#excludedModelIdMap[modelId.trim().toLowerCase()] ?? [];
+        const dataPolicyError = (excluded: IImageModel) =>
+            new HttpError(
+                400,
+                `Image model excluded by data policy: ${excluded.id} (${excluded.excludedForDataPolicy === 'training' ? 'training on customer content' : 'required third-party data sharing'}).`,
+                { legacyCode: 'bad_request' },
+            );
+        // A hinted provider answers for its own excluded route, even when
+        // another provider retired the same bare name.
+        const hintedExcludedModel = excludedModels.find(
+            (entry) => entry.provider === intendedProvider,
+        );
+        if (hintedExcludedModel) throw dataPolicyError(hintedExcludedModel);
+
+        // Retired aliases are never registered in the model map, so this gate
+        // mostly turns "Model not found" into a message that names the
+        // provider; it also keeps a retired name from reaching a provider
+        // whose exact id happens to spell the same thing.
+        const retired = this.#retiredModelAliases.get(modelId);
+        if (retired) {
+            throw new HttpError(
+                400,
+                `${args.model ?? modelId} is no longer available through ${retired.provider}; ${retired.reason ?? 'choose an available model.'}`,
+                {
+                    legacyCode: 'bad_request',
+                },
+            );
+        }
+
         const model = this.#resolveModel(modelId, intendedProvider);
+        if (!model && excludedModels[0])
+            throw dataPolicyError(excludedModels[0]);
         if (!model) {
             throw new HttpError(400, `Model not found: ${args.model}`, {
                 legacyCode: 'bad_request',
@@ -190,19 +293,33 @@ export class ImageGenerationDriver extends PuterDriver {
             );
         }
 
-        // `width`/`height` or `aspect_ratio` -> `ratio: {w,h}`
-        this.#normalizeRatio(args);
+        // Every caller-facing size field collapses into `imageSize`; the
+        // `ratio` mirror carries plain dimensions for providers that need no
+        // aspect-versus-pixels intent.
+        const imageSize = resolveImageSize(request, model);
+        delete request.width;
+        delete request.height;
+        delete request.aspect_ratio;
+        delete request.ratio;
+        delete request.imageSize;
+        if (imageSize) {
+            request.imageSize = imageSize;
+            request.ratio = { w: imageSize.w, h: imageSize.h };
+        }
+        request.model = model.id;
+        request.provider = model.provider;
 
         // Audit log for abuse / billing. Fired before the upstream call
         // so a failed generate still shows up in the log (prompt_block
-        // uses this to track user-by-user image prompts).
+        // uses this to track user-by-user image prompts). Logs the
+        // normalized request so the row records the resolved model and size.
         const completionId = crypto.randomUUID();
         this.clients.event.emit(
             'ai.log.image',
             {
                 actor,
                 completionId,
-                parameters: args,
+                parameters: request,
                 intended_service: model.id,
                 model_used: model.id,
                 service_used: model.provider!,
@@ -210,11 +327,7 @@ export class ImageGenerationDriver extends PuterDriver {
             {},
         );
 
-        const result = await provider.generate({
-            ...args,
-            model: model.id,
-            provider: model.provider,
-        });
+        const result = await provider.generate(request);
 
         if (resolvedOutputPath) {
             await this.#saveToFS(actor, result, resolvedOutputPath);
@@ -223,37 +336,9 @@ export class ImageGenerationDriver extends PuterDriver {
         return result;
     }
 
-    #normalizeRatio(parameters: IGenerateParams) {
-        if (parameters.ratio) return;
-
-        const w = parameters.width as number | undefined;
-        const h = parameters.height as number | undefined;
-        if (typeof w === 'number' && typeof h === 'number') {
-            parameters.ratio = { w, h };
-            delete parameters.width;
-            delete parameters.height;
-            return;
-        }
-
-        const ar = parameters.aspect_ratio as string | undefined;
-        if (typeof ar === 'string' && ar.includes(':')) {
-            const [aw, ah] = ar.split(':').map(Number);
-            if (
-                Number.isFinite(aw) &&
-                Number.isFinite(ah) &&
-                aw > 0 &&
-                ah > 0
-            ) {
-                parameters.ratio = { w: aw, h: ah };
-                delete parameters.aspect_ratio;
-                return;
-            }
-        }
-    }
-
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const m = this.services.metering;
+        const m = this.#aiMetering;
 
         const readKey = (
             ...cfgs: Array<Record<string, unknown> | undefined>
@@ -299,8 +384,7 @@ export class ImageGenerationDriver extends PuterDriver {
         const cloudflare = (providers['cloudflare-image-generation'] ??
             providers['cloudflare-workers-ai-image'] ??
             providers['cloudflare-workers-ai']) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const cfToken =
             (cloudflare?.apiToken as string | undefined) ??
             (cloudflare?.apiKey as string | undefined) ??
@@ -315,8 +399,7 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiToken: cfToken,
                         accountId: cfAccount,
                         apiBaseUrl: cloudflare?.apiBaseUrl as
-                            | string
-                            | undefined,
+                            string | undefined,
                     },
                     m,
                 );
@@ -348,11 +431,9 @@ export class ImageGenerationDriver extends PuterDriver {
         // pair its missing apiBaseUrl with the shared block's key (or vice
         // versa) and point a region-scoped key at the wrong endpoint.
         const byteplusImageCfg = providers['byteplus-image-generation'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusKey = readKey(byteplusImageCfg, byteplusSharedCfg);
         if (byteplusKey) {
             this.#providers['byteplus-image-generation'] =
@@ -361,8 +442,7 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiKey: byteplusKey,
                         apiBaseUrl: (byteplusImageCfg?.apiBaseUrl ??
                             byteplusSharedCfg?.apiBaseUrl) as
-                            | string
-                            | undefined,
+                            string | undefined,
                     },
                     m,
                 );
@@ -370,47 +450,66 @@ export class ImageGenerationDriver extends PuterDriver {
     }
 
     async #buildModelMap() {
-        for (const providerName in this.#providers) {
-            const provider = this.#providers[providerName];
-            for (const entry of await provider.models()) {
-                // Catalogs are module-level constants that providers hand
-                // back by reference, so they are read and never written:
-                // normalizing the id or appending puterId in place would
-                // accumulate across map builds. Work on a copy instead.
-                const model = { ...entry };
-                model.id = model.id.trim().toLowerCase();
-                if (!this.#modelIdMap[model.id]) {
-                    this.#modelIdMap[model.id] = [];
-                }
-                this.#modelIdMap[model.id].push({
-                    ...model,
+        this.#modelIdMap = Object.create(null);
+        this.#excludedModelIdMap = Object.create(null);
+        this.#retiredModelAliases.clear();
+        const models: IImageModel[] = [];
+        for (const [providerName, provider] of Object.entries(
+            this.#providers,
+        )) {
+            for (const alias of provider.retiredModelAliases ?? []) {
+                this.#retiredModelAliases.set(alias.trim().toLowerCase(), {
                     provider: providerName,
+                    reason: provider.retiredModelReasons?.[alias],
                 });
+            }
+            for (const entry of await provider.models()) {
+                models.push({ ...entry, provider: providerName });
+            }
+        }
 
-                if (model.puterId) {
-                    model.aliases = model.aliases
-                        ? [...model.aliases, model.puterId]
-                        : [model.puterId];
-                }
-                if (model.aliases) {
-                    for (let alias of model.aliases) {
-                        alias = alias.trim().toLowerCase();
-                        if (!this.#modelIdMap[alias]) {
-                            this.#modelIdMap[alias] =
-                                this.#modelIdMap[model.id];
-                        } else if (
-                            this.#modelIdMap[alias] !==
-                            this.#modelIdMap[model.id]
-                        ) {
-                            this.#modelIdMap[alias].push({
-                                ...model,
-                                provider: providerName,
-                            });
-                            this.#modelIdMap[model.id] =
-                                this.#modelIdMap[alias];
-                        }
-                    }
-                }
+        const register = (id: string, model: IImageModel) => {
+            const key = id.trim().toLowerCase();
+            const modelMap = model.excludedForDataPolicy
+                ? this.#excludedModelIdMap
+                : this.#modelIdMap;
+            const bucket = (modelMap[key] ??= []);
+            if (
+                !bucket.some(
+                    (entry) =>
+                        entry.id === model.id &&
+                        entry.provider === model.provider,
+                )
+            ) {
+                bucket.push(model);
+            }
+        };
+        // Exact IDs take precedence over another provider's shorthand aliases.
+        // A puterId minus its provider prefix (`openai:openai/x` → `openai/x`)
+        // is that provider's own spelling as well, so a reseller's exact id
+        // never outranks it; ties keep provider registration order.
+        const retired = (name: string) =>
+            this.#retiredModelAliases.has(name.trim().toLowerCase());
+        for (const model of models) {
+            register(model.id, model);
+            if (!model.puterId) continue;
+            register(model.puterId, model);
+            const ownSpelling = model.puterId.replace(/^[^:/]+:/, '');
+            if (model.excludedForDataPolicy || !retired(ownSpelling))
+                register(ownSpelling, model);
+        }
+        for (const model of models) {
+            for (const alias of model.aliases ?? []) {
+                // A retired name never routes anywhere, whichever catalog
+                // still spells it, so the gate in generate() cannot depend on
+                // which providers a deployment configures. Excluded routes
+                // never route either, so they keep the alias for their error.
+                if (
+                    !model.excludedForDataPolicy &&
+                    this.#retiredModelAliases.has(alias.trim().toLowerCase())
+                )
+                    continue;
+                register(alias, model);
             }
         }
     }
@@ -520,7 +619,7 @@ export class ImageGenerationDriver extends PuterDriver {
     }
 
     #resolveModel(modelId: string, provider?: string): IImageModel | null {
-        const models = this.#modelIdMap[modelId];
+        const models = this.#modelIdMap[modelId.trim().toLowerCase()];
         if (!models || models.length === 0) return null;
         if (!provider) return models[0];
         return models.find((m) => m.provider === provider) ?? models[0];

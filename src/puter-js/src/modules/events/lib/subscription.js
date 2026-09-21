@@ -49,16 +49,24 @@ export class EventSubscription {
     op = null;
 
     /**
+     * Whether `kv:` deliveries on this subscription carry the key's new value.
+     *
+     * @type {boolean}
+     */
+    includeValue = false;
+
+    /**
      * @internal
      * @param {import('./channel.js').EventChannel} channel
      * @param {string} subject
      * @param {EventHandler} handler
-     * @param {{ onError?: (error: Error & { code?: string }) => void, timeout?: number }} options
+     * @param {{ onError?: (error: Error & { code?: string }) => void, timeout?: number, includeValue?: boolean }} options
      */
     constructor (channel, subject, handler, options = {}) {
         /** @internal @type {import('./channel.js').EventChannel} */
         this.channel = channel;
         this.subject = subject;
+        this.includeValue = options.includeValue === true;
         /** @internal @type {EventHandler} */
         this.handler = handler;
         /** @internal @type {((error: Error & { code?: string }) => void) | undefined} */

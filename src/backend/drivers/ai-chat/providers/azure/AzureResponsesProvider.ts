@@ -32,7 +32,7 @@ import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
-import { aiUserIdentifier } from '../../../util/aiUserIdentifier.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 /**
  * AzureResponsesProvider serves the Responses-API-only models we expose through
@@ -142,8 +142,8 @@ export class AzureResponsesProvider implements IChatProvider {
                 (m) => m.id === this.getDefaultModel(),
             )!;
 
-        const userIdentifier = aiUserIdentifier(actor);
-        // Cache key defaults to the actor identifier; see aiUserIdentifier.
+        const userIdentifier = upstreamUserIdentifier(actor);
+        // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs

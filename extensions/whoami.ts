@@ -1,6 +1,9 @@
 import { Context } from '@heyputer/backend/src/core';
 import { extension } from '@heyputer/backend/src/extensions';
-import { isCardFallbackEligible } from '@heyputer/backend/src/util/cardFallback.js';
+import {
+    cardFallbackDepsFrom,
+    isCardFallbackEligible,
+} from '@heyputer/backend/src/util/cardFallback.js';
 import { APP_ICON_SIZES } from '@heyputer/backend/src/util/appIcon.js';
 import { getTaskbarItems } from '@heyputer/backend/src/util/taskbarItems.js';
 import type { Request, Response } from 'express';
@@ -107,7 +110,7 @@ export const handleWhoami = async (
         return;
     }
 
-    const isUser = !actor.app;
+    const isUser = !actor.effectiveApp;
     const user = await stores.user.getById(actor.user.id);
     if (!user) {
         res.status(404).json({ error: 'User not found' });
@@ -156,6 +159,8 @@ export const handleWhoami = async (
         // every app actor. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
         requires_card_verification: user.requires_card_verification,
+        // A seat reaches nothing until it replaces its admin's password.
+        requires_password_change: user.requires_password_change,
         // The SMS-to-card escape hatch: true once this user is out of SMS send
         // attempts and may verify a card instead. It has to ship from here
         // because /send-confirm-phone can no longer say so — by the time the
@@ -168,19 +173,7 @@ export const handleWhoami = async (
                   extension.config,
                   user,
                   async (key) => (await stores.kv.get({ key })).res,
-                  {
-                      smsConfigured: () =>
-                          Boolean(clients.prelude?.isConfigured()),
-                      probeCardVerification: async () => {
-                          const status = { enabled: null as boolean | null };
-                          await clients.event?.emitAndWait(
-                              'puter.card-verification.status',
-                              status,
-                              {},
-                          );
-                          return status.enabled;
-                      },
-                  },
+                  cardFallbackDepsFrom(clients),
               )
             : false,
         desktop_bg_url: user.desktop_bg_url,
@@ -251,6 +244,23 @@ export const handleWhoami = async (
         details.directories = directories;
     }
 
+    // The team an account belongs to, when it is one a team pays for. User
+    // actors only, and only where teams are on.
+    if (isUser && extension.config.teams_enabled === true) {
+        try {
+            const seat = await stores.team.getOrgSeat(user.id);
+            if (seat) {
+                details.team = {
+                    uid: seat.team_uid,
+                    name: seat.team_name ?? null,
+                };
+            }
+        } catch (e) {
+            // Never fail whoami over this; the account still works without it.
+            console.warn('[whoami] team lookup failed:', (e as Error).message);
+        }
+    }
+
     // Last activity
     const lastActivityTs = toUnixSeconds(user.last_activity_ts);
     if (lastActivityTs !== undefined) {
@@ -277,8 +287,9 @@ export const handleWhoami = async (
         delete details.referral_code;
     }
 
-    if (actor.app) {
-        details.app_name = actor.app.uid;
+    const app = actor.effectiveApp;
+    if (app) {
+        details.app_name = app.uid;
     }
 
     try {
@@ -292,8 +303,7 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        | { offering?: Record<string, unknown> }
-        | undefined;
+        { offering?: Record<string, unknown> } | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;

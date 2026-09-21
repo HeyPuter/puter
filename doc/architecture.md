@@ -59,6 +59,16 @@ We use [`Context`](../src/backend/core/context.ts) — backed by `AsyncLocalStor
 
 Prefer explicit arguments. Reach for `Context` only when the value is truly request-scoped and would otherwise need to thread through many layers.
 
+## Actors
+
+An [`Actor`](../src/backend/core/actor.ts) is who a request is acting as. It has two app-shaped fields and they are not interchangeable: `app` is the app the actor carries *directly* (an app-under-user token), while `effectiveApp` is the app it ultimately acts as — its own, or the one that issued its access token. An access-token actor has no `app` of its own, so a gate that reads `app` answers "no app" for it and falls open.
+
+`makeActor` resolves `effectiveApp` once at construction, and `assertResolvedActor` at the request edge rejects any actor that skipped it — so reading `effectiveApp` needs no fallback. Reach for `app` only where the direct app genuinely is the question, and say why in a comment.
+
+- `actor.effectiveApp` — which app is acting. This is the default; nearly every scoping rule, namespace key and attribution wants it.
+- `isAppActor(actor)` — a direct app actor specifically. Use it where a token must *not* be treated as its issuer, e.g. the permission scanners that read an app's own grant rows.
+- `isPlainUserActor(actor)` — the account acting through nothing at all; `isAccountContext(actor)` for the wider "the account's own reach", which also admits a full-access token.
+
 ## Extensions
 
 Extensions live alongside core ([packages/puter/extensions/](../extensions/)) and parallel the layered stack. They are meant for **non-crucial parts of the system** — things Puter still works without if removed.

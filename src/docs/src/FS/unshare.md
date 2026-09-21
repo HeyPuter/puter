@@ -12,7 +12,9 @@ This method withdraws a user's access to a file or directory.
 > read, and nothing more. Files its user owns but never handed to the app stay
 > out of reach, and `listShared()` shows an app only the shares it can reach.
 > Shares an app creates are attributed to the user and carry `issuedByApp`, so
-> the owner can tell them apart in [`getShares()`](/FS/getShares/).
+> the owner can tell them apart in [`getShares()`](/FS/getShares/) — and those
+> are the only ones an app can list or withdraw on an item. Opening an item to
+> anyone with the link is the owner's own call, never an app's.
 
 ## Syntax
 
@@ -31,7 +33,7 @@ The path to the file or directory. If `path` is not absolute, it will be resolve
 
 Whose access to withdraw. A string containing `@` is treated as an email address, and any other string as a username.
 
-Pass **yourself** to leave a share someone else gave you.
+Pass **yourself** to leave a share someone else gave you. Pass `{ team: uid }` to withdraw a team's access, or `{ anyone: true }` to stop sharing with anyone with the link — the latter is the owner's call, in person, as opening it was.
 
 #### `options` (Object) (optional)
 
@@ -49,11 +51,12 @@ A `Promise` that resolves to `{ revoked }`, where `revoked` is how many grants w
 
 - The item's **owner** can withdraw any share of it, whoever granted it.
 - Anyone else can withdraw the shares **they** granted.
+- An **app** acting for you withdraws only the shares that app issued, whatever authority you have over the rest: your own shares, another app's and a delegate's all report `revoked: 0` to it. Leaving a share yourself still works through an app, since that is your own access to drop.
 - **Anyone** can withdraw their own access, whoever granted it.
 
 An item's owner cannot be removed from their own item.
 
-Withdrawing someone's access also withdraws whatever **they** re-shared of that item. Their authority to grant came from the access being removed, so it cannot outlive it.
+Withdrawing someone's access also withdraws whatever **they** re-shared of that item — unless their authority to grant does not rest on what you took back. Someone who still holds `manage` here from another person, from a team, or from a folder above keeps what they granted; it was never yours to withdraw.
 
 Passing an email address that was **invited** but has not yet joined cancels the invitation. Nothing was granted, so nothing is revoked from anyone — the pending share simply stops waiting.
 

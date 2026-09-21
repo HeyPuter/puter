@@ -74,13 +74,14 @@ describe('onPersistent', () => {
         expect(sub).toBe(view);
     });
 
-    it('carries delivery, targets, handlerName and expiry when given', async () => {
+    it('carries delivery, targets, handlerName, expiry and includeValue when given', async () => {
         await makeModule().onPersistent({
             subject: SUBJECT,
             delivery: 'single',
             targets: ['worker'],
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
+            includeValue: true,
         });
 
         expect(bodyOf()).toEqual({
@@ -89,6 +90,7 @@ describe('onPersistent', () => {
             targets: ['worker'],
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
+            includeValue: true,
         });
     });
 

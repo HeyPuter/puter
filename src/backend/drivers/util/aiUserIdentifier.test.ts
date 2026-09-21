@@ -76,13 +76,17 @@ describe('aiUserIdentifier', () => {
 
     it('returns undefined for the system actor', () => {
         expect(aiUserIdentifier(SYSTEM_ACTOR)).toBeUndefined();
-        expect(aiUserIdentifier(makeActor({ user, system: true }))).toBeUndefined();
+        expect(
+            aiUserIdentifier(makeActor({ user, system: true })),
+        ).toBeUndefined();
     });
 
     it('returns undefined without an actor or a user uuid', () => {
         expect(aiUserIdentifier()).toBeUndefined();
         expect(aiUserIdentifier(null)).toBeUndefined();
-        expect(aiUserIdentifier(makeActor({ user: { id: 42 } }))).toBeUndefined();
+        expect(
+            aiUserIdentifier(makeActor({ user: { id: 42 } })),
+        ).toBeUndefined();
     });
 
     it('keeps the full user uuid and truncates only the app token to fit maxLength', () => {
@@ -92,7 +96,9 @@ describe('aiUserIdentifier', () => {
         });
         const identifier = aiUserIdentifier(actor, 64)!;
         // puter- (6) + uuid (36) + '-' (1) + app token cut to 21 chars = 64.
-        expect(identifier).toBe(`puter-${REAL_UUID}-${REAL_APP_UID.slice(0, 21)}`);
+        expect(identifier).toBe(
+            `puter-${REAL_UUID}-${REAL_APP_UID.slice(0, 21)}`,
+        );
         expect(identifier.length).toBe(64);
         expect(identifier.startsWith(`puter-${REAL_UUID}`)).toBe(true);
     });

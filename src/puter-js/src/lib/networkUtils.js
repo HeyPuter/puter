@@ -18,7 +18,9 @@
  */
 
 import { showEmailConfirmationDialog } from '../modules/EmailConfirmationDialog.js';
-import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
+import { promptIfUpgradeRequired } from './upgradePrompt.js';
+
+/** @typedef {import('./types.js').UpgradePromptContext} UpgradePromptContext */
 
 const createDeferred = () => {
     let resolve;
@@ -440,6 +442,9 @@ const VERIFICATION_GATE_CODES = new Set([
     'card_verification_required',
 ]);
 
+/** Whether an error code names one of those gates. */
+const isVerificationGateCode = (code) => VERIFICATION_GATE_CODES.has(code);
+
 // Single-flighted verification prompt: concurrent gated requests share one
 // GUI dialog rather than stacking windows.
 let pendingVerificationGate = null;
@@ -450,14 +455,20 @@ let pendingVerificationGate = null;
  * resolves unverified and the rejection reaches the caller unchanged.
  *
  * @param {string} code - The gate's error code.
+ * @param {string[]} [factors] - Sent when a route asked for a verified factor
+ *   rather than the account being flagged: the verifications it accepts, in
+ *   the order to offer them.
  * @returns {Promise<{ verified: boolean }>}
  */
-async function resolveVerificationGate(code) {
+async function resolveVerificationGate(code, factors) {
     if (globalThis.puter?.env !== 'app') return { verified: false };
     if (!pendingVerificationGate) {
         pendingVerificationGate = (async () => {
             try {
-                const verified = await puter.ui.requestVerificationGate(code);
+                const verified = await puter.ui.requestVerificationGate(
+                    code,
+                    Array.isArray(factors) ? { factors } : {},
+                );
                 return { verified: verified === true };
             } catch (e) {
                 return { verified: false };
@@ -624,11 +635,14 @@ async function classifyRetry(outcome, ctx) {
     // replay is safe once the user clears it; a user behind several gates
     // clears them one replay at a time (email → phone → card).
     const gateCode = [parsed?.code, parsed?.error?.code].find((c) =>
-        VERIFICATION_GATE_CODES.has(c),
+        isVerificationGateCode(c),
     );
     if (status === 403 && gateCode) {
         if (!ctx.done.has(gateCode)) {
-            const res = await resolveVerificationGate(gateCode);
+            const res = await resolveVerificationGate(
+                gateCode,
+                parsed?.factors ?? parsed?.error?.factors,
+            );
             if (res.verified) {
                 ctx.done.add(gateCode);
                 return { delayMs: 0 };
@@ -916,15 +930,6 @@ const logCall = (call, fields) => {
     });
 };
 
-/** Prompt for funding, or hand off to the app's upgrade flow. */
-async function promptUpgrade(puter, message) {
-    if (puter.env === 'web') {
-        showUsageLimitDialog(message);
-    } else if (puter.env === 'app') {
-        await puter.ui.requestUpgrade();
-    }
-}
-
 function promptEmailConfirmation(puter, error) {
     if (error?.code !== 'email_must_be_confirmed' || puter.env !== 'web')
         return;
@@ -936,21 +941,13 @@ function promptEmailConfirmation(puter, error) {
 
 /**
  * Wrap the engine's parsed NDJSON lines in the driver stream contract: the
- * per-line usage/email prompts, `toString()` on text parts, and the `start`
+ * per-line upgrade/email prompts, `toString()` on text parts, and the `start`
  * adapter that lets the stream feed a `ReadableStream` controller.
  */
-function driverLineStream(lineStream, puter) {
+function driverLineStream(lineStream, puter, upgradePrompt) {
     const stream = (async function* () {
         for await (const line of lineStream) {
-            if (
-                line?.error?.code === 'insufficient_funds' ||
-                line?.metadata?.usage_limited === true
-            ) {
-                await promptUpgrade(
-                    puter,
-                    'You have reached your usage limit for this account.<br>Please upgrade to continue.',
-                );
-            }
+            promptIfUpgradeRequired(line, upgradePrompt, puter);
             promptEmailConfirmation(puter, line?.error);
             if (typeof line.text === 'string') {
                 Object.defineProperty(line, 'toString', {
@@ -988,16 +985,29 @@ function driverLineStream(lineStream, puter) {
  *     readonly?: boolean;
  *     transform?: (result: unknown) => unknown;
  *     onError?: (error: unknown) => void;
+ *     upgradePrompt?: UpgradePromptContext;
  * }} [opts]
  *   `readonly` marks the method retry-safe on transient failures (a
  *   rate/concurrency 429 replays either way — see GATE_REJECT_STATUS),
- *   `transform` post-processes a successful result, and `onError` is the legacy
- *   error callback the module APIs accept alongside the promise.
+ *   `transform` post-processes a successful result, `onError` is the legacy
+ *   error callback the module APIs accept alongside the promise, and
+ *   `upgradePrompt` is how the upgrade prompt names this method (defaulting to
+ *   the wire `iface::method`) and explains its plan gate.
  * @returns {Promise<unknown>}
  */
 async function driverCall(call, opts = {}) {
-    const { responseType = '', readonly = false, transform, onError } = opts;
+    const {
+        responseType = '',
+        readonly = false,
+        transform,
+        onError,
+        upgradePrompt,
+    } = opts;
     const puter = callInstance(call);
+    const promptContext = {
+        ...upgradePrompt,
+        method: upgradePrompt?.method ?? `${call.iface}::${call.method}`,
+    };
 
     const fail = (error) => {
         if (typeof onError === 'function') onError(error);
@@ -1031,7 +1041,8 @@ async function driverCall(call, opts = {}) {
     return await sendWithRetry(spec, {
         retrySafe: readonly,
         permission: `driver:${call.iface}:${call.method}`,
-        shapeStream: (lineStream) => driverLineStream(lineStream, puter),
+        shapeStream: (lineStream) =>
+            driverLineStream(lineStream, puter, promptContext),
         // Reauth, permission grants, and transient retries are already spent by
         // the time the engine hands the outcome over, so this is terminal.
         shape: async (outcome) => {
@@ -1048,17 +1059,13 @@ async function driverCall(call, opts = {}) {
                 error: failed ? resp : null,
             });
 
-            if (
-                status === 402 ||
-                resp?.error?.code === 'insufficient_funds' ||
-                resp?.error?.status === 402 ||
-                resp?.metadata?.usage_limited === true
-            ) {
-                await promptUpgrade(
-                    puter,
-                    'Your account has not enough funding to complete this request.<br>Please upgrade to continue.',
-                );
-            }
+            // The body carries the code; the status is on the XHR. Merge them so
+            // a code-less 402 still reads as a refusal.
+            promptIfUpgradeRequired(
+                resp && typeof resp === 'object' ? { ...resp, status } : { status },
+                promptContext,
+                puter,
+            );
             promptEmailConfirmation(puter, resp?.error);
 
             if (status === 401 || resp?.code === 'token_auth_failed') {
@@ -1134,7 +1141,9 @@ export {
     driverCall,
     driverCallEnvelope,
     fetchUrl,
+    isVerificationGateCode,
     parseResponse,
     resolveReauth,
+    resolveVerificationGate,
     sendWithRetry,
 };

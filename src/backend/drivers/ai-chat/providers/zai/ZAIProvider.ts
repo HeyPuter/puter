@@ -25,7 +25,7 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { ZAI_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
-import { aiUserIdentifier } from '../../../util/aiUserIdentifier.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 // Z.AI documents `user_id` as 6-128 characters.
 const USER_ID_MAX_LENGTH = 128;
@@ -107,7 +107,7 @@ export class ZAIProvider implements IChatProvider {
 
         const customParams = asRecord(custom) as ZAICustomParams;
         // Puter's abuse attribution; `custom` can't override it.
-        const userId = aiUserIdentifier(actor, USER_ID_MAX_LENGTH);
+        const userId = upstreamUserIdentifier(actor, USER_ID_MAX_LENGTH);
 
         const completionParams: ChatCompletionCreateParams = {
             messages,
@@ -161,7 +161,7 @@ export class ZAIProvider implements IChatProvider {
                 );
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor,
+                    actor!,
                     `zai:${modelUsed.id}`,
                     costsOverrideFromModel,
                 );

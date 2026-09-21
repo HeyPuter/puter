@@ -49,16 +49,16 @@ export async function txt2img (promptOrOptions, optionsOrTestMode) {
         testMode = true;
     }
 
-    if ( typeof promptOrOptions === 'string' && typeof optionsOrTestMode === 'object' ) {
-        options = optionsOrTestMode;
+    if ( typeof promptOrOptions === 'string' && optionsOrTestMode && typeof optionsOrTestMode === 'object' ) {
+        options = { ...optionsOrTestMode };
         options.prompt = promptOrOptions;
     }
 
-    if ( typeof promptOrOptions === 'object' ) {
-        options = promptOrOptions;
+    if ( promptOrOptions && typeof promptOrOptions === 'object' ) {
+        options = { ...promptOrOptions };
     }
 
-    if ( ! options.prompt ) {
+    if ( typeof options.prompt !== 'string' || ! options.prompt.trim() ) {
         throw ({ message: 'Prompt parameter is required', code: 'prompt_required' });
     }
 

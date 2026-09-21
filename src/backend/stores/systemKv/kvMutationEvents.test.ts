@@ -100,6 +100,7 @@ describe('what a mutation announces', () => {
             userId: 42,
             keys: [KEY],
             op: 'set',
+            values: [1],
         });
         expect(mutations()[0].key).toBe('kv.mutated');
     });
@@ -116,7 +117,12 @@ describe('what a mutation announces', () => {
             opts,
         );
 
-        expect(onlyMutation()).toMatchObject({ keys: ['a', 'b'], op: 'set' });
+        // The last write to `a` is the one that landed, so it is the one told.
+        expect(onlyMutation()).toMatchObject({
+            keys: ['a', 'b'],
+            op: 'set',
+            values: [3, 2],
+        });
     });
 
     it('says nothing for a batch with nothing in it', async () => {
@@ -213,6 +219,48 @@ describe('every mutating method emits once', () => {
             op: testCase.op,
             keys: testCase.keys ?? [KEY],
         });
+    });
+});
+
+describe('what a mutation carries', () => {
+    beforeEach(async () => {
+        await store.set({ key: KEY, value: { count: 1, list: [] } }, opts);
+        emitted = [];
+    });
+
+    it('carries the written value on a set', async () => {
+        await store.set({ key: KEY, value: { a: 1 } }, opts);
+        expect(onlyMutation().values).toEqual([{ a: 1 }]);
+    });
+
+    it('carries null for a deletion, whichever way it is made', async () => {
+        await store.del({ key: KEY }, opts);
+        expect(onlyMutation().values).toEqual([null]);
+
+        emitted = [];
+        await store.take({ key: KEY }, opts);
+        expect(onlyMutation().values).toEqual([null]);
+
+        emitted = [];
+        await store.batchDel({ keys: ['a', 'b'] }, opts);
+        expect(onlyMutation().values).toEqual([null, null]);
+    });
+
+    it('carries the whole item after a path mutation', async () => {
+        await store.incr({ key: KEY, pathAndAmountMap: { count: 2 } }, opts);
+        expect(onlyMutation().values).toEqual([{ count: 3, list: [] }]);
+
+        emitted = [];
+        await store.update(
+            { key: KEY, pathAndValueMap: { count: 7 } },
+            opts,
+        );
+        expect(onlyMutation().values).toEqual([{ count: 7, list: [] }]);
+    });
+
+    it('carries nothing on an expire, where the value did not change', async () => {
+        await store.expire({ key: KEY, ttl: 60 }, opts);
+        expect(onlyMutation()).not.toHaveProperty('values');
     });
 });
 

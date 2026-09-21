@@ -28,6 +28,10 @@ import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
+import {
+    hasVerifiedCard,
+    hasVerifiedPhone,
+} from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
@@ -61,6 +65,7 @@ import {
     SEND_PHONE_RATE_LIMIT,
     SEND_PHONE_RATE_WINDOW_MS,
     cardFallbackAfterAttempts,
+    cardFallbackDepsFrom,
     cardFallbackFlagKey,
     isCardFallbackEligible,
     isCardFallbackEnabled,
@@ -196,20 +201,6 @@ const SESSION_LIMIT = {
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-/**
- * Whether this account has already been through the card flow. Both halves
- * matter: the pending flag being clear only says nobody asked, while the
- * fingerprint is the artifact a completed check leaves behind. A route that
- * requires a verified card (`requireCardVerified`) sends users here with the
- * flag clear and no card on file, and answering "already verified" on the flag
- * alone would bounce them between a dialog that reports success and a route
- * that keeps refusing.
- */
-const cardAlreadyVerified = (user: {
-    card_fingerprint?: string | null;
-    requires_card_verification?: boolean;
-}): boolean =>
-    Boolean(user.card_fingerprint) && !user.requires_card_verification;
 export const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
@@ -1621,18 +1612,7 @@ export class AuthController extends PuterController {
      * is listening on a stock build, which reads as "no card gate".
      */
     private cardFallbackDeps(): CardFallbackDeps {
-        return {
-            smsConfigured: () => Boolean(this.clients.prelude?.isConfigured()),
-            probeCardVerification: async () => {
-                const statusEvent = { enabled: null as boolean | null };
-                await this.clients.event?.emitAndWait(
-                    'puter.card-verification.status',
-                    statusEvent,
-                    {},
-                );
-                return statusEvent.enabled;
-            },
-        };
+        return cardFallbackDepsFrom(this.clients);
     }
 
     @Post('/send-confirm-phone', {
@@ -1898,7 +1878,12 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found.', {
                 legacyCode: 'not_found',
             });
-        if (!user.requires_phone_verification) {
+        // Both halves, as for the card: the flag being clear only says nobody
+        // asked. A route requiring a verified phone sends never-flagged users
+        // here with no number on file, and answering "already verified" on
+        // the flag alone would bounce them between a dialog that reports
+        // success and a route that keeps refusing.
+        if (hasVerifiedPhone(user)) {
             res.json({ phone_verified: true, original_client_socket_id });
             return;
         }
@@ -2024,7 +2009,7 @@ export class AuthController extends PuterController {
         // Phone normally comes first, but the fallback lets a phone-gated user
         // in once they've exhausted SMS attempts.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (cardAlreadyVerified(user) && !fallbackEligible) {
+        if (hasVerifiedCard(user) && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }
@@ -2145,7 +2130,7 @@ export class AuthController extends PuterController {
             });
         // Same fallback exception as setup: card may come before phone.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (cardAlreadyVerified(user) && !fallbackEligible) {
+        if (hasVerifiedCard(user) && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }
@@ -2291,6 +2276,14 @@ export class AuthController extends PuterController {
         }
 
         if (!user || user.suspended || !user.email) {
+            res.json({ message: genericMessage });
+            return;
+        }
+
+        // A seat's address is admin-supplied and never verified, so whoever
+        // holds that inbox could take the seat over. Its recovery channel is
+        // the team admin's password reset, not this one.
+        if (await this.stores.team.getOrgSeat(user.id)) {
             res.json({ message: genericMessage });
             return;
         }
@@ -2553,6 +2546,17 @@ export class AuthController extends PuterController {
     }
 
     async handleChangeUsername(req: Request, res: Response): Promise<void> {
+        // A provisioned account's name belongs to the team that made it: the
+        // console lists its members by username and the audit log records them
+        // by username, so a self-service rename would desync both.
+        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+            throw new HttpError(
+                403,
+                'Your team set this username. Ask a team admin to change it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
         const { new_username } = req.body ?? {};
         if (!new_username || typeof new_username !== 'string') {
             throw new HttpError(400, '`new_username` is required', {
@@ -2619,6 +2623,16 @@ export class AuthController extends PuterController {
     }
 
     async handleChangeEmail(req: Request, res: Response): Promise<void> {
+        // The address is where admin-issued credentials and team notices go;
+        // same reasoning as the username and deletion guards above.
+        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+            throw new HttpError(
+                403,
+                'Your team set this address. Ask a team admin to change it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
         const { new_email } = req.body ?? {};
         if (!new_email || typeof new_email !== 'string') {
             throw new HttpError(400, '`new_email` is required', {
@@ -3253,8 +3267,8 @@ export class AuthController extends PuterController {
     /**
      * Whether a granted `fs:` path permission needs its target created before
      * the grant can resolve, and if so where and what kind. Null when there is
-     * nothing to create: `create` was not requested, the entry does not name an
-     * `fs:` path, it is a `manage:` grant, or the path already exists.
+     * nothing to create: `create` is `false`, the entry does not name an `fs:`
+     * path, it is a `manage:` grant, or the path already exists.
      *
      * Side-effect-free, like `#prepareAppDataGrant` above — a pre-grant hook
      * run in the same validation loop, so a bad entry elsewhere in the list
@@ -3368,7 +3382,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
-        // 400 on a bad value, before anything else runs.
+        // 400 on a bad value, before anything else runs. Absent means create.
         const create = parseCreateFlag(req.body?.create);
 
         // Validate every entry before writing or creating anything, so a bad
@@ -4376,6 +4390,15 @@ export class AuthController extends PuterController {
 
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
+        // The team owns the account and is billed for it; only they may close
+        // it, through the console that keeps the audit trail.
+        if (await this.stores.team.getOrgSeat(userId)) {
+            throw new HttpError(
+                403,
+                'Your team owns this account. Ask a team admin to remove it.',
+                { legacyCode: 'forbidden' },
+            );
+        }
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
         res.clearCookie('puter_revalidation');
@@ -4706,8 +4729,8 @@ export class AuthController extends PuterController {
         };
         try {
             await this.clients.event?.emitAndWait(
-                'email.validate' as never,
-                validateEvent as never,
+                'email.validate',
+                validateEvent,
                 {},
             );
         } catch (e) {
@@ -4818,6 +4841,7 @@ export class AuthController extends PuterController {
             phone?: string | null;
             requires_phone_verification?: number | boolean;
             requires_card_verification?: number | boolean;
+            requires_password_change?: number | boolean;
         },
     ): Promise<void> {
         const meta = {
@@ -4856,6 +4880,20 @@ export class AuthController extends PuterController {
             console.warn('[auth] taskbar_items resolution failed:', e);
         }
 
+        // Same shape as whoami: no-reload logins store this payload as
+        // window.user verbatim, and every seat restriction keys on `team`.
+        let team: { uid: string; name: string | null } | undefined;
+        if (this.config.teams_enabled === true) {
+            try {
+                const seat = await this.stores.team.getOrgSeat(user.id);
+                if (seat) {
+                    team = { uid: seat.team_uid, name: seat.team_name ?? null };
+                }
+            } catch (e) {
+                console.warn('[auth] team lookup failed:', e);
+            }
+        }
+
         // Response body gets the GUI token (client never sees session token)
         res.json({
             proceed: true,
@@ -4870,7 +4908,9 @@ export class AuthController extends PuterController {
                 phone: user.phone,
                 requires_phone_verification: user.requires_phone_verification,
                 requires_card_verification: user.requires_card_verification,
+                requires_password_change: user.requires_password_change,
                 is_temp: user.password === null && user.email === null,
+                ...(team ? { team } : {}),
                 taskbar_items,
             },
         });

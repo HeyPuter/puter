@@ -54,9 +54,17 @@ export async function toClientShare(
         ...(share.type === undefined ? {} : { type: share.type }),
         ...(thumbnail === undefined ? {} : { thumbnail }),
         ...(share.owner === undefined ? {} : { owner: share.owner.username }),
+        // Withheld from a listing whose caller it isn't for, hence the omission.
         ...(share.pending
-            ? { pending: true, recipient_email: share.recipientEmail }
+            ? {
+                  pending: true,
+                  ...(share.recipientEmail === undefined
+                      ? {}
+                      : { recipient_email: share.recipientEmail }),
+              }
             : {}),
+        // A link share: no holder of any kind, this is what says so.
+        ...(share.anyone ? { anyone: true } : {}),
         // Set on a share call only, so a listing stays silent about it.
         ...(share.isNew === undefined ? {} : { is_new: share.isNew }),
         uid_entry: share.entryUid,

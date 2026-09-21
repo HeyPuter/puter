@@ -135,24 +135,11 @@ export interface WriteResponse {
 }
 
 /**
- * An `FSEntry` as it is safe to hand to a client. Built by an allowlist, so the
- * `fsentries` primary key (`id`) and its `parentId`/`associatedAppId`
- * references, the storage columns (`bucket`, `bucketRegion`), the owning
- * `userId`, and the `publicToken`/`fileRequestToken` capability tokens never
- * reach the wire. Entries are addressed by `uuid`.
- *
- * `shortcutTo` is the one numeric row reference that stays: the v1 contract has
- * always exposed it as `shortcut_to` and the desktop resolves shortcuts through
- * it, so dropping it would break them.
- *
- * The `?: never` members below are guards, not fields: they make a raw
- * `FSEntry` fail to typecheck wherever a `ClientFSEntry` is expected. Without
- * them this type is just a structural subset of `FSEntry`, so an unsanitized
- * row would be silently assignable and the distinction would buy nothing.
- *
- * Checked by `tsc -p tsconfig.json` (the strict config). Note that
- * `tsconfig.build.json` sets `noCheck: true` — it only transpiles, so it will
- * not catch a violation here.
+ * An `FSEntry` safe to send to a client. Built by allowlist so row ids, storage
+ * columns and capability tokens never reach the wire; `shortcutTo` stays
+ * because the v1 contract exposes it. The `?: never` members make a raw
+ * `FSEntry` fail to typecheck where a `ClientFSEntry` is expected; only the
+ * strict `tsconfig.json` catches that, since the build config sets `noCheck`.
  */
 export interface ClientFSEntry {
     uuid: string;
@@ -189,17 +176,12 @@ export interface ClientFSEntry {
     fileRequestToken?: never;
 }
 
+// Wire counterparts of the write responses: what the controller sends after
+// sanitizing, kept distinct so the compiler can tell the two apart.
+
 /**
- * Wire counterparts of the write responses. The bare `…Response` types describe
- * what the service produces internally (a real `FSEntry`); these describe what
- * the controller sends after sanitizing. Keeping them distinct is what makes
- * "did this response get sanitized?" a question the compiler answers.
- */
-/**
- * The presigned-upload envelope minus the storage internals. A client uploads
- * to the presigned `url` / `multipartPartUrls`, which already carry everything
- * S3 needs, so `bucket`, `bucketRegion`, and `objectKey` are ours to keep —
- * they name where a user's bytes physically live.
+ * The presigned-upload envelope minus storage internals; the presigned URLs
+ * already carry what the store needs.
  */
 export type ClientSignedWriteResponse = Omit<
     SignedWriteResponse,
@@ -221,10 +203,8 @@ export type ClientWriteResponse = Omit<WriteResponse, 'fsEntry'> & {
 };
 
 /**
- * A directory-listing entry: a sanitized entry plus the three fields a client
- * cannot derive on its own — the MIME `type`, a _signed_ `thumbnail` URL (the
- * stored value is an S3 key, which is useless to a client), and the resolved
- * `associatedApp`.
+ * A sanitized entry plus what a client cannot derive: MIME `type`, a signed
+ * `thumbnail` URL, the resolved `associatedApp`.
  */
 export type ClientReaddirEntry = ClientFSEntry & {
     type: string | null;

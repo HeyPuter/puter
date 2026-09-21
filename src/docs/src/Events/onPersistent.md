@@ -28,6 +28,7 @@ puter.events.onPersistent(options)
 - `handler` (Function | String | Object): The handler source this subscription was written against. Sent as a **hash**, never as source: the subscription binds only if that hash matches what is published under `handlerName`, which is why `handlerName` is required alongside it. Accepts a function, a source string, or `{ file: '~/AppData/…/handler.js' }`.
 - `context` (Object): Values the handler needs, delivered to it as a frozen `ctx`. **Capped at 4 KB serialized** — see below.
 - `expiresAt` (Number | String): When the subscription ends by itself — unix seconds or an ISO-8601 string, and it has to be in the future.
+- `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject.
 
 ## Background delivery takes the user's consent
 
@@ -89,7 +90,7 @@ A `Promise` that resolves to the subscription:
 
 - `subId` (String): Its id, and what [`puter.events.unsubscribe()`](/Events/unsubscribe/) names. Stable for the life of the subscription.
 - `subject`, `anchor`, `match`, `op`: as `onLocal()` returns them.
-- `delivery` (String), `targets` (Array), `handlerName` (String | null).
+- `delivery` (String), `targets` (Array), `handlerName` (String | null), `includeValue` (Boolean).
 - `appUid` (String | null): The app that created it, or `null` for one an account session made.
 - `contextKeys` (Array | null), `contextHash` (String | null): the shape of the stored context, never its values.
 - `createdAt`, `expiresAt` (Number | null): unix seconds.
@@ -113,6 +114,7 @@ The promise rejects with `{ message, code }`:
 | `events_context_invalid` | `context` is not JSON-serializable. |
 | `invalid_targets` | A target outside `socket`/`worker`/`push`, `push` on a `single` subscription (which may not target it), or `worker` on a subscription with no app. |
 | `invalid_expires_at` | `expiresAt` is not a future time. |
+| `invalid_include_value` | `includeValue` is not a boolean, or was asked for on a subject that is not `kv:`. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
 | `events_subscription_limit` | This account already holds the maximum number of persistent subscriptions. |
 | `events_durable_requires_account` | Called from a temporary (anonymous) account, which gets session subscriptions only. |

@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_KV_VALUE_MAX_BYTES,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
 } from '../../controllers/events/limits.js';
@@ -36,6 +37,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UsageInput } from '../metering/types.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_COSTS } from './costs.js';
+import type { ForwardEvent } from './forwardQueue.js';
 import {
     EventsService,
     EVENTS_ACK_VERB,
@@ -421,7 +423,11 @@ const dispatch = async (node: FSEntry, key = 'fs.write.file' as const) =>
 /** Dispatch as the KV store's bus announcement does. */
 const dispatchKv = async (
     keys: string[],
-    options: { appUid?: string; op?: 'set' | 'del' | 'expire' } = {},
+    options: {
+        appUid?: string;
+        op?: 'set' | 'del' | 'expire';
+        values?: unknown[];
+    } = {},
     on: EventsService = service,
 ) =>
     on.dispatchKv({
@@ -429,6 +435,7 @@ const dispatchKv = async (
         namespace: `v1:user-${userId}:${options.appUid ?? OWN_APP}`,
         keys,
         op: options.op ?? 'set',
+        ...(options.values ? { values: options.values } : {}),
     });
 
 /** The app the KV tests act as, so "own namespace" has something to be. */
@@ -1598,6 +1605,44 @@ it('names the delivery channel the clients listen on', () => {
 
 // -- KV subjects -----------------------------------------------------
 
+describe('asking a kv subscription for the value', () => {
+    it('is recorded on the row and reported in the view', async () => {
+        const { sub } = await service.subscribe(appActorFor(OWN_APP), socketId, {
+            subject: `kv:${OWN_APP}:cart`,
+            includeValue: true,
+        });
+        expect(sub.includeValue).toBe(true);
+
+        const plain = await subscribeKv(`kv:${OWN_APP}:cart`);
+        expect(plain.includeValue).toBe(false);
+    });
+
+    it('is refused on anything but a kv subject', async () => {
+        const { documents } = seedTree();
+        await expect(
+            service.subscribe(actorFor(), socketId, {
+                subject: `fs:${documents.path}`,
+                includeValue: true,
+            }),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'invalid_include_value',
+        );
+    });
+
+    it('is a flag, not a string', async () => {
+        await expect(
+            service.subscribe(appActorFor(OWN_APP), socketId, {
+                subject: `kv:${OWN_APP}:cart`,
+                includeValue: 'yes',
+            }),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'invalid_include_value',
+        );
+    });
+});
+
 describe('resolving a kv subject', () => {
     it('anchors an exact key on the key itself, with no filter', async () => {
         const sub = await subscribeKv(`kv:${OWN_APP}:cart`);
@@ -1754,6 +1799,110 @@ describe('delivering a kv change', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent[0].envelope.event).toMatchObject({ op: 'del' });
+    });
+
+    const subscribeKvForValue = async (subject: string) =>
+        (
+            await service.subscribe(appActorFor(OWN_APP), socketId, {
+                subject,
+                includeValue: true,
+            })
+        ).sub;
+
+    const eventFor = (subId: string) =>
+        sent.find((one) => one.envelope.subId === subId)?.envelope.event as
+            | Record<string, unknown>
+            | undefined;
+
+    it('hands the value to the row that asked for it and to no other', async () => {
+        vi.useFakeTimers();
+        const asking = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+        const silent = await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], { values: [{ items: [1, 2] }] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(2);
+        expect(eventFor(asking.subId)).toMatchObject({
+            key: 'cart',
+            value: { items: [1, 2] },
+        });
+        expect(eventFor(silent.subId)).not.toHaveProperty('value');
+    });
+
+    it('aligns values with keys across a batch', async () => {
+        vi.useFakeTimers();
+        await subscribeKvForValue(`kv:${OWN_APP}:cart:*`);
+
+        await dispatchKv(['cart:a', 'cart:b'], { values: ['A', 'B'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(
+            sent.map((one) => one.envelope.event as Record<string, unknown>),
+        ).toMatchObject([
+            { key: 'cart:a', value: 'A' },
+            { key: 'cart:b', value: 'B' },
+        ]);
+    });
+
+    it('carries null for a deletion and nothing for an expire', async () => {
+        vi.useFakeTimers();
+        const sub = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], { op: 'del', values: [null] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(eventFor(sub.subId)).toHaveProperty('value', null);
+
+        sent.length = 0;
+        await dispatchKv(['cart'], { op: 'expire' });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(eventFor(sub.subId)).toMatchObject({ op: 'expire' });
+        expect(eventFor(sub.subId)).not.toHaveProperty('value');
+    });
+
+    it('leaves out a value too large to inline', async () => {
+        vi.useFakeTimers();
+        const sub = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], {
+            values: ['x'.repeat(EVENTS_KV_VALUE_MAX_BYTES + 1)],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(eventFor(sub.subId)).toMatchObject({ op: 'set', key: 'cart' });
+        expect(eventFor(sub.subId)).not.toHaveProperty('value');
+    });
+
+    it('carries the value a peer region forwarded', async () => {
+        vi.useFakeTimers();
+        const sub = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+
+        const item: ForwardEvent = {
+            kind: 'event',
+            family: 'kv',
+            ownerUserId: userId,
+            actingUserId: userId,
+            id: 'ev-remote',
+            ts: 1_700_000_000,
+            sessionOnly: true,
+            hop: 1,
+            kv: {
+                userUuid: `user-${userId}`,
+                appUid: OWN_APP,
+                kvKey: 'cart',
+                op: 'set',
+                value: { from: 'afar' },
+            },
+        };
+        await expect(service.dispatchForwarded(item)).resolves.toMatchObject({
+            matched: true,
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(eventFor(sub.subId)).toMatchObject({
+            id: 'ev-remote',
+            value: { from: 'afar' },
+        });
     });
 
     it('leaves another app`s namespace alone', async () => {
@@ -2059,6 +2208,32 @@ describe('cross-user kv handles', () => {
         expect(sub.subject).toBe(`kv:${handle}:messages:*`);
         expect(wire).not.toContain(`user-${userId}`);
         expect(wire).not.toContain(`u${userId}`);
+    });
+
+    it('hands a guest the value when it asked, keyed relative to the handle', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        const asking = (
+            await service.subscribe(actorFor(guestId), socketId, {
+                subject: `kv:${handle}:*`,
+                includeValue: true,
+            })
+        ).sub;
+        const silent = (await subscribeAsGuest(`kv:${handle}:*`)).sub;
+        expect(asking.includeValue).toBe(true);
+
+        await dispatchKv([`${PREFIX}title`], { values: ['hello'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const byId = new Map(
+            sent.map((one) => [one.envelope.subId, one.envelope.event]),
+        );
+        expect(byId.get(asking.subId)).toMatchObject({
+            subject: `kv:${handle}:title`,
+            key: 'title',
+            value: 'hello',
+        });
+        expect(byId.get(silent.subId)).not.toHaveProperty('value');
     });
 
     it('delivers every key under the granted region', async () => {

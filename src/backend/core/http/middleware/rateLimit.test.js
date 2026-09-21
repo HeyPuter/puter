@@ -38,6 +38,7 @@ import {
     checkDriverRateLimit,
     checkRateLimit,
     concurrencyGate,
+    consumeRouteRateLimit,
     configureRateLimit,
     listConfiguredRateLimitBackends,
     peekRateLimit,
@@ -404,6 +405,51 @@ describe('rateLimitGate — bySubscription overrides', () => {
             headers: {},
         };
         expect(await runGate(opts, paidReq)).toBeUndefined();
+    });
+
+    it('holds a free plan the spec never named to the free cap', async () => {
+        // A team seat resolves to `org_seat_free`; no driver enumerates it, and
+        // falling through to `limit` would outrank an ordinary free account.
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async () => ({ id: 'org_seat_free' }),
+            },
+        });
+        const opts = {
+            limit: 100,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: 'rl-sub-orgseat',
+        };
+        const req = () => ({
+            actor: { user: { id: 7, uuid: 'seat' } },
+            headers: {},
+        });
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(isHttpError(await runGate(opts, req()))).toBe(true);
+    });
+
+    it('still gives a paid plan the base when it names no cap of its own', async () => {
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async () => ({ id: 'some-paid-tier' }),
+            },
+        });
+        const opts = {
+            limit: 2,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: 'rl-sub-paid-unlisted',
+        };
+        const req = () => ({
+            actor: { user: { id: 8, uuid: 'paid2' } },
+            headers: {},
+        });
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(isHttpError(await runGate(opts, req()))).toBe(true);
     });
 
     it('falls back to the base `limit` when metering throws', async () => {
@@ -1422,6 +1468,91 @@ describe('checkRateLimit', () => {
         });
         const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
         expect(await checkRateLimit('boom', 1, 60_000)).toBe(true);
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+});
+
+describe('consumeRouteRateLimit', () => {
+    beforeEach(() => configureRateLimit());
+    afterEach(() => configureRateLimit());
+
+    const uniqueScope = () => `charge-${Math.random().toString(36).slice(2, 10)}`;
+
+    it('spends from the same bucket the route gate does', async () => {
+        // The whole point of the helper: a handler charge and the gate must
+        // resolve the identical key for the same spec + request.
+        const opts = { limit: 2, window: 60_000, key: 'user', scope: uniqueScope() };
+        const req = { actor: { user: { id: 7 } }, headers: {} };
+
+        expect(await consumeRouteRateLimit(req, opts)).toBe(true);
+
+        const next = vi.fn();
+        await rateLimitGate(opts)(req, {}, next);
+        expect(next.mock.calls[0][0]).toBeUndefined();
+
+        // Gate + helper together exhausted the bucket; either side now rejects.
+        expect(await consumeRouteRateLimit(req, opts)).toBe(false);
+        const rejectedNext = vi.fn();
+        await rateLimitGate(opts)(req, {}, rejectedNext);
+        expect(isHttpError(rejectedNext.mock.calls[0][0])).toBe(true);
+    });
+
+    it("buckets per user under the 'user' strategy", async () => {
+        const opts = { limit: 1, window: 60_000, key: 'user', scope: uniqueScope() };
+        const reqFor = (id) => ({ actor: { user: { id } }, headers: {} });
+        expect(await consumeRouteRateLimit(reqFor(1), opts)).toBe(true);
+        expect(await consumeRouteRateLimit(reqFor(1), opts)).toBe(false);
+        expect(await consumeRouteRateLimit(reqFor(2), opts)).toBe(true);
+    });
+
+    it('charges every window of an array spec, and any refusal refuses', async () => {
+        // The array form routes use (burst + sustained); the tightest bites.
+        const specs = [
+            { limit: 5, window: 60_000, key: 'user', scope: uniqueScope() },
+            { limit: 2, window: 60_000, key: 'user', scope: uniqueScope() },
+        ];
+        const req = { actor: { user: { id: 9 } }, headers: {} };
+        expect(await consumeRouteRateLimit(req, specs)).toBe(true);
+        expect(await consumeRouteRateLimit(req, specs)).toBe(true);
+        expect(await consumeRouteRateLimit(req, specs)).toBe(false);
+        // The refusing window really was the second one, not the first.
+        expect(await consumeRouteRateLimit(req, specs[0])).toBe(true);
+    });
+
+    it('applies bySubscription overrides via the wired metering service', async () => {
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async (actor) => ({
+                    id: actor.user.uuid === 'free' ? 'user_free' : 'other',
+                }),
+            },
+        });
+        const opts = {
+            limit: 5,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: uniqueScope(),
+        };
+        const freeReq = { actor: { user: { id: 1, uuid: 'free' } }, headers: {} };
+        expect(await consumeRouteRateLimit(freeReq, opts)).toBe(true);
+        expect(await consumeRouteRateLimit(freeReq, opts)).toBe(false);
+    });
+
+    it('fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis exploded');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const opts = { limit: 1, window: 60_000, key: 'ip', scope: uniqueScope() };
+        const req = { ip: '5.5.5.5', headers: {} };
+        expect(await consumeRouteRateLimit(req, opts)).toBe(true);
         expect(spy).toHaveBeenCalled();
         spy.mockRestore();
     });

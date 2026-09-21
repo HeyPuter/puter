@@ -35,11 +35,13 @@ import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
+import type { Actor } from './core/actor';
 import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
     allowedAppIdsGate,
     noUserSessionGate,
+    requireAnyVerifiedGate,
     requireAuthGate,
     requireCardVerifiedGate,
     requirePhoneVerifiedGate,
@@ -54,9 +56,13 @@ import { requireCreditsGate } from './core/http/middleware/credits';
 import { requireReputationGate } from './core/http/middleware/reputation';
 import { requireSubscriptionGate } from './core/http/middleware/subscription';
 import { validateReputationRequirement } from './core/reputation';
-import { validateSubscriptionRequirement } from './services/metering/enforcement';
+import {
+    actorOnPaidPlan,
+    validateSubscriptionRequirement,
+} from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
 import { activeSubdomain, subdomainOffsetForDomain } from './util/subdomains';
 import {
@@ -988,6 +994,7 @@ export class PuterServer {
             opts.noUserSession ||
             opts.requirePhoneVerified ||
             opts.requireCardVerified ||
+            opts.requireAnyVerified ||
             requiresSubscription ||
             requiresReputation,
         );
@@ -1083,8 +1090,29 @@ export class PuterServer {
         if (opts.requirePhoneVerified) {
             mwChain.push(requirePhoneVerifiedGate());
         }
+        // A paying account has a card on file already, so both card-aware
+        // gates take a paid plan as the card factor.
+        const hasPaidPlan = (actor: Actor) =>
+            actorOnPaidPlan(this.services.metering, actor);
         if (opts.requireCardVerified) {
-            mwChain.push(requireCardVerifiedGate());
+            mwChain.push(requireCardVerifiedGate({ hasPaidPlan }));
+        }
+        if (opts.requireAnyVerified) {
+            // Same stance as the subscription requirement: an empty list reads
+            // as gated while admitting everyone, so it fails the boot instead.
+            if (opts.requireAnyVerified.length === 0) {
+                throw new Error(
+                    `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireAnyVerified: expected at least one factor`,
+                );
+            }
+            if (this.#config.verifiedFactorGate?.enabled !== false) {
+                mwChain.push(
+                    requireAnyVerifiedGate(opts.requireAnyVerified, {
+                        ...cardFallbackDepsFrom(this.clients),
+                        hasPaidPlan,
+                    }),
+                );
+            }
         }
 
         // 2a''. Reputation floor. Ahead of the plan gate and everything

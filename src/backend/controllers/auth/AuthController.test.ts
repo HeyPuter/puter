@@ -33,7 +33,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
@@ -2356,10 +2356,10 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         );
         appUid = app.uid;
         appId = app.id;
-        appActor = {
+        appActor = makeActor({
             user: userActor.user,
             app: { id: app.id, uid: app.uid },
-        } as unknown as Actor;
+        });
     });
 
     const grant = (body: Record<string, unknown>) =>
@@ -2403,11 +2403,11 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
     const path = (name: string) => `/${user.username}/${name}`;
     const rand = () => uuidv4().slice(0, 6);
 
-    it('creates a missing directory, grants it, and a subsequent check reports it held', async () => {
+    it('creates a missing directory by default, grants it, and a subsequent check reports it held', async () => {
         const p = path(`.mail-${rand()}`);
         expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
 
-        await grant({ permission: `fs:${p}:write`, create: true });
+        await grant({ permission: `fs:${p}:write` });
 
         const entry = await server.stores.fsEntry.getEntryByPath(p);
         expect(entry?.isDir).toBe(true);
@@ -2453,10 +2453,10 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         ).toBe(true);
     });
 
-    it('without `create`, a missing path still 404s and nothing is created', async () => {
+    it('`create: false` opts out: a missing path 404s and nothing is created', async () => {
         const p = path(`missing-${rand()}`);
         await expect(
-            grant({ permission: `fs:${p}:write` }),
+            grant({ permission: `fs:${p}:write`, create: false }),
         ).rejects.toMatchObject({
             statusCode: 404,
             legacyCode: 'subject_does_not_exist',
@@ -2633,7 +2633,7 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
     it('does not apply `create` to a `manage:` grant — 404 unchanged, nothing created', async () => {
         const p = path(`manage-missing-${rand()}`);
         await expect(
-            grant({ permission: `manage:fs:${p}:write`, create: true }),
+            grant({ permission: `manage:fs:${p}:write` }),
         ).rejects.toMatchObject({
             statusCode: 404,
             legacyCode: 'subject_does_not_exist',
@@ -3915,8 +3915,8 @@ describe('AuthController.handleConfirmPhone', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('short-circuits to verified when the gate is not set (no Prelude call)', async () => {
-        const { actor } = await makeUserAndActor();
+    it('short-circuits to verified when a verified number is on file (no Prelude call)', async () => {
+        const { actor } = await makeUserAndActor({ phone: '+14155550123' });
         const checkVerification = vi.fn();
         await withPrelude(stubPrelude({ checkVerification }), async () => {
             const res = makeRes();
@@ -3927,6 +3927,34 @@ describe('AuthController.handleConfirmPhone', () => {
             expect(res.body).toMatchObject({ phone_verified: true });
             expect(checkVerification).not.toHaveBeenCalled();
         });
+    });
+
+    it('verifies for real when the gate was never set but no number is on file', async () => {
+        // A route requiring a verified phone sends never-flagged users here;
+        // answering "verified" on the clear flag alone would store nothing and
+        // leave that route refusing them.
+        const { user, actor } = await makeUserAndActor();
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${user.id}`,
+            value: '+14155550123',
+        });
+        const checkVerification = vi.fn(async () => ({ status: 'success' }));
+        await withPrelude(stubPrelude({ checkVerification }), async () => {
+            const res = makeRes();
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor }),
+                res,
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
+        expect(checkVerification).toHaveBeenCalledWith(
+            '+14155550123',
+            '123456',
+        );
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.phone).toBe('+14155550123');
     });
 
     it('throws 400 when the gate is set but no phone is on file', async () => {
@@ -5042,6 +5070,32 @@ describe('AuthController password recovery', () => {
         expect(after!.pass_recovery_token).toBeTruthy();
     });
 
+    it('send-pass-recovery-email: refuses a team seat, and writes no token', async () => {
+        // The seat's address is admin-supplied and unverified; recovery there
+        // would be a takeover channel. Its recovery is the admin's reset.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        const res = makeRes();
+        await controller.handleSendPassRecoveryEmail(
+            makeReq({ username: seat.username }),
+            res,
+        );
+        expect((res.body as { message: string }).message).toMatch(
+            /If that account exists/i,
+        );
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after!.pass_recovery_token).toBeFalsy();
+    });
+
     it('verify-pass-recovery-token: 400 on missing token', async () => {
         await expect(
             controller.handleVerifyPassRecoveryToken(makeReq({}), makeRes()),
@@ -5287,6 +5341,52 @@ describe('AuthController user-protected mutations (validation paths)', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change-email: 403 for an account its team provisioned', async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeEmail(
+                makeReq({ new_email: `moved_${uniq()}@example.com` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('change-username: 403 for an account its team provisioned', async () => {
+        // The console lists members by username and the audit log records them
+        // by it; a self-service rename would desync both.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        // addMember refuses to adopt an account that has one.
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after!.username).toBe(seat.username);
     });
 
     it('change-username: persists the rename and emits user.username-changed', async () => {
@@ -5722,10 +5822,10 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         const granted = `user:${user.uuid}:email:read`;
         const ungranted = `apps-of-user:${user.uuid}:read`;
 
-        const appActor = {
+        const appActor = makeActor({
             user: actor.user,
             app: { id: app.id, uid: app.uid },
-        } as unknown as Actor;
+        });
         const before = makeRes();
         await inCtx(appActor, () =>
             controller.handleCheckPermissions(
@@ -6521,6 +6621,28 @@ describe('AuthController.handleDeleteOwnUser', () => {
             force: true,
         });
         expect(after).toBeFalsy();
+    });
+
+    it('refuses, and keeps the row, for an account its team provisioned', async () => {
+        // The team is billed for the seat and closing it is theirs to do, from
+        // the console that keeps the audit trail.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleDeleteOwnUser(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, { force: true });
+        expect(after).toBeTruthy();
     });
 
     it('emits user.delete with the uuid + stripe customer id for downstream teardown', async () => {

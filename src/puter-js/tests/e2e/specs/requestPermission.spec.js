@@ -433,7 +433,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
     });
 });
 
-test.describe('puter.ui.requestPermission `create` flag (env=app)', () => {
+test.describe('puter.ui.requestPermission creates a missing path by default (env=app)', () => {
     test('deny creates nothing; allow creates the directory and resolves true', async ({ page }) => {
         const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
         try {

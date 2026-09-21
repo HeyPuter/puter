@@ -955,6 +955,17 @@ describe('OIDCController login callback', () => {
         expect(captured.cookies).toHaveLength(1);
         expect(captured.redirectUrl).toContain('embedded_in_popup=true');
         expect(captured.redirectUrl).toContain('oidc_login=true');
+
+        // The proof must bind to the account that just completed OIDC so the
+        // popup can refuse a proof replayed in another signed-in browser.
+        const openerState = new URL(captured.redirectUrl!).searchParams.get(
+            'opener_state',
+        );
+        const proof = oidc().verifyPopupReturn(openerState!);
+        expect(proof?.oidc_login).toBe(true);
+        const user = await server.stores.user.getByEmail(email);
+        expect(user?.uuid).toBeTruthy();
+        expect(proof?.user_uuid).toBe(user!.uuid);
     });
 
     it('uses popup-style error URL (msg_id + opener_origin) when the popup-state user is suspended', async () => {
@@ -1846,7 +1857,21 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
             opener_origin: 'https://opener.test',
             msg_id: '77',
             oidc_login: true,
+            user_uuid: null,
         });
+    });
+
+    it('hands back the account a proof is bound to', async () => {
+        // The popup compares this against its current user to reject a proof
+        // replayed from another account's login.
+        const proof = server.services.oidc.signPopupReturn({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: true,
+            user_uuid: 'user-A',
+        });
+        const captured = await redeem(proof);
+        expect(captured.body).toMatchObject({ user_uuid: 'user-A' });
     });
 
     it('rejects a proof signed with someone else’s key', async () => {

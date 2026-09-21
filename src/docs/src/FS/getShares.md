@@ -6,13 +6,17 @@ platforms: [websites, apps, nodejs, workers]
 
 This method lists who can reach a file or directory you own, or one you have `manage` access to.
 
+Being handed the item is not enough for an **app or API token**: the credential itself must hold `manage` on it, because the answer covers the folders above the item as well. One given a file to read gets a rejection here, and an empty `shares` from [`stat()`](/FS/stat/).
+
 > **What an app can share.** An app never gets more reach than it was given. It
 > can share its own AppData, and files the user specifically granted it, at up
 > to the level of access it holds itself — so an app with read access can grant
 > read, and nothing more. Files its user owns but never handed to the app stay
 > out of reach, and `listShared()` shows an app only the shares it can reach.
 > Shares an app creates are attributed to the user and carry `issuedByApp`, so
-> the owner can tell them apart in [`getShares()`](/FS/getShares/).
+> the owner can tell them apart in [`getShares()`](/FS/getShares/) — and those
+> are the only ones an app can list or withdraw on an item. Opening an item to
+> anyone with the link is the owner's own call, never an app's.
 
 ## Syntax
 
@@ -44,7 +48,13 @@ A `Promise` that resolves to an array of share objects, each with `uid`, `mode`,
 
 The list includes shares granted by **anyone** holding `manage` on the item, not only your own. That is how an owner sees what someone they trusted has re-shared.
 
+That is the view from your own session. An **app** asking on your behalf is shown only the shares that app issued — another app's rows, a delegate's, and the addresses you invited are not its business, whatever reach you gave it on the item.
+
+If the item is open to **anyone with the link** (see [`share()`](/FS/share/)), that share is listed too, with `anyone: true` and a `null` `holder` — inherited from a folder above when the folder is what was opened. It is left out while the owner's plan does not cover link sharing, because nobody can use it then.
+
 It also includes **invitations** — shares aimed at an email address with no confirmed account yet. Those carry `pending: true`, a `null` `holder`, and the address in `recipientEmail`. They grant nothing until the recipient confirms that address, and [`unshare()`](/FS/unshare/) cancels one before it is claimed.
+
+`recipientEmail` is set only for the item's **owner** and for whoever **sent** that invitation; for anyone else the invitation is listed without it. Someone else's invitation is not yours to cancel either, so nothing is lost with the address. An app never sees it, whoever it acts for.
 
 If you cannot see the item at all, this rejects the same way a missing file would — it will not confirm that the item exists.
 

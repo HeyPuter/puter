@@ -21,6 +21,7 @@ import type { Request, RequestHandler } from 'express';
 import type { IConfig } from '../../../types';
 import type { UserRow } from '../../../stores/user/UserStore';
 import type { TokenService } from '../../../services/auth/TokenService';
+import { isAppActor } from '../../actor';
 import { sessionCookieFlags } from '../../../util/cookieFlags';
 import { HttpError } from '../HttpError';
 
@@ -169,7 +170,12 @@ export function createStepUpGate(deps: {
         // elevate, so step-up is unsatisfiable for it. Any other actor — most
         // importantly a root/human session with no app id in its token — falls
         // through and must present the elevation proof.
-        const appUid = req.actor?.app?.uid;
+        // The app it carries directly, not the one acting: an access token can
+        // never satisfy step-up either, so widening the exemption to the token
+        // chain would only hand it a free pass.
+        const appUid = isAppActor(req.actor)
+            ? req.actor?.effectiveApp?.uid
+            : undefined;
         if (appUid && deps.allowedAppUids?.includes(appUid)) {
             next();
             return;

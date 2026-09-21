@@ -22,6 +22,7 @@ import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterService } from '../types';
+import { MAX_AI_COST_FACTOR, withAiCostFactor } from './aiCostFactor.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -370,6 +371,59 @@ export class MeteringService extends PuterService {
         this.defaultSubscriptionResolvers.push(fn);
     }
 
+    // -- AI cost factor -------------------------------------------
+
+    /**
+     * This service as an AI driver should use it: recorded costs pass through
+     * the `ai.cost.factor.<driver>.<model>` hook first.
+     */
+    withAiCostFactor(driver: string): MeteringService {
+        return withAiCostFactor(this, driver);
+    }
+
+    /**
+     * Whether anything prices this model. Synchronous so an unhooked deployment
+     * records in the caller's own tick, not after the request ends.
+     */
+    hasAiCostFactor(driver: string, model: string): boolean {
+        return this.clients.event.hasListeners(
+            `ai.cost.factor.${driver}.${model}`,
+        );
+    }
+
+    /** One model's cost factor. 1 when unhooked or the answer is unusable. */
+    async resolveAiCostFactor(
+        actor: Actor,
+        driver: string,
+        model: string,
+    ): Promise<number> {
+        const key = `ai.cost.factor.${driver}.${model}` as const;
+        try {
+            if (!this.hasAiCostFactor(driver, model)) return 1;
+            const event = { driver, model, actor, factor: 1 };
+            await this.clients.event.emitAndWait(key, event, {});
+            const factor = Number(event.factor);
+            if (
+                !Number.isFinite(factor) ||
+                factor <= 0 ||
+                factor > MAX_AI_COST_FACTOR
+            ) {
+                if (factor !== 1) {
+                    console.warn(
+                        `[metering] ignoring AI cost factor ${event.factor} for ${key}`,
+                    );
+                }
+                return 1;
+            }
+            return factor;
+        } catch (e) {
+            console.warn(
+                `[metering] AI cost factor lookup failed for ${key}: ${(e as Error).message}`,
+            );
+            return 1;
+        }
+    }
+
     // -- Public API: increment usage ----------------------------------
 
     utilRecordUsageObject<T extends Record<string, number>>(
@@ -418,7 +472,7 @@ export class MeteringService extends PuterService {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
                     email: actor.user?.email,
-                    appId: actor.app?.uid,
+                    appId: actor.effectiveApp?.uid,
                     usageType,
                     usageAmount,
                     costOverride,
@@ -440,7 +494,7 @@ export class MeteringService extends PuterService {
                 /\./g,
                 PERIOD_ESCAPE,
             );
-            const appId = actor.app?.uid || GLOBAL_APP_KEY;
+            const appId = actor.effectiveApp?.uid || GLOBAL_APP_KEY;
             const userId = actor.user.uuid!;
             const pathAndAmountMap = {
                 total: totalCost,
@@ -549,13 +603,13 @@ export class MeteringService extends PuterService {
                 error: e,
             });
             this.clients.alarm.create(
-                `metering service error for user: ${actorLabel(actor)} app: ${actor.app?.uid}`,
+                `metering service error for user: ${actorLabel(actor)} app: ${actor.effectiveApp?.uid}`,
                 (e as Error).message,
                 {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
                     email: actor.user?.email,
-                    appId: actor.app?.uid,
+                    appId: actor.effectiveApp?.uid,
                     error: e as Error,
                     usageType,
                     usageAmount,
@@ -605,7 +659,7 @@ export class MeteringService extends PuterService {
                             userId: actor.user?.uuid,
                             username: actor.user?.username,
                             email: actor.user?.email,
-                            appId: actor.app?.uid,
+                            appId: actor.effectiveApp?.uid,
                             usageType,
                             usageAmount,
                             costOverride,
@@ -633,7 +687,7 @@ export class MeteringService extends PuterService {
             if (Object.keys(aggregated).length === 0)
                 return { total: 0 } as UsageByType;
 
-            const appId = actor.app?.uid || GLOBAL_APP_KEY;
+            const appId = actor.effectiveApp?.uid || GLOBAL_APP_KEY;
             const userId = actor.user.uuid!;
 
             const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
@@ -734,13 +788,13 @@ export class MeteringService extends PuterService {
                 error: e,
             });
             this.clients.alarm.create(
-                `metering service error for user: ${actorLabel(actor)} app: ${actor.app?.uid}`,
+                `metering service error for user: ${actorLabel(actor)} app: ${actor.effectiveApp?.uid}`,
                 (e as Error).message,
                 {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
                     email: actor.user?.email,
-                    appId: actor.app?.uid,
+                    appId: actor.effectiveApp?.uid,
                     error: e as Error,
                     actor,
                     batchUsages: usages,
@@ -770,7 +824,7 @@ export class MeteringService extends PuterService {
         if (!usages?.length || !actor?.user?.uuid) return;
         if (isSystemActor(actor)) return;
 
-        const key = `${actor.user.uuid}:${actor.app?.uid ?? GLOBAL_APP_KEY}`;
+        const key = `${actor.user.uuid}:${actor.effectiveApp?.uid ?? GLOBAL_APP_KEY}`;
         let bucket = this.usageBuffer.get(key);
         if (!bucket) {
             bucket = { actor, amounts: new Map() };
@@ -881,7 +935,7 @@ export class MeteringService extends PuterService {
         );
         const resolvedUsage = charged ?? usage ?? ({ total: 0 } as UsageByType);
 
-        const appId = actor.app?.uid;
+        const appId = actor.effectiveApp?.uid;
         if (appTotals && appId) {
             const filtered: Record<string, AppTotals> = {};
             const others: AppTotals = {} as AppTotals;
@@ -928,7 +982,7 @@ export class MeteringService extends PuterService {
         const normalizedTotal = Math.round(totalCost);
         const currentMonth = this.monthYearString();
         const userId = actor.user.uuid;
-        const appId = actor.app?.uid || GLOBAL_APP_KEY;
+        const appId = actor.effectiveApp?.uid || GLOBAL_APP_KEY;
         const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
 
         // Setting an absolute total is only meaningful against an exact
@@ -1029,9 +1083,10 @@ export class MeteringService extends PuterService {
                 },
             );
 
-        const resolvedAppId = appId || actor.app?.uid || GLOBAL_APP_KEY;
+        const resolvedAppId =
+            appId || actor.effectiveApp?.uid || GLOBAL_APP_KEY;
 
-        const actorAppId = actor.app?.uid;
+        const actorAppId = actor.effectiveApp?.uid;
         if (
             actorAppId &&
             actorAppId !== resolvedAppId &&
@@ -1542,7 +1597,8 @@ export class MeteringService extends PuterService {
             throw new HttpError(403, 'Actor must be a user to get app usage', {
                 legacyCode: 'forbidden',
             });
-        if (actor.app?.uid && actor.app.uid !== appId) {
+        const actorAppId = actor.effectiveApp?.uid;
+        if (actorAppId && actorAppId !== appId) {
             throw new HttpError(
                 403,
                 'Actor can only get usage for their own app',
@@ -1779,7 +1835,7 @@ export class MeteringService extends PuterService {
         // bucket instead of landing it in that app's usage — which its
         // developer reads — and hands listeners a subject they can price
         // against what the user owns.
-        const userActor: Actor = { user: actor.user };
+        const userActor: Actor = { user: actor.user, effectiveApp: null };
 
         const charges: UsageInput[] = [];
         await this.clients.event.emitAndWait(
@@ -1973,7 +2029,7 @@ export class MeteringService extends PuterService {
                 userId: actor.user?.uuid,
                 username: actor.user?.username,
                 email: actor.user?.email,
-                appId: actor.app?.uid,
+                appId: actor.effectiveApp?.uid,
                 usageType: ctx.usageType,
                 usageAmount: ctx.usageAmount,
                 costOverride: ctx.costOverride,

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
+import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
+
+// The helper labels an inherited link share through i18n.
+globalThis.i18n = (key) => key;
 
 const grant = (holder, mode, extra = {}) => ({ holder, mode, ...extra });
 
@@ -81,6 +84,26 @@ describe('aggregateShares', () => {
         expect(groups[1].directPaths).toEqual(['/me/b']);
     });
 
+    it('keeps an invitation whose address was withheld, unnamed and unactionable', () => {
+        // Hiding the row would under-report who reaches the item.
+        const groups = aggregateShares(['/me/a', '/me/b'], new Map([
+            ['/me/a', [grant(null, 'read', { pending: true, uid: 's1' })]],
+            ['/me/b', [grant(null, 'read', { pending: true, uid: 's2' })]],
+        ]));
+
+        // Two invites, not one row folded together on the empty name.
+        expect(groups).toHaveLength(2);
+        expect(groups.map((g) => g.key)).toEqual(['invite:s1', 'invite:s2']);
+        for ( const group of groups ) {
+            expect(group).toMatchObject({
+                anonymous: true,
+                pending: true,
+                name: 'share_invited_someone',
+                accessCount: 1,
+            });
+        }
+    });
+
     it('counts an item once when two grants on it name the same person', () => {
         // Two holders can grant the same access; the item is still one item.
         const groups = aggregateShares(['/me/a'], new Map([
@@ -119,6 +142,54 @@ describe('aggregateShares', () => {
 
         expect(groups.map((g) => g.name)).toEqual(['ann']);
     });
+
+    it('gives a team a row of its own, named and keyed on the team', () => {
+        // A team share names no holder; without this it would be dropped as a
+        // grant that names nobody and the share would vanish from the list.
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [grant(null, 'read', {
+                holderTeam: { uid: 't-1', name: 'Acme', handle: 'acme' },
+            })]],
+        ]));
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            key: 'team:t-1',
+            name: 'Acme',
+            teamUid: 't-1',
+            mode: 'read',
+        });
+    });
+
+    it('falls back to the handle, then the uid, for an unnamed team', () => {
+        // Whatever team_label says, so a team reads the same here as it does
+        // in the desktop dialog's access list.
+        const named = (team) => aggregateShares(['/me/a'], new Map([
+            ['/me/a', [grant(null, 'read', { holderTeam: team })]],
+        ]))[0].name;
+
+        expect(named({ uid: 't-1', name: null, handle: 'acme' })).toBe('acme');
+        expect(named({ uid: 't-1', name: null, handle: null })).toBe('t-1');
+    });
+
+    it('keeps a team and a person of the same name apart', () => {
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [
+                grant('ann', 'read'),
+                grant(null, 'write', { holderTeam: { uid: 't-1', name: 'ann' } }),
+            ]],
+        ]));
+
+        expect(groups.map((g) => g.key)).toEqual(['user:ann', 'team:t-1']);
+    });
+
+    it('leaves teamUid null on a person, so their row still shares by name', () => {
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [grant('ann', 'read')]],
+        ]));
+
+        expect(groups[0].teamUid).toBe(null);
+    });
 });
 
 describe('missingPathsFor', () => {
@@ -155,5 +226,58 @@ describe('aggregateOwners', () => {
         expect(aggregateOwners([null, 'ann', undefined])).toEqual([
             { name: 'ann', count: 1 },
         ]);
+    });
+});
+
+describe('link shares in the access list', () => {
+    it('keeps the item\'s own link share out of the rows', () => {
+        const groups = aggregateShares(['/me/a'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }, grant('ann', 'read')]],
+        ]));
+        expect(groups.map((g) => g.key)).toEqual(['user:ann']);
+    });
+
+    it('shows one inherited from a folder above, which only that folder can change', () => {
+        const groups = aggregateShares(['/me/d/a'], new Map([
+            ['/me/d/a', [{ anyone: true, mode: 'write', inheritedFrom: '/me/d' }]],
+        ]));
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            key: 'anyone',
+            name: 'share_row_anyone',
+            directPaths: [],
+            inheritedPaths: ['/me/d/a'],
+            inheritedMode: 'write',
+            inheritedFrom: '/me/d',
+        });
+    });
+});
+
+describe('linkShareState', () => {
+    it('is restricted when no item is open to the link', () => {
+        expect(linkShareState(['/me/a'], new Map([['/me/a', [grant('ann', 'read')]]])))
+            .toEqual({ access: 'restricted', mode: null });
+        expect(linkShareState([], new Map())).toEqual({ access: 'restricted', mode: null });
+    });
+
+    it('reports the one mode when every item is open at it', () => {
+        expect(linkShareState(['/me/a', '/me/b'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }]],
+            ['/me/b', [{ anyone: true, mode: 'read' }]],
+        ]))).toEqual({ access: 'anyone', mode: 'read' });
+    });
+
+    it('reports no mode when the open items disagree', () => {
+        expect(linkShareState(['/me/a', '/me/b'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }]],
+            ['/me/b', [{ anyone: true, mode: 'write' }]],
+        ]))).toEqual({ access: 'anyone', mode: null });
+    });
+
+    it('is mixed when only some items are open, ignoring inherited links', () => {
+        expect(linkShareState(['/me/a', '/me/b'], new Map([
+            ['/me/a', [{ anyone: true, mode: 'read' }]],
+            ['/me/b', [{ anyone: true, mode: 'read', inheritedFrom: '/me' }]],
+        ]))).toEqual({ access: 'mixed', mode: null });
     });
 });

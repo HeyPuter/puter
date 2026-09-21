@@ -18,7 +18,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { type Actor, userRelatedActor } from '../../core/actor.js';
+import {
+    type Actor,
+    isAppActor,
+    isPlainUserActor,
+    userRelatedActor,
+} from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { KV_SHARE_HANDLE_WIDTHS } from '../../stores/events/columnWidths.js';
 import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
@@ -280,7 +285,7 @@ export const kvShareOwnerImplicator = (): PermissionImplicator => ({
     matches: (permission: string): boolean =>
         isKvSharePermission(withoutManageArm(permission)),
     check: ({ actor, permission }): unknown => {
-        if (actor.app || actor.accessToken) return undefined;
+        if (!isPlainUserActor(actor)) return undefined;
         const uuid = actor.user?.uuid;
         if (!uuid) return undefined;
 
@@ -306,8 +311,8 @@ export const kvShareAppDelegateImplicator = (deps: {
     shortcut: true,
     matches: (permission: string): boolean => isKvSharePermission(permission),
     check: async ({ actor, permission }): Promise<unknown> => {
-        if (actor.accessToken) return undefined;
-        const app = actor.app;
+        if (!isAppActor(actor)) return undefined;
+        const app = actor.effectiveApp;
         if (!app?.uid) return undefined;
 
         const [, owner, namespaceApp, ...segments] =

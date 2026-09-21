@@ -1,22 +1,14 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
 import { PuterModule } from '../../lib/PuterModule.js';
+import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
 import * as utils from '../../lib/utils.js';
 import { compose } from './ComposerLib.js';
+import { get } from './get.js';
+import { list } from './list.js';
 
-/**
- * One attachment: either inline base64 `content`, or a Puter FS reference
- * (`path`/`uid`) read server-side with the caller's — falling back to the
- * authorizing worker's — file permissions. FS references are streamed from
- * storage and never travel through the request, so prefer them for anything
- * larger than a few hundred kilobytes.
- *
- * @typedef {Object} EmailAttachment
- * @property {string} [filename] Required with `content`; defaults to the file's name for FS refs.
- * @property {string} [content] Base64 file body. Mutually exclusive with `path`/`uid`.
- * @property {string} [path] Puter FS path (supports `~/`). Mutually exclusive with `content`.
- * @property {string} [uid] Puter FS entry uid. Mutually exclusive with `content`.
- * @property {string} [contentType] MIME type of the attachment.
- */
+/** @typedef {import('../../index.js').Puter} Puter */
+
+/** @typedef {import('./types.js').EmailAttachment} EmailAttachment */
 
 /**
  * The options form of `sendTransactional()`.
@@ -28,7 +20,7 @@ import { compose } from './ComposerLib.js';
  * @property {string} [html] HTML body.
  * @property {string | string[]} [cc]
  * @property {string | string[]} [bcc]
- * @property {string} [replyTo]
+ * @property {string} [replyTo] Defaults to the confirmed account email of the app's owner.
  * @property {string} [emailAccessToken] A worker's auth token authorizing the send when the caller is
  * not itself a worker (inside a worker: `me.puter.authToken`). The caller stays the billed and
  * rate-limited identity.
@@ -112,8 +104,32 @@ const preprocessSendArgs = (args) => {
  *
  * `send()` is the previous name of this method and still works; it will be
  * removed once existing apps have moved to `sendTransactional()`.
+ *
+ * Reading is the other half: every account has a mailbox at
+ * `{username}@puter.email`, stored as `message/rfc822` objects under the
+ * user's `~/.mail`. `list()` pages through a folder newest first without
+ * downloading anything, and `get()` fetches and parses one message. An app
+ * needs the `fs:/{username}/.mail:read` permission to read its user's mail.
  */
 export class EmailModule extends PuterModule {
+    // The fields hold the unbound functions so they keep the full overloaded
+    // types (`bind` erases overloads); the constructor rebinds them at runtime
+    // so destructured calls (`const { list } = puter.email`) keep working.
+    list = list;
+    get = get;
+
+    /** @param {Puter} puter */
+    constructor (puter) {
+        super(puter);
+
+        const methods = /** @type {Record<string, (...args: unknown[]) => unknown>} */ (
+            /** @type {unknown} */ (this)
+        );
+        for ( const name of ['list', 'get'] ) {
+            methods[name] = methods[name].bind(this);
+        }
+    }
+
     /**
      * Sends one transactional email. The positional form is shorthand for a
      * plain-text body; everything else (html, cc/bcc, attachments,
@@ -126,11 +142,33 @@ export class EmailModule extends PuterModule {
         method: 'sendTransactional',
         argNames: ['to', 'subject', 'body'],
         preprocess: preprocessSendArgs,
+        upgradePrompt: {
+            method: 'puter.email.sendTransactional',
+            subscriptionMessage: 'Sending email from an app requires a subscription.',
+        },
     });
 
+    /**
+     * Sends a message from the user's own mailbox. Resolves with the response
+     * body as the server sent it, error bodies included; a refusal that an
+     * upgrade would clear also prompts the user.
+     *
+     * @param {Record<string, unknown>} options Message fields for the composer.
+     * @returns {Promise<unknown>}
+     */
     send = async (options) => {
         const req = await fetchUrl(`${this.APIOrigin}/email/send`, { method: "POST", includePuterAuth: true, body: new Blob([await compose(options)], { type: 'message/rfc822' }) });
-        return await req.json();
+        const result = await req.json();
+        if ( ! req.ok ) {
+            promptIfUpgradeRequired(
+                result && typeof result === 'object' ? { ...result, status: req.status } : { status: req.status },
+                {
+                    method: 'puter.email.send',
+                    subscriptionMessage: 'Sending email to addresses outside Puter requires a subscription.',
+                },
+            );
+        }
+        return result;
     }
 }
 
@@ -138,7 +176,7 @@ export class EmailModule extends PuterModule {
  * The public face of the module: derived from the class, with the internal
  * `puter` handle and the legacy `authToken` accessor omitted.
  *
- * @typedef {import('../lib/types.js').OmitMembers<
+ * @typedef {import('../../lib/types.js').OmitMembers<
  *     typeof EmailModule,
  *     'puter' | 'authToken'
  * >} EmailConstructor

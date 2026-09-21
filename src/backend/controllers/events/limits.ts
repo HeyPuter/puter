@@ -21,6 +21,7 @@ import type { RouteRateLimit } from '../../core/http/types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    FREE_SUBSCRIPTION_IDS,
 } from '../../services/metering/consts.js';
 
 // -- Shared event limits ---------------------------------------------
@@ -43,10 +44,9 @@ const userWindow = (
 ): RouteRateLimit => ({ scope, limit, window, key: 'user' });
 
 /**
- * A cap that varies by plan, in the shape route gates already declare theirs
- * in: the base is what a subscribed account sees, and `bySubscription` carves
- * the free tiers out beneath it. A plan nobody enumerated falls through to the
- * base, so a new one is generous rather than accidentally throttled.
+ * A plan-varying cap in route-gate shape: `limit` is what a subscribed account
+ * gets, `bySubscription` carves out the free tiers, unlisted plans get the
+ * base.
  */
 export interface TieredLimit {
     limit: number;
@@ -61,14 +61,18 @@ const tiered = (paid: number, free: number, temp: number): TieredLimit => ({
     },
 });
 
-/** The cap one plan sees. An unresolved plan is held to the base. */
+/** The cap one plan sees; an unlisted free plan takes the free one, not `limit`. */
 export const limitFor = (
     tier: TieredLimit,
     subscriptionId: string | null,
-): number =>
-    (subscriptionId === null
-        ? undefined
-        : tier.bySubscription[subscriptionId]) ?? tier.limit;
+): number => {
+    if (subscriptionId === null) return tier.limit;
+    const own = tier.bySubscription[subscriptionId];
+    if (typeof own === 'number') return own;
+    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
+        ? (tier.bySubscription[DEFAULT_FREE_SUBSCRIPTION] ?? tier.limit)
+        : tier.limit;
+};
 
 /**
  * What a plan-tiered quota resolves to: what an account may hold, and what one
@@ -257,6 +261,14 @@ export const EVENTS_WORKER_LIST_LIMIT = userWindow('events:workers:list', 120);
  * deliveries as an account cared to register.
  */
 export const EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT = 50;
+
+/**
+ * Largest key-value value a delivery inlines, in serialized bytes. A value over
+ * this is left out and the subscriber re-reads the key: a delivery fans out to
+ * many rows, may cross regions and may sit in a backlog, none of which is sized
+ * for the store's own ceiling.
+ */
+export const EVENTS_KV_VALUE_MAX_BYTES = 16 * 1024;
 
 /**
  * Broadcast deliveries per minute, per subscription.

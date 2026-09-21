@@ -17,16 +17,27 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { assertImagePrompt } from '../../imageValidation.js';
+import {
+    closestAspectRatio,
+    expandAspectRatio,
+} from '../../imageDimensions.js';
+import { imageDataUri } from '../../imageOutput.js';
 import { Together } from 'together-ai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type {
-    IGenerateParams,
-    IImageModel,
-    IImageProvider,
-} from '../../types.js';
-import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
-import { isHttpUrl, resolveSingleInputImage } from '../../inputImage.js';
+import type { IGenerateParams, IImageProvider } from '../../types.js';
+import {
+    TOGETHER_IMAGE_GENERATION_MODELS,
+    RETIRED_TOGETHER_IMAGE_MODELS,
+    type TogetherImageModel,
+} from './models.js';
+import {
+    isHttpUrl,
+    parseDataUri,
+    resolveSingleInputImage,
+    toUrlOrDataUri,
+} from '../../inputImage.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
@@ -44,14 +55,13 @@ type TogetherGenerateParams = IGenerateParams & {
     input_image?: string;
 };
 
-const DEFAULT_MODEL = 'togetherai:black-forest-labs/FLUX.1-schnell';
-const CONDITION_IMAGE_MODELS = [
-    'togetherai:black-forest-labs/flux.1-kontext-dev',
-    'togetherai:black-forest-labs/flux.1-kontext-pro',
-    'togetherai:black-forest-labs/flux.1-kontext-max',
-];
+const DEFAULT_MODEL = 'togetherai:black-forest-labs/FLUX.2-dev';
 
 export class TogetherImageProvider implements IImageProvider {
+    readonly retiredModelAliases = RETIRED_TOGETHER_IMAGE_MODELS.flatMap(
+        (id) => [id, `togetherai:${id}`, id.split('/').at(-1)!],
+    );
+
     #client: Together;
     #meteringService: MeteringService;
 
@@ -63,7 +73,7 @@ export class TogetherImageProvider implements IImageProvider {
         this.#client = new Together({ apiKey: config.apiKey });
     }
 
-    models(): IImageModel[] {
+    models(): TogetherImageModel[] {
         return TOGETHER_IMAGE_GENERATION_MODELS;
     }
 
@@ -73,8 +83,8 @@ export class TogetherImageProvider implements IImageProvider {
 
     async generate(params: IGenerateParams): Promise<string> {
         const { prompt, test_mode } = params;
-        let { model, ratio, quality } = params;
-        const options = params as TogetherGenerateParams;
+        const { model, quality } = params;
+        const options = { ...params } as TogetherGenerateParams;
 
         const selectedModel = this.#getModel(model);
 
@@ -82,25 +92,95 @@ export class TogetherImageProvider implements IImageProvider {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new HttpError(400, '`prompt` must be a non-empty string', {
+        assertImagePrompt(prompt);
+
+        const singleInput = resolveSingleInputImage(params, 'Together AI');
+        if (singleInput) {
+            if (isHttpUrl(singleInput)) options.image_url ??= singleInput;
+            else options.image_base64 ??= singleInput;
+        }
+        if (
+            selectedModel.requiresInputImage &&
+            !options.image_url &&
+            !options.image_base64
+        ) {
+            throw new HttpError(
+                400,
+                `${selectedModel.id} requires an input image`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        if (quality != null && typeof quality !== 'string') {
+            throw new HttpError(400, 'quality must be a string', {
                 legacyCode: 'bad_request',
             });
         }
-
-        // Canonical `input_images` → Together's native fields. Together accepts
-        // a single input image: a URL goes to `image_url`, base64/data-URI to
-        // `image_base64` (via the existing `input_image` alias).
-        const singleInput = resolveSingleInputImage(params, 'Together AI');
-        if (singleInput) {
-            if (isHttpUrl(singleInput)) {
-                options.image_url ??= singleInput;
-            } else {
-                options.input_image ??= singleInput;
+        // The driver resolves every caller-facing size field into `imageSize`.
+        const { imageSize } = params;
+        const defaultRatio =
+            selectedModel.defaultRatio ?? TOGETHER_DEFAULT_RATIO;
+        let ratio = imageSize ?? defaultRatio;
+        const pricingUnit = selectedModel.pricing_unit ?? 'per-MP';
+        const tiers = Object.keys(selectedModel.costs).filter(
+            (key) => key !== 'input_image',
+        );
+        // Blank quality is "not set", as it is everywhere else in the driver.
+        const wantedTier = quality?.trim().toLowerCase() || undefined;
+        const requestedTier = tiers.find(
+            (tier) => tier.toLowerCase() === wantedTier,
+        );
+        // Without `quality`, use the tier the catalog prices by (Google's
+        // native 1K default), not whichever tier happens to be listed first.
+        const defaultTier =
+            selectedModel.index_cost_key &&
+            tiers.includes(selectedModel.index_cost_key)
+                ? selectedModel.index_cost_key
+                : tiers[0];
+        let tierKey = requestedTier ?? defaultTier;
+        if (pricingUnit === 'per-tier' && wantedTier && !requestedTier) {
+            throw new HttpError(
+                400,
+                `Unsupported quality tier: ${quality}. Expected ${tiers.join(', ')}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        if (pricingUnit === 'per-tier') {
+            const aspects = Object.entries(
+                selectedModel.resolution_map ?? {},
+            ).map(([key, sizes]) => {
+                const [w, h] = key.split(':').map(Number);
+                return { w, h, sizes };
+            });
+            if (aspects.length === 0) {
+                throw new Error(
+                    `Model ${selectedModel.id} missing resolution map`,
+                );
             }
+            const { sizes } = closestAspectRatio(ratio, aspects);
+            if (!requestedTier && imageSize?.kind === 'pixels') {
+                const pixels = imageSize.w * imageSize.h;
+                tierKey = Object.keys(sizes).reduce((best, tier) =>
+                    Math.abs(
+                        Math.log((sizes[tier].w * sizes[tier].h) / pixels),
+                    ) <
+                    Math.abs(Math.log((sizes[best].w * sizes[best].h) / pixels))
+                        ? tier
+                        : best,
+                );
+            }
+            ratio = sizes[tierKey];
+        } else if (selectedModel.allowedRatios?.length) {
+            // Fixed-size models reject arbitrary dimensions, so explicit
+            // pixel sizes snap to the supported list the same as aspect hints.
+            ratio = closestAspectRatio(ratio, selectedModel.allowedRatios);
+        } else if (imageSize?.kind === 'aspect') {
+            ratio = expandAspectRatio(ratio, defaultRatio.w * defaultRatio.h);
         }
 
-        ratio = ratio || TOGETHER_DEFAULT_RATIO;
+        ratio = {
+            w: this.#normalizeDimension(ratio.w, selectedModel),
+            h: this.#normalizeDimension(ratio.h, selectedModel),
+        };
 
         const actor = Context.get('actor');
         if (!actor) {
@@ -108,8 +188,6 @@ export class TogetherImageProvider implements IImageProvider {
                 legacyCode: 'unauthorized',
             });
         }
-
-        const pricingUnit = selectedModel.pricing_unit ?? 'per-MP';
 
         let costInMicroCents: number;
         let usageAmount: number;
@@ -126,10 +204,6 @@ export class TogetherImageProvider implements IImageProvider {
             usageAmount = 1;
             usageKey = 'per-image';
         } else if (pricingUnit === 'per-tier') {
-            const tierKey =
-                quality && selectedModel.costs[quality] !== undefined
-                    ? quality
-                    : Object.keys(selectedModel.costs)[0];
             const centsPerImage = selectedModel.costs[tierKey];
             if (centsPerImage === undefined) {
                 throw new Error(`Model ${selectedModel.id} missing tier cost`);
@@ -149,10 +223,14 @@ export class TogetherImageProvider implements IImageProvider {
         }
 
         const usageType = `${selectedModel.id}:${usageKey}`;
+        const inputImageCost =
+            options.image_url || options.image_base64
+                ? (selectedModel.costs.input_image ?? 0) * 1_000_000
+                : 0;
 
         const usageAllowed = await this.#meteringService.hasEnoughCredits(
             actor,
-            costInMicroCents,
+            costInMicroCents + inputImageCost,
         );
 
         if (!usageAllowed) {
@@ -163,27 +241,15 @@ export class TogetherImageProvider implements IImageProvider {
             );
         }
 
-        // Resolve abstract aspect ratios (e.g. 1:1, 16:9) to concrete pixel
-        // dimensions via the model's own resolution_map.
-        let resolvedRatio = ratio;
-        if (
-            pricingUnit === 'per-tier' &&
-            quality &&
-            selectedModel.resolution_map
-        ) {
-            const ratioKey = `${ratio.w}:${ratio.h}`;
-            const resolutionEntry =
-                selectedModel.resolution_map[ratioKey]?.[quality];
-            if (resolutionEntry) {
-                resolvedRatio = resolutionEntry;
-            }
-        }
-
-        const request = this.#buildRequest(prompt, {
-            ...options,
-            ratio: resolvedRatio,
-            model: selectedModel.id.replace('togetherai:', ''),
-        }) as unknown as Together.Images.ImageGenerateParams;
+        const request = this.#buildRequest(
+            prompt,
+            {
+                ...options,
+                ratio,
+                model: selectedModel.id.replace('togetherai:', ''),
+            },
+            selectedModel,
+        ) as unknown as Together.Images.ImageGenerateParams;
 
         // Let SDK errors bubble — together-ai SDK errors carry `.status`
         // which the driver-boundary `translateProviderError` maps to
@@ -207,6 +273,14 @@ export class TogetherImageProvider implements IImageProvider {
             usageAmount,
             costInMicroCents,
         );
+        if (inputImageCost > 0) {
+            this.#meteringService.incrementUsage(
+                actor,
+                `${selectedModel.id}:input_image`,
+                1,
+                inputImageCost,
+            );
+        }
 
         const first = response.data[0] as {
             url?: string;
@@ -214,9 +288,7 @@ export class TogetherImageProvider implements IImageProvider {
         };
         const url =
             first.url ||
-            (first.b64_json
-                ? `data:image/png;base64,${first.b64_json}`
-                : undefined);
+            (first.b64_json ? imageDataUri(first.b64_json) : undefined);
 
         if (!url) {
             throw new HttpError(
@@ -234,12 +306,21 @@ export class TogetherImageProvider implements IImageProvider {
 
     #getModel(model?: string) {
         return (
-            this.models().find((m) => m.id === model) ||
-            this.models().find((m) => m.id === DEFAULT_MODEL)!
+            this.models().find((m) =>
+                [m.id, m.puterId, ...(m.aliases ?? [])].some(
+                    (id) =>
+                        id !== undefined &&
+                        id.toLowerCase() === model?.trim().toLowerCase(),
+                ),
+            ) || this.models().find((m) => m.id === DEFAULT_MODEL)!
         );
     }
 
-    #buildRequest(prompt: string, options: TogetherGenerateParams) {
+    #buildRequest(
+        prompt: string,
+        options: TogetherGenerateParams,
+        selectedModel: TogetherImageModel,
+    ) {
         const {
             ratio,
             model,
@@ -253,32 +334,17 @@ export class TogetherImageProvider implements IImageProvider {
             prompt_strength,
             disable_safety_checker,
             response_format,
-            input_image,
         } = options;
 
         const request: Record<string, unknown> = {
             prompt,
             model: model ?? DEFAULT_MODEL,
-            n: 1,
         };
+        // Google's image endpoints can reject even an explicit count of one.
+        if (selectedModel.supportsImageCount !== false) request.n = 1;
 
-        const requiresConditionImage = this.#modelRequiresConditionImage(
-            request.model as string,
-        );
-
-        const ratioWidth = ratio?.w !== undefined ? Number(ratio.w) : undefined;
-        const ratioHeight =
-            ratio?.h !== undefined ? Number(ratio.h) : undefined;
-
-        const normalizedWidth = this.#normalizeDimension(
-            ratioWidth ?? TOGETHER_DEFAULT_RATIO.w,
-        );
-        const normalizedHeight = this.#normalizeDimension(
-            ratioHeight ?? TOGETHER_DEFAULT_RATIO.h,
-        );
-
-        if (normalizedWidth) request.width = normalizedWidth;
-        if (normalizedHeight) request.height = normalizedHeight;
+        request.width = ratio?.w ?? TOGETHER_DEFAULT_RATIO.w;
+        request.height = ratio?.h ?? TOGETHER_DEFAULT_RATIO.h;
 
         if (typeof steps === 'number' && Number.isFinite(steps)) {
             request.steps = Math.max(1, Math.min(50, Math.round(steps)));
@@ -294,14 +360,30 @@ export class TogetherImageProvider implements IImageProvider {
             request.response_format = response_format;
 
         const resolvedImageBase64 =
-            typeof image_base64 === 'string'
-                ? image_base64
-                : typeof input_image === 'string'
-                  ? input_image
-                  : undefined;
+            typeof image_base64 === 'string' ? image_base64 : undefined;
 
-        if (typeof image_url === 'string') request.image_url = image_url;
-        if (resolvedImageBase64) request.image_base64 = resolvedImageBase64;
+        const referenceField = selectedModel.referenceImageField;
+        if (referenceField) {
+            const reference =
+                image_url ||
+                (resolvedImageBase64
+                    ? toUrlOrDataUri(
+                          resolvedImageBase64,
+                          options.input_image_mime_type,
+                      )
+                    : undefined);
+            if (reference)
+                request[referenceField] =
+                    referenceField === 'reference_images'
+                        ? [reference]
+                        : reference;
+        } else {
+            if (typeof image_url === 'string') request.image_url = image_url;
+            if (resolvedImageBase64)
+                request.image_base64 =
+                    parseDataUri(resolvedImageBase64)?.base64 ??
+                    resolvedImageBase64;
+        }
         if (typeof mask_image_url === 'string')
             request.mask_image_url = mask_image_url;
         if (typeof mask_image_base64 === 'string')
@@ -312,42 +394,24 @@ export class TogetherImageProvider implements IImageProvider {
         ) {
             request.prompt_strength = Math.max(0, Math.min(1, prompt_strength));
         }
-        if (requiresConditionImage) {
-            const conditionSource = resolvedImageBase64
-                ? resolvedImageBase64
-                : typeof image_url === 'string'
-                  ? image_url
-                  : undefined;
-
-            if (!conditionSource) {
-                throw new HttpError(
-                    400,
-                    `Model ${request.model} requires an image_url or image_base64 input`,
-                    { legacyCode: 'bad_request' },
-                );
-            }
-
-            request.condition_image = conditionSource;
-        }
 
         return request;
     }
 
-    #normalizeDimension(value?: number) {
-        if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
-        const rounded = Math.max(64, Math.round(value));
-        // Flux models expect multiples of 8. Snap to the nearest multiple without going below 64.
-        return Math.max(64, Math.round(rounded / 8) * 8);
-    }
-
-    #modelRequiresConditionImage(modelId?: string) {
-        if (typeof modelId !== 'string' || modelId.trim() === '') {
-            return false;
+    #normalizeDimension(value: number, model: TogetherImageModel) {
+        if (
+            typeof value !== 'number' ||
+            !Number.isFinite(value) ||
+            value <= 0
+        ) {
+            throw new HttpError(400, 'Invalid image dimension', {
+                legacyCode: 'bad_request',
+            });
         }
-
-        const normalized = modelId.toLowerCase();
-        return CONDITION_IMAGE_MODELS.some(
-            (required) => normalized === required,
+        const step = model.dimensionStep ?? 8;
+        return Math.min(
+            model.maxDimension ?? Infinity,
+            Math.max(model.minDimension ?? 64, Math.round(value / step) * step),
         );
     }
 }

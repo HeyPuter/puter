@@ -3,10 +3,10 @@
 // upload through the signed batch-write path (falling back to the legacy
 // `/batch` path when signed writes are unavailable).
 
+import { promptIfUpgradeRequired } from '../../../../lib/upgradePrompt.js';
 import * as utils from '../../../../lib/utils.js';
 import getAbsolutePathForApp from '../../utils/getAbsolutePathForApp.js';
-import { promptIfStorageLimitError } from '../storageLimitPrompt.js';
-import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SIGNED_BATCH_SUPPORTED_ENVS, SPACE_CHECK_MIN_BYTES } from './constants.js';
+import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SPACE_CHECK_MIN_BYTES } from './constants.js';
 import { normalizeUploadEntries, separateFilesAndDirs } from './entries.js';
 import { generateThumbnails } from './thumbnails.js';
 import { performSignedBatchUpload } from './signedBatchUpload.js';
@@ -58,8 +58,8 @@ const uploadImpl = async function (items, dirPath, options = {}) {
             // Cancelling already settled the upload; a preparation step failing afterwards is not an error.
             if ( preparationController.signal.aborted ) return;
 
-            // Out of storage: prompt the user to upgrade, then reject as usual.
-            promptIfStorageLimitError(e);
+            // Out of storage or credit: prompt the user to upgrade, then reject as usual.
+            promptIfUpgradeRequired(e, { method: 'puter.fs.upload' });
 
             // if error callback is provided, call it
             if ( options.error && typeof options.error === 'function' )
@@ -169,7 +169,6 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         const signedBatchWriteAllowed = signedBatchWriteCapability !== false;
 
         const shouldAttemptSignedBatchWrite = (
-            SIGNED_BATCH_SUPPORTED_ENVS.includes(puter.env) &&
             !options.shortcutTo &&
             (files.length > 0 || signedDirectories.length > 0) &&
             signedBatchWriteAllowed

@@ -20,13 +20,12 @@
 /**
  * Offline unit tests for ZAIProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs ZAIProvider directly against the live wired
- * `MeteringService` so the recording side is exercised end-to-end.
- * The OpenAI SDK is mocked at the module boundary — Z.AI is OpenAI-
- * compatible so the provider talks to it through the same client —
- * so the provider never reaches the network. The companion
- * integration test (ZAIProvider.integration.test.ts) exercises the
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs ZAIProvider directly against the live wired `MeteringService` so
+ * the recording side is exercised end-to-end. The OpenAI SDK is mocked at the
+ * module boundary — Z.AI is OpenAI- compatible so the provider talks to it
+ * through the same client — so the provider never reaches the network. The
+ * companion integration test (ZAIProvider.integration.test.ts) exercises the
  * real Z.AI endpoint.
  */
 

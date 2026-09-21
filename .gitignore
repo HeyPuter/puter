@@ -72,3 +72,6 @@ servers.json
 config.*.json
 
 volatile/
+
+# Local build override
+docker-compose.override.yml

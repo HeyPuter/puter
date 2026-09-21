@@ -106,6 +106,8 @@ export interface DispatchSubscription {
     permission: SubscriptionPermission;
     /** Transports this row's deliveries may take. */
     targets?: SubscriptionTarget[];
+    /** KV rows only: deliveries carry the key's new value where they can. */
+    includeValue?: true;
     /** Session rows only: the connection a delivery is addressed at. */
     socketId?: string;
     /** Durable rows only: set on every row that outlives its connection. */

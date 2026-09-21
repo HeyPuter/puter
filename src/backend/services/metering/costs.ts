@@ -28,7 +28,7 @@ const BYTES_PER_GIB = 1024 * 1024 * 1024;
  * by the same door and cost the same per byte (~$0.12/GiB).
  */
 export const EGRESS_COSTS = {
-    'egress:bytes': toMicroCents(0.12 / BYTES_PER_GIB),
+    'egress:bytes': toMicroCents(0.2 / BYTES_PER_GIB),
 } as const;
 
 /**
@@ -37,8 +37,8 @@ export const EGRESS_COSTS = {
  * than one large one — which is what these price in. Removals are free.
  */
 export const STORAGE_OP_COSTS = {
-    'storage:write:ops': toMicroCents(0.005 / 1000),
-    'storage:read:ops': toMicroCents(0.0004 / 1000),
+    'storage:write:ops': toMicroCents(0.01 / 1000),
+    'storage:read:ops': toMicroCents(0.001 / 1000),
     'storage:delete:ops': 0,
 } as const;
 

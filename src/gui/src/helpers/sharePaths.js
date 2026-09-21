@@ -28,6 +28,9 @@
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** @param {unknown} value */
+export const isUuid = (value) => typeof value === 'string' && UUID.test(value);
+
 /**
  * @typedef {{owner: string, uid: string, segments: string[]}} SharedPathParts
  */
@@ -60,6 +63,18 @@ export const shared_uids_from_paths = (paths) => {
     }
     return uids;
 };
+
+/**
+ * The link that opens an item for someone it is shared with — the same
+ * `/<owner>/<uid>/<name>` form recipients are given, on the `?shared=` param
+ * the GUI routes on. Built from the uid, so a rename does not break it.
+ *
+ * @param {{ owner: string, uid: string, name: string }} item
+ * @param {string} [origin] Defaults to the GUI's own origin.
+ * @returns {string}
+ */
+export const share_link_for = ({ owner, uid, name }, origin = window.location.origin) =>
+    `${origin.replace(/\/+$/, '')}/?shared=${encodeURIComponent(`/${owner}/${uid}/${name}`)}`;
 
 /** The shared item itself, as opposed to something inside it. */
 export const is_share_root = (abs_path) =>

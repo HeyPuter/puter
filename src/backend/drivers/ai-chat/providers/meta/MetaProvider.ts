@@ -31,7 +31,7 @@ import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
-import { aiUserIdentifier } from '../../../util/aiUserIdentifier.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.meta.ai/v1';
 
@@ -165,8 +165,8 @@ export class MetaProvider implements IChatProvider {
                 : prompt_cache_retention;
 
         // The identifier is Puter's abuse attribution, so `custom` can't
-        // override it. Cache key defaults to it; see aiUserIdentifier.
-        const userIdentifier = aiUserIdentifier(actor);
+        // override it. Cache key defaults to it; see upstreamUserIdentifier.
+        const userIdentifier = upstreamUserIdentifier(actor);
         const cacheKey = prompt_cache_key ?? userIdentifier;
 
         const completionParams = {

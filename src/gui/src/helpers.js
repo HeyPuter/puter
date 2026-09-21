@@ -2378,6 +2378,9 @@ window.upload_items = async function (items, dest_path) {
             // init
             init: async (operation_id, xhr) => {
                 opid = operation_id;
+                // register before the first await, so a failure while the progress
+                // window is still opening can't delete the entry before it exists
+                window.active_uploads[opid] = 0;
                 // create upload progress window
                 upload_progress_window = await UIWindowProgress({
                     title: i18n('upload'),
@@ -2389,8 +2392,6 @@ window.upload_items = async function (items, dest_path) {
                         xhr.abort();
                     },
                 });
-                // add to active_uploads
-                window.active_uploads[opid] = 0;
             },
             // start
             start: async function () {
@@ -3235,19 +3236,22 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await item_icon(fsentry)).image);
             $(el_item_icon).find('.item-icon-icon').attr('src', new_icon);
 
-            // Set new `data-name`
+            // Set new `data-name`. Attributes and form values are stored raw:
+            // .attr()/.val() don't parse HTML, so an encoded name would come
+            // back as "a&amp;b" wherever it is read (sorting, type-to-select,
+            // the dashboard's column truncation).
             options.name = new_name;
-            $(el_item).attr('data-name', html_encode(new_name));
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', html_encode(new_name));
-            $(`.window-${options.uid}`).attr('data-name', html_encode(new_name));
+            $(el_item).attr('data-name', new_name);
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', new_name);
+            $(`.window-${options.uid}`).attr('data-name', new_name);
 
             // Set new `title` attribute
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', html_encode(new_name));
-            $(`.window-${options.uid}`).attr('title', html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', new_name);
+            $(`.window-${options.uid}`).attr('title', new_name);
 
             // Set new value for `item-name-editor`
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(html_encode(new_name));
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(new_name);
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', new_name);
 
             // Set new `data-path` attribute
             options.path = path.join(path.dirname(options.path), options.name);
@@ -3301,7 +3305,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
 
             // hide item name editor
             $(el_item_name_editor).hide();
-            $(el_item_name_editor).val(html_encode($(el_item).attr('data-name')));
+            $(el_item_name_editor).val($(el_item).attr('data-name'));
 
             //show error
             if ( err.message ) {

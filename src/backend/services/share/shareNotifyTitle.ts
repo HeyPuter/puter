@@ -136,6 +136,8 @@ export interface DigestEntry {
     count: number;
     /** Named items, newest last. */
     items: DigestItem[];
+    /** The app the shares came through, when they all came through one. */
+    app?: string | null;
 }
 
 /** How many item names one digest line spells out before counting the rest. */
@@ -147,6 +149,7 @@ export const mergeDigestEntry = (
     username: string | undefined,
     count: number,
     items: DigestItem[] = [],
+    app?: string | null,
 ): DigestEntry[] => {
     const name = username || 'Someone';
     const merged = entries.map((entry) => ({
@@ -157,9 +160,11 @@ export const mergeDigestEntry = (
     if (existing) {
         existing.count += count;
         existing.items.push(...items);
+        // One sender through two sources is nobody's app to name.
+        if ((existing.app ?? null) !== (app ?? null)) existing.app = null;
         return merged;
     }
-    merged.push({ username: name, count, items: [...items] });
+    merged.push({ username: name, count, items: [...items], app: app ?? null });
     return merged;
 };
 
@@ -206,6 +211,8 @@ export interface DigestLine {
     lead: string;
     items: DigestItem[];
     trail: string;
+    /** The issuing app's display name, rendered as "via {{via}}". */
+    via?: string;
 }
 
 /** One rendered line per sender: who, and what they shared. */
@@ -230,5 +237,6 @@ export const digestLines = (entries: DigestEntry[]): DigestLine[] =>
             lead,
             items: named,
             trail,
+            ...(entry.app ? { via: entry.app } : {}),
         };
     });

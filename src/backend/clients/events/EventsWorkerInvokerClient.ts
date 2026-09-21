@@ -140,13 +140,9 @@ export interface EventsInvokeCall {
 }
 
 /**
- * Where an invocation is delivered.
- *
- * `status` is what the handler answered with. A `null` status means nothing
- * ran: no transport, no script, or a dispatcher that refused us — all of which
- * are the platform's fault and so retriable. `handled` is set only when the
- * answer is provably the script's own (the handled header); a 4xx without it
- * came from something between here and the script, not a handler's refusal.
+ * Delivers an invocation. `status` null means nothing ran (retriable);
+ * `handled` is set only when the answer provably came from the script, so an
+ * unmarked 4xx is not a handler's refusal.
  */
 export interface EventsInvokeTransport {
     send(call: EventsInvokeCall): Promise<{
@@ -159,14 +155,9 @@ export interface EventsInvokeTransport {
 }
 
 /**
- * What the call did.
- *
- * - `settled` — the handler took the delivery (2xx).
- * - `terminal` — it refused it (a marked 4xx). Retrying sends the same body to
- *   the same code, so it is not retried.
- * - `retriable` — it could not answer: 5xx, 429, a timeout, a transport failure,
- *   an unmarked 4xx (nothing said it was a handler's answer), or no way to
- *   reach the worker at all.
+ * `settled`: handler accepted (2xx). `terminal`: handler refused (marked 4xx),
+ * not retried. `retriable`: no handler answer (5xx, 429, timeout, transport
+ * failure, unmarked 4xx).
  */
 export type WorkerInvokeOutcome = 'settled' | 'terminal' | 'retriable';
 

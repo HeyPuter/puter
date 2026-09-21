@@ -17,7 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { ORG_SEAT_FREE } from './orgSeatFreePolicy.js';
 import { REGISTERED_USER_FREE } from './registeredUserFreePolicy.js';
 import { TEMP_USER_FREE } from './tempUserFreePolicy.js';
 
-export const SUB_POLICIES = [TEMP_USER_FREE, REGISTERED_USER_FREE];
+export const SUB_POLICIES = [
+    TEMP_USER_FREE,
+    REGISTERED_USER_FREE,
+    ORG_SEAT_FREE,
+];

@@ -21,6 +21,7 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { usageBudget } from './usageBudget.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
+import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
@@ -426,27 +427,28 @@ const TabHome = {
         }
     },
 
-    async _loadUsageDataUncached($el_window) {
-        // Load plan data — fetch live from /marketplace/subscriptions/current
-        // rather than reading `window.user.subscription` (which is set once
-        // from whoami at page-load and goes stale after subscribe / portal
-        // cancel until a hard refresh).
+    /**
+     * The plan card, read live rather than from the whoami copy, which goes
+     * stale. Not knowing the plan is not the same as being on the free one,
+     * so a read that fails returns without touching the card.
+     */
+    async _renderPlanCard($el_window) {
+        let subscription = null;
         try {
-            let subscription = null;
-            try {
-                const resp = await fetch(
-                    `${window.api_origin}/marketplace/subscriptions/current`,
-                    {
-                        headers: { Authorization: `Bearer ${puter.authToken}` },
-                    },
-                );
-                if (resp.ok) {
-                    const data = await resp.json();
-                    subscription = data?.subscription ?? null;
-                }
-            } catch {
-                // fall through to free state
-            }
+            const resp = await fetch(
+                `${window.api_origin}/marketplace/subscriptions/current`,
+                { headers: { Authorization: `Bearer ${puter.authToken}` } },
+            );
+            // A refusal is not a free plan: a seat owing a password change 403s.
+            if (!resp.ok) return;
+            const data = await resp.json();
+            subscription = data?.subscription ?? null;
+        } catch (e) {
+            console.error('Failed to load plan data:', e);
+            return;
+        }
+
+        try {
 
             const pastDue =
                 !!subscription && subscription.status === 'past_due';
@@ -461,11 +463,16 @@ const TabHome = {
                     subscription.status === 'cancel_pending' ||
                     pastDue);
             const planName = subscription?.tier || 'free';
+            const seat = isOrgSeat(window.user);
+            const teamName = orgSeatTeamName(window.user);
             const trialEnds = trialing
                 ? formatTrialEnd(subscription.trialEndsAt)
                 : null;
 
-            $el_window.find('.bento-plan-name').text(i18n(planName));
+            // A team tier has no translation key, so i18n would echo the id.
+            $el_window
+                .find('.bento-plan-name')
+                .text(subscription?.offering?.name_en || i18n(planName));
 
             // Reset state-dependent classes / warning each (re)render.
             const $badge = $el_window
@@ -510,10 +517,26 @@ const TabHome = {
                 }
                 $el_window.find('.bento-plan-upgrade').text('Manage →').show();
             } else {
-                $badge.text('Upgrade for more features').addClass('free');
+                $badge
+                    .text(
+                        seat
+                            ? i18n('plan_team_seat')
+                            : 'Upgrade for more features',
+                    )
+                    .addClass('free');
                 // Reset the label too — otherwise it keeps saying "Manage →"
                 // after a subscription lapses/cancels.
                 $el_window.find('.bento-plan-upgrade').text('Upgrade →').show();
+            }
+
+            // A seat cannot change its plan, so name who can.
+            if (seat && teamName) {
+                $note.text(i18n('plan_team_managed', [teamName])).show();
+            }
+
+            // A seat's plan is the team's; the link only reaches a refusal.
+            if (seat) {
+                $el_window.find('.bento-plan-upgrade').hide();
             }
 
             $el_window
@@ -526,8 +549,12 @@ const TabHome = {
                     }
                 });
         } catch (e) {
-            console.error('Failed to load plan data:', e);
+            console.error('Failed to render plan card:', e);
         }
+    },
+
+    async _loadUsageDataUncached($el_window) {
+        await this._renderPlanCard($el_window);
 
         // Load storage data
         try {

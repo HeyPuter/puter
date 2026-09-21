@@ -20,12 +20,11 @@
 /**
  * Offline unit tests for XAIImageProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs XAIImageProvider directly against the live
- * wired `MeteringService` so the recording side is exercised end-to-
- * end. xAI's image API is OpenAI-compatible so the OpenAI SDK is
- * mocked at the module boundary; that's the real network egress
- * point.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs XAIImageProvider directly against the live wired `MeteringService`
+ * so the recording side is exercised end-to-end. xAI's image API is
+ * OpenAI-compatible so the OpenAI SDK is mocked at the module boundary; that's
+ * the real network egress point.
  */
 
 import {
@@ -41,6 +40,7 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import {
@@ -124,10 +124,7 @@ describe('XAIImageProvider construction', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
             () =>
-                new XAIImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+                new XAIImageProvider({ apiKey: '' }, server.services.metering),
         ).toThrow(/API key/i);
     });
 });
@@ -176,6 +173,25 @@ describe('XAIImageProvider.generate test_mode', () => {
 
 // ── Argument validation ─────────────────────────────────────────────
 
+describe('XAIImageProvider.generate user identifier', () => {
+    it.each([
+        { app: undefined, expected: 'puter-u42' },
+        { app: { uid: 'app-123' }, expected: 'puter-u42-app-123' },
+    ])('sends $expected to xAI', async ({ app, expected }) => {
+        generateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://x.ai/img/1' }],
+        });
+        await withTestActor(
+            () => makeProvider().generate({ prompt: 'a tiny red dot' }),
+            makeActor({
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app,
+            }),
+        );
+        expect(generateMock.mock.calls[0]![0].user).toBe(expected);
+    });
+});
+
 describe('XAIImageProvider.generate argument validation', () => {
     it('throws 400 when prompt is missing or non-string', async () => {
         const provider = makeProvider();
@@ -186,9 +202,7 @@ describe('XAIImageProvider.generate argument validation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
 
         await expect(
-            withTestActor(() =>
-                provider.generate({ prompt: '   ' }),
-            ),
+            withTestActor(() => provider.generate({ prompt: '   ' })),
         ).rejects.toMatchObject({ statusCode: 400 });
 
         expect(generateMock).not.toHaveBeenCalled();
@@ -321,9 +335,9 @@ describe('XAIImageProvider.generate success path', () => {
         const sent = generateMock.mock.calls[0]![0];
         expect(sent.resolution).toBe('2k');
         const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
-        expect(
-            (entries as Array<{ usageType: string }>)[0].usageType,
-        ).toBe('xai:grok-imagine-image-quality:output:2k');
+        expect((entries as Array<{ usageType: string }>)[0].usageType).toBe(
+            'xai:grok-imagine-image-quality:output:2k',
+        );
     });
 
     it('falls back to a base64 data URL when response carries b64_json', async () => {
@@ -409,7 +423,7 @@ describe('XAIImageProvider.generate input_images (edit endpoint)', () => {
         expect(body.user).toBe('puter-u42-app-abc');
     });
 
-    it('sends an array of image objects for multi-image edits and caps at 3', async () => {
+    it('sends an array of image objects for multi-image edits with all five references', async () => {
         const provider = makeProvider();
         postMock.mockResolvedValueOnce(editResponse);
 
@@ -417,15 +431,14 @@ describe('XAIImageProvider.generate input_images (edit endpoint)', () => {
             provider.generate({
                 model: 'grok-imagine-image',
                 prompt: 'merge them',
-                input_images: [PNG, PNG, PNG, PNG], // 4 → capped to 3
+                input_images: [PNG, PNG, PNG, PNG, PNG],
             }),
         );
-
         const body = (
             postMock.mock.calls[0]![1] as { body: Record<string, unknown> }
         ).body;
         expect(Array.isArray(body.image)).toBe(true);
-        expect(body.image).toHaveLength(3);
+        expect(body.image).toHaveLength(5);
     });
 
     it('meters output + media_input per input image on edits', async () => {
@@ -483,3 +496,151 @@ describe('XAIImageProvider.generate input_images (edit endpoint)', () => {
         expect(body.image).toEqual({ type: 'image_url', url: PNG });
     });
 });
+
+describe('XAIImageProvider quality and reference limits', () => {
+    it.each([
+        ['1k', 'low', 4],
+        ['2k', 'low', 6],
+        ['1k', 'medium', 6],
+        ['2k', 'medium', 8],
+    ])(
+        'sends and meters v2 resolution %s with quality %s',
+        async (resolution, quality, cents) => {
+            generateMock.mockResolvedValueOnce({
+                data: [{ url: 'https://x.ai/image.png' }],
+            });
+            await withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'a landscape',
+                    model: 'grok-imagine-image-2.0',
+                    resolution: String(resolution),
+                    quality: String(quality),
+                }),
+            );
+            expect(generateMock).toHaveBeenCalledWith(
+                expect.objectContaining({ resolution, quality }),
+            );
+            expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual([
+                expect.objectContaining({
+                    costOverride: Number(cents) * 1_000_000,
+                }),
+            ]);
+        },
+    );
+
+    it.each(['Medium', ' MEDIUM '])(
+        'accepts v2 quality casing %s without lowering quality',
+        async (quality) => {
+            generateMock.mockResolvedValueOnce({
+                data: [{ url: 'https://x.ai/image.png' }],
+            });
+            await withTestActor(() =>
+                makeProvider().generate({
+                    model: 'grok-imagine-image-2.0',
+                    prompt: 'hi',
+                    quality,
+                }),
+            );
+            expect(generateMock.mock.calls[0][0].quality).toBe('medium');
+            expect(
+                batchIncrementUsagesSpy.mock.calls[0][1][0].costOverride,
+            ).toBe(6_000_000);
+        },
+    );
+
+    it('resolves v2 auto quality to medium for edits', async () => {
+        postMock.mockResolvedValueOnce({
+            data: [{ url: 'https://x.ai/image.png' }],
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                prompt: 'a landscape',
+                model: 'grok-imagine-image-2.0',
+                input_images: ['https://example.com/input.png'],
+                quality: 'auto',
+            }),
+        );
+        expect(postMock).toHaveBeenCalledWith('/images/edits', {
+            body: expect.objectContaining({
+                quality: 'medium',
+                resolution: '1k',
+            }),
+        });
+        expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual([
+            expect.objectContaining({ costOverride: 6_000_000 }),
+            expect.objectContaining({
+                costOverride: 1_000_000,
+                usageAmount: 1,
+            }),
+        ]);
+    });
+
+    it('rejects six references before spending credits', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'a landscape',
+                    input_images: Array(6).fill(
+                        'https://example.com/input.png',
+                    ),
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(postMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('generated image MIME labels', () => {
+    it('labels JPEG bytes from a base64 response as JPEG', async () => {
+        const base64 = '/9j/4AAQSkZJRgABAQ';
+        generateMock.mockResolvedValueOnce({ data: [{ b64_json: base64 }] });
+        const result = await withTestActor(() =>
+            makeProvider().generate({ prompt: 'hi' }),
+        );
+        expect(result).toBe(`data:image/jpeg;base64,${base64}`);
+    });
+});
+
+describe('xAI option validation', () => {
+    it.each([
+        { quality: 42 },
+        { quality: {} },
+        { resolution: 2048 },
+        { resolution: [] },
+    ])('rejects malformed options %j before charging', async (options) => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({ prompt: 'hi', ...options } as never),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(generateMock).not.toHaveBeenCalled();
+    });
+});
+
+it.each([
+    { app: undefined, expected: 'puter-u42' },
+    { app: { uid: 'app-123' }, expected: 'puter-u42-app-123' },
+])(
+    'includes the user identifier $expected on xAI edits',
+    async ({ app, expected }) => {
+        postMock.mockResolvedValueOnce({
+            data: [{ url: 'https://example.com/out.jpg' }],
+        });
+        await withTestActor(
+            () =>
+                makeProvider().generate({ prompt: 'hi', input_image: 'AQID' }),
+            makeActor({
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app,
+            }),
+        );
+        expect(postMock).toHaveBeenCalledWith('/images/edits', {
+            body: expect.objectContaining({
+                user: expected,
+                image: { type: 'image_url', url: 'data:image/png;base64,AQID' },
+            }),
+        });
+    },
+);

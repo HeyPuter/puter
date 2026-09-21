@@ -336,6 +336,48 @@ describe('S3ObjectStore object round trips', () => {
         );
     });
 
+    it('binds a part URL to zero bytes when the declared total size is zero', async () => {
+        const key = uuidv4();
+        const opened = await store().createSignedUploadUrl(
+            {
+                bucket,
+                objectKey: key,
+                size: store().getMultipartPartSize() * 2,
+                contentType: 'application/octet-stream',
+                uploadMode: 'multipart',
+                expiresInSeconds: 900,
+            },
+            region,
+        );
+
+        // A zero declared size leaves no bytes for the part, which has to bind
+        // as zero rather than fall through to an unbound URL.
+        const partUrls = await store().createSignedMultipartPartUrls(
+            {
+                bucket,
+                objectKey: key,
+                multipartUploadId: opened.multipartUploadId as string,
+                partNumbers: [1],
+                expiresInSeconds: 900,
+                declaredTotalSize: 0,
+                multipartPartSize: store().getMultipartPartSize(),
+            },
+            region,
+        );
+
+        const signedHeaders = new URL(
+            partUrls[0]?.url as string,
+        ).searchParams.get('X-Amz-SignedHeaders');
+        expect(signedHeaders).toContain('content-length');
+
+        await store().abortMutipartUpload(
+            opened.multipartUploadId as string,
+            region,
+            bucket,
+            key,
+        );
+    });
+
     it('leaves part URLs unbound when the declared sizes are not supplied', async () => {
         const key = uuidv4();
         const opened = await store().createSignedUploadUrl(

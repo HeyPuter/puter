@@ -52,6 +52,23 @@ Concurrency is counted per interface, so an image generation and a chat completi
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) additionally require a paid plan — a free account calling them gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, under the limits above; the model catalogue endpoints stay open to everyone.
 
+Sharing a file or folder with **anyone with the link** ([`puter.fs.share()`](/FS/share/) with `{ anyone: true }`) is a paid-plan feature too: a free account gets `subscription_required`, and a link stops working while its owner's plan has lapsed. Sharing with named people and teams is open to every account.
+
+### Image generation
+
+`puter.ai.txt2img()` returns one image per call. Image-specific limits apply in addition to the shared AI limits above:
+
+| Provider | Limit |
+|----------|-------|
+| xAI | Up to 5 reference images; larger requests fail with `bad_request`. |
+| Together | Image routes are excluded for required third-party data sharing; generation fails before any upstream call. |
+| Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Schnell: 1–8 steps; Lucid Origin: 1–40; Phoenix and FLUX.2 Dev: 1–50. Klein uses exactly 4 steps; SDXL and Inpainting use 1–20 steps. |
+| Replicate | At most 10 references, subject to a model's lower limit; FLUX 1.1 Pro accepts one reference. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For additional models with explicit width/height controls, pixel dimensions round to multiples of 8 and clamp to schema bounds; omitted bounds default to 64–4096 per side. Predictions expire after 10 minutes; polls are 2 seconds apart. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
+| BytePlus | Pro: 10 references; other Seedream models: 14. |
+| BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Pairs below 921,600 total pixels are interpreted as aspect hints, not explicit output sizes. |
+
+See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
+
 ### Key-value store
 
 | Limit                           | Paid | Free | Anonymous |
@@ -121,7 +138,7 @@ The SDK allows five seconds for each separate signed thumbnail transfer. A faile
 | Filesystem entries a `create` grant may bring into existence per request | 4 |
 | Path depth a `create` grant may provision below the home directory | 16 components |
 
-The last two apply only to [`create`](/Perms/request/#creating-a-path-on-request) on a raw `fs:` permission request. Missing intermediate directories are created along with the requested path.
+The last two apply to a raw `fs:` permission request whose path doesn't exist yet, which is [created on approval](/Perms/request/#creating-a-path-on-request) unless `create: false` is passed. Missing intermediate directories are created along with the requested path.
 
 ### WebDAV
 
@@ -166,7 +183,7 @@ Sharing is bounded twice: on the calls, and on how many people one account can r
 | Recipients per request                       | 10           |
 | Items per request                            | 50           |
 
-The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need.
+The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need. `stat()` with `returnShares` does the same listing work, so it spends from this bucket too, on top of its own `stat` budget.
 
 A "new share" is one that gives someone access they didn't already have. Changing the mode on an existing share, or re-sharing an item the recipient already has, costs nothing. Over the daily limit, `share` fails with `share_daily_limit_reached`.
 
@@ -179,7 +196,7 @@ Separately, the notification and email that tell a recipient about a share are b
 
 Recipients are emailed by default and opt out with the unsubscribe link the mail carries; a deployment can turn share email off entirely with `share_email_notifications: false`.
 
-Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
+Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 5-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
 ### Teams and teams
 
@@ -191,10 +208,13 @@ Available only where a deployment has turned teams on. Every team route is bound
 | Team mutations per day              | 500          |
 | Team reads per minute               | 600          |
 | Teams one account may own           | 1            |
-| Seats one team may provision        | 50           |
+| Seats one team may provision, free owner | 4       |
+| Seats one team may provision, paying owner | 40    |
 | Member password resets per day           | 20           |
 
-A seat is a real Puter account on the ordinary tier, created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
+A seat is a real Puter account created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
+
+A seat whose team pays for no tier is on the `org_seat_free` plan: **half** the ordinary free allowance, usage and rate caps alike (a free account's `bySubscription` caps apply to every free plan). Without this, provisioning seats would mint full free tiers nobody pays for. A seat on a paid team tier gets that tier's allowance.
 
 A reset returns a temporary password once and never again. It stops working 24 hours after it is issued, so an unused reset expires rather than becoming a standing credential; after that the administrator has to issue a new one. Until the member replaces it, every authenticated request from that account fails with `password_change_required` — signing in works, but nothing else does until they choose their own password.
 
@@ -204,7 +224,9 @@ Removing a seat for good is a separate, explicit request, and it is refused unle
 
 Lowering the seat limit never disables anyone. A team already above a reduced limit keeps every account it has and is simply refused new ones until it is back under.
 
-Both limits are per deployment (`max_teams_per_user`, `max_seats_per_team`) rather than per team, so raising them moves every team at once.
+The seat limit follows the owner's plan: a team whose owner pays nothing stops at `max_seats_per_team_free`, one whose owner is on a paid plan at `max_seats_per_team_paid`. Buying a plan raises it with no other action — the accounts already there are untouched, and the next provision simply succeeds. A deployment that does not sell seats can set `max_seats_per_team` instead, which is one flat cap whatever the owner pays and overrides both.
+
+These are per deployment (`max_teams_per_user` likewise) rather than per team, so raising one moves every team at once.
 
 A team's whole configuration is its name, its handle, and whether its directory is open to apps. In particular there is **no sharing policy**: a team cannot restrict who its members share with, by domain or otherwise, and there is no control over public links. Members share exactly as any other Puter account does.
 
@@ -238,6 +260,7 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Events per fetch page                        | 200          |
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
+| Key-value value inlined in a delivery        | 16 KB        |
 | Broadcast deliveries per minute, per subscription | 600     |
 | `single` deliveries per minute, per subscription | 120      |
 | Handler invocations per minute, per (account, app) | 60     |
@@ -284,7 +307,7 @@ Deleting the node a subscription is anchored on ends it too, unless the subject 
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**, with **one `*` per segment** and **one `**` per pattern**; anything past that is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 
-A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`.
+A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`. A subscription made with `includeValue` is handed the key's new value on each delivery, up to **16 KB** serialized; a larger value is left out of the event and the subscriber reads the key back. A share-handle subscription may ask for values too, and receives them for as long as the handle stands.
 
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 
@@ -343,7 +366,7 @@ Errors come back as JSON: `{ "error": …, "message": …, "code": … }`.
 
 ### What Puter.js already does for you
 
-The SDK turns the money-shaped failures into prompts without any code on your part: an AI call that runs out of credit and a filesystem write that runs out of space both surface an upgrade dialog to the user (in an app via `puter.ui.requestUpgrade()`, on the web as a usage-limit dialog). Everything else rejects the promise with the shape above — an app that writes files should still handle `storage_limit_reached` explicitly rather than letting a save fail quietly, and anything running a loop should treat `429` as a signal to back off.
+The SDK turns the money-shaped failures into prompts without any code on your part: a call that runs out of credit (`insufficient_funds`), one the user's plan doesn't include (`subscription_required`), and a filesystem write that runs out of space (`storage_limit_reached`) all surface an upgrade dialog to the user — in an app via `puter.ui.requestUpgrade()`, on the web as a dialog the SDK renders itself. The dialog names the call that was refused, and for a plan gate says what needs the plan: the SDK's own wording where it has one (email), otherwise the `message` the server sent. The promise still rejects with the shape above — an app that writes files should handle `storage_limit_reached` explicitly rather than letting a save fail quietly, and anything running a loop should treat `429` as a signal to back off.
 
 ## Checking usage from your app
 

@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
     annotateMembers,
     auditActionKey,
+    auditSlice,
+    avatarHue,
+    billingSummaryKey,
     canDeleteAccount,
     auditReasonKey,
+    initialOf,
     memberStatesFromAudit,
+    parseTimestamp,
     membersBillingSummary,
+    memberPlanLabel,
     sortMembers,
 } from './teamsConsole.js';
 
@@ -163,5 +169,153 @@ describe('sortMembers', () => {
         const annotated = annotateMembers([member('zoe'), member('ann')], []);
         sortMembers(annotated);
         expect(annotated.map(m => m.username)).toEqual(['zoe', 'ann']);
+    });
+});
+
+describe('what plan a row in the accounts table shows', () => {
+    const plan = {
+        seatTiers: { 'u-1': 'team-basic', 'u-2': 'team-pro' },
+        offerings: [
+            { tier: 'team-basic', name_en: 'Team Basic' },
+            { tier: 'team-pro', name_en: 'Team Pro' },
+        ],
+    };
+
+    it('names the tier that seat is on', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' }, plan))
+            .toEqual({ kind: 'tier', name: 'Team Basic' });
+    });
+
+    it('lets two seats be on different tiers', () => {
+        // The whole point of per-seat: one team, two plans.
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-2' }, plan))
+            .toEqual({ kind: 'tier', name: 'Team Pro' });
+    });
+
+    it('falls back to the tier id when the catalogue has no name', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' },
+            { seatTiers: { 'u-1': 'team-basic' }, offerings: [] }))
+            .toEqual({ kind: 'tier', name: 'team-basic' });
+    });
+
+    it('says free for a seat nobody bought a tier for', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-9' }, plan))
+            .toEqual({ kind: 'free' });
+    });
+
+    it('says the owner is the payer, not a seat', () => {
+        expect(memberPlanLabel({ orgOwned: false, uuid: 'u-1' }, plan))
+            .toEqual({ kind: 'payer' });
+    });
+
+    it('says a suspended seat is not billed, whatever it was on', () => {
+        expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1', disabled: true }, plan))
+            .toEqual({ kind: 'not_billed' });
+    });
+
+    it('says free when nothing is bought at all', () => {
+        for (const p of [null, undefined, { seatTiers: {} }]) {
+            expect(memberPlanLabel({ orgOwned: true, uuid: 'u-1' }, p))
+                .toEqual({ kind: 'free' });
+        }
+    });
+});
+
+describe('paging the record', () => {
+    const rows = (n) => Array.from({ length: n }, (_, i) => ({ id: i }));
+
+    it('cuts the list into pages and numbers them for the reader', () => {
+        const page = auditSlice(rows(25), 1, 10);
+        expect(page.items).toHaveLength(10);
+        expect(page.items[0].id).toBe(10);
+        expect(page).toMatchObject({ page: 1, pages: 3, from: 11, to: 20, total: 25 });
+    });
+
+    it('reports a short last page honestly', () => {
+        expect(auditSlice(rows(25), 2, 10)).toMatchObject({ from: 21, to: 25, pages: 3 });
+    });
+
+    it('clamps a page the record has shrunk past', () => {
+        // Deleting an account shortens the record; a stale page number would
+        // otherwise show an empty table with no way back.
+        const page = auditSlice(rows(5), 9, 10);
+        expect(page.page).toBe(0);
+        expect(page.items).toHaveLength(5);
+    });
+
+    it('clamps a negative or nonsensical page rather than throwing', () => {
+        expect(auditSlice(rows(5), -3, 10).page).toBe(0);
+        expect(auditSlice(rows(5), NaN, 10).page).toBe(0);
+    });
+
+    it('says 0 of 0 for an empty record, not 1 of 0', () => {
+        expect(auditSlice([], 0, 10)).toMatchObject({ from: 0, to: 0, total: 0, pages: 1 });
+        expect(auditSlice(undefined, 0, 10).items).toEqual([]);
+    });
+
+    it('never divides by a zero page size', () => {
+        expect(auditSlice(rows(3), 0, 0).items).toHaveLength(1);
+    });
+});
+
+describe('parseTimestamp', () => {
+    it('reads the unix seconds the audit routes send', () => {
+        expect(parseTimestamp(1789672096)?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+    });
+
+    it('reads milliseconds and ISO strings, which members and teams use', () => {
+        expect(parseTimestamp(1789672096000)?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+        expect(parseTimestamp('2026-09-17T19:08:16Z')?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+        expect(parseTimestamp('1789672096')?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+    });
+
+    it('is null for nothing or garbage, so a cell prints empty rather than 1970 or Invalid Date', () => {
+        expect(parseTimestamp(null)).toBeNull();
+        expect(parseTimestamp(undefined)).toBeNull();
+        expect(parseTimestamp('')).toBeNull();
+        expect(parseTimestamp('soon')).toBeNull();
+    });
+});
+
+describe('initialOf', () => {
+    it('uppercases the first letter', () => {
+        expect(initialOf('dana')).toBe('D');
+        expect(initialOf('Acme Design')).toBe('A');
+    });
+
+    it('skips a leading sigil and copes with non-Latin names', () => {
+        expect(initialOf('@acme')).toBe('A');
+        expect(initialOf('  élan')).toBe('É');
+        expect(initialOf('日本')).toBe('日');
+    });
+
+    it('falls back to a question mark for nothing', () => {
+        expect(initialOf('')).toBe('?');
+        expect(initialOf(undefined)).toBe('?');
+    });
+});
+
+describe('avatarHue', () => {
+    it('is stable for a name and within the colour wheel', () => {
+        expect(avatarHue('dana')).toBe(avatarHue('dana'));
+        expect(avatarHue('dana')).toBeGreaterThanOrEqual(0);
+        expect(avatarHue('dana')).toBeLessThan(360);
+        expect(avatarHue(undefined)).toBe(0);
+    });
+
+    it('usually differs between neighbouring names', () => {
+        expect(avatarHue('dana')).not.toBe(avatarHue('elliot'));
+    });
+});
+
+describe('billingSummaryKey', () => {
+    it('drops the suspended clause when nobody is suspended', () => {
+        expect(billingSummaryKey({ billed: 3, disabled: 0 })).toBe('teams_billing_summary_none');
+        expect(billingSummaryKey({ billed: 1, disabled: 0 })).toBe('teams_billing_summary_one_none');
+    });
+
+    it('keeps it when there is something to say', () => {
+        expect(billingSummaryKey({ billed: 3, disabled: 2 })).toBe('teams_billing_summary');
+        expect(billingSummaryKey({ billed: 1, disabled: 1 })).toBe('teams_billing_summary_one');
     });
 });

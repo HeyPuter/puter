@@ -35,7 +35,7 @@ import {
     WriteRequest,
     WriteResponse,
 } from '../../controllers/fs/requestTypes.js';
-import { Actor } from '../../core/actor.js';
+import { Actor, isAppActor, isPlainUserActor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -64,7 +64,11 @@ import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types.js';
 import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
-import { isTildePath, normalizeAbsolutePath } from './resolveNode.js';
+import {
+    isOwnersTrash,
+    isTildePath,
+    normalizeAbsolutePath,
+} from './resolveNode.js';
 import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
@@ -229,7 +233,7 @@ export class FSService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
 
                 const stripped = PermissionUtil.stripManageArms(permission);
@@ -263,7 +267,7 @@ export class FSService extends PuterService {
             check: async ({ actor, permission }): Promise<unknown> => {
                 // Apps are bounded by their user through a separate path;
                 // widening them here would let one outrun that bound.
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
 
                 const stripped = PermissionUtil.stripManageArms(permission);
@@ -326,9 +330,9 @@ export class FSService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (!actor.app || actor.accessToken) return undefined;
+                if (!isAppActor(actor)) return undefined;
                 const username = actor.user?.username;
-                const appUid = actor.app.uid;
+                const appUid = actor.effectiveApp!.uid;
                 if (!username || !appUid) return undefined;
 
                 const stripped = permission.replaceAll(
@@ -769,6 +773,11 @@ export class FSService extends PuterService {
     ): UploadMode {
         const maxSingleUploadSize =
             this.stores.s3Object.getMaxSingleUploadSize();
+        // An empty object has no part to carry it, so a multipart request
+        // here can only be an attempt at a part URL bound to no bytes.
+        if (size <= 0) {
+            return 'single';
+        }
         if (requestUploadMode === 'multipart') {
             return 'multipart';
         }
@@ -2263,6 +2272,36 @@ export class FSService extends PuterService {
         };
     }
 
+    /**
+     * Read-only lookup of pending upload sessions, one per id in request order.
+     * Callers use it to re-authorize a session's target path before resuming or
+     * completing an upload, since the session outlives the access check
+     * `startWrite` made.
+     */
+    async getUploadSessions(
+        userId: number,
+        uploadIds: string[],
+    ): Promise<PendingUploadSession[]> {
+        if (uploadIds.length === 0) {
+            return [];
+        }
+        const sessions =
+            await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
+        return sessions.map((session) => {
+            if (!session) {
+                throw new HttpError(404, 'Upload session was not found', {
+                    legacyCode: 'not_found',
+                });
+            }
+            if (session.userId !== userId) {
+                throw new HttpError(403, 'Upload session access denied', {
+                    legacyCode: 'forbidden',
+                });
+            }
+            return session;
+        });
+    }
+
     async signMultipartParts(
         userId: number,
         request: SignMultipartPartsRequest,
@@ -3062,12 +3101,19 @@ export class FSService extends PuterService {
 
     /**
      * Cursor-paginated nested listing: descendants of `path` up to `maxDepth`
-     * levels deep, ordered by path. Owner-scoped by `userId` + path prefix.
+     * levels deep. Owner-scoped by `userId` + path prefix. Sorts as asked; a
+     * `name` sort orders by full path so subtrees stay grouped.
      */
     async listDirectoryTreePage(
         userId: number,
         path: string,
-        options: { limit?: number; cursor?: string | null; maxDepth: number },
+        options: {
+            limit?: number;
+            cursor?: string | null;
+            maxDepth: number;
+            sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        },
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         return this.stores.fsEntry.listDescendantsPage(userId, path, options);
     }
@@ -3516,9 +3562,8 @@ export class FSService extends PuterService {
     async #assertCrossAppDeleteAllowed(path: string): Promise<void> {
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor) return;
-        // Through the issuer chain: a token actor has no `app` of its own, so
-        // keying off `actor.app` would skip the guard — failing open where the
-        // paired implicator fails closed.
+        // The app the caller acts as, not the one it carries directly: a token
+        // actor has no `app` of its own and would skip the guard.
         const app = actor.effectiveApp;
         if (!app) return;
         const username = actor.user?.username;
@@ -4068,6 +4113,13 @@ export class FSService extends PuterService {
         this.#dispatchEvents('fs.move.node', updated, {
             movedFrom: { path: source.path },
         });
+
+        // Deleting is a move into Trash, and a grant follows its entry there,
+        // so recipients keep their access unless it is withdrawn here. Awaited,
+        // and after the events, so the holders still hear the item go.
+        if (isOwnersTrash(source, destinationParent)) {
+            await this.services.share.onEntryTrashed(updated);
+        }
         return updated;
     }
 

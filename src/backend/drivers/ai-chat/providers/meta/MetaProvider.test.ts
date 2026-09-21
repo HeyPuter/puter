@@ -420,9 +420,7 @@ describe('MetaProvider.complete request shape', () => {
 
         await complete(makeProvider(), {}, userActor);
 
-        expect(createMock.mock.calls[0]![0].prompt_cache_key).toBe(
-            'puter-u42',
-        );
+        expect(createMock.mock.calls[0]![0].prompt_cache_key).toBe('puter-u42');
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {

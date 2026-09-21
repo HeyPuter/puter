@@ -31,28 +31,7 @@ import { toClientShare } from './clientShare.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
-
-/**
- * Two windows: a burst ceiling, and a daily one so a slow drip can't add up to
- * a mail-merge. Neither bounds _shares_ — one request carries many — which is
- * what `ShareService`'s per-day quota is for.
- */
-const SHARE_LIMIT = [
-    { scope: 'share:mutate', limit: 60, window: 60_000, key: 'user' as const },
-    {
-        scope: 'share:mutate-daily',
-        limit: 500,
-        window: 24 * 60 * 60_000,
-        key: 'user' as const,
-    },
-];
-
-const SHARE_LIST_LIMIT = {
-    scope: 'share:list',
-    limit: 600,
-    window: 60_000,
-    key: 'user' as const,
-};
+import { SHARE_LIMIT, SHARE_LIST_LIMIT } from './limits.js';
 
 /** Distinct (holder, item) pairs run together; see the note on grouping below. */
 const SHARE_CONCURRENCY = 8;
@@ -104,10 +83,15 @@ export class ShareController extends PuterController {
      * POST /share — grant `mode` on one or more items to one or more
      * recipients. Partial success is the contract: each pair reports its own
      * outcome and the envelope summarizes.
+     *
+     * Handing out access is the one share surface that reaches other people, so
+     * it asks for a verified phone or card first; withdrawing and listing never
+     * do — a caller must always be able to see and undo what it shared.
      */
     @Post('', {
         subdomain: 'api',
         requireVerified: true,
+        requireAnyVerified: ['phone', 'card'],
         rateLimit: SHARE_LIMIT,
     })
     async createShares(req: Request, res: Response): Promise<void> {
@@ -644,6 +628,7 @@ export class ShareController extends PuterController {
 
     /** Echoes back the identifier the caller named, so results are matchable. */
     #recipientLabel(recipient: ShareRecipient): string {
+        if (recipient.anyone) return 'anyone';
         return (
             recipient.email ??
             recipient.username ??
@@ -670,6 +655,12 @@ export class ShareController extends PuterController {
             }
             if (entry && typeof entry === 'object') {
                 const rec = entry as Record<string, unknown>;
+                // Object form only, and the literal `true`: nothing typed into
+                // a people field can become "everyone".
+                if (rec.anyone === true) {
+                    out.push({ anyone: true });
+                    continue;
+                }
                 const email =
                     typeof rec.email === 'string' ? rec.email.trim() : '';
                 const username =

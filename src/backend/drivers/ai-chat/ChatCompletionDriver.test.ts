@@ -191,16 +191,33 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         ).rejects.toMatchObject({ statusCode: 401 });
     });
 
-    it('throws 400 when the requested model is unknown', async () => {
-        await expect(
-            withTestActor(() =>
-                driver.complete({
-                    model: 'totally-not-a-model',
-                    messages: [{ role: 'user', content: 'hi' }],
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
+    it.each(['totally-not-a-model', '__proto__', 'constructor'])(
+        'throws 400 when the requested model is unknown: %s',
+        async (model) => {
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        model,
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
+
+    it.each(['__proto__', 'constructor'])(
+        'rejects inherited object keys as unknown providers: %s',
+        async (provider) => {
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        provider,
+                        messages: [{ role: 'user', content: 'hi' }],
+                    } as ICompleteArguments),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
 
     it('falls back to the provider default model when neither model nor provider is given (azure-openai is the hard-coded default provider)', async () => {
         // Without `azure-openai` in providers config, the driver tries
@@ -737,6 +754,41 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             expect(passed.max_tokens!).toBeLessThanOrEqual(50);
         });
     }
+
+    it('rejects subscriber-only models for a team seat on the free org plan', async () => {
+        // `org_seat_free` pays nothing, so it must not reach a paid model —
+        // the gate checks every free plan, not two named ones.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'subonly-seat',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 100, 'output-tokens': 100 },
+                max_tokens: 8192,
+                subscriberOnly: true,
+            },
+        ]);
+        const d = await makeDriver();
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            1_000_000,
+        );
+        vi.spyOn(
+            server.services.metering,
+            'getActorSubscription',
+        ).mockResolvedValue({ id: 'org_seat_free' } as never);
+
+        await expect(
+            withTestActor(() =>
+                d.complete({
+                    model: 'subonly-seat',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'permission_denied',
+        });
+    });
 
     it('rejects subscriber-only models for the default free subscription', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([

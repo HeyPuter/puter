@@ -28,6 +28,7 @@ import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
+import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.js';
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
@@ -40,6 +41,7 @@ import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
+import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
 import {
@@ -56,6 +58,7 @@ import { holdsPermissions } from './helpers/holdsPermissions.js';
 import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
+import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -209,9 +212,10 @@ const postAuthActions = async (action) => {
                     // malformed posargs: launch without them
                 }
             }
-            // `?file=<path>` opens that file with the app, the same as
-            // double-clicking it would.
-            const file_path = window.url_query_params.get('file');
+            // `?file=<path or uid>` opens that file with the app, the same as
+            // double-clicking it would — but the link picked both, so the user
+            // is asked before the app is given the file.
+            const fileLaunch = urlFileLaunchOptions(window.url_query_params.get('file'));
             // The server titles /app/<name> pages after the app, so the
             // launch's lazy base-title capture would keep the app's name
             // forever — preset the title to fall back to when the app's
@@ -268,7 +272,7 @@ const postAuthActions = async (action) => {
                     maximized: true,
                     params: app_query_params,
                     readURL: window.url_query_params.get('readURL'),
-                    ...(file_path ? { file_path } : {}),
+                    ...fileLaunch,
                     ...(app_obj ? { app_obj } : {}),
                     ...(posargs ? {
                         args: {
@@ -689,10 +693,10 @@ const postAuthActions = async (action) => {
         // denial below is reported as usual.
         const origin = window.openerOrigin;
         // Only these literal values are meaningful; anything else (including
-        // absent) means no create request, the same default the grant
-        // endpoint applies.
+        // absent) leaves the dialog's default, which is to create.
         const raw_create = window.url_query_params.get('create');
         const create = raw_create === 'true' ? true
+            : raw_create === 'false' ? false
             : (raw_create === 'dir' || raw_create === 'file') ? raw_create
             : undefined;
 
@@ -1483,10 +1487,12 @@ window.initgui = async function (options) {
             !(window.attempt_temp_user_creation && window.first_visit_ever)
         ) {
             // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
+            let currentUserUuid = window.user?.uuid ?? null;
             try {
                 const whoami_popup = await puter.os.user({
                     query: 'icon_size=64',
                 });
+                currentUserUuid = whoami_popup?.uuid ?? currentUserUuid;
                 await window.update_auth_data(
                     whoami_popup.token || window.auth_token,
                     whoami_popup,
@@ -1503,7 +1509,18 @@ window.initgui = async function (options) {
             // than the `oidc_login` query parameter it used to be read from:
             // as a bare parameter anyone could write it, and it suppresses the
             // one prompt standing between a link and a token.
-            if (window.oidcPopupReturn?.oidc_login) {
+            //
+            // The proof is bound to the account that completed OIDC, so it only
+            // stands in for the picker when that account is the one signed in
+            // here — otherwise a proof from one login would skip another
+            // browser's picker and mint that user a token unasked.
+            const proofMatchesCurrentUser =
+                window.oidcPopupReturn?.oidc_login &&
+                window.oidcPopupReturn?.user_uuid != null &&
+                currentUserUuid != null &&
+                String(window.oidcPopupReturn.user_uuid) ===
+                    String(currentUserUuid);
+            if (proofMatchesCurrentUser) {
                 picked_a_user_for_sdk_login = true;
                 await window.getUserAppToken(window.openerOrigin);
             } else {
@@ -1797,6 +1814,24 @@ window.initgui = async function (options) {
                     });
                 } while (!is_verified);
             }
+            // Last, matching assertVerifiedAccount's order.
+            if (whoami.requires_password_change) {
+                let changed;
+                do {
+                    changed = await UIWindowPasswordChangeRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        logout_in_footer: true,
+                        auth_token: query_param_auth_token,
+                        window_options: {
+                            is_draggable: false,
+                        },
+                    });
+                    // false = logged out; stop looping on a dead session.
+                    if (changed === false && !window.auth_token) return;
+                } while (!changed);
+            }
             // if user is logging in using an auth token that means it's not their first ever visit to Puter.com
             // it might be their first visit to Puter on this specific device but it's not their first time ever visiting Puter.
             window.first_visit_ever = false;
@@ -2062,6 +2097,23 @@ window.initgui = async function (options) {
                         },
                     });
                 } while (!is_verified);
+            }
+            // Last, matching assertVerifiedAccount's order.
+            if (whoami.requires_password_change) {
+                let changed;
+                do {
+                    changed = await UIWindowPasswordChangeRequired({
+                        show_close_button: false,
+                        stay_on_top: true,
+                        has_head: false,
+                        logout_in_footer: true,
+                        window_options: {
+                            is_draggable: false,
+                            cover_page: window.is_embedded,
+                        },
+                    });
+                    if (changed === false && !window.auth_token) return;
+                } while (!changed);
             }
             await window.update_auth_data(
                 whoami.token || window.auth_token,
@@ -2464,14 +2516,9 @@ window.initgui = async function (options) {
         }
     }
 
-    // if there is at least one window open (only non-Explorer windows), ask user for confirmation when navigating away from puter
-    if (window.feature_flags.prompt_user_when_navigation_away_from_puter) {
-        window.onbeforeunload = function () {
-            if ($('.window:not(.window[data-app="explorer"])').length > 0) {
-                return true;
-            }
-        };
-    }
+    // ask the user to confirm before leaving while an upload is still in flight
+    // (and, behind the feature flag, while any non-Explorer window is open)
+    window.onbeforeunload = confirm_before_unload;
 
     // -------------------------------------------------------------------------------------
     // `login` event handler

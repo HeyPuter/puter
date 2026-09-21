@@ -95,11 +95,12 @@ export function fsCreateKindFor(basename: string): FsCreateKind {
 
 /**
  * Normalizes a caller-supplied `create` flag; throws 400 on anything else.
- * Deliberately does not accept the strings `'true'`/`'false'` — the GUI
- * normalizes the popup query param before it reaches here.
+ * Absent means create: a missing path is provisioned unless the caller passes
+ * `false`. Deliberately does not accept the strings `'true'`/`'false'` — the
+ * GUI normalizes the popup query param before it reaches here.
  */
 export function parseCreateFlag(value: unknown): boolean | FsCreateKind {
-    if (value === undefined || value === null) return false;
+    if (value === undefined || value === null) return true;
     if (value === true || value === false) return value;
     if (value === 'dir' || value === 'file') return value;
     throw new HttpError(400, 'Invalid `create`', { legacyCode: 'bad_request' });

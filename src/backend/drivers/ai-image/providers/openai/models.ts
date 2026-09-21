@@ -87,24 +87,25 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         },
         allowedQualityLevels: ['low', 'medium', 'high', 'auto'],
     },
+    // Deprecated by OpenAI; still served until shutdown (gpt-image-1 on
+    // 2026-10-23, gpt-image-1.5 and gpt-image-1-mini on 2026-12-01). Hidden
+    // from discovery so new callers pick a current model; remove on shutdown.
     {
         puterId: 'openai:openai/gpt-image-1.5',
         id: 'gpt-image-1.5',
         aliases: ['openai/gpt-image-1.5'],
         name: 'GPT Image 1.5',
         version: '1.5',
+        delisted: true,
         costs_currency: 'usd-cents',
         index_cost_key: 'low:1024x1024',
         costs: {
-            // Text tokens (per 1M tokens)
-            text_input: 500, // $5.00
-            text_cached_input: 125, // $1.25
-            text_output: 1000, // $10.00
-            // Image tokens (per 1M tokens)
-            image_input: 800, // $8.00
-            image_cached_input: 200, // $2.00
-            image_output: 3200, // $32.00
-            // Image generation (per image)
+            text_input: 500,
+            text_cached_input: 125,
+            text_output: 1000,
+            image_input: 800,
+            image_cached_input: 200,
+            image_output: 3200,
             'low:1024x1024': 0.9,
             'low:1024x1536': 1.3,
             'low:1536x1024': 1.3,
@@ -128,17 +129,15 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         aliases: ['openai/gpt-image-1-mini'],
         name: 'GPT Image 1 Mini',
         version: '1.0',
+        delisted: true,
         costs_currency: 'usd-cents',
         index_cost_key: 'low:1024x1024',
         costs: {
-            // Text tokens (per 1M tokens)
-            text_input: 200, // $2.00
-            text_cached_input: 20, // $0.20
-            // Image tokens (per 1M tokens)
-            image_input: 250, // $2.50
-            image_cached_input: 25, // $0.25
-            image_output: 800, // $8.00
-            // Image generation (per image)
+            text_input: 200,
+            text_cached_input: 20,
+            image_input: 250,
+            image_cached_input: 25,
+            image_output: 800,
             'low:1024x1024': 0.5,
             'low:1024x1536': 0.6,
             'low:1536x1024': 0.6,
@@ -162,17 +161,15 @@ export const OPEN_AI_IMAGE_GENERATION_MODELS: IImageModel[] = [
         aliases: ['openai/gpt-image-1'],
         name: 'GPT Image 1',
         version: '1.0',
+        delisted: true,
         costs_currency: 'usd-cents',
         index_cost_key: 'low:1024x1024',
         costs: {
-            // Text tokens (per 1M tokens)
-            text_input: 500, // $5.00
-            text_cached_input: 125, // $1.25
-            // Image tokens (per 1M tokens)
-            image_input: 1000, // $10.00
-            image_cached_input: 250, // $2.50
-            image_output: 4000, // $40.00
-            // Image generation (per image)
+            text_input: 500,
+            text_cached_input: 125,
+            image_input: 1000,
+            image_cached_input: 250,
+            image_output: 4000,
             'low:1024x1024': 1.1,
             'low:1024x1536': 1.6,
             'low:1536x1024': 1.6,

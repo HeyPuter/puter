@@ -26,6 +26,8 @@ export type {
     PuterEnvironment,
     RequestCallbacks,
     ToolSchema,
+    UpgradeReason,
+    UpgradeRequestDetails,
 } from './types/lib/types.js';
 export type { default as APICallLogger } from './types/lib/APICallLogger.js';
 
@@ -91,6 +93,17 @@ export type {
     EmailSendOptions,
     EmailSendResult,
 } from './types/modules/Email/Email.js';
+export type {
+    EmailAddress,
+    EmailFolder,
+    EmailGetOptions,
+    EmailHeader,
+    EmailListOptions,
+    EmailListStreamOptions,
+    EmailMessage,
+    EmailMessageAttachment,
+    EmailSummary,
+} from './types/modules/Email/types.js';
 
 // -- puter.events --
 export type {
@@ -125,6 +138,7 @@ export type {
     DeleteOptions,
     FSItemRead,
     FSItemWithShares,
+    GetShareLinkOptions,
     GetSharesOptions,
     ListSharedByMeOptions,
     ListSharedOptions,

@@ -20,7 +20,7 @@
 import type { Request, RequestHandler, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
@@ -411,10 +411,10 @@ describe('AppController POST /rao', () => {
         const app = await createApp(owner.actor);
 
         const { res, captured } = makeRes();
-        const actorWithApp: unknown = {
+        const actorWithApp: unknown = makeActor({
             ...owner.actor,
             app: { uid: app.uid },
-        };
+        });
         await withActor(owner.actor, () =>
             callRoute(
                 'post',
@@ -901,10 +901,10 @@ describe('AppController POST /rao actor gating', () => {
         const { actor } = await makeUser();
         const own = await createApp(actor);
         const other = await createApp(actor);
-        const appActor = {
+        const appActor = makeActor({
             ...actor,
             app: { uid: own.uid as string },
-        } as unknown as Actor;
+        } as unknown as Actor);
 
         const { res } = makeRes();
         await expect(

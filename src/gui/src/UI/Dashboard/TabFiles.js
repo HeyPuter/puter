@@ -40,8 +40,9 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/listAllShared.js';
-import { can_share, remember_shared_roots } from '../../helpers/sharedAccess.js';
-import { parent_path_for, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
+import { can_restructure, can_share, remember_shared_root, remember_shared_roots } from '../../helpers/sharedAccess.js';
+import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
+import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -146,6 +147,10 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async init ($el_window) {
+        // Before the awaits below: renderDirectory (reached through a route
+        // change or a socket event) reads it, and would otherwise throw with
+        // renderingDirectory already set, blocking every later navigation.
+        this.$el_window = $el_window;
         this.showSpinner();
         const _this = this;
         window.dashboard_object = _this;
@@ -277,21 +282,35 @@ const TabFiles = {
         this.typeSearchTerm = '';
         this.typeSearchTimeout = null;
         this.selectModeActive = false;
-        // Preference reads are best-effort: the tab renders with the
-        // defaults rather than not rendering at all.
-        this.currentView = await puter.kv.get('view_mode').catch(() => null) || 'list';
+        // Preference reads are best-effort (the tab renders with the defaults
+        // rather than not at all) and independent of each other, so they go
+        // out together: awaited one by one they cost four round-trips before
+        // the first listing could even start.
+        const [savedView, savedSortColumn, savedSortDirection, savedWidths] = await Promise.all([
+            puter.kv.get('view_mode').catch(() => null),
+            puter.kv.get('sort_column').catch(() => null),
+            puter.kv.get('sort_direction').catch(() => null),
+            puter.kv.get('column_widths').catch(() => null),
+        ]);
+        this.currentView = savedView || 'list';
 
         // Sorting state
-        this.sortColumn = await puter.kv.get('sort_column').catch(() => null) || 'name';
-        this.sortDirection = await puter.kv.get('sort_direction').catch(() => null) || 'asc';
+        this.sortColumn = savedSortColumn || 'name';
+        this.sortDirection = savedSortDirection || 'asc';
 
-        // Column widths state (for resizing)
-        const savedWidths = await puter.kv.get('column_widths').catch(() => null);
-        this.columnWidths = savedWidths ? JSON.parse(savedWidths) : {
+        // Column widths state (for resizing). A corrupt saved value falls back
+        // to the defaults instead of taking the whole tab down with it.
+        this.columnWidths = {
             name: null, // auto/flex
             size: 100,
             modified: 120,
         };
+        try {
+            const parsedWidths = savedWidths ? JSON.parse(savedWidths) : null;
+            if ( parsedWidths && typeof parsedWidths === 'object' ) {
+                this.columnWidths = { ...this.columnWidths, ...parsedWidths };
+            }
+        } catch { /* keep the defaults */ }
 
         // Add touch-device class on touch-FIRST devices only (coarse pointer,
         // no hover — which also catches iPads whose UA claims macOS).
@@ -550,9 +569,6 @@ const TabFiles = {
             }
         });
 
-        // Store reference to $el_window for later use (must be before createHeaderEventListeners)
-        this.$el_window = $el_window;
-
         this.createHeaderEventListeners($el_window);
         this.createSelectionActionListeners($el_window);
         this.initRubberBandSelection();
@@ -568,6 +584,9 @@ const TabFiles = {
             delete window.dashboard_initial_file_path; // Clear so it only runs once
             delete window.dashboard_initial_shared_paths;
             this.pushNavHistory(initialPath);
+            // A share link's items may not be anyone's share rows (an item
+            // open to anyone with the link); the Shared listing looks them up.
+            if ( sharedPaths ) this.pendingSharedLinks = sharedPaths;
             const rendered = this.renderDirectory(initialPath, { skipUrlUpdate: true });
             // A share link names what was just shared; pick it out once the
             // listing is up, the way an upload lands highlighted.
@@ -714,10 +733,17 @@ const TabFiles = {
                 if ( $selectedRows.length > 0 ) {
                     e.preventDefault();
                     e.stopPropagation();
+                    // One listing, so only the first selected folder can be
+                    // entered. renderDirectory already drops the later calls,
+                    // but every pushNavHistory landed in history, leaving Back
+                    // and Forward pointing at folders that were never shown.
+                    let entered = false;
                     $selectedRows.each(function () {
                         const isDir = $(this).attr('data-is_dir') === '1';
                         const itemPath = $(this).attr('data-path');
                         if ( isDir ) {
+                            if ( entered ) return;
+                            entered = true;
                             _this.pushNavHistory(itemPath);
                             _this.renderDirectory(itemPath);
                         } else {
@@ -789,8 +815,14 @@ const TabFiles = {
                             await window.refresh_trash_state();
                         }
                     } else {
-                        // Move to trash
-                        await window.move_items($selectedRows.toArray(), window.trash_path);
+                        // Trashing sends an item to its owner's trash, which a
+                        // shared root or read-only share can't do (the server
+                        // answers Forbidden) — skip those rows, as the context
+                        // menu leaves Delete out for them.
+                        const rows = await _this.restructurableRows($selectedRows.toArray());
+                        if ( rows.length > 0 ) {
+                            await window.move_items(rows, window.trash_path);
+                        }
                     }
                 }
                 return false;
@@ -834,14 +866,19 @@ const TabFiles = {
                 if ( $selectedRows.length > 0 ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.clipboard = [];
-                    window.clipboard_op = 'move';
-                    $selectedRows.each(function () {
-                        window.clipboard.push({
-                            path: $(this).attr('data-path'),
-                            uid: $(this).attr('data-uid'),
-                        });
-                    });
+                    // Cutting is a move: rows that can't be moved (see the
+                    // Delete key above) would only fail on paste.
+                    const rows = await _this.restructurableRows($selectedRows.toArray());
+                    if ( rows.length > 0 ) {
+                        window.clipboard = [];
+                        window.clipboard_op = 'move';
+                        for ( const row of rows ) {
+                            window.clipboard.push({
+                                path: $(row).attr('data-path'),
+                                uid: $(row).attr('data-uid'),
+                            });
+                        }
+                    }
                 }
                 return false;
             }
@@ -1270,8 +1307,13 @@ const TabFiles = {
 
         // Upload input element
         fileInput.onchange = async (e) => {
-            const files = e.target.files;
-            if ( !files || files.length === 0 ) return;
+            // Snapshot the picked files and clear the input at once: the
+            // FileList is live, and a value left in place means picking the
+            // same file again fires no change event, so an upload that failed,
+            // was cancelled, or was blocked could not be retried.
+            const files = Array.from(e.target.files || []);
+            fileInput.value = '';
+            if ( files.length === 0 ) return;
             if ( _this.currentPath === window.shared_path ) return;
 
             let upload_progress_window;
@@ -1282,6 +1324,9 @@ const TabFiles = {
                 thumbnailGenerator: createUploadThumbnailGenerator(),
                 init: async (operation_id, xhr) => {
                     opid = operation_id;
+                    // register before the first await, so a failure while the progress
+                    // window is still opening can't delete the entry before it exists
+                    window.active_uploads[opid] = 0;
                     // create upload progress window
                     upload_progress_window = await UIWindowProgress({
                         title: i18n('upload'),
@@ -1293,8 +1338,6 @@ const TabFiles = {
                             xhr.abort();
                         },
                     });
-                    // add to active_uploads
-                    window.active_uploads[opid] = 0;
                 },
                 // start
                 start: async function () {
@@ -1333,9 +1376,6 @@ const TabFiles = {
                     window.show_save_account_notice_if_needed();
                     // remove from active_uploads
                     delete window.active_uploads[opid];
-                    // Clear the input value to allow uploading the same file again
-                    fileInput.value = '';
-                    document.querySelector('form').reset();
                     // refresh, then highlight the uploaded items
                     await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                     _this.selectUploadedRows(files);
@@ -1444,11 +1484,12 @@ const TabFiles = {
         });
 
         // Cut button
-        $actions.find('.cut-btn').on('click', function () {
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+        $actions.find('.cut-btn').on('click', async function () {
+            const rows = await _this.restructurableRows(document.querySelectorAll('.files-tab .row.selected'));
+            if ( rows.length === 0 ) return;
             window.clipboard_op = 'move';
             window.clipboard = [];
-            selectedRows.forEach(row => {
+            rows.forEach(row => {
                 window.clipboard.push({
                     path: $(row).attr('data-path'),
                     uid: $(row).attr('data-uid'),
@@ -1491,7 +1532,10 @@ const TabFiles = {
                     await window.refresh_trash_state();
                 }
             } else {
-                window.move_items(Array.from(selectedRows), window.trash_path);
+                const rows = await _this.restructurableRows(selectedRows);
+                if ( rows.length > 0 ) {
+                    window.move_items(rows, window.trash_path);
+                }
             }
             $actions.removeClass('visible');
         });
@@ -1544,7 +1588,28 @@ const TabFiles = {
                 if ( this._shareCheckToken !== token ) return;
                 $actions.find('.share-btn').toggle(may_share);
             });
+            // Cut and Delete move items, which a shared root or a read-only
+            // share can't be — same wait-for-the-answer treatment as Share.
+            $actions.find('.cut-btn, .delete-btn').hide();
+            this.restructurableRows(selectedRows).then((rows) => {
+                if ( this._shareCheckToken !== token ) return;
+                $actions.find('.cut-btn, .delete-btn').toggle(rows.length === selectedRows.length);
+            });
         }
+    },
+
+    /**
+     * The rows the user may move or trash: their own items, plus items inside
+     * a shared folder they hold write on. A shared root or a read-only share
+     * stays where its owner put it (see can_restructure).
+     *
+     * @param {NodeList|Array<HTMLElement>} rows - The selected row elements
+     * @returns {Promise<HTMLElement[]>}
+     */
+    async restructurableRows (rows) {
+        const list = Array.from(rows);
+        const answers = await Promise.all(list.map((row) => can_restructure($(row).attr('data-path'))));
+        return list.filter((_row, i) => answers[i]);
     },
 
     /**
@@ -1779,16 +1844,19 @@ const TabFiles = {
      * Updates header action buttons based on current folder context.
      *
      * Shows/hides new folder, upload, and empty trash buttons as appropriate.
+     * Neither Trash nor the Shared view (a query, not a directory) can have
+     * anything created or uploaded into it, so those two buttons stay out
+     * there rather than opening a picker whose files would be dropped.
      *
      * @param {boolean} isTrashFolder - Whether the current folder is the Trash
      * @returns {void}
      */
     updateActionButtons (isTrashFolder) {
         const $pathActions = this.$el_window.find('.path-actions');
+        const canCreate = ! isTrashFolder && this.currentPath !== window.shared_path;
+        $pathActions.find('.new-folder-btn, .upload-btn').toggle(canCreate);
 
         if ( isTrashFolder ) {
-            $pathActions.find('.new-folder-btn, .upload-btn').hide();
-
             if ( $pathActions.find('.empty-trash-btn').length === 0 ) {
                 const emptyTrashBtn = $(`<button class="path-action-btn empty-trash-btn" title="${i18n('empty_trash')}">${icons.trash}</button>`);
                 $pathActions.append(emptyTrashBtn);
@@ -1798,7 +1866,6 @@ const TabFiles = {
             }
             $pathActions.find('.empty-trash-btn').show();
         } else {
-            $pathActions.find('.new-folder-btn, .upload-btn').show();
             $pathActions.find('.empty-trash-btn').hide();
         }
     },
@@ -2128,9 +2195,9 @@ const TabFiles = {
      * sets ascending order. Persists settings and re-renders the directory.
      *
      * @param {string} column - Column name to sort by ('name', 'size', or 'modified')
-     * @returns {Promise<void>}
+     * @returns {void}
      */
-    async handleSort (column) {
+    handleSort (column) {
         if ( this.sortColumn === column ) {
             this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
@@ -2138,13 +2205,15 @@ const TabFiles = {
             this.sortDirection = 'asc';
         }
 
-        await puter.kv.set('sort_column', this.sortColumn)
-            .catch(err => console.warn('Could not save sort_column:', err));
-        await puter.kv.set('sort_direction', this.sortDirection)
-            .catch(err => console.warn('Could not save sort_direction:', err));
-
         this.updateSortIndicators();
         this.renderDirectory(this.currentPath);
+
+        // Persisting is best-effort and must not hold up the re-sort: awaited,
+        // the two writes added two round-trips before anything moved.
+        puter.kv.set('sort_column', this.sortColumn)
+            .catch(err => console.warn('Could not save sort_column:', err));
+        puter.kv.set('sort_direction', this.sortDirection)
+            .catch(err => console.warn('Could not save sort_direction:', err));
     },
 
     /**
@@ -2221,25 +2290,7 @@ const TabFiles = {
         let directoryContents;
         try {
             directoryContents = isSharedView
-                ? (await list_all_shared().then((shares) => {
-                    remember_shared_roots(shares);
-                    return shares;
-                })).map((share) => ({
-                    uid: share.entryUid,
-                    name: share.name ?? share.path.split('/').pop(),
-                    path: share.path,
-                    is_dir: share.isDir,
-                    // A share row has no fsentry behind it to stat, so the
-                    // listing carries what the icon needs.
-                    type: share.type,
-                    thumbnail: share.thumbnail,
-                    modified: share.modified,
-                    size: share.size,
-                    shared_with_me: true,
-                    share_mode: share.mode,
-                    shared_by: share.issuer,
-                    owner: share.owner,
-                }))
+                ? await this.listSharedView()
                 : await window.puter.fs.readdir(readdirArg);
         } catch ( err ) {
             // readdir rejects on any backend error (permission, deleted dir,
@@ -2434,9 +2485,21 @@ const TabFiles = {
         }
 
         const sortedContents = this.sortFiles(directoryContents);
-        // allSettled so one item that fails to render can't reject the batch,
-        // which would skip cleanup and leave the tab stuck (renderingDirectory).
-        await Promise.allSettled(sortedContents.map(file => this.renderItem(file)));
+        // Icons resolve at different speeds (weblinks and .app files read
+        // theirs from the file) and a row is appended once its icon lands, so
+        // resolve every icon first and append in sorted order. allSettled so
+        // one failure can't reject the batch and leave renderingDirectory stuck.
+        const iconResults = await Promise.allSettled(sortedContents.map(file => item_icon(file)));
+        for ( let i = 0; i < sortedContents.length; i++ ) {
+            const iconResult = iconResults[i].status === 'fulfilled'
+                ? iconResults[i].value
+                : { image: window.icons['file.svg'], type: 'icon' };
+            try {
+                await this.renderItem(sortedContents[i], iconResult);
+            } catch ( err ) {
+                console.error('Failed to render item:', err);
+            }
+        }
 
         this.applyColumnWidths();
         this.updateFooterStats();
@@ -2545,9 +2608,11 @@ const TabFiles = {
      * it to the files container, then attaches event listeners.
      *
      * @param {Object} file - The file/folder object from the filesystem API
+     * @param {{ image: string, type: string }} [iconResult] - A pre-resolved
+     *     icon (see renderDirectory); looked up here when omitted
      * @returns {void}
      */
-    async renderItem (file) {
+    async renderItem (file, iconResult = null) {
         // For trashed items, use original_name from metadata if available
         const item_id = window.global_element_id++;
         // metadata is a client-writable, untrusted string stored verbatim, so
@@ -2568,7 +2633,7 @@ const TabFiles = {
         const is_shortcut = file.is_shortcut ? 1 : 0;
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
-        const iconResult = await item_icon(file);
+        if ( ! iconResult ) iconResult = await item_icon(file);
         const icon = `<img src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         // A dot-file only reaches this point when the preference reveals it;
@@ -4126,20 +4191,27 @@ const TabFiles = {
             items.push('-');
         }
 
+        // Cut and Delete move items, which a shared root or a read-only share
+        // can't be (the server answers Forbidden) — offered only when the whole
+        // selection may move, as the single-item menu does.
+        const mayRestructure = (await _this.restructurableRows(selectedRows)).length === selectedRows.length;
+
         // Cut
-        items.push({
-            html: `${i18n('cut')}`,
-            onClick: function () {
-                window.clipboard_op = 'move';
-                window.clipboard = [];
-                selectedRows.forEach(row => {
-                    window.clipboard.push({
-                        path: $(row).attr('data-path'),
-                        uid: $(row).attr('data-uid'),
+        if ( mayRestructure ) {
+            items.push({
+                html: `${i18n('cut')}`,
+                onClick: function () {
+                    window.clipboard_op = 'move';
+                    window.clipboard = [];
+                    selectedRows.forEach(row => {
+                        window.clipboard.push({
+                            path: $(row).attr('data-path'),
+                            uid: $(row).attr('data-uid'),
+                        });
                     });
-                });
-            },
-        });
+                },
+            });
+        }
 
         // Copy
         if ( ! anyTrashed ) {
@@ -4155,10 +4227,9 @@ const TabFiles = {
             });
         }
 
-        items.push('-');
-
         // Delete
         if ( anyTrashed ) {
+            items.push('-');
             items.push({
                 html: i18n('delete_permanently'),
                 onClick: async function () {
@@ -4178,7 +4249,8 @@ const TabFiles = {
                 },
             });
         }
-        else {
+        else if ( mayRestructure ) {
+            items.push('-');
             items.push({
                 html: `${i18n('delete')}`,
                 onClick: function () {
@@ -4721,6 +4793,9 @@ const TabFiles = {
             thumbnailGenerator: createUploadThumbnailGenerator(),
             init: async (operation_id, xhr) => {
                 opid = operation_id;
+                // register before the first await, so a failure while the progress
+                // window is still opening can't delete the entry before it exists
+                window.active_uploads[opid] = 0;
                 upload_progress_window = await UIWindowProgress({
                     title: i18n('upload'),
                     icon: window.icons['app-icon-uploader.svg'],
@@ -4731,7 +4806,6 @@ const TabFiles = {
                         xhr.abort();
                     },
                 });
-                window.active_uploads[opid] = 0;
             },
             start: async function () {
                 upload_progress_window.set_status('Uploading');
@@ -4802,6 +4876,71 @@ const TabFiles = {
     selectUploadedRows (paths) {
         const wanted = new Set(paths.map(p => String(p).toLowerCase()));
         this.selectRowsWhere((row) => wanted.has(String(row.getAttribute('data-path') ?? '').toLowerCase()));
+    },
+
+    /**
+     * The Shared view's rows: everything shared with the user, plus whatever
+     * a share link named that the listing does not carry. An item open to
+     * anyone with the link is nobody's share row, so it is looked up on its
+     * own and shown alongside — the link brought the user here to see it.
+     *
+     * @returns {Promise<Array<Object>>}
+     */
+    async listSharedView () {
+        const shares = await list_all_shared();
+        remember_shared_roots(shares);
+        const rows = shares.map((share) => ({
+            uid: share.entryUid,
+            name: share.name ?? share.path.split('/').pop(),
+            path: share.path,
+            is_dir: share.isDir,
+            // A share row has no fsentry behind it to stat, so the
+            // listing carries what the icon needs.
+            type: share.type,
+            thumbnail: share.thumbnail,
+            modified: share.modified,
+            size: share.size,
+            shared_with_me: true,
+            share_mode: share.mode,
+            shared_by: share.issuer,
+            owner: share.owner,
+        }));
+
+        const linked = this.pendingSharedLinks ?? [];
+        this.pendingSharedLinks = null;
+        const listed = new Set(rows.map((row) => String(row.uid).toLowerCase()));
+        const missing = linked.filter((shared_path) => {
+            const uid = parse_shared_path(shared_path)?.uid.toLowerCase();
+            return uid && ! listed.has(uid);
+        });
+        const found = await Promise.all(
+            missing.map((shared_path) => resolve_shared_item(window.puter.fs, shared_path)),
+        );
+        for ( const stat of found ) {
+            if ( ! stat || listed.has(String(stat.uid).toLowerCase()) ) continue;
+            // The path a stranger is handed is the masked form, which names
+            // the owner; one's own item comes back real, and is not "shared".
+            const owner = parse_shared_path(stat.path)?.owner;
+            if ( ! owner ) continue;
+            listed.add(String(stat.uid).toLowerCase());
+            // No mode travels with a stat; the guards read an unknown one
+            // as read-only, which is the safe way to be wrong.
+            remember_shared_root({ path: stat.path, name: stat.name });
+            rows.push({
+                uid: stat.uid,
+                name: stat.name,
+                path: stat.path,
+                is_dir: stat.is_dir,
+                type: stat.type,
+                thumbnail: stat.thumbnail,
+                modified: stat.modified,
+                size: stat.size,
+                shared_with_me: true,
+                shared_by: owner,
+                owner,
+            });
+        }
+        return rows;
     },
 
     /**
@@ -4898,7 +5037,12 @@ const TabFiles = {
      * Shows loading spinner over files section
      */
     showSpinner () {
-        if ( this.loading ) return;
+        const files = document.querySelector('.directory-contents .files');
+        if ( ! files ) return;
+        // Guard on the overlay itself rather than on a flag: clearing the
+        // listing takes the overlay with it, and a flag left set meant the
+        // first directory load ran with no spinner at all.
+        if ( files.querySelector('.files-loading-overlay') ) return;
         this.loading = true;
 
         const overlay = document.createElement('div');
@@ -4910,7 +5054,7 @@ const TabFiles = {
             </div>
         `;
 
-        document.querySelector('.directory-contents .files').appendChild(overlay);
+        files.appendChild(overlay);
         setTimeout(() => {
             overlay.style.opacity = 1;
         }, 100);
