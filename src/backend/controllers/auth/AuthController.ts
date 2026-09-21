@@ -3576,6 +3576,16 @@ export class AuthController extends PuterController {
             });
         }
 
+        // Present but empty must not fall through to checking the user: on their own file every `fs:` scope answers `true`.
+        if (
+            app_uid !== undefined &&
+            (typeof app_uid !== 'string' || !app_uid)
+        ) {
+            throw new HttpError(400, 'Invalid `app_uid`', {
+                legacyCode: 'bad_request',
+            });
+        }
+
         // `app_uid` asks what an app of mine holds, not what I hold.
         const actor = app_uid
             ? await this.#appUnderUserActor(req.actor!, app_uid)

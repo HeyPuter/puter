@@ -5981,6 +5981,36 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    // Falling through to the user here would answer `true` for any file they own.
+    it('check-permissions: a present-but-empty `app_uid` is refused, not read as "no app"', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const permission = `user:${user.uuid}:email:read`;
+
+        for (const app_uid of ['', null]) {
+            await expect(
+                inCtx(actor, () =>
+                    controller.handleCheckPermissions(
+                        makeReq(
+                            { permissions: [permission], app_uid },
+                            { actor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        // Omitted entirely still means "what do I hold?".
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({ permissions: { [permission]: true } });
+    });
+
     it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
         const { user, actor } = await makeUserAndActor();
         const app = await server.stores.app.create(

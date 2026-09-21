@@ -18,7 +18,7 @@
  */
 
 import UIPermissionDialog from '../UI/UIPermissionDialog.js';
-import { appHoldsPermissions } from './holdsPermissions.js';
+import { appHoldsPermissions as defaultAppHoldsPermissions } from './holdsPermissions.js';
 import { isUuid } from './sharePaths.js';
 
 /**
@@ -53,7 +53,7 @@ export const urlFileLaunchOptions = (value) => {
  * @param {object} [deps] Injectable seams for tests.
  * @param {(target: { path?: string, uid?: string }) => Promise<{ uid?: string, path?: string, is_dir?: boolean }>} [deps.stat]
  * @param {(options: object) => Promise<boolean>} [deps.permissionDialog]
- * @param {(permissions: string[], appUid: string) => Promise<boolean>} [deps.holdsPermissions]
+ * @param {(permissions: string[], appUid: string) => Promise<boolean>} [deps.appHoldsPermissions]
  * @returns {Promise<{ uid: string, path?: string } | null>} The file as
  * stat'd, only if the user allowed it, or if they already had; `null` otherwise.
  */
@@ -62,7 +62,7 @@ export const confirmUrlFileAccess = async (
     {
         stat = (target) => puter.fs.stat({ ...target, consistency: 'eventual' }),
         permissionDialog = UIPermissionDialog,
-        holdsPermissions = appHoldsPermissions,
+        appHoldsPermissions = defaultAppHoldsPermissions,
     } = {},
 ) => {
     if ( (! path && ! uid) || ! appUid ) return null;
@@ -87,9 +87,14 @@ export const confirmUrlFileAccess = async (
     const file = { uid: fsentry.uid, path: fsentry.path };
 
     // Consent already given is not a question to ask again on every launch.
-    if ( await holdsPermissions([permission], appUid) ) {
-        return file;
+    let already_held = false;
+    try {
+        already_held = await appHoldsPermissions([permission], appUid);
+    } catch (e) {
+        // A check that couldn't be made is not consent, and must not take the launch down with it.
+        console.error('Failed to check for an existing file grant', e);
     }
+    if ( already_held ) return file;
 
     const granted = await permissionDialog({
         app_uid: appUid,
