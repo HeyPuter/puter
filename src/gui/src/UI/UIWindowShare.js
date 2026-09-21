@@ -224,12 +224,15 @@ async function UIWindowShare (options) {
                 continue;
             }
             if ( share.pending ) {
+                // Withheld unless the invite is ours to act on: nobody to name,
+                // and the server would refuse the cancellation anyway.
                 const invited = html_encode(share.recipientEmail ?? '');
                 rows += '<div class="share-row share-row-pending">';
-                rows += `<span class="share-row-who">${invited}</span>`;
+                rows += `<span class="share-row-who">${invited || html_encode(i18n('share_invited_someone'))}</span>`;
                 rows += `<span class="share-row-via">${i18n('share_awaiting_signup')}</span>`;
                 rows += `<span class="share-row-mode">${mode_label(share.mode)}</span>`;
-                rows += `<button class="share-revoke" data-holder="${invited}" title="${html_encode(i18n('share_cancel_invite'))}" aria-label="${html_encode(i18n('share_cancel_invite'))}">${icons.trash}</button>`;
+                if ( invited )
+                    rows += `<button class="share-revoke" data-holder="${invited}" title="${html_encode(i18n('share_cancel_invite'))}" aria-label="${html_encode(i18n('share_cancel_invite'))}">${icons.trash}</button>`;
                 rows += '</div>';
                 continue;
             }

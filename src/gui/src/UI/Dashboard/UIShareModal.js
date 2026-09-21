@@ -326,8 +326,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             : '';
         // Only direct grants live on the items themselves; an inherited one
         // belongs to the ancestor folder and has to be changed there.
-        const can_change = group.directPaths.length > 0;
-        const can_revoke = can_change || group.pendingPaths.length > 0;
+        // Every action addresses a person by name; a withheld invite has none.
+        const can_change = group.directPaths.length > 0 && ! group.anonymous;
+        const can_revoke = ! group.anonymous
+            && (can_change || group.pendingPaths.length > 0);
         // Extending someone needs a mode to extend; a person whose grants
         // disagree levels them with the select first.
         const missing = missingPathsFor(target_paths, group).length;

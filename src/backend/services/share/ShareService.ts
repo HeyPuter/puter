@@ -20,6 +20,7 @@
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import {
+    isAccountContext,
     isPlainUserActor,
     makeActor,
     userRelatedActor,
@@ -2269,10 +2270,19 @@ export class ShareService extends PuterService {
         // reaches the node — another app, a delegate, an address the user
         // invited — is the user's business, not the app's.
         const actingApp = this.#actingAppUid(actor);
-        const issuedHere = <T extends { data?: unknown }>(list: T[]): T[] =>
-            actingApp
-                ? list.filter((row) => issuedByApp(row) === actingApp)
-                : list;
+        // A scoped token issues nothing under its own name, so it is bounded
+        // to nothing: filtering it by a null app would hand it the owner's own
+        // rows instead of none. A full-access token holds the account's reach
+        // and is not bounded at all.
+        const scopedToken =
+            !!actor.accessToken && actor.accessToken.fullAccess !== true;
+        const issuedHere = <T extends { data?: unknown }>(list: T[]): T[] => {
+            if (scopedToken) return [];
+            if (actingApp) {
+                return list.filter((row) => issuedByApp(row) === actingApp);
+            }
+            return list;
+        };
 
         const inherited: Array<{ row: ShareIndexRow; via: string }> =
             issuedHere(
@@ -2365,6 +2375,7 @@ export class ShareService extends PuterService {
             (row: OutboundShareRow) =>
                 this.#resolvedShareRow(row, entry, users, {
                     path: maskedPath,
+                    inviteAddress: this.#maySeeInviteAddress(actor, entry, row),
                 }),
         );
 
@@ -3138,6 +3149,11 @@ export class ShareService extends PuterService {
         opts: {
             entryMeta?: boolean;
             provenance?: boolean;
+            /**
+             * Withholds an invite's address when false; see
+             * `#maySeeInviteAddress`.
+             */
+            inviteAddress?: boolean;
             holderUsername?: string | null;
             holderTeam?: {
                 uid: string;
@@ -3187,9 +3203,16 @@ export class ShareService extends PuterService {
             ...(pending
                 ? {
                       pending: true,
-                      recipientEmail:
-                          (row.data as { invitedAddress?: string } | null)
-                              ?.invitedAddress ?? row.recipient_email,
+                      ...(opts.inviteAddress === false
+                          ? {}
+                          : {
+                                recipientEmail:
+                                    (
+                                        row.data as {
+                                            invitedAddress?: string;
+                                        } | null
+                                    )?.invitedAddress ?? row.recipient_email,
+                            }),
                   }
                 : {}),
             ...(opts.holderTeam ? { holderTeam: opts.holderTeam } : {}),
@@ -3480,14 +3503,37 @@ export class ShareService extends PuterService {
             }
         }
 
+        throw await this.#manageRefusal(actor, entry);
+    }
+
+    /**
+     * The ACL's own safe refusal, so a caller who can't see the node learns
+     * nothing.
+     */
+    async #manageRefusal(actor: Actor, entry: FSEntry): Promise<HttpError> {
         const safe = await this.services.acl.getSafeAclError(
             actor,
             this.#descriptorFor(entry),
             'manage',
         );
-        throw new HttpError(safe.status, safe.message, {
+        return new HttpError(safe.status, safe.message, {
             legacyCode: safe.fields.code,
         });
+    }
+
+    /** An invite's address is the owner's and the issuer's, and no app's. */
+    #maySeeInviteAddress(
+        actor: Actor,
+        entry: FSEntry,
+        row: OutboundShareRow,
+    ): boolean {
+        if (!isAccountContext(actor)) return false;
+        const userId = actor.user?.id;
+        if (typeof userId !== 'number') return false;
+        return (
+            userId === Number(entry.userId) ||
+            userId === Number(row.issuer_user_id)
+        );
     }
 
     /**

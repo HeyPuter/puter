@@ -444,6 +444,7 @@ const en = {
         share_access_updated: 'Updated access for {{recipient}}',
         share_invited: 'Invited {{recipient}} — they’ll get access once they join',
         share_awaiting_signup: 'Invited',
+        share_invited_someone: 'Someone by email',
         share_cancel_invite: 'Cancel invitation',
         share_cancel_invite_for: 'Cancel the invitation to {{recipient}}',
         share_confirm_cancel_invite:
