@@ -18,7 +18,7 @@ puter.ai.txt2vid({prompt, ...options})
 
 #### `prompt` (String) (required)
 
-The text description that guides the video generation. Describe the subject, the motion, the camera move and the mood; cues such as "slow motion", "aerial shot" or "handheld" are understood by most models.
+A non-empty string describing the video. Missing, blank, or non-string prompts reject with `prompt_required`. Describe the subject, the motion, the camera move and the mood; cues such as "slow motion", "aerial shot" or "handheld" are understood by most models.
 
 #### `testMode` (Boolean) (optional)
 
@@ -28,7 +28,7 @@ Test mode still resolves the `model` you asked for and still validates (and writ
 
 #### `options` (Object) (optional)
 
-Additional settings for the generation request. The options below carry the same meaning on every provider; each provider then accepts a few extras, listed in the sections that follow. Any option a provider does not recognize is ignored.
+Additional settings for the generation request. Puter copies this object before resolving aliases and output paths; frozen options are supported. The options below carry the same meaning on every provider; each provider then accepts a few extras, listed in the sections that follow. Any option a provider does not recognize is ignored.
 
 | Option | Type | Description |
 |--------|------|-------------|

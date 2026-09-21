@@ -301,8 +301,8 @@ export class ChatCompletionDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, IChatProvider> = {};
-    #modelIdMap: Record<string, IChatModel[]> = {};
+    #providers: Record<string, IChatProvider> = Object.create(null);
+    #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): MeteringService {

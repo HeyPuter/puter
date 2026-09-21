@@ -251,6 +251,33 @@ describe('VideoGenerationDriver catalog', () => {
 // ── Provider routing ────────────────────────────────────────────────
 
 describe('VideoGenerationDriver.generate provider routing', () => {
+    it.each(['__proto__', 'constructor'])(
+        'rejects inherited object keys as unknown models: %s',
+        async (model) => {
+            await expect(
+                withDriverName('ai-video', () =>
+                    driver.generate({ prompt: 'hi', model }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
+            expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['__proto__', 'constructor'])(
+        'uses the default for an unknown provider named %s',
+        async (provider) => {
+            geminiGenerateVideosMock.mockResolvedValueOnce(
+                geminiCompletedOperation(),
+            );
+            await withActor(() => driver.generate({ prompt: 'hi', provider }));
+            expect(geminiSent().model).toBe(DEFAULT_MODEL);
+        },
+    );
+
     it('routes a known veo-3.1-generate-preview id to the Gemini provider', async () => {
         geminiGenerateVideosMock.mockResolvedValueOnce(
             geminiCompletedOperation(),
