@@ -20,12 +20,19 @@ export class SignallingChannel {
     oncandidate = () => {};
     /** @type {(reason?: string) => void} */
     onbye = () => {};
-    /** Peer's signalling session ended. Evidence it hung up, never proof. */
-    /** @type {(reason?: string) => void} */
+    /**
+     * Peer's signalling session ended. Evidence it hung up, never proof -
+     * and when the signaller says the session is reclaimable, not even
+     * that: the peer is expected back on it.
+     */
+    /** @type {(reason?: string, resumable?: boolean) => void} */
     onpeergone = () => {};
     /** Our own signalling path died; renegotiation is unavailable. */
     /** @type {() => void} */
     onunusable = () => {};
+    /** It came back, and anything waiting on it may go ahead. */
+    /** @type {() => void} */
+    onusable = () => {};
 
     /**
      * Reads one relayed envelope and calls the handler for what it holds.
@@ -164,7 +171,7 @@ export class ClientSignallingChannel extends SignallingChannel {
             return this.onrejected(new Error(msg.connect.error));
         }
         if ( msg.disconnect ) {
-            this.onpeergone(msg.disconnect.reason);
+            this.onpeergone(msg.disconnect.reason, !! msg.disconnect.resumable);
             return;
         }
         this.receive(msg);
@@ -184,6 +191,13 @@ export class ClientSignallingChannel extends SignallingChannel {
 export class ServerSignallingChannel extends SignallingChannel {
     #server;
     #id;
+    /**
+     * Set when the server re-registered without reclaiming its session. The
+     * signaller has no route to this client any more and never will, so the
+     * connection is better off hearing that at once than waiting out every
+     * timeout it has.
+     */
+    #stranded = false;
 
     /**
      * @param {import('./PuterPeerServer.js').PuterPeerServer} server
@@ -196,7 +210,18 @@ export class ServerSignallingChannel extends SignallingChannel {
     }
 
     get alive () {
-        return this.#server.signallingAlive;
+        return ! this.#stranded && this.#server.signallingAlive;
+    }
+
+    get stranded () {
+        return this.#stranded;
+    }
+
+    /** @returns {void} */
+    strand () {
+        if ( this.#stranded ) return;
+        this.#stranded = true;
+        this.onunusable();
     }
 
     // Every payload a peer server sends carries the connection id, since one

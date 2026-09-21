@@ -8,6 +8,21 @@ export class PuterPeerServerConnectionEvent extends Event {
     }
 }
 
+/**
+ * The signaller socket came back. `resumed` says whether the session came
+ * with it: when it did, the invite code is the same one and the clients
+ * already connected can be renegotiated with again.
+ */
+export class PuterPeerServerReconnectEvent extends Event {
+    inviteCode;
+    resumed;
+    constructor (inviteCode, resumed) {
+        super('reconnect');
+        this.inviteCode = inviteCode;
+        this.resumed = resumed;
+    }
+}
+
 export class PuterPeerConnectionMessageEvent extends Event {
     data;
     constructor (message) {

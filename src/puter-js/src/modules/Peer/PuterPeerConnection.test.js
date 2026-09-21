@@ -82,19 +82,6 @@ describe('ICE recovery', () => {
         expect(pc.restarts).toBe(2);
     });
 
-    it('gives up after the restart budget runs out', async () => {
-        const { conn, pc, channel, closes } = await makeConnection();
-
-        for ( let i = 0; i < 4; i++ ) {
-            pc.setConnectionState('failed');
-            await answerOffer(channel);
-        }
-
-        expect(pc.restarts).toBe(3);
-        expect(conn.closed).toBe(true);
-        expect(closes).toEqual(['could not restore the connection']);
-    });
-
     it('tries again when a restart goes unanswered', async () => {
         // A peer whose tab is throttled answers late, and the browser raises
         // no further state change while the transport stays failed, so one
@@ -103,35 +90,82 @@ describe('ICE recovery', () => {
         const { conn, pc, closes } = await makeConnection();
 
         pc.setConnectionState('failed');
-        await vi.advanceTimersByTimeAsync(8000);
+        await vi.advanceTimersByTimeAsync(20_000);
 
-        expect(pc.restarts).toBe(2);
+        expect(pc.restarts).toBeGreaterThan(1);
         expect(conn.closed).toBe(false);
         expect(closes).toEqual([]);
     });
 
-    it('treats a peer that answers no restart at all as gone', async () => {
+    it('keeps trying for a peer that could still come back', async () => {
+        // A lid closed for a minute is the ordinary case, and the side left
+        // awake must still be there when the other one wakes up.
         vi.useFakeTimers();
         const { conn, pc, closes } = await makeConnection();
 
         pc.setConnectionState('failed');
-        await vi.advanceTimersByTimeAsync(8000 * 3);
+        await vi.advanceTimersByTimeAsync(45_000);
 
-        expect(pc.restarts).toBe(3);
+        expect(conn.closed).toBe(false);
+        expect(closes).toEqual([]);
+    });
+
+    it('gives the peer up once the budget is spent', async () => {
+        vi.useFakeTimers();
+        const { conn, pc, closes } = await makeConnection();
+
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(70_000);
+
         expect(conn.closed).toBe(true);
         expect(closes).toEqual(['the peer stopped responding']);
     });
 
-    it('does not bother restarting when the peer is known to be gone', async () => {
+    it('waits for signalling rather than spending attempts it cannot send', async () => {
+        vi.useFakeTimers();
         const { conn, pc, channel, closes } = await makeConnection();
 
-        channel.onpeergone('the peer went away');
+        // The peer server's socket dropped; it is expected back on it.
+        channel.kill();
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(pc.restarts).toBe(0);
+        expect(conn.closed).toBe(false);
+        expect(closes).toEqual([]);
+
+        // It reclaimed its session, so the restart has somewhere to go.
+        channel.revive();
+        channel.onusable();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(pc.restarts).toBeGreaterThan(0);
+        expect(conn.closed).toBe(false);
+    });
+
+    it('does not bother restarting when the peer has hung up', async () => {
+        const { conn, pc, channel, closes } = await makeConnection();
+
+        channel.onpeergone('the peer went away', false);
         pc.setConnectionState('failed');
         await flush();
 
         expect(pc.restarts).toBe(0);
         expect(conn.closed).toBe(true);
-        expect(closes).toEqual(['the peer is no longer reachable']);
+        expect(closes).toEqual(['the peer hung up']);
+    });
+
+    it('keeps recovering when the peer only lost its signalling session', async () => {
+        vi.useFakeTimers();
+        const { conn, pc, channel, closes } = await makeConnection();
+
+        channel.onpeergone('the peer server’s signalling dropped', true);
+        pc.setConnectionState('failed');
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(pc.restarts).toBeGreaterThan(0);
+        expect(conn.closed).toBe(false);
+        expect(closes).toEqual([]);
     });
 });
 
@@ -214,10 +248,10 @@ describe('link state', () => {
         expect(closes).toEqual([]);
     });
 
-    it('reports each restart attempt, and the budget it is spending', async () => {
+    it('reports each restart attempt', async () => {
         const { conn, pc, channel } = await makeConnection();
         const seen = [];
-        conn.addEventListener('linkstate', (e) => seen.push([e.state, e.attempt, e.of]));
+        conn.addEventListener('linkstate', (e) => seen.push([e.state, e.attempt]));
 
         pc.setConnectionState('failed');
         await answerOffer(channel);
@@ -225,8 +259,8 @@ describe('link state', () => {
         await answerOffer(channel);
 
         expect(seen).toEqual([
-            ['recovering', 1, 3],
-            ['recovering', 2, 3],
+            ['recovering', 1],
+            ['recovering', 2],
         ]);
         expect(conn.linkState).toBe('recovering');
     });
