@@ -178,8 +178,9 @@ export class TeamStore extends PuterStore {
     }
 
     /** Makes the seeded `kind IS NULL` groups unreachable, not merely absent. */
-    #live(): string {
-        return '`kind` = ? AND `deleted_at` IS NULL';
+    #live(alias = ''): string {
+        const prefix = alias ? `${alias}.` : '';
+        return `${prefix}\`kind\` = ? AND ${prefix}\`deleted_at\` IS NULL`;
     }
 
     // -- Reads --------------------------------------------------------
@@ -365,6 +366,26 @@ export class TeamStore extends PuterStore {
     /** Whether this user belongs to this team. */
     async isMember(teamUid: string, userId: number): Promise<boolean> {
         return (await this.getMembership(teamUid, userId)) !== null;
+    }
+
+    /**
+     * Which of `userIds` belong to this team; bounded by its input, no page
+     * cap.
+     */
+    async memberIdsAmong(
+        teamUid: string,
+        userIds: number[],
+    ): Promise<number[]> {
+        const ids = [...new Set(userIds)].filter((id) => Number.isFinite(id));
+        if (ids.length === 0) return [];
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`user_id` FROM `jct_user_group` ug ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE g.\`uid\` = ? AND ${this.#live('g')} ` +
+                `AND ug.\`user_id\` IN (${ids.map(() => '?').join(', ')})`,
+            [teamUid, TEAM_KIND, ...ids],
+        )) as { user_id: number }[];
+        return rows.map((row) => Number(row.user_id));
     }
 
     /** A team's members, keyset-paginated on `id` per doc/pagination.md. */

@@ -2608,8 +2608,7 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            | { v: unknown; id: number; s?: string; o?: string }
-            | undefined;
+            { v: unknown; id: number; s?: string; o?: string } | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;

@@ -54,12 +54,7 @@ import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
 
 /** Why a deploy could not happen, for the callers that answer differently. */
 export type EventsDeployOutcome =
-    | 'deployed'
-    | 'stale'
-    | 'no-handlers'
-    | 'no-owner'
-    | 'throttled'
-    | 'failed';
+    'deployed' | 'stale' | 'no-handlers' | 'no-owner' | 'throttled' | 'failed';
 
 interface DeployLayers {
     config: IConfig;

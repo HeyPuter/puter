@@ -21,11 +21,42 @@ puter.teams.list(options)
 
 #### `options` (Object) (optional)
 
-The standard list options — `limit`, `cursor`, `includeTotal` and `stream`. See [Pagination](/Teams/#pagination) for what each form returns. `offset` is not accepted.
+The standard list options. All four are optional, and they decide the shape of what resolves:
+
+| Call | Resolves to |
+| -- | -- |
+| No options | The whole set as an array, fetched page by page under the hood |
+| `{ limit }` | An array, capped at one page |
+| `{ cursor }` or `{ includeTotal: true }` | One `{ items, cursor? }` page. `cursor` is absent on the last page |
+| `{ stream: true }` | An async iterator of `{ items, cursor? }` pages |
+
+This route is keyset-paginated, so `offset` is not accepted — passing it throws `invalid_request`. Pass `cursor` to resume from a position.
 
 ## Return value
 
-A `Promise` that resolves to an array of [`Team`](/Teams/#team) objects, or to a `{ items, cursor? }` page when a pagination option is given. With `stream: true` it returns an async iterator of pages instead.
+A `Promise` that resolves to an array of `Team` objects, or to a `{ items, cursor? }` page when a pagination option is given. With `stream: true` it returns an async iterator of pages instead.
+
+#### `Team`
+
+| Field | Type | Description |
+| -- | -- | -- |
+| `uid` | `string` | The team's stable identifier — pass this, not the handle. |
+| `name` | `string \| null` | Its display name. |
+| `handle` | `string \| null` | Its short handle, unique while the team exists. |
+| `isOwner` | `boolean` | Whether the caller is the owner account. |
+| `createdAt` | `string` | When it was created. |
+
+## Errors
+
+A rejection carries an `Error` with a stable `code`:
+
+| Code | Meaning |
+| -- | -- |
+| `invalid_request` | Refused before reaching the server — a blank `uid`, or an `offset` on a keyset list. |
+| `unauthorized` | Not signed in. |
+| `account_is_not_verified` | The caller's email has not been confirmed. |
+| `not_found` | Teams are turned off on this deployment. |
+| `too_many_requests` | The rate limit was exceeded. See [Rate Limits & Quotas](/rate-limits-and-quotas/). |
 
 ## Examples
 

@@ -294,10 +294,7 @@ export interface CrossAppKvDeps {
 }
 
 export type CrossAppKvDenial =
-    | 'disabled'
-    | 'unknown_app'
-    | 'sharing_off'
-    | 'not_granted';
+    'disabled' | 'unknown_app' | 'sharing_off' | 'not_granted';
 
 /** Why this actor may not watch `targetAppUid`, or `null` when it may. */
 export const crossAppKvDenial = async (
