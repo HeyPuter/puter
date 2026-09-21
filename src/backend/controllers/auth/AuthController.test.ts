@@ -5865,6 +5865,122 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         });
     });
 
+    // What lets a launch settle a consent prompt it holds no app token for.
+    it('check-permissions: `app_uid` answers for that app, not for the asking user', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cpa-${uuidv4()}`,
+                title: 'TestCheckPermsAppUid',
+                index_url: 'https://check-perms-uid.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const permission = `user:${user.uuid}:email:read`;
+
+        // Held by the user, so asking as the user would answer `true`.
+        const asUser = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor }),
+                asUser,
+            ),
+        );
+        expect(asUser.body).toEqual({ permissions: { [permission]: true } });
+
+        const before = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: app.uid },
+                    { actor },
+                ),
+                before,
+            ),
+        );
+        expect(before.body).toEqual({ permissions: { [permission]: false } });
+
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const after = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: app.uid },
+                    { actor },
+                ),
+                after,
+            ),
+        );
+        expect(after.body).toEqual({ permissions: { [permission]: true } });
+    });
+
+    it('check-permissions: an app cannot ask about another app, and an unknown app 404s', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cpx-${uuidv4()}`,
+                title: 'TestCheckPermsCrossApp',
+                index_url: 'https://check-perms-x.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const appActor = makeActor({
+            user: actor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+
+        await expect(
+            inCtx(appActor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        { permissions: ['service:foo:ii:read'], app_uid: app.uid },
+                        { actor: appActor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        await expect(
+            inCtx(actor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: `app-${uuidv4()}`,
+                        },
+                        { actor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        await expect(
+            inCtx(actor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: { not: 'a string' } as unknown as string,
+                        },
+                        { actor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
         const { user, actor } = await makeUserAndActor();
         const app = await server.stores.app.create(

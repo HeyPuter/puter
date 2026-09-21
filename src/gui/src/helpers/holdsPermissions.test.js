@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { holdsPermissions } from './holdsPermissions.js';
+import { appHoldsPermissions, holdsPermissions } from './holdsPermissions.js';
 
 const EMAIL = 'user:u-1:email:read';
 const APPS = 'apps-of-user:u-1:read';
@@ -100,5 +100,38 @@ describe('holdsPermissions', () => {
         await expect(holdsPermissions(null, 'app-token', deps(fetchImpl))).resolves.toBe(false);
 
         expect(calls).toHaveLength(0);
+    });
+});
+
+const FILE = 'fs:2b7d8c1e-4f3a-4b6c-9d1e-0a1b2c3d4e5f:write';
+const appDeps = (fetchImpl) => ({ ...deps(fetchImpl), authToken: 'user-token' });
+
+describe('appHoldsPermissions', () => {
+    it('asks as the user about the named app', async () => {
+        const { fetchImpl, calls } = makeFetch({ held: { [FILE]: true } });
+
+        await expect(appHoldsPermissions([FILE], 'app-uid-1', appDeps(fetchImpl)))
+            .resolves.toBe(true);
+
+        expect(calls[0].headers.Authorization).toBe('Bearer user-token');
+        expect(calls[0].body).toEqual({ permissions: [FILE], app_uid: 'app-uid-1' });
+    });
+
+    // Asked as the user with no app named, the user's own file answers `true`.
+    it('reports not held, and asks nothing, without an app to name', async () => {
+        const { fetchImpl, calls } = makeFetch({ held: { [FILE]: true } });
+
+        await expect(appHoldsPermissions([FILE], undefined, appDeps(fetchImpl)))
+            .resolves.toBe(false);
+        await expect(appHoldsPermissions([FILE], '', appDeps(fetchImpl)))
+            .resolves.toBe(false);
+
+        expect(calls).toHaveLength(0);
+    });
+
+    it('reports not held when the app has not been granted it', async () => {
+        const { fetchImpl } = makeFetch({ held: { [FILE]: false } });
+        await expect(appHoldsPermissions([FILE], 'app-uid-1', appDeps(fetchImpl)))
+            .resolves.toBe(false);
     });
 });

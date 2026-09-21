@@ -21,6 +21,60 @@
 const CHECK_TIMEOUT_MS = 5000;
 
 /**
+ * One `/auth/check-permissions` round trip: `token` says whose access is in question, unless `appUid` names an app under that user.
+ *
+ * @param {string[]} permissions
+ * @param {object} options
+ * @param {string} options.token
+ * @param {string} [options.appUid]
+ * @param {typeof fetch} [options.fetchImpl]
+ * @param {string} [options.apiOrigin]
+ * @param {number} [options.timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+const queryHeld = async (
+    permissions,
+    {
+        token,
+        appUid,
+        fetchImpl = globalThis.fetch?.bind(globalThis),
+        apiOrigin = window.api_origin,
+        timeoutMs = CHECK_TIMEOUT_MS,
+    },
+) => {
+    if ( ! token || ! Array.isArray(permissions) || permissions.length === 0 ) {
+        return false;
+    }
+    const controller = typeof AbortController !== 'undefined'
+        ? new AbortController()
+        : null;
+    const expiry = setTimeout(() => controller?.abort(), timeoutMs);
+    try {
+        const resp = await fetchImpl(`${apiOrigin}/auth/check-permissions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                permissions: [...new Set(permissions)],
+                ...(appUid ? { app_uid: appUid } : {}),
+            }),
+            ...(controller ? { signal: controller.signal } : {}),
+        });
+        if ( ! resp.ok ) return false;
+        const held = (await resp.json())?.permissions ?? {};
+        // Every scope: one prompt is one decision, so partly-held is unheld.
+        return permissions.every((p) => held[p] === true);
+    } catch (e) {
+        console.error('Failed to check held permissions', e);
+        return false;
+    } finally {
+        clearTimeout(expiry);
+    }
+};
+
+/**
  * Whether every one of these permissions is already held by whoever `token`
  * identifies — an app-under-user token, so the answer is about that app's
  * access and not the user's own.
@@ -37,42 +91,27 @@ const CHECK_TIMEOUT_MS = 5000;
  * @param {number} [deps.timeoutMs]
  * @returns {Promise<boolean>}
  */
-export const holdsPermissions = async (
-    permissions,
-    token,
-    {
-        fetchImpl = globalThis.fetch?.bind(globalThis),
-        apiOrigin = window.api_origin,
-        timeoutMs = CHECK_TIMEOUT_MS,
-    } = {},
-) => {
-    if ( ! token || ! Array.isArray(permissions) || permissions.length === 0 ) {
-        return false;
-    }
-    const controller = typeof AbortController !== 'undefined'
-        ? new AbortController()
-        : null;
-    const expiry = setTimeout(() => controller?.abort(), timeoutMs);
-    try {
-        const resp = await fetchImpl(`${apiOrigin}/auth/check-permissions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ permissions: [...new Set(permissions)] }),
-            ...(controller ? { signal: controller.signal } : {}),
-        });
-        if ( ! resp.ok ) return false;
-        const held = (await resp.json())?.permissions ?? {};
-        // Every scope: one prompt is one decision, so partly-held is unheld.
-        return permissions.every((p) => held[p] === true);
-    } catch (e) {
-        console.error('Failed to check held permissions', e);
-        return false;
-    } finally {
-        clearTimeout(expiry);
-    }
+export const holdsPermissions = (permissions, token, deps = {}) =>
+    queryHeld(permissions, { ...deps, token });
+
+/**
+ * The same question asked as the user, for flows holding no app token yet.
+ *
+ * A missing uid reports not held: asked as the user alone, their own file answers `true`.
+ *
+ * @param {string[]} permissions
+ * @param {string} appUid
+ * @param {object} [deps] Injectable seams for tests.
+ * @param {string} [deps.authToken]
+ * @param {typeof fetch} [deps.fetchImpl]
+ * @param {string} [deps.apiOrigin]
+ * @param {number} [deps.timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+export const appHoldsPermissions = (permissions, appUid, deps = {}) => {
+    if ( ! appUid ) return Promise.resolve(false);
+    const { authToken = window.auth_token, ...rest } = deps;
+    return queryHeld(permissions, { ...rest, appUid, token: authToken });
 };
 
 export default holdsPermissions;
