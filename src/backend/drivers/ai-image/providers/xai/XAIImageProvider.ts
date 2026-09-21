@@ -142,16 +142,16 @@ export class XAIImageProvider implements IImageProvider {
         }
 
         const response = hasInputImages
-            ? await this.#edit(
-                  selectedModel.id,
+            ? await this.#edit({
+                  modelId: selectedModel.id,
                   prompt,
-                  input_images!,
-                  input_image_mime_type,
+                  inputImages: input_images!,
+                  mimeHint: input_image_mime_type,
                   resolution,
                   aspectRatio,
                   imageQuality,
                   userIdentifier,
-              )
+              })
             : ((await this.#client.images.generate({
                   model: selectedModel.id,
                   prompt,
@@ -198,29 +198,39 @@ export class XAIImageProvider implements IImageProvider {
     // rejects). We reuse the SDK client's auth + baseURL via its low-level
     // post(). Input images are passed as `{ type: 'image_url', url }` objects;
     // a single object for one image, an array for multiple.
-    async #edit(
-        modelId: string,
-        prompt: string,
-        inputImages: string[],
-        mimeHint: string | undefined,
-        resolution: string,
-        aspectRatio: string | undefined,
-        quality: string | undefined,
-        user: string,
-    ): Promise<XaiImageResponse> {
+    async #edit(params: {
+        modelId: string;
+        prompt: string;
+        inputImages: string[];
+        mimeHint: string | undefined;
+        resolution: string;
+        aspectRatio: string | undefined;
+        imageQuality: string | undefined;
+        userIdentifier: string | undefined;
+    }): Promise<XaiImageResponse> {
+        const {
+            modelId,
+            prompt,
+            inputImages,
+            mimeHint,
+            resolution,
+            aspectRatio,
+            imageQuality,
+            userIdentifier,
+        } = params;
         const refs = inputImages.map((img) => ({
             type: 'image_url',
             url: toUrlOrDataUri(img, mimeHint),
         }));
         const body: Record<string, unknown> = {
             model: modelId,
-            user,
             prompt,
             image: refs.length === 1 ? refs[0] : refs,
             resolution,
         };
         if (aspectRatio) body.aspect_ratio = aspectRatio;
-        if (quality) body.quality = quality;
+        if (imageQuality) body.quality = imageQuality;
+        if (userIdentifier) body.user = userIdentifier;
         return (await this.#client.post('/images/edits', {
             body,
         })) as XaiImageResponse;

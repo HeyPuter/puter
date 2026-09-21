@@ -125,6 +125,7 @@ export class AzureChatProvider implements IChatProvider {
             reasoning_effort,
             temperature,
             text,
+            prompt_cache_key,
         } = params;
         let { messages, model } = params;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,6 +176,8 @@ export class AzureChatProvider implements IChatProvider {
         // })
 
         const userIdentifier = upstreamUserIdentifier(actor);
+        // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
+        const cacheKey = prompt_cache_key ?? userIdentifier;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs.
         // Chat Completions doesn't support file uploads, so this is the only
@@ -203,13 +206,20 @@ export class AzureChatProvider implements IChatProvider {
         const supportsReasoningControls =
             typeof model === 'string' && model.startsWith('gpt-5');
 
-        // `safety_identifier` is an OpenAI-specific param. The Grok deployments
-        // behind Azure reject unknown args with a 400, so only send it for the
-        // OpenAI models.
+        // `safety_identifier`/`prompt_cache_key` are OpenAI-specific params.
+        // The Grok deployments behind Azure reject unknown args with a 400,
+        // so only send them for the OpenAI models.
 
         const completionParams: ChatCompletionCreateParams = {
             user: userIdentifier,
-            ...(isGrok ? {} : { safety_identifier: userIdentifier }),
+            ...(isGrok
+                ? {}
+                : {
+                      safety_identifier: userIdentifier,
+                      ...(cacheKey !== undefined
+                          ? { prompt_cache_key: cacheKey }
+                          : {}),
+                  }),
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),

@@ -109,6 +109,7 @@ export class OpenAiChatProvider implements IChatProvider {
             reasoning_effort,
             temperature,
             text,
+            prompt_cache_key,
         } = params;
         let { messages, model } = params;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,6 +160,8 @@ export class OpenAiChatProvider implements IChatProvider {
         // })
 
         const userIdentifier = upstreamUserIdentifier(actor);
+        // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
+        const cacheKey = prompt_cache_key ?? userIdentifier;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs.
         // Chat Completions doesn't support file uploads, so this is the only
@@ -183,6 +186,7 @@ export class OpenAiChatProvider implements IChatProvider {
         const completionParams: ChatCompletionCreateParams = {
             user: userIdentifier,
             safety_identifier: userIdentifier,
+            ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),

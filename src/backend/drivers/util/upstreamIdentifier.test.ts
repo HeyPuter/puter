@@ -24,13 +24,13 @@ import { upstreamUserIdentifier } from './upstreamIdentifier.js';
 describe('upstreamUserIdentifier', () => {
     const user = { id: 42, uuid: 'u-42', username: 'alice' };
 
-    it('names a plain user by id alone', () => {
-        expect(upstreamUserIdentifier(makeActor({ user }))).toBe('42');
+    it('names a plain user by stable uuid', () => {
+        expect(upstreamUserIdentifier(makeActor({ user }))).toBe('puter-u-42');
     });
 
     it('appends the app an app-under-user actor carries', () => {
         const actor = makeActor({ user, app: { uid: 'app-1', id: 7 } });
-        expect(upstreamUserIdentifier(actor)).toBe('42:app-1');
+        expect(upstreamUserIdentifier(actor)).toBe('puter-u-42-app-1');
     });
 
     it('attributes an app-issued access token to the issuing app', () => {
@@ -39,12 +39,12 @@ describe('upstreamUserIdentifier', () => {
             user,
             accessToken: { uid: 'tok-1', issuer },
         });
-        expect(upstreamUserIdentifier(token)).toBe('42:app-1');
+        expect(upstreamUserIdentifier(token)).toBe('puter-u-42-app-1');
     });
 
-    it('is empty when there is no user to name', () => {
-        expect(upstreamUserIdentifier(undefined)).toBe('');
-        expect(upstreamUserIdentifier(null)).toBe('');
-        expect(upstreamUserIdentifier(SYSTEM_ACTOR)).toBe('');
+    it('is undefined when there is no user to name', () => {
+        expect(upstreamUserIdentifier(undefined)).toBeUndefined();
+        expect(upstreamUserIdentifier(null)).toBeUndefined();
+        expect(upstreamUserIdentifier(SYSTEM_ACTOR)).toBeUndefined();
     });
 });

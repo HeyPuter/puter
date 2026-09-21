@@ -44,7 +44,12 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { OpenAiImageProvider } from './OpenAiImageProvider.js';
 
@@ -153,9 +158,9 @@ describe('OpenAiImageProvider model catalog', () => {
 
     it('no longer exposes any dall-e models', () => {
         const provider = makeProvider();
-        expect(
-            provider.models().some((m) => m.id.startsWith('dall-e')),
-        ).toBe(false);
+        expect(provider.models().some((m) => m.id.startsWith('dall-e'))).toBe(
+            false,
+        );
     });
 
     it('exposes the static OPEN_AI_IMAGE_GENERATION_MODELS list verbatim', () => {
@@ -184,8 +189,8 @@ describe('OpenAiImageProvider.generate test_mode', () => {
 
 describe('OpenAiImageProvider.generate user identifier', () => {
     it.each([
-        { app: undefined, expected: '42' },
-        { app: { uid: 'app-123' }, expected: '42:app-123' },
+        { app: undefined, expected: 'puter-u42' },
+        { app: { uid: 'app-123' }, expected: 'puter-u42-app-123' },
     ])('sends $expected to OpenAI', async ({ app, expected }) => {
         generateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai.example/img.png' }],
@@ -193,8 +198,7 @@ describe('OpenAiImageProvider.generate user identifier', () => {
         await withTestActor(
             () => makeProvider().generate({ prompt: 'a tiny red dot' }),
             makeActor({
-                ...SYSTEM_ACTOR,
-                user: { ...SYSTEM_ACTOR.user, id: 42 },
+                user: { id: 42, uuid: 'u42', username: 'alice' },
                 app,
             }),
         );
@@ -281,6 +285,32 @@ describe('OpenAiImageProvider.generate output extraction', () => {
     });
 });
 
+describe('OpenAiImageProvider.generate user identifier', () => {
+    it('sends the actor uuid and effective app uid as the user field', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue({
+            data: [{ url: 'https://oai.example/img.png' }],
+        });
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'gpt-image-1-mini',
+                        prompt: 'hi',
+                        ratio: { w: 1024, h: 1024 },
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user'];
+        expect(sentIdentifierFields(generateMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
+    });
+});
+
 // ── input_images / edit endpoint ───────────────────────────────────
 
 describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
@@ -322,6 +352,25 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
         expect(sent.image).toHaveLength(2);
     });
 
+    it('sends the actor user identifier on the edit request like generation does', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gpt-image-1',
+                    prompt: 'add a hat',
+                    ratio: { w: 1024, h: 1024 },
+                    input_images: [PNG],
+                }),
+            makeActorMatrix()[1],
+        );
+
+        const sent = editMock.mock.calls[0]![0];
+        expect(sent.user).toBe('puter-u42-app-abc');
+    });
+
     it('meters an :input line at the image_input token rate when the edit response reports image tokens', async () => {
         const provider = makeProvider();
         editMock.mockResolvedValueOnce(editResponse);
@@ -345,7 +394,9 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
         // gpt-image-2: text_input=500, image_input=800 (cents/1M tokens).
         // 40 text + 560 image tokens → (40*500 + 560*800)/1e6 cents.
         const expectedCents = (40 * 500 + 560 * 800) / 1_000_000;
-        expect(inputEntry?.costOverride).toBe(Math.ceil(expectedCents * 1_000_000));
+        expect(inputEntry?.costOverride).toBe(
+            Math.ceil(expectedCents * 1_000_000),
+        );
     });
 
     it('folds singular input_image into the edit path with a single uploadable', async () => {
@@ -461,9 +512,9 @@ describe('OpenAiImageProvider.generate gpt-image-* request shape', () => {
         // gpt-image-2 rates: text_input=500, image_output=3000 (cents/1M tokens).
         expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
         const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
-        const types = (
-            entries as Array<{ usageType: string }>
-        ).map((e) => e.usageType);
+        const types = (entries as Array<{ usageType: string }>).map(
+            (e) => e.usageType,
+        );
         expect(types).toEqual(
             expect.arrayContaining([
                 'openai:gpt-image-2:low:1024x1024:input',

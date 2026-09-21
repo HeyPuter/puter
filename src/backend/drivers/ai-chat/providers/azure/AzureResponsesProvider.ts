@@ -143,6 +143,8 @@ export class AzureResponsesProvider implements IChatProvider {
             )!;
 
         const userIdentifier = upstreamUserIdentifier(actor);
+        // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
+        const cacheKey = prompt_cache_key ?? userIdentifier;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs
         // before the Responses API sees them.
@@ -206,7 +208,7 @@ export class AzureResponsesProvider implements IChatProvider {
             ...(instructions !== undefined ? { instructions } : {}),
             ...(metadata !== undefined ? { metadata } : {}),
             ...(prompt !== undefined ? { prompt } : {}),
-            ...(prompt_cache_key !== undefined ? { prompt_cache_key } : {}),
+            ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             ...(prompt_cache_retention !== undefined
                 ? { prompt_cache_retention }
                 : {}),

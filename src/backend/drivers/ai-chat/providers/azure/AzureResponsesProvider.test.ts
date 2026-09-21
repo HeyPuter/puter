@@ -40,11 +40,16 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { AzureResponsesProvider } from './AzureResponsesProvider.js';
 import { AZURE_MODELS } from './models.js';
@@ -206,17 +211,19 @@ describe('AzureResponsesProvider.complete argument validation', () => {
 // -- Request shape ---------------------------------------------------
 
 describe('AzureResponsesProvider.complete request shape', () => {
-    it('sends messages as `input`, renames max_tokens, and always sets safety_identifier', async () => {
+    it('sends messages as `input`, renames max_tokens, and sets safety_identifier from the actor', async () => {
         const provider = makeProvider();
         responsesCreateMock.mockResolvedValueOnce(okResponse);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'gpt-5.3-codex',
-                messages: [{ role: 'user', content: 'hello' }],
-                max_tokens: 256,
-                temperature: 0.3,
-            }),
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5.3-codex',
+                    messages: [{ role: 'user', content: 'hello' }],
+                    max_tokens: 256,
+                    temperature: 0.3,
+                }),
+            makeActor({ user: { id: 42, uuid: 'u42', username: 'alice' } }),
         );
 
         const [args] = responsesCreateMock.mock.calls[0]!;
@@ -224,7 +231,29 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect(args.input).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_output_tokens).toBe(256);
         expect(args.temperature).toBe(0.3);
+        expect(args.user).toBe('puter-u42');
         expect(args.safety_identifier).toBe(args.user);
+    });
+
+    it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValue(okResponse);
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'gpt-5.3-codex',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(
+            sentIdentifierFields(responsesCreateMock.mock.calls, fields),
+        ).toEqual(expectedIdentifierFields(fields));
     });
 
     it('resolves an alias against the unrestricted catalog', async () => {

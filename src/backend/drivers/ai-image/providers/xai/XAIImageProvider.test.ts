@@ -43,7 +43,12 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { XAIImageProvider } from './XAIImageProvider.js';
 
@@ -119,10 +124,7 @@ describe('XAIImageProvider construction', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
             () =>
-                new XAIImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+                new XAIImageProvider({ apiKey: '' }, server.services.metering),
         ).toThrow(/API key/i);
     });
 });
@@ -173,8 +175,8 @@ describe('XAIImageProvider.generate test_mode', () => {
 
 describe('XAIImageProvider.generate user identifier', () => {
     it.each([
-        { app: undefined, expected: '42' },
-        { app: { uid: 'app-123' }, expected: '42:app-123' },
+        { app: undefined, expected: 'puter-u42' },
+        { app: { uid: 'app-123' }, expected: 'puter-u42-app-123' },
     ])('sends $expected to xAI', async ({ app, expected }) => {
         generateMock.mockResolvedValueOnce({
             data: [{ url: 'https://x.ai/img/1' }],
@@ -182,8 +184,7 @@ describe('XAIImageProvider.generate user identifier', () => {
         await withTestActor(
             () => makeProvider().generate({ prompt: 'a tiny red dot' }),
             makeActor({
-                ...SYSTEM_ACTOR,
-                user: { ...SYSTEM_ACTOR.user, id: 42 },
+                user: { id: 42, uuid: 'u42', username: 'alice' },
                 app,
             }),
         );
@@ -201,9 +202,7 @@ describe('XAIImageProvider.generate argument validation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
 
         await expect(
-            withTestActor(() =>
-                provider.generate({ prompt: '   ' }),
-            ),
+            withTestActor(() => provider.generate({ prompt: '   ' })),
         ).rejects.toMatchObject({ statusCode: 400 });
 
         expect(generateMock).not.toHaveBeenCalled();
@@ -296,6 +295,29 @@ describe('XAIImageProvider.generate success path', () => {
         expect(out.costOverride).toBe(grok.costs['output:1k'] * 1_000_000);
     });
 
+    it('sends the actor uuid and effective app uid as the user field', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue({
+            data: [{ url: 'https://x.ai/img/abc' }],
+        });
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'grok-imagine-image',
+                        prompt: 'a small red dot',
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user'];
+        expect(sentIdentifierFields(generateMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
+    });
+
     it('uses the 2k output rate when quality is "2k"', async () => {
         const provider = makeProvider();
         generateMock.mockResolvedValueOnce({
@@ -313,9 +335,9 @@ describe('XAIImageProvider.generate success path', () => {
         const sent = generateMock.mock.calls[0]![0];
         expect(sent.resolution).toBe('2k');
         const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
-        expect(
-            (entries as Array<{ usageType: string }>)[0].usageType,
-        ).toBe('xai:grok-imagine-image-quality:output:2k');
+        expect((entries as Array<{ usageType: string }>)[0].usageType).toBe(
+            'xai:grok-imagine-image-quality:output:2k',
+        );
     });
 
     it('falls back to a base64 data URL when response carries b64_json', async () => {
@@ -379,6 +401,26 @@ describe('XAIImageProvider.generate input_images (edit endpoint)', () => {
         expect(body.model).toBe('grok-imagine-image');
         // Single image → object, not an array.
         expect(body.image).toEqual({ type: 'image_url', url: PNG });
+    });
+
+    it('sends the actor user identifier on the edit request like generation does', async () => {
+        const provider = makeProvider();
+        postMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'grok-imagine-image',
+                    prompt: 'add a hat',
+                    input_images: [PNG],
+                }),
+            makeActorMatrix()[1],
+        );
+
+        const body = (
+            postMock.mock.calls[0]![1] as { body: Record<string, unknown> }
+        ).body;
+        expect(body.user).toBe('puter-u42-app-abc');
     });
 
     it('sends an array of image objects for multi-image edits with all five references', async () => {
@@ -578,8 +620,8 @@ describe('xAI option validation', () => {
 });
 
 it.each([
-    { app: undefined, expected: '42' },
-    { app: { uid: 'app-123' }, expected: '42:app-123' },
+    { app: undefined, expected: 'puter-u42' },
+    { app: { uid: 'app-123' }, expected: 'puter-u42-app-123' },
 ])(
     'includes the user identifier $expected on xAI edits',
     async ({ app, expected }) => {
@@ -590,8 +632,7 @@ it.each([
             () =>
                 makeProvider().generate({ prompt: 'hi', input_image: 'AQID' }),
             makeActor({
-                ...SYSTEM_ACTOR,
-                user: { ...SYSTEM_ACTOR.user, id: 42 },
+                user: { id: 42, uuid: 'u42', username: 'alice' },
                 app,
             }),
         );

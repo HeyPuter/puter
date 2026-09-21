@@ -46,11 +46,16 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { AzureChatProvider } from './AzureChatProvider.js';
 import { AZURE_MODELS } from './models.js';
@@ -389,31 +394,82 @@ describe('AzureChatProvider.complete request shape', () => {
         const provider = makeProvider();
         createMock.mockResolvedValueOnce(okCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'gpt-4o',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-4o',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            makeActor({ user: { id: 42, uuid: 'u42', username: 'alice' } }),
         );
 
         const [args] = createMock.mock.calls[0]!;
+        expect(args.user).toBe('puter-u42');
         expect('safety_identifier' in args).toBe(true);
         expect(args.safety_identifier).toBe(args.user);
     });
 
-    it('strips safety_identifier for Grok deployments, which 400 on unknown args', async () => {
+    it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
+        const provider = makeProvider();
+        createMock.mockResolvedValue(okCompletion);
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'gpt-4o',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(sentIdentifierFields(createMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
+    });
+
+    it('forwards a caller-supplied prompt_cache_key instead of the derived identifier', async () => {
         const provider = makeProvider();
         createMock.mockResolvedValueOnce(okCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'grok-4-20-non-reasoning',
-                messages: [{ role: 'user', content: 'hi' }],
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-4o',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    prompt_cache_key: 'caller-key',
+                }),
+            makeActor({ user: { id: 42, uuid: 'u42', username: 'alice' } }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.prompt_cache_key).toBe('caller-key');
+        expect(args.safety_identifier).toBe('puter-u42');
+    });
+
+    it('strips safety_identifier/prompt_cache_key for Grok deployments, which 400 on unknown args', async () => {
+        const provider = makeProvider();
+        createMock.mockResolvedValueOnce(okCompletion);
+
+        // Runs under a real user actor so `user` would be present; only the
+        // Grok branch may drop `safety_identifier`/`prompt_cache_key`.
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'grok-4-20-non-reasoning',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            makeActor({
+                user: { id: 42, uuid: 'u42', username: 'alice' },
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
+        expect(args.user).toBe('puter-u42');
         expect('safety_identifier' in args).toBe(false);
+        expect('prompt_cache_key' in args).toBe(false);
         expect(args.model).toBe('grok-4-20-non-reasoning');
     });
 
