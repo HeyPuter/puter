@@ -52,6 +52,48 @@ import type {
     ReadEntriesByPathsOptions,
 } from './types.js';
 
+// Sort fields a recursive listing accepts, mapped to the SQL expression they
+// order by. `name` orders by full path: across depths, bare names interleave
+// subtrees, while path keeps every child next to its parent. NULLs drop out of
+// keyset comparisons, so nullable columns are coalesced here and in the seek.
+const DESCENDANT_SORT_EXPRESSIONS = {
+    name: 'path',
+    modified: 'COALESCE(modified, 0)',
+    size: 'COALESCE(size, -1)',
+    type: 'is_dir',
+} as const;
+
+type DescendantSortField = keyof typeof DESCENDANT_SORT_EXPRESSIONS;
+
+// Cursors are opaque to callers but arrive from the wire, so the sort they pin
+// is validated rather than trusted.
+const toDescendantSortField = (value: unknown): DescendantSortField => {
+    if (
+        typeof value === 'string' &&
+        Object.prototype.hasOwnProperty.call(DESCENDANT_SORT_EXPRESSIONS, value)
+    ) {
+        return value as DescendantSortField;
+    }
+    throw new HttpError(400, 'unsupported sort field', {
+        legacyCode: 'bad_request',
+    });
+};
+
+// The value the next page seeks from — must match the sort expression above.
+const descendantSortValue = (row: FSEntryRow, sortBy: DescendantSortField) => {
+    switch (sortBy) {
+        case 'modified':
+            return row.modified ?? 0;
+        case 'size':
+            return row.size ?? -1;
+        case 'type':
+            return row.is_dir;
+        case 'name':
+        default:
+            return row.path;
+    }
+};
+
 const ENTRY_CACHE_TTL_SECONDS = 60;
 const BULK_QUERY_CHUNK_SIZE = 200;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
@@ -1226,6 +1268,35 @@ export class FSEntryStore extends PuterStore {
         return entriesByPath;
     }
 
+    /**
+     * The entry as it stands after a patch this store just wrote. The writer
+     * already knows every column it set, so all it needs is a base, and a
+     * cache-first read supplies that without the cross-region round trip a
+     * primary read costs.
+     *
+     * Only for patches that leave `id`, `uuid` and `path` alone — the cache
+     * keys derive from those. A writer changing other columns in the same
+     * instant can have one field served stale until the entry's TTL lapses;
+     * reading the primary on every mutation is the alternative.
+     */
+    async #entryAfterPatch(
+        uuid: string,
+        patch: Partial<FSEntry>,
+    ): Promise<FSEntry | null> {
+        const base = await this.getEntryByUuid(uuid);
+        if (!base) return null;
+        const entry = { ...base, ...patch };
+        // Broadcast the new value rather than a hole: peers would otherwise
+        // serve their own cached copy of the pre-patch row until its TTL.
+        await this.publishCacheKeys({
+            keys: this.#entryCacheKeys(entry),
+            serializedData: JSON.stringify(entry),
+            ttlSeconds: ENTRY_CACHE_TTL_SECONDS,
+            broadcast: true,
+        });
+        return entry;
+    }
+
     async getEntryByUuid(id: string): Promise<FSEntry | null> {
         const cacheKey = `prodfsv2:fsentry:uuid:${id}`;
         const cached = await this.#readEntryFromCache(cacheKey);
@@ -1384,22 +1455,21 @@ export class FSEntryStore extends PuterStore {
             }
         }
 
-        const refreshedRows = (await this.clients.db.pread(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? AND user_id = ? LIMIT 1`,
-            [uuid, userId],
-        )) as unknown as FSEntryRow[];
-        const refreshedRow = refreshedRows[0];
-        if (!refreshedRow) {
+        // The UPDATE above already proved the row exists and belongs to this
+        // user, and named every column that moved — so the result is knowable
+        // without reading the row back.
+        const updatedEntry = await this.#entryAfterPatch(uuid, {
+            thumbnail,
+            modified: now,
+            accessed: now,
+        });
+        if (!updatedEntry || updatedEntry.userId !== userId) {
             throw new HttpError(
                 404,
                 'File entry was not found for thumbnail update',
                 { legacyCode: 'not_found' },
             );
         }
-
-        const updatedEntry = this.#mapFSEntryRow(refreshedRow);
-        await this.#invalidateEntryCache(updatedEntry);
-        await this.#writeEntryToCache(updatedEntry);
         return updatedEntry;
     }
 
@@ -2310,7 +2380,15 @@ export class FSEntryStore extends PuterStore {
             input.kind === 'symlink',
         );
 
-        await this.clients.db.write(
+        const isPublic =
+            input.isPublic === undefined || input.isPublic === null
+                ? null
+                : this.clients.db.booleanValue(input.isPublic);
+        const immutable = this.clients.db.booleanValue(
+            Boolean(input.immutable),
+        );
+
+        const written = await this.clients.db.write(
             `INSERT INTO fsentries (
                 uuid,
                 user_id,
@@ -2348,10 +2426,8 @@ export class FSEntryStore extends PuterStore {
                 input.associatedAppId ?? null,
                 input.metadata ?? null,
                 input.thumbnail ?? null,
-                this.clients.db.booleanValue(Boolean(input.immutable)),
-                input.isPublic === undefined || input.isPublic === null
-                    ? null
-                    : this.clients.db.booleanValue(input.isPublic),
+                immutable,
+                isPublic,
                 now,
                 now,
                 now,
@@ -2359,6 +2435,52 @@ export class FSEntryStore extends PuterStore {
             ],
         );
 
+        // The insert supplied every column; the rest take their schema default
+        // and a row this new has no subdomains. Reading it back would only
+        // return what we just sent, at the price of a primary round trip on a
+        // path app launches wait for.
+        const insertId = Number(written.insertId);
+        const row: FSEntryRow = insertId
+            ? ({
+                  id: insertId,
+                  uuid,
+                  user_id: input.parent.userId,
+                  parent_id: input.parent.id,
+                  parent_uid: input.parent.uuid,
+                  name: input.name,
+                  path,
+                  is_dir: isDir,
+                  is_shortcut: isShortcut,
+                  shortcut_to: input.shortcutTo ?? null,
+                  is_symlink: isSymlink,
+                  symlink_path: input.symlinkPath ?? null,
+                  associated_app_id: input.associatedAppId ?? null,
+                  metadata: input.metadata ?? null,
+                  thumbnail: input.thumbnail ?? null,
+                  immutable,
+                  is_public: isPublic,
+                  created: now,
+                  modified: now,
+                  accessed: now,
+                  size: 0,
+                  bucket: null,
+                  bucket_region: null,
+                  public_token: null,
+                  file_request_token: null,
+                  layout: null,
+                  sort_by: null,
+                  sort_order: null,
+                  subdomains_agg: null,
+              } as unknown as FSEntryRow)
+            : await this.#readCreatedEntryRow(uuid);
+
+        const entry = this.#mapFSEntryRow(row);
+        await this.#writeEntryToCache(entry);
+        return entry;
+    }
+
+    /** Fallback for engines that report no insert id: the row we just wrote. */
+    async #readCreatedEntryRow(uuid: string): Promise<FSEntryRow> {
         const rows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
@@ -2369,9 +2491,7 @@ export class FSEntryStore extends PuterStore {
                 legacyCode: 'internal_error',
             });
         }
-        const entry = this.#mapFSEntryRow(row);
-        await this.#writeEntryToCache(entry);
-        return entry;
+        return row;
     }
 
     /**
@@ -2389,42 +2509,41 @@ export class FSEntryStore extends PuterStore {
         const now = Math.floor(Date.now() / 1000);
         const assignments: string[] = [];
         const values: unknown[] = [];
+        const patch: Partial<FSEntry> = {};
         if (options.setAccessed) {
             assignments.push('accessed = ?');
             values.push(now);
+            patch.accessed = now;
         }
         if (options.setModified) {
             assignments.push('modified = ?');
             values.push(now);
+            patch.modified = now;
         }
         if (options.setCreated) {
             assignments.push('created = ?');
             values.push(now);
+            patch.created = now;
         }
         if (assignments.length === 0) {
             // Default: touch all three.
             assignments.push('accessed = ?', 'modified = ?', 'created = ?');
             values.push(now, now, now);
+            patch.accessed = now;
+            patch.modified = now;
+            patch.created = now;
         }
         await this.clients.db.write(
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
         );
-        // Re-read the row itself rather than going through `getEntryByUuid`:
-        // that read is cache-first and would hand back the pre-touch
-        // timestamps (and then re-cache them for another TTL).
-        const refreshedRows = (await this.clients.db.pread(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
-            [uuid],
-        )) as unknown as FSEntryRow[];
-        const refreshedRow = refreshedRows[0];
-        if (!refreshedRow)
+        // The timestamps above are the only columns that moved, so the entry
+        // is knowable without reading the row back.
+        const entry = await this.#entryAfterPatch(uuid, patch);
+        if (!entry)
             throw new HttpError(404, 'Entry not found after touch', {
                 legacyCode: 'not_found',
             });
-        const entry = this.#mapFSEntryRow(refreshedRow);
-        await this.#invalidateEntryCache(entry);
-        await this.#writeEntryToCache(entry);
         return entry;
     }
 
@@ -2655,13 +2774,20 @@ export class FSEntryStore extends PuterStore {
     /**
      * Cursor-paginated descendants of a directory, limited to `maxDepth` levels
      * below the prefix. Prefix + user_id scan (same index as
-     * `listDescendantsByPath`) with a portable slash-count depth filter. Keyset
-     * pagination on `path ASC` — path is unique per user, so no id tiebreaker.
+     * `listDescendantsByPath`) with a portable slash-count depth filter.
+     * Keyset-paginated on the requested sort; the cursor pins it, so a later
+     * page can't switch sorts mid-sequence.
      */
     async listDescendantsPage(
         userId: number,
         pathPrefix: string,
-        options: { limit?: number; cursor?: string | null; maxDepth: number },
+        options: {
+            limit?: number;
+            cursor?: string | null;
+            maxDepth: number;
+            sortBy?: DescendantSortField | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        },
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const normalizedPrefix = this.#normalizePath(pathPrefix);
         if (normalizedPrefix === '/') {
@@ -2674,19 +2800,66 @@ export class FSEntryStore extends PuterStore {
             this.#slashCount(normalizedPrefix) + Math.max(1, options.maxDepth);
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
-        const payload = decodeCursor(options.cursor) as
-            { p: string } | undefined;
-        const seek = payload ? 'AND path > ?' : '';
-        const params: unknown[] = payload
-            ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
-            : [userId, likePattern, maxSlashes, limit + 1];
+        const rawPayload = decodeCursor(options.cursor) as
+            | { v?: unknown; id?: number; s?: string; o?: string; p?: string }
+            | undefined;
+        // Cursors minted before this listing honored the sort carried only the
+        // last path, always ascending.
+        const payload =
+            rawPayload && rawPayload.v === undefined
+                ? { v: rawPayload.p, s: 'name', o: 'asc' }
+                : rawPayload;
+
+        const requestedSort = options.sortBy ?? null;
+        const requestedOrder = options.sortOrder ?? null;
+        if (
+            payload &&
+            ((requestedSort && payload.s !== requestedSort) ||
+                (requestedOrder && payload.o !== requestedOrder))
+        ) {
+            throw new HttpError(400, 'cursor does not match requested sort', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        const sortBy = toDescendantSortField(
+            requestedSort ?? payload?.s ?? 'name',
+        );
+        const sortOrder =
+            (requestedOrder ?? payload?.o) === 'desc' ? 'desc' : 'asc';
+        const sortExpr = DESCENDANT_SORT_EXPRESSIONS[sortBy];
+        const dir = sortOrder === 'desc' ? 'DESC' : 'ASC';
+        const cmp = sortOrder === 'desc' ? '<' : '>';
+
+        // A name sort orders on path, which is unique within one user's tree
+        // and so is already a total order; the other fields repeat across the
+        // subtree and fall back on `id`.
+        const tiebreak = sortBy !== 'name';
+        const seekId = Number(payload?.id);
+        const seek = !payload
+            ? ''
+            : tiebreak && Number.isFinite(seekId)
+              ? `AND (${sortExpr} ${cmp} ? OR (${sortExpr} = ? AND id ${cmp} ?))`
+              : `AND ${sortExpr} ${cmp} ?`;
+        const seekParams = !payload
+            ? []
+            : tiebreak && Number.isFinite(seekId)
+              ? [payload.v, payload.v, seekId]
+              : [payload.v];
+        const params: unknown[] = [
+            userId,
+            likePattern,
+            maxSlashes,
+            ...seekParams,
+            limit + 1,
+        ];
 
         const rows = (await this.clients.db.read(
             `SELECT ${this.#selectFsentriesColumns()}
              FROM fsentries
              WHERE user_id = ? AND path LIKE ? ESCAPE '!'
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
-             ORDER BY path ASC
+             ORDER BY ${sortExpr} ${dir}${tiebreak ? `, id ${dir}` : ''}
              LIMIT ?`,
             params,
         )) as unknown as FSEntryRow[];
@@ -2698,7 +2871,12 @@ export class FSEntryStore extends PuterStore {
         let cursor: string | undefined;
         if (hasMore) {
             const last = pageRows[pageRows.length - 1]!;
-            cursor = encodeCursor({ p: last.path });
+            cursor = encodeCursor({
+                v: descendantSortValue(last, sortBy),
+                ...(tiebreak ? { id: Number(last.id) } : {}),
+                s: sortBy,
+                o: sortOrder,
+            });
         }
 
         return { entries, ...(cursor ? { cursor } : {}) };

@@ -538,16 +538,15 @@ function resolveKey(req, scope, strategy) {
 /**
  * Bucket identity for an authenticated actor: `<user>[:<app>][:<worker>]`.
  *
- * The app segment is the app the actor acts as (`effectiveApp`, so an access
- * token minted by an app lands in that app's bucket). The worker segment is the
- * worker's session uid, unique per (user, app, worker name). Without these, a
- * busy app or worker drains the limit shared by everything else the same user
- * runs.
+ * The app segment is the app the actor acts as, so an access token minted by an
+ * app lands in that app's bucket. The worker segment is the worker's session
+ * uid, unique per (user, app, worker name). Without these, a busy app or worker
+ * drains the limit shared by everything else the same user runs.
  */
 function actorKey(actor, userId) {
     const parts = [userId];
-    const app = actor.effectiveApp ?? actor.app;
-    if (app?.uid) parts.push(app.uid);
+    const appUid = actor.effectiveApp?.uid;
+    if (appUid) parts.push(appUid);
     if (actor.session?.kind === 'worker' && actor.session.uid) {
         parts.push(actor.session.uid);
     }
@@ -709,6 +708,41 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
             '[rate-limit] imperative check failed, failing open:',
             err,
         );
+        return true;
+    }
+}
+
+/**
+ * Charge a route-shaped rate-limit spec from inside a handler.
+ *
+ * `rateLimitGate` takes one static spec per route, which is wrong for a route
+ * whose cost depends on a request parameter: `stat` with `return_shares` does
+ * the same work as the share-listing route, and should spend from the same
+ * budget. This resolves the key and the per-subscription limit exactly as the
+ * gate does — same spec in, same bucket out — so a handler can charge a second
+ * scope conditionally. Returns true if allowed; fails open on backend error.
+ * Takes the array form too; windows charge in order, no refund on refusal.
+ */
+export async function consumeRouteRateLimit(req, spec) {
+    if (Array.isArray(spec)) {
+        for (const window of spec) {
+            if (!(await consumeRouteRateLimit(req, window))) return false;
+        }
+        return true;
+    }
+    const {
+        window: windowMs,
+        key: strategy = 'fingerprint',
+        scope,
+        backend,
+    } = spec;
+    const backendPair = resolveBackend(backend);
+    const key = resolveKey(req, scope ?? req.route?.path ?? 'route', strategy);
+    try {
+        const limit = await resolveSubscriptionLimit(req, spec);
+        return await backendPair.rate(key, limit, windowMs);
+    } catch (err) {
+        console.error('[rate-limit] handler charge failed, failing open:', err);
         return true;
     }
 }

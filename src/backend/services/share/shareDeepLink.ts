@@ -27,6 +27,9 @@
 /** The query parameter the GUI routes on. */
 export const SHARE_DEEP_LINK_PARAM = 'shared';
 
+/** The issuing app (its `name`, or uid), so the GUI can match the share to it. */
+export const SHARE_DEEP_LINK_APP_PARAM = 'shared_app';
+
 export interface ShareTarget {
     /** The entry's own name, which the masked path's last segment must be. */
     name: string;
@@ -74,13 +77,22 @@ export const SHARE_DEEP_LINK_MAX_LENGTH = 2000;
  * they are signed in. Only masked paths travel — each one's second segment is
  * the uuid, so a rename is recoverable and there is no second copy to disagree
  * with the first. With no paths the link still lands on Shared.
+ *
+ * `app` rides along as `shared_app`, its length reserved up front.
  */
-export const sharedViewLink = (origin: string, paths: string[]): string => {
+export const sharedViewLink = (
+    origin: string,
+    paths: string[],
+    app?: string | null,
+): string => {
     const base = `${origin.replace(/\/+$/, '')}/?`;
+    const appParam = app
+        ? `&${SHARE_DEEP_LINK_APP_PARAM}=${encodeURIComponent(app)}`
+        : '';
     // The first items that fit, in order — never a later one over an
     // earlier, so what is highlighted reads as the top of the list.
     const params: string[] = [];
-    let length = base.length;
+    let length = base.length + appParam.length;
     for (const path of new Set(paths)) {
         if (params.length === SHARE_DEEP_LINK_ITEMS_LIMIT) break;
         const param = `${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`;
@@ -92,13 +104,17 @@ export const sharedViewLink = (origin: string, paths: string[]): string => {
     }
     return (
         base +
-        (params.length === 0 ? `${SHARE_DEEP_LINK_PARAM}=` : params.join('&'))
+        (params.length === 0 ? `${SHARE_DEEP_LINK_PARAM}=` : params.join('&')) +
+        appParam
     );
 };
 
 /** A link that opens `path`: the Shared view with that one item highlighted. */
-export const shareDeepLink = (origin: string, path: string): string =>
-    sharedViewLink(origin, [path]);
+export const shareDeepLink = (
+    origin: string,
+    path: string,
+    app?: string | null,
+): string => sharedViewLink(origin, [path], app);
 
 /** The link for a target, or `null` when it isn't addressable. */
 export const shareTargetLink = (

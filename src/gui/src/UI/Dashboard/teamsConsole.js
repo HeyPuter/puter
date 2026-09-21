@@ -203,3 +203,68 @@ export function auditSlice (entries, page, size) {
         total,
     };
 }
+
+/**
+ * A timestamp off the wire as a Date, or `null` when it is not one. Team
+ * audit rows carry unix seconds; members and teams carry an ISO string, so
+ * one reader covers both rather than each column guessing.
+ *
+ * @param {unknown} value
+ * @returns {Date | null}
+ */
+export function parseTimestamp (value) {
+    if ( value === null || value === undefined || value === '' ) return null;
+    let date;
+    if ( typeof value === 'number' ) {
+        // Anything below 1e12 cannot be milliseconds for a date after 2001.
+        date = new Date(value < 1e12 ? value * 1000 : value);
+    } else if ( typeof value === 'string' && /^\d+$/.test(value) ) {
+        return parseTimestamp(Number(value));
+    } else {
+        date = new Date(/** @type {string} */ (value));
+    }
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * The letter an avatar tile shows for a name. Uppercased so a lowercase
+ * username and a display name read the same in a row of tiles.
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function initialOf (name) {
+    const text = typeof name === 'string' ? name.trim() : '';
+    if ( ! text ) return '?';
+    // A leading handle sigil or bracket says nothing about the name.
+    const letter = text.replace(/^[^\p{L}\p{N}]+/u, '') || text;
+    return [...letter][0].toUpperCase();
+}
+
+/**
+ * Which billing sentence fits the summary. The count of suspended accounts
+ * only earns a mention when there are any -- "0 suspended cost nothing" is
+ * noise on a healthy team.
+ *
+ * @param {{ billed: number, disabled: number }} summary
+ * @returns {'teams_billing_summary_one'|'teams_billing_summary'|'teams_billing_summary_one_none'|'teams_billing_summary_none'}
+ */
+export function billingSummaryKey (summary) {
+    const one = summary?.billed === 1;
+    if ( (summary?.disabled ?? 0) > 0 ) return one ? 'teams_billing_summary_one' : 'teams_billing_summary';
+    return one ? 'teams_billing_summary_one_none' : 'teams_billing_summary_none';
+}
+
+/**
+ * A stable hue for a name's avatar tile, so the same account gets the same
+ * colour in every row and the tiles are told apart at a glance.
+ *
+ * @param {unknown} name
+ * @returns {number} degrees, 0-359
+ */
+export function avatarHue (name) {
+    const text = typeof name === 'string' ? name : '';
+    let hash = 0;
+    for ( const ch of text ) hash = (hash * 31 + ch.codePointAt(0)) % 360;
+    return hash;
+}

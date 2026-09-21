@@ -23,9 +23,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { FSController } from './FSController.js';
 import type {
     ClientSignedWriteResponse,
@@ -797,6 +799,40 @@ describe('FSController.statEntry', () => {
         await expect(controller.statEntry(req, res)).rejects.toMatchObject({
             statusCode: 401,
         });
+    });
+
+    it('draws return_shares from the share-listing budget', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/share-budget`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(makeReq({ body: { path }, actor }), makeRes().res),
+        );
+
+        // Spend the whole share:list bucket, as /share/shares' gate would.
+        const chargeReq = makeReq({ body: {}, actor });
+        for (let i = 0; i < SHARE_LIST_LIMIT.limit; i++) {
+            await consumeRouteRateLimit(chargeReq, SHARE_LIST_LIMIT);
+        }
+
+        await expect(
+            withActor(actor, () =>
+                controller.statEntry(
+                    makeReq({ body: { path, return_shares: true }, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+
+        // A plain stat spends only its own budget, so it still admits.
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.statEntry(makeReq({ body: { path }, actor }), res),
+        );
+        expect((captured.body as { name: string }).name).toBe('share-budget');
     });
 });
 
@@ -1820,6 +1856,44 @@ describe('FSController.readdirEntries recursive', () => {
                 seen.map((path) => ({ path })),
             ),
         ).toEqual(['l1a', 'l1a/l2a', 'l1a/l2a/l3a', 'l1a/l2a/l3a/l4a', 'l1b']);
+    });
+
+    it('sorts a recursive listing, paging in the same order', async () => {
+        const { actor, base } = await makeTree();
+        // A recursive `name` sort is path order, so descending walks the
+        // subtree backwards.
+        const descending = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 10,
+            sortBy: 'name',
+            sortOrder: 'desc',
+        })) as { items: Array<{ path: string }> };
+        expect(
+            descending.items.map((e) => e.path.slice(base.length + 1)),
+        ).toEqual(['l1b', 'l1a/l2a/l3a/l4a', 'l1a/l2a/l3a', 'l1a/l2a', 'l1a']);
+
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await readdir(actor, {
+                path: base,
+                recursive: true,
+                depth: 10,
+                sortOrder: 'desc',
+                limit: 2,
+                cursor,
+            })) as { items: Array<{ path: string }>; cursor?: string };
+            seen.push(...page.items.map((e) => e.path.slice(base.length + 1)));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(seen).toEqual([
+            'l1b',
+            'l1a/l2a/l3a/l4a',
+            'l1a/l2a/l3a',
+            'l1a/l2a',
+            'l1a',
+        ]);
     });
 
     it('counts the subtree with includeTotal', async () => {

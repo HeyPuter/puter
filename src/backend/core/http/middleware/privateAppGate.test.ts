@@ -20,6 +20,7 @@
 import type { Request } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { makeActor } from '../../actor';
 import type { AuthService } from '../../../services/auth/AuthService';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
@@ -780,7 +781,7 @@ describe('resolvePrivateIdentity', () => {
         expect(out.userUid).toBeUndefined();
     });
 
-    it("ignores req.actor whose actor.app.uid doesn't match the target app", async () => {
+    it("ignores req.actor whose app doesn't match the target app", async () => {
         // Cross-app token confusion guard: an app-under-user actor whose
         // issuing app is NOT the private host's app must not establish
         // identity here — even though the underlying user may have legit
@@ -791,11 +792,11 @@ describe('resolvePrivateIdentity', () => {
         const out = await resolvePrivateIdentity({
             req: reqOf({
                 cookies: {},
-                actor: {
+                actor: makeActor({
                     user: { uuid: user.uuid },
                     app: { uid: `app-attacker-${uuidv4()}` },
                     session: { uid: 'sess-1' },
-                },
+                }),
             }),
             authService,
             sessionCookieName: 'puter_auth_token',
@@ -803,6 +804,77 @@ describe('resolvePrivateIdentity', () => {
         });
         expect(out.source).toBe('none');
         expect(out.userUid).toBeUndefined();
+    });
+
+    it('ignores an app-issued access token minted for a different app', async () => {
+        // An access token carries its issuing app one hop down the chain, on
+        // `effectiveApp`, with no `app` of its own. Reading `app` here would
+        // take it for a portable session token and hand app A's token an
+        // identity on app B's private host.
+        const user = await makeUser();
+        const issuer = makeActor({
+            user: { uuid: user.uuid },
+            app: { uid: `app-attacker-${uuidv4()}` },
+        });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: { uid: `tok-${uuidv4()}`, issuer },
+                    session: { uid: 'sess-1' },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: `app-target-${uuidv4()}`,
+        });
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
+    });
+
+    it('accepts an app-issued access token minted for the target app', async () => {
+        const user = await makeUser();
+        const targetUid = `app-target-${uuidv4()}`;
+        const issuer = makeActor({
+            user: { uuid: user.uuid },
+            app: { uid: targetUid },
+        });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: { uid: `tok-${uuidv4()}`, issuer },
+                    session: { uid: 'sess-1' },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: targetUid,
+        });
+        expect(out.source).toBe('session-cookie');
+        expect(out.userUid).toBe(user.uuid);
+    });
+
+    it('still accepts a user-issued access token, which is portable', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: { uid: `tok-${uuidv4()}`, issuer },
+                    session: { uid: 'sess-1' },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: `app-target-${uuidv4()}`,
+        });
+        expect(out.source).toBe('session-cookie');
+        expect(out.userUid).toBe(user.uuid);
     });
 
     it("ignores a bootstrap query-token whose actor.app.uid doesn't match the target app", async () => {

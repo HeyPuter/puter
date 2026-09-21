@@ -408,6 +408,12 @@ Every account then resolves to an unlimited policy. Usage is still recorded, so
 the dashboard still shows what is being consumed; nothing is ever refused for
 lack of budget.
 
+For API testing, you can also set `"unlimitedMetering": true` in your
+ignored runtime config: `puter/config/config.json` for Docker, or the repository's
+`config.json` for `npm start`. Merge it into the existing config and restart Puter.
+This includes guest accounts and applies to the whole local instance. Keep normal
+metering settings when testing budget or subscription enforcement.
+
 To keep the budgets but stop them blocking anything — recording only:
 
 ```json
@@ -488,11 +494,35 @@ For GPU acceleration (NVIDIA), uncomment the `deploy:` block under the `ollama` 
 
 ## Building from source instead of pulling
 
-If you want to test local Dockerfile changes against the full stack, uncomment the `build:` block in [docker-compose.yml](../docker-compose.yml) under the `puter` service, change `pull_policy: always` → `pull_policy: never`, then:
+To run a local build against the full stack, use a source checkout and complete
+the configuration steps above. Create `docker-compose.override.yml` in the
+repository root, next to [docker-compose.yml](../docker-compose.yml):
+
+```yaml
+services:
+  puter:
+    pull_policy: never
+    build:
+      context: .
+```
+
+If that file already exists, merge these settings into its `puter` service.
+Compose loads and merges the override automatically. `build.context: .` selects
+this checkout, and `pull_policy: never` prevents pulling the published Puter image.
+
+Use this override for local build settings instead of editing `docker-compose.yml`.
+The override is ignored by Git, keeping local configuration out of pull requests
+and avoiding conflicts in the shared Compose file when pulling updates.
+
+From the repository root, build and start the stack:
 
 ```bash
 docker compose up -d --build
 ```
+
+Run the same command after changing or pulling source code to rebuild the image.
+To return to the published image, remove the local build settings (or the override
+file if those are its only settings), then run `docker compose up -d`.
 
 ---
 

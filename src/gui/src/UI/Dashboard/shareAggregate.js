@@ -97,6 +97,15 @@ const identify = (share, bucket) => {
     const name = bucket === 'pending'
         ? (share.recipientEmail ?? '')
         : (share.holder ?? '');
+    // Withheld address: still reaches someone, and has no name to group on.
+    if ( name === '' && bucket === 'pending' ) {
+        return {
+            key: `invite:${share.uid}`,
+            name: i18n('share_invited_someone'),
+            teamUid: null,
+            anonymous: true,
+        };
+    }
     if ( name === '' ) return null;
     return {
         key: `${bucket === 'pending' ? 'invite' : 'user'}:${name}`,
@@ -129,7 +138,7 @@ export const aggregateShares = (paths, sharesByPath) => {
             const bucket = bucket_of(share);
             const identity = identify(share, bucket);
             if ( ! identity ) continue;
-            const { key, name, teamUid } = identity;
+            const { key, name, teamUid, anonymous } = identity;
 
             if ( counted.has(`${key}|${bucket}`) ) continue;
             counted.add(`${key}|${bucket}`);
@@ -139,6 +148,7 @@ export const aggregateShares = (paths, sharesByPath) => {
                     key,
                     name,
                     teamUid,
+                    anonymous: anonymous === true,
                     pending: bucket === 'pending',
                     directPaths: [],
                     pendingPaths: [],
@@ -175,6 +185,7 @@ export const aggregateShares = (paths, sharesByPath) => {
             key: group.key,
             name: group.name,
             teamUid: group.teamUid,
+            anonymous: group.anonymous,
             pending: group.pending,
             directPaths: group.directPaths,
             pendingPaths: group.pendingPaths,

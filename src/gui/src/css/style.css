@@ -2224,7 +2224,7 @@ label {
 
 .login-form-title, .signup-form-title {
     text-align: center;
-    margin-top: 0;
+    margin-top: 10px;
     padding-bottom: 15px;
     font-size: 21px;
     font-weight: 500;
@@ -2233,8 +2233,75 @@ label {
     text-shadow: 1px 1px #ffffff1c;
 }
 
-.signup-form-title {
-    margin-top: 10px;
+
+.auth-opener-notice {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 16px;
+    color: #5f6368;
+}
+
+/* -- Logo strip above the login / signup forms -- */
+.auth-logo-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto;
+}
+
+.auth-logo {
+    width: 40px;
+    height: 40px;
+    display: block;
+    padding: 15px;
+    background-color: blue;
+    border-radius: 5px;
+    box-sizing: content-box;
+}
+
+/* In a sign-in popup: opener favicon, dashed link, Puter logo. */
+.auth-opener-logo {
+    position: relative;
+    width: 70px;
+    height: 70px;
+    border-radius: 5px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.auth-opener-logo-fallback,
+.auth-opener-logo-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border-radius: 5px;
+    background-color: #fff;
+    object-fit: contain;
+}
+
+/* The favicon fills the tile, like the Puter tile beside it. */
+.auth-opener-logo-img {
+    padding: 0;
+}
+
+/* Under the favicon; only seen once that one is dropped. */
+.auth-opener-logo-fallback {
+    padding: 15px;
+    opacity: 0.85;
+    outline: 1px solid rgba(0, 0, 0, 0.12);
+    outline-offset: -1px;
+}
+
+/* 6px dash, 8px gap; the width ends on a dash so both tiles are touched. */
+.auth-logo-connector {
+    width: 80px;
+    height: 2px;
+    background: repeating-linear-gradient(to right, #b0b5bb 0 6px, transparent 6px 14px);
 }
 
 .signup-c2a-clickable, .login-c2a-clickable {
@@ -6623,6 +6690,208 @@ html.dark-mode .usage-table-show-less:hover {
     flex: none;
 }
 
+/* -- Recipient suggestions --
+   Shared by this dialog and the Dashboard's share modal; each host sets the
+   palette below through its own tokens (dashboard.css restates them for
+   .share-modal). The list is anchored to the recipient row and floats over
+   what follows it, so opening and closing it never resizes the dialog. */
+.share-dialog {
+    --share-suggest-bg: #fff;
+    --share-suggest-border: #dfe3e8;
+    --share-suggest-hover: #eef1f4;
+    --share-suggest-shadow: rgba(15, 23, 42, 0.12);
+    --share-suggest-fg: #3e5362;
+    --share-suggest-muted: #7f8b99;
+    --share-suggest-picked-bg: #eef4fb;
+}
+
+.share-suggest-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+/* The field locks once an offer is chosen: a team is shared with by uid, so
+   its name left editable would go out as a username. */
+.share-suggest-picked .share-suggest-input,
+.share-suggest-picked .share-suggest-input:focus {
+    padding-right: 30px;
+    background-color: var(--share-suggest-picked-bg, #eef4fb);
+    cursor: default;
+}
+
+.share-suggest-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    transform: translateY(-50%);
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--share-suggest-muted, #7f8b99);
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .share-suggest-clear:hover {
+        background: var(--share-suggest-hover, #eef1f4);
+        color: var(--share-suggest-fg, #3e5362);
+    }
+}
+
+.share-suggest-clear:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* The row the list hangs off. The row keeps its own margins, so the list
+   below it neither inherits nor disturbs the dialog's spacing. */
+.share-suggest-anchor {
+    position: relative;
+}
+
+.share-suggest {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    margin: 0;
+    border: 1px solid var(--share-suggest-border, #dfe3e8);
+    border-radius: 10px;
+    background: var(--share-suggest-bg, #fff);
+    box-shadow: 0 8px 26px var(--share-suggest-shadow, rgba(15, 23, 42, 0.16));
+    overflow: hidden;
+}
+
+/* Opened upwards where there isn't room below it — `place()` decides, and
+   the clipping ancestor it measures against is what would cut the list off. */
+.share-suggest.share-suggest-above {
+    top: auto;
+    bottom: calc(100% + 6px);
+}
+
+.share-suggest[hidden],
+.share-suggest-note[hidden],
+.share-suggest-clear[hidden] {
+    display: none;
+}
+
+/* `place()` narrows this to the room actually available; the value here is
+   the ceiling it clamps to. */
+.share-suggest-list {
+    margin: 0;
+    padding: 4px;
+    max-height: 232px;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.share-suggest-option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .share-suggest-option:hover {
+        background: var(--share-suggest-hover, #eef1f4);
+    }
+}
+
+/* Keyboard highlight. Not :focus — focus stays in the field, as the combobox
+   pattern requires, and aria-activedescendant carries it to the reader. */
+.share-suggest-option.share-suggest-active {
+    background: var(--share-suggest-hover, #eef1f4);
+}
+
+.share-suggest-avatar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+}
+
+/* A team is not a person, so it gets a glyph rather than an initial. */
+.share-suggest-avatar-team {
+    background: var(--share-suggest-hover, #eef1f4);
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+.share-suggest-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.share-suggest-name,
+.share-suggest-sub {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.share-suggest-name {
+    font-size: 13.5px;
+    color: var(--share-suggest-fg, #3e5362);
+}
+
+.share-suggest-sub {
+    font-size: 12px;
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+.share-suggest-loading {
+    padding: 10px 9px;
+    font-size: 13px;
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+/* What sharing with a whole team means; shown only while one is chosen. */
+.share-suggest-note {
+    margin: 8px 0 12px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--share-suggest-muted, #7f8b99);
+}
+
+/* Touch: rows grow for real, the clear button keeps its 22px visual and
+   hit-tests at 44x44 through a centered pseudo-element — the same trick the
+   share modal's icon buttons use. */
+@media (pointer: coarse) {
+    .share-suggest-option {
+        min-height: 44px;
+    }
+    .share-suggest-clear::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 .share-dialog-heading {
     font-size: 13px;
     font-weight: 500;
@@ -6630,27 +6899,6 @@ html.dark-mode .usage-table-show-less:hover {
     margin: 24px 0 6px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-}
-
-/* Only rendered for a user who has a team; hidden for everyone else. */
-.share-team {
-    margin-top: 18px;
-}
-
-.share-dialog .share-team-select {
-    flex: 1;
-    min-width: 0;
-}
-
-.share-dialog .share-team-mode {
-    width: 130px;
-    flex: none;
-}
-
-.share-team-note {
-    font-size: 12px;
-    color: #7f8b99;
-    margin: -8px 0 12px;
 }
 
 /* General access: the owner's switch between people-only and anyone with

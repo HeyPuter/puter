@@ -23,6 +23,7 @@ import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -91,8 +92,13 @@ export class VideoGenerationDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, IVideoProvider> = {};
-    #modelIdMap: Record<string, IVideoModel[]> = {};
+    #providers: Record<string, IVideoProvider> = Object.create(null);
+    #modelIdMap: Record<string, IVideoModel[]> = Object.create(null);
+
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
 
     override onServerStart() {
         this.#registerProviders();
@@ -303,7 +309,7 @@ export class VideoGenerationDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const m = this.services.metering;
+        const m = this.#aiMetering;
 
         // Same lenient reader as ImageGenerationDriver — accept
         // `apiKey || secret_key`, and fall back from the video-specific

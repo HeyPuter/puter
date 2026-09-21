@@ -44,10 +44,9 @@ const userWindow = (
 ): RouteRateLimit => ({ scope, limit, window, key: 'user' });
 
 /**
- * A cap that varies by plan, in the shape route gates already declare theirs
- * in: the base is what a subscribed account sees, and `bySubscription` carves
- * the free tiers out beneath it. A plan nobody enumerated falls through to the
- * base, so a new one is generous rather than accidentally throttled.
+ * A plan-varying cap in route-gate shape: `limit` is what a subscribed account
+ * gets, `bySubscription` carves out the free tiers, unlisted plans get the
+ * base.
  */
 export interface TieredLimit {
     limit: number;
@@ -262,6 +261,14 @@ export const EVENTS_WORKER_LIST_LIMIT = userWindow('events:workers:list', 120);
  * deliveries as an account cared to register.
  */
 export const EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT = 50;
+
+/**
+ * Largest key-value value a delivery inlines, in serialized bytes. A value over
+ * this is left out and the subscriber re-reads the key: a delivery fans out to
+ * many rows, may cross regions and may sit in a backlog, none of which is sized
+ * for the store's own ceiling.
+ */
+export const EVENTS_KV_VALUE_MAX_BYTES = 16 * 1024;
 
 /**
  * Broadcast deliveries per minute, per subscription.

@@ -24,6 +24,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
+import type { Actor } from '../../actor';
 import { generateDefaultFsentries } from '../../../util/userProvisioning';
 import { createPuterSiteMiddleware } from './puterSite';
 
@@ -1449,5 +1450,153 @@ describe('createPuterSiteMiddleware — hosting CSP', () => {
         });
         expect(out.statusCode).toBe(200);
         expect(out.headers['Content-Security-Policy']).toBeUndefined();
+    });
+});
+
+// -- Sites rooted in someone else's directory ------------------------
+//
+// Hosting serves everything under the site root with the ACL bypassed, so a
+// site published from a shared folder rides on the `manage` grant that
+// authorized it. These pin that the grant is re-read on every request, and
+// that the ordinary owner-rooted site pays nothing for it.
+
+const actorFor = (user: {
+    id: number;
+    uuid: string;
+    username: string;
+}): Actor =>
+    ({
+        user: { id: user.id, uuid: user.uuid, username: user.username },
+        effectiveApp: null,
+    }) as Actor;
+
+const descriptorFor = (path: string) => ({
+    path,
+    resolveAncestors: () => server.services.fs.getAncestorChain(path),
+});
+
+const serveSite = async (sub: string) => {
+    const mw = buildMiddleware();
+    const { res, out } = makeRes();
+    await mw(
+        makeReq({
+            hostname: `${sub}.site.puter.localhost`,
+            path: '/index.html',
+        }),
+        res,
+        vi.fn(),
+    );
+    // Allow the piped stream to flush.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    return out;
+};
+
+describe('createPuterSiteMiddleware — delegated site roots', () => {
+    // Owner shares a directory at `manage`; the delegate points a subdomain
+    // at it, which is exactly what `SubdomainDriver` permits.
+    const publishSharedDir = async () => {
+        const owner = await makeUserWithHome();
+        const delegate = await makeUserWithHome();
+        const dirPath = `/${owner.username}/Documents`;
+        const dirEntry = (await server.stores.fsEntry.getEntryByPath(dirPath))!;
+        await writeFile(
+            owner.id,
+            `${dirPath}/index.html`,
+            Buffer.from('<html>shared</html>'),
+            'text/html',
+        );
+        await server.services.acl.setUserUser(
+            actorFor(owner),
+            actorFor(delegate),
+            descriptorFor(dirPath),
+            'manage',
+        );
+        const sub = `shared-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: delegate.id,
+            subdomain: sub,
+            rootDirId: dirEntry.id,
+        });
+        return { owner, delegate, dirEntry, sub };
+    };
+
+    it('serves a site whose publisher still holds `manage` on the root', async () => {
+        const { sub } = await publishSharedDir();
+        const out = await serveSite(sub);
+        expect(out.statusCode).toBe(200);
+        expect((out.body as Buffer).toString()).toBe('<html>shared</html>');
+    });
+
+    it("stops serving once the owner withdraws the publisher's `manage` grant", async () => {
+        const { owner, delegate, dirEntry, sub } = await publishSharedDir();
+        expect((await serveSite(sub)).statusCode).toBe(200);
+
+        await server.services.permission.revokeUserUserPermission(
+            actorFor(owner),
+            delegate.username,
+            `manage:fs:${dirEntry.uuid}`,
+        );
+
+        const out = await serveSite(sub);
+        expect(out.statusCode).toBe(404);
+        expect(out.contentType).toBe('text/html; charset=UTF-8');
+        expect(String(out.body)).toContain('404');
+    });
+
+    it('stops serving once the owner unshares the directory', async () => {
+        const { owner, delegate, dirEntry, sub } = await publishSharedDir();
+        expect((await serveSite(sub)).statusCode).toBe(200);
+
+        await server.services.share.unshare(actorFor(owner), {
+            uid: dirEntry.uuid,
+            recipient: { username: delegate.username },
+        });
+
+        expect((await serveSite(sub)).statusCode).toBe(404);
+    });
+
+    it('stops serving once the owner moves the root into their Trash', async () => {
+        // The grant is keyed on the node, so it survives the move — the
+        // trashed location is what makes the site unservable.
+        const { owner, dirEntry, sub } = await publishSharedDir();
+        expect((await serveSite(sub)).statusCode).toBe(200);
+
+        const trash = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Trash`,
+        ))!;
+        await server.services.fs.move(owner.id, {
+            source: dirEntry,
+            destinationParent: trash,
+        });
+
+        expect((await serveSite(sub)).statusCode).toBe(404);
+    });
+
+    it("never consults the ACL for a site rooted in the publisher's own tree", async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry =
+            (await server.stores.fsEntry.getEntryByPath(homePath))!;
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            Buffer.from('<html>mine</html>'),
+            'text/html',
+        );
+        const sub = `own-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry.id,
+        });
+
+        const aclCheck = vi.spyOn(server.services.acl, 'check');
+        try {
+            const out = await serveSite(sub);
+            expect(out.statusCode).toBe(200);
+            expect(aclCheck).not.toHaveBeenCalled();
+        } finally {
+            aclCheck.mockRestore();
+        }
     });
 });

@@ -40,7 +40,7 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
@@ -181,11 +181,11 @@ describe('XAIImageProvider.generate user identifier', () => {
         });
         await withTestActor(
             () => makeProvider().generate({ prompt: 'a tiny red dot' }),
-            {
+            makeActor({
                 ...SYSTEM_ACTOR,
                 user: { ...SYSTEM_ACTOR.user, id: 42 },
                 app,
-            },
+            }),
         );
         expect(generateMock.mock.calls[0]![0].user).toBe(expected);
     });
@@ -589,7 +589,11 @@ it.each([
         await withTestActor(
             () =>
                 makeProvider().generate({ prompt: 'hi', input_image: 'AQID' }),
-            { ...SYSTEM_ACTOR, user: { ...SYSTEM_ACTOR.user, id: 42 }, app },
+            makeActor({
+                ...SYSTEM_ACTOR,
+                user: { ...SYSTEM_ACTOR.user, id: 42 },
+                app,
+            }),
         );
         expect(postMock).toHaveBeenCalledWith('/images/edits', {
             body: expect.objectContaining({

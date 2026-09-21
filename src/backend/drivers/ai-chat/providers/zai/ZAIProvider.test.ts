@@ -44,7 +44,7 @@ import {
 } from 'vitest';
 
 import type { Actor } from '../../../../core/actor.js';
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -326,10 +326,10 @@ describe('ZAIProvider.complete request shape', () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
-        const userActor: Actor = {
+        const userActor: Actor = makeActor({
             user: { id: 42, uuid: 'u42', username: 'alice' },
             app: { id: 7, uid: 'app-uid' },
-        };
+        });
 
         await withTestActor(
             () =>

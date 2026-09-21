@@ -58,6 +58,36 @@ When in doubt, return less. Auth-, permission-, or data-export-related changes d
 
 ---
 
+## Local development configuration
+
+To test a local Docker build, create `docker-compose.override.yml` in the repository
+root (or merge into the existing file):
+
+```yaml
+services:
+  puter:
+    pull_policy: never
+    build:
+      context: .
+```
+
+Compose merges it automatically. Run `docker compose up -d --build` to build and
+start the stack, and repeat after source changes. Keep local build settings in
+this gitignored override instead of editing `docker-compose.yml`, so they stay
+out of pull requests and do not conflict when pulling updates. See
+[Self-Hosting Puter](doc/self-hosting.md#building-from-source-instead-of-pulling)
+for the required runtime configuration.
+
+For local API testing, agents may decide whether to set `"unlimitedMetering": true`
+when budget checks block unrelated tests; no additional approval is needed.
+Merge it into the ignored `config.json` for `npm start` or
+`puter/config/config.json` for Docker, then restart Puter. It applies to all
+accounts on that local instance, including guests, and usage is still recorded.
+Keep normal settings when testing budget or subscription enforcement, and leave
+shared defaults unchanged.
+
+---
+
 ## Backend
 
 A layered stack with explicit dependency injection: each layer depends only on the layers beneath it, receives them through its constructor, and `PuterServer` ([src/backend/server.ts](src/backend/server.ts)) wires the whole thing together. [doc/architecture.md](doc/architecture.md) is the full reference.

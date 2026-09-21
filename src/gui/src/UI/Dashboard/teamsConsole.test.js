@@ -3,9 +3,13 @@ import {
     annotateMembers,
     auditActionKey,
     auditSlice,
+    avatarHue,
+    billingSummaryKey,
     canDeleteAccount,
     auditReasonKey,
+    initialOf,
     memberStatesFromAudit,
+    parseTimestamp,
     membersBillingSummary,
     memberPlanLabel,
     sortMembers,
@@ -251,5 +255,67 @@ describe('paging the record', () => {
 
     it('never divides by a zero page size', () => {
         expect(auditSlice(rows(3), 0, 0).items).toHaveLength(1);
+    });
+});
+
+describe('parseTimestamp', () => {
+    it('reads the unix seconds the audit routes send', () => {
+        expect(parseTimestamp(1789672096)?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+    });
+
+    it('reads milliseconds and ISO strings, which members and teams use', () => {
+        expect(parseTimestamp(1789672096000)?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+        expect(parseTimestamp('2026-09-17T19:08:16Z')?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+        expect(parseTimestamp('1789672096')?.toISOString()).toBe('2026-09-17T19:08:16.000Z');
+    });
+
+    it('is null for nothing or garbage, so a cell prints empty rather than 1970 or Invalid Date', () => {
+        expect(parseTimestamp(null)).toBeNull();
+        expect(parseTimestamp(undefined)).toBeNull();
+        expect(parseTimestamp('')).toBeNull();
+        expect(parseTimestamp('soon')).toBeNull();
+    });
+});
+
+describe('initialOf', () => {
+    it('uppercases the first letter', () => {
+        expect(initialOf('dana')).toBe('D');
+        expect(initialOf('Acme Design')).toBe('A');
+    });
+
+    it('skips a leading sigil and copes with non-Latin names', () => {
+        expect(initialOf('@acme')).toBe('A');
+        expect(initialOf('  élan')).toBe('É');
+        expect(initialOf('日本')).toBe('日');
+    });
+
+    it('falls back to a question mark for nothing', () => {
+        expect(initialOf('')).toBe('?');
+        expect(initialOf(undefined)).toBe('?');
+    });
+});
+
+describe('avatarHue', () => {
+    it('is stable for a name and within the colour wheel', () => {
+        expect(avatarHue('dana')).toBe(avatarHue('dana'));
+        expect(avatarHue('dana')).toBeGreaterThanOrEqual(0);
+        expect(avatarHue('dana')).toBeLessThan(360);
+        expect(avatarHue(undefined)).toBe(0);
+    });
+
+    it('usually differs between neighbouring names', () => {
+        expect(avatarHue('dana')).not.toBe(avatarHue('elliot'));
+    });
+});
+
+describe('billingSummaryKey', () => {
+    it('drops the suspended clause when nobody is suspended', () => {
+        expect(billingSummaryKey({ billed: 3, disabled: 0 })).toBe('teams_billing_summary_none');
+        expect(billingSummaryKey({ billed: 1, disabled: 0 })).toBe('teams_billing_summary_one_none');
+    });
+
+    it('keeps it when there is something to say', () => {
+        expect(billingSummaryKey({ billed: 3, disabled: 2 })).toBe('teams_billing_summary');
+        expect(billingSummaryKey({ billed: 1, disabled: 1 })).toBe('teams_billing_summary_one');
     });
 });

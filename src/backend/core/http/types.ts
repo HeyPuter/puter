@@ -27,20 +27,9 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    | 'body'
-    | 'header'
-    | 'x-api-key'
-    | 'cookie'
-    | 'query'
-    | 'handshake';
+    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
 
-/**
- * Every route method PuterRouter exposes. Mirrors the express router surface
- * plus WebDAV verbs that some endpoints still use.
- *
- * `use` and `all` don't map to a single HTTP verb — they're treated uniformly
- * by the materializer (see `v2/server.ts`).
- */
+/** Express router methods plus the WebDAV verbs some endpoints use. */
 export type RouteMethod =
     | 'use'
     | 'all'
@@ -60,36 +49,15 @@ export type RouteMethod =
     | 'move';
 
 /**
- * Path shape accepted by express route methods. Kept permissive rather than
- * re-exporting express's internal `PathParams` (which isn't stable public
- * API).
+ * Express route path; kept permissive since express's `PathParams` is not
+ * public API.
  */
 export type RoutePath = string | RegExp | Array<string | RegExp>;
 
-/**
- * Per-route options declared by the caller.
- *
- * The materializer (`v2/server.ts#materializeRoute`) translates these into a
- * middleware chain in this order:
- *
- *     subdomain → requireAuth (+ suspended) → emailConfirmed →
- *     requireUserActor → adminOnly → allowedAppIds → phoneVerified →
- *     cardVerified → anyVerified → requireReputation → requireSubscription →
- *     rateLimit → requireCredits → concurrent → caller `middleware: []` →
- *     handler
- *
- * `requireUserActor`, `adminOnly`, and `allowedAppIds` all imply `requireAuth`;
- * the materializer dedupes so only one auth gate ends up in the chain.
- * Commented-out slots are reserved for the next chunks (body parsing, post-auth
- * gates, timing).
- */
 /** The account-verification factors a route can ask for by name. */
 export type VerificationFactor = 'phone' | 'card';
 
-/**
- * The user fields the account gates read. `Actor.user` is a `Partial<UserRow>`,
- * so every field is optional here too.
- */
+/** The user fields the account gates read; all optional, like `Actor.user`. */
 export type AccountGateUser = Partial<
     Pick<
         UserRow,
@@ -109,10 +77,8 @@ export interface RouteRateLimit {
     limit: number;
     window: number;
     /**
-     * Per-subscription overrides for `limit` (`SubscriptionPolicy.id` → cap).
-     * Same mechanic as `concurrent.bySubscription`: resolved via the metering
-     * service per request; falls back to the base `limit` when there's no actor
-     * / no metering / no match.
+     * Per-`SubscriptionPolicy.id` overrides for `limit`; the base applies when
+     * there is no match.
      */
     bySubscription?: Record<string, number>;
     key?: 'fingerprint' | 'ip' | 'user' | ((req: Request) => string);
@@ -120,259 +86,148 @@ export interface RouteRateLimit {
     backend?: 'memory' | 'redis' | 'kv';
 }
 
+/**
+ * Per-route options. The materializer (`v2/server.ts`) turns them into a
+ * middleware chain in this order:
+ *
+ *     subdomain → requireAuth → emailConfirmed → requireUserActor → adminOnly →
+ *     allowedAppIds → phoneVerified → cardVerified → anyVerified →
+ *     requireReputation → requireSubscription → rateLimit → requireCredits →
+ *     concurrent → `middleware` → handler
+ *
+ * Options that imply `requireAuth` are deduped to a single auth gate.
+ */
 export interface RouteOptions {
-    /**
-     * Extra per-route middleware. Applied after built-in gates, before the
-     * handler.
-     */
+    /** Extra middleware, run after the built-in gates. */
     middleware?: RequestHandler[];
 
     /**
-     * Subdomain routing. If set, the route only matches requests whose leftmost
-     * subdomain is in this list (via `next('route')` skip).
-     *
-     * If omitted, verb-routes (get/post/etc.) are restricted to the root origin
-     * only (no subdomain). Pass `'*'` to explicitly match ANY subdomain/root.
-     * `use()` middleware is not gated by default.
+     * Only match requests whose leftmost subdomain is listed. Verb routes
+     * default to the root origin only; `'*'` matches any. `use()` middleware is
+     * not gated by default.
      */
     subdomain?: string | string[];
 
-    /**
-     * Reject anonymous + suspended-user requests with 401/403. Only allows user
-     * and app actors
-     */
+    /** 401 for anonymous requests, 403 for suspended accounts. */
     requireAuth?: boolean;
 
     /** Reject app/access-token actors. Implies `requireAuth`. */
     requireUserActor?: boolean;
 
     /**
-     * Only meaningful alongside `requireUserActor`. Relaxes the access-token
-     * half of that gate so a FULL-ACCESS personal access token (the user's own
-     * credential) is admitted — third-party apps and scoped tokens stay
-     * blocked. Use ONLY on user-resource / inference endpoints that gate with
-     * `requireUserActor` purely to keep apps out (e.g. the AI proxy). NEVER set
-     * on account/security/credential routes — those must stay closed to every
-     * access token. Default-deny: omitting this keeps PATs blocked.
+     * With `requireUserActor`, admit full-access personal access tokens; apps
+     * and scoped tokens stay blocked. Never set on account or security routes.
      */
     allowFullAccessToken?: boolean;
 
-    /** Allows access-tokens */
+    /** Admit scoped access tokens. */
     allowAccessToken?: boolean;
 
     /**
-     * Reject bare user-session actors ("root" tokens — no app, no access token)
-     * with 403 `app_or_api_token_required`. Implies `requireAuth`. Use on API
-     * surfaces that must only be driven by a delegated credential (app/worker
-     * token or a dashboard-minted API token), so a copied session token can't
-     * double as an API credential. Compose with `requireUserActor` +
-     * `allowFullAccessToken` to further narrow to API tokens only (apps stay
-     * out too). Worker sessions (`session.kind === 'worker'`) always pass — a
-     * deployed worker is a delegated, revocable credential, never a root
-     * token.
+     * Reject bare account-session actors with 403 `app_or_api_token_required`;
+     * worker sessions pass. Implies `requireAuth`.
      */
     noUserSession?: boolean;
 
     /**
-     * Reject unless the actor's username is `admin`, `system`, or one of the
-     * extras in this array. `true` means just `admin`/`system`; an array adds
-     * to that pair (does not replace it). Implies `requireAuth`.
-     *
-     * Also requires a _root token_ (an actor with no app anywhere in its token
-     * chain), so an admin acting through a third-party app can't reach the
-     * route. Pair with `allowedAppIds` to make an admin route reachable by
-     * specific apps: the combination admits a root token OR a token scoped to
-     * an allowed app.
-     *
-     * Does NOT imply `requireUserActor` — a root token still includes an
-     * admin's full-access personal access token, not only browser sessions.
-     * Combine with `requireUserActor` to restrict to browser sessions.
+     * Reject unless the username is `admin`, `system`, or one of the listed
+     * extras, and the actor is a root token (no app in its chain). Pair with
+     * `allowedAppIds` to also admit tokens scoped to those apps. Implies
+     * `requireAuth`, not `requireUserActor`.
      */
     adminOnly?: boolean | string[];
 
     /**
-     * Reject an app-under-user actor whose app is not in this list. Implies
+     * Reject actors acting as an app that is not listed, whether carried
+     * directly or through the app that issued their access token. Actors with
+     * no app in the chain pass; see `allowedAppIdsGate`. Implies
      * `requireAuth`.
-     *
-     * Not an app gate: actors carrying no app of their own — browser sessions,
-     * full-access personal access tokens, workers, and access tokens issued by
-     * an app — pass through untouched. `adminOnly` + `allowedAppIds` relies on
-     * that. See `allowedAppIdsGate` before using this to scope a route to
-     * apps.
      */
     allowedAppIds?: string[];
 
     /**
-     * Allow users whose account is pending email confirmation to access this
-     * route. By default, any authenticated route rejects users where
-     * `requires_email_confirmation && !email_confirmed` with 403. Set this to
-     * `true` on essential flows that must remain accessible before
-     * confirmation: logout, email-confirm, whoami, save-account, anti-CSRF
-     * token, etc.
-     *
-     * Only meaningful when the route also requires authentication (via
-     * `requireAuth`, `requireUserActor`, `adminOnly`, or `allowedAppIds`).
+     * Let accounts still pending a verification through. For the flows that
+     * clear the pending state (logout, confirm-email, whoami, save-account).
      */
     allowUnconfirmed?: boolean;
 
     /**
-     * Reject unless the actor's user has a confirmed email. 400 with
-     * `account_is_not_verified` on failure. No-op when
-     * `config.strict_email_verification_required` is falsy, so self-hosted
-     * deployments can opt in via config. Implies `requireAuth` but NOT
-     * `requireUserActor` — app-under-user actors also carry a `.user`, so
-     * verification applies uniformly whether the user acts directly or through
-     * an app.
+     * Reject unless the email is confirmed. Inert unless
+     * `config.strict_email_verification_required`. Implies `requireAuth`.
      */
     requireVerified?: boolean;
 
     /**
-     * Reject unless the user has a phone number verified on file (verified at
-     * some point, not merely never asked to). 403
-     * `phone_verification_required`. Implies `requireAuth`; independent of the
-     * default-on pending-verification gate, which only turns away accounts the
-     * abuse harness flagged.
-     *
-     * Opt-in per route, for surfaces worth the friction of an SMS round trip.
+     * 403 `phone_verification_required` unless a phone was verified. Implies
+     * `requireAuth`.
      */
     requirePhoneVerified?: boolean;
 
     /**
-     * Reject unless the user has a card verified on file. 403
-     * `card_verification_required`. Same shape as `requirePhoneVerified` — the
-     * opt-in, "must have actually done it" counterpart of the pending gate.
+     * 403 `card_verification_required` unless a card was verified. Implies
+     * `requireAuth`.
      */
     requireCardVerified?: boolean;
 
     /**
-     * Reject unless the user has verified at least one of the named factors —
-     * `requirePhoneVerified` / `requireCardVerified` joined by OR, for a
-     * surface where either proof will do. A factor verified at any point
-     * counts, and so does a paid plan where `card` is listed — a paying account
-     * has a card on file already. Otherwise only the factors this deployment
-     * can verify are asked for (an SMS provider configured; a card gate an
-     * extension reports on), and with none of them verifiable the gate is inert
-     * rather than locking the route on a self-hosted install.
-     *
-     * 403 with the first verifiable factor's code
-     * (`phone_verification_required` / `card_verification_required`) plus
-     * `factors`, the verifiable ones in this order, so a client can lead with
-     * one flow and offer the other. Implies `requireAuth`. An empty list is a
-     * boot error.
+     * Reject unless one of the listed factors is verified; a paid plan counts
+     * for `card`. Only factors this deployment can verify are asked for, so
+     * with none verifiable the gate is inert. The 403 lists the verifiable
+     * factors in `factors`. An empty list is a boot error.
      */
     requireAnyVerified?: readonly VerificationFactor[];
 
     /**
-     * Per-route JSON body parsing override. By default the global parser
-     * handles every `application/json` request with a 50mb limit and stashes
-     * the raw bytes on `req.rawBody` for signature-verification use cases.
-     *
-     * Use this option only when a route needs different parser settings:
-     *
-     * - `false` — opt out of parsing entirely (rare; the route reads the raw
-     *   stream itself, e.g. some webhook proxies). The global parser will still
-     *   have already run if the content-type was JSON, so this is mostly useful
-     *   for routes that accept _non_-JSON body shapes and want to ensure no
-     *   further parsers attach.
-     * - `{ limit, type }` — override the limit (e.g., for ML endpoints that
-     *   legitimately need 100mb) or the matched content-type list (e.g., to
-     *   ALSO accept `application/x-ndjson`).
+     * Override the global JSON parser: `false` opts out, `{ limit, type }`
+     * changes the size limit or the matched content types.
      */
     bodyJson?: false | { limit?: string; type?: string | string[] };
 
     /**
-     * Per-route raw (Buffer) body parser. Use for binary uploads where the
-     * route handler wants `req.body: Buffer` directly. Default content-type
-     * match is `application/octet-stream`; pass `type` to override.
+     * Buffer body parser. Matches `application/octet-stream` unless `type`
+     * overrides.
      */
     bodyRaw?: boolean | { limit?: string; type?: string | string[] };
 
-    /**
-     * Per-route text body parser. `req.body` becomes a string. Default
-     * content-type match is `text/plain`.
-     */
+    /** Text body parser. Matches `text/plain` by default. */
     bodyText?: boolean | { limit?: string; type?: string | string[] };
 
-    /**
-     * Per-route urlencoded form parser. `req.body` becomes a parsed object.
-     * Default `extended: true` (uses `qs`); pass `extended: false` for the
-     * built-in `querystring` parser.
-     */
+    /** Form parser. `extended: true` (default) uses `qs`. */
     bodyUrlencoded?: boolean | { limit?: string; extended?: boolean };
 
     /**
-     * Require captcha verification. When `true`, the route rejects requests
-     * that don't carry valid `captchaToken` + `captchaAnswer` fields in the
-     * body. No-op when captcha is disabled in config.
+     * Require valid `captchaToken` + `captchaAnswer` in the body. No-op when
+     * captcha is disabled.
      */
     captcha?: boolean;
 
     /**
-     * Require a valid one-time anti-CSRF token in `req.body.anti_csrf`. The
-     * token is consumed on use. Requires authentication (keyed by user uuid).
+     * Require a valid one-time `anti_csrf` body token. Needs an authenticated
+     * user.
      */
     antiCsrf?: boolean;
 
     /**
-     * Restrict the route to pages on this deployment's own GUI origin
-     * (`config.origin`, plus any `config.allow_gui_origins`). Requests with no
-     * `Origin` header still pass — the gate stops cross-origin browser pages,
-     * not non-browser clients.
-     *
-     * For routes that return a session credential to the caller. See
-     * `guiOriginGate` for why reflected-CORS makes this necessary.
+     * Only allow pages on this deployment's GUI origin; requests with no
+     * `Origin` header still pass. For routes returning a session credential;
+     * see `guiOriginGate`.
      */
     guiOriginOnly?: boolean;
 
     /**
-     * Per-route rate limiting. In-memory sliding window keyed by request
-     * identity.
-     *
-     * `key` controls how requests are bucketed:
-     *
-     * - `'fingerprint'` (default) — network hash (IP + headers), refined by the
-     *   client's device fingerprint when one was supplied. Safe for shared IPs
-     *   (offices, VPNs): each device gets its own bucket instead of the whole
-     *   network sharing one.
-     * - `'ip'` — bare IP address.
-     * - `'user'` — actor's user ID. Use for authenticated routes where you want
-     *   per-account limits.
-     * - `(req) => string` — custom key function.
-     *
-     * `scope` is an optional namespace prefix to isolate counters between
-     * routes that share the same key strategy. Defaults to the route path.
-     *
-     * `backend` selects the storage backend ('memory' / 'redis' / 'kv'). All
-     * registered backends stay co-resident at runtime, so different routes can
-     * pick whichever fits their access pattern. Omitting `backend` uses the
-     * server-wide default (`config.rate_limit.backend`).
-     *
-     * An array applies every limit independently (a request must pass all of
-     * them). Use this to pair a per-client budget with a coarser backstop on a
-     * different key — e.g. per-fingerprint for fairness on shared IPs, plus
-     * per-IP so rotating headers can't mint fresh fingerprint buckets
-     * indefinitely. Give each entry its own `scope` so the counters don't
-     * collide.
+     * Sliding-window rate limit. `key` picks the bucket: `fingerprint`
+     * (default; network hash refined by device fingerprint), `ip`, `user`, or a
+     * function. `scope` namespaces the counter (defaults to the route path);
+     * `backend` defaults to `config.rate_limit.backend`. An array applies every
+     * limit independently; give each its own `scope`.
      */
     rateLimit?: RouteRateLimit | RouteRateLimit[];
 
     /**
-     * Concurrent in-flight limiting. Caps how many requests for this key are
-     * simultaneously in flight, rather than how many fire per window. A slot is
-     * acquired before the handler runs and released on `res.finish` /
-     * `res.close` — aborted requests still give their slot back.
-     *
-     * { concurrent: { limit: 5, key: 'user' } } { concurrent: { limit: 5,
-     * bySubscription: { user_free: 2 } } }
-     *
-     * `bySubscription` overrides the base `limit` per subscription tier
-     * (`SubscriptionPolicy.id`) — `user_free`, `temp_free`, `unlimited` out of
-     * the box. Requires the metering service to be wired into the rate-limit
-     * module (`configureRateLimit({ metering: ... })`) and an authenticated
-     * actor; otherwise the base `limit` applies.
-     *
-     * `key`, `scope`, `backend` parallel the `rateLimit` option exactly;
-     * there's no `window` — that's the whole point of the second gate.
+     * Cap simultaneous in-flight requests per key; slots are released on
+     * response finish or close. `bySubscription` overrides `limit` per
+     * `SubscriptionPolicy.id` when metering is wired in. `key`, `scope`,
+     * `backend` as in `rateLimit`.
      */
     concurrent?: {
         limit: number;
@@ -383,55 +238,23 @@ export interface RouteOptions {
     };
 
     /**
-     * Reject an account with nothing left of its usage budget with 402
-     * `insufficient_funds`.
-     *
-     * For routes that spend metered resources on the caller's behalf — moving
-     * file content, making object-store requests. Not for the routes that show
-     * an account what it has or let it delete things: an account that has run
-     * out still needs to be able to see its files, clear space, and reach its
-     * billing pages, and blocking that leaves no way out other than paying.
-     *
-     * Anonymous callers and worker sessions pass; see `requireCreditsGate`.
-     * Rate limits remain the bound on request _count_ — this bounds spend, and
-     * lags the traffic that produced it by the metering buffer window, so it
-     * stops sustained usage rather than a burst.
+     * 402 `insufficient_funds` when the account has no usage budget left. For
+     * routes that spend metered resources, not for the ones that let an account
+     * see or free up what it has. Anonymous callers and worker sessions pass.
      */
     requireCredits?: boolean;
 
     /**
-     * Reject a caller whose plan doesn't include this route with 402
-     * `subscription_required`.
-     *
-     * `true` accepts any plan that isn't one of the free ones, so a plan
-     * registered by an extension counts without being named here. An array of
-     * `SubscriptionPolicy.id`s accepts only those, for a feature that belongs
-     * to specific plans (`requireSubscription: ['business', 'pro']`).
-     *
-     * Opt-in: nothing is subscriber-only unless it says so. Implies
-     * `requireAuth` — there is no plan to read off an anonymous caller. The
-     * answer comes from the metering service's per-actor subscription cache, so
-     * the check costs a map lookup on a warm actor. Distinct from
-     * `requireCredits`, which asks whether an account has budget left rather
-     * than which plan it is on; a route may want both.
+     * 402 `subscription_required` unless the plan qualifies: `true` accepts any
+     * non-free plan, an array of `SubscriptionPolicy.id`s only those. Implies
+     * `requireAuth`.
      */
     requireSubscription?: boolean | string[];
 
     /**
-     * Reject a caller whose account isn't trusted enough for this route with
-     * 403 `reputation_required`.
-     *
-     * The value names a tier; the minimum score that tier takes is deployment
-     * config (`reputationGate.tiers`), so the number a surface is worth stays
-     * out of the surface's declaration and can be retuned without editing it. A
-     * tier the running config doesn't define is inert and everyone passes — a
-     * deployment that doesn't score its accounts turns nobody away.
-     *
-     * Opt-in, and implies `requireAuth`: there is no account to have earned
-     * anything on an anonymous caller. The declaration decides the chain, so a
-     * route asking for a tier is authenticated whether or not the tier
-     * currently enforces anything. `false` is "no requirement", the same as
-     * leaving it out.
+     * 403 `reputation_required` unless the account meets the named tier.
+     * Thresholds come from `reputationGate.tiers`; an undefined tier is inert.
+     * Implies `requireAuth`.
      */
     requireReputation?: string | false;
 
@@ -512,9 +335,7 @@ export type AuthRequired<O extends RouteOptions> = O extends {
                   ? true
                   : O extends {
                           requireSubscription:
-                              | true
-                              | readonly string[]
-                              | string[];
+                              true | readonly string[] | string[];
                       }
                     ? true
                     : O extends { requireReputation: string }

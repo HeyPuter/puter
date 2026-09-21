@@ -25,6 +25,7 @@ import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -79,6 +80,11 @@ export class ImageGenerationDriver extends PuterDriver {
         string,
         { provider: string; reason?: string }
     >();
+
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
 
     override async onServerStart() {
         this.#registerProviders();
@@ -332,7 +338,7 @@ export class ImageGenerationDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const m = this.services.metering;
+        const m = this.#aiMetering;
 
         const readKey = (
             ...cfgs: Array<Record<string, unknown> | undefined>

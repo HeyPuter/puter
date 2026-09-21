@@ -24,6 +24,7 @@ import UIWindowSignup from './UIWindowSignup.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
+import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
 
 // ── 2FA Login CSS (injected once) ───────────────────────────────────────────
 const LOGIN_2FA_CSS = `
@@ -274,11 +275,20 @@ async function UIWindowLogin (options) {
         // logo
         const logo_clickable = !!options.window_options?.cover_page && !window.embedded_in_popup;
         h += '<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">';
-        h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;${logo_clickable ? ' cursor: pointer;' : ''}">`;
+        h += authLogoHeader({
+            logoSrc: window.icons['logo-white.svg'],
+            logoClickable: logo_clickable,
+            openerOrigin: window.embedded_in_popup ? window.openerOrigin : '',
+            openerFallbackSrc: window.icons['website.svg'],
+        });
         h += '</div>';
         // title
         h += '<div style="padding:10px 20px; text-align:center; margin-bottom:0;">';
-        h += `<h1 style="font-size:18px; margin-bottom:0;">${i18n('log_in')}</h1>`;
+        h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
+        // In a sign-in popup, say which site brought the user here.
+        if (window.embedded_in_popup && window.openerOrigin) {
+            h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(window.openerOrigin).hostname])}</p>`;
+        }
         h += '</div>';
         // form
         h += '<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">';
@@ -377,6 +387,8 @@ async function UIWindowLogin (options) {
                 'align-items': 'center',
             },
         });
+
+        wireAuthLogoHeader(el_window);
 
         if ( logo_clickable ) {
             $(el_window).find('.auth-logo').on('click', function () {

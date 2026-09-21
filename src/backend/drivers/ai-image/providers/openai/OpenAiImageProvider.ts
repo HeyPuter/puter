@@ -37,6 +37,7 @@ import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { fetchImageAsBase64, isHttpUrl } from '../../inputImage.js';
 import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 interface OpenAIImageUsage {
     inputTokens: number;
@@ -182,7 +183,7 @@ export class OpenAiImageProvider implements IImageProvider {
                 legacyCode: 'unauthorized',
             });
         }
-        const userIdentifier = `${actor.user.id ?? ''}${actor.app?.uid ? `:${actor.app.uid}` : ''}`;
+        const userIdentifier = upstreamUserIdentifier(actor);
 
         const estimatedPromptTokenCount =
             this.#estimatePromptTokenCount(prompt);

@@ -21,32 +21,19 @@ import type { IConfig, WithLifecycle } from '../types';
 import type { ClickhouseClient } from './clickhouse/ClickhouseClient';
 
 /**
- * Extension-augmentable client registry. Extensions add their own client
- * instance types via TypeScript declaration merging:
- *
- *     declare module '@heyputer/backend/clients/types' {
- *         interface IExtensionClientInstances {
- *             myClient: MyClient;
- *         }
- *     }
- *
- * Augmentations flow into `this.clients` everywhere it's typed (PuterStore,
- * PuterService, PuterController, PuterDriver) and into the
- * `extension.import('client')` proxy.
+ * Extension-augmentable client registry. Extensions add typed keys by
+ * declaration-merging this interface from `@heyputer/backend/clients/types`;
+ * the result is what `this.clients` and `extension.import('client')` see. The
+ * same pattern applies to the store, service, driver and controller
+ * registries.
  */
 export interface IExtensionClientInstances {
-    /**
-     * Open index signature so reads of extension-only client keys return
-     * `unknown` instead of a type error. Concrete declaration-merged keys
-     * override this for that name.
-     */
+    /** Unmerged extension keys read as `unknown` rather than erroring. */
     [key: string]: unknown;
 
     /**
-     * Optional ClickHouse analytics client. Absent by default — a production
-     * deployment registers it via an extension to speed up the app-stats path
-     * at scale (see {@link ClickhouseClient}). Always branch on its presence and
-     * fall back to SQL.
+     * Registered by an extension; absent by default, so branch on it and fall
+     * back to SQL.
      */
     clickhouse?: ClickhouseClient;
 }

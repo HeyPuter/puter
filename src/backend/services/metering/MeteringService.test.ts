@@ -9,7 +9,7 @@ import {
     vi,
 } from 'vitest';
 import type { Actor } from '../../core/actor.ts';
-import { SYSTEM_ACTOR } from '../../core/actor.ts';
+import { SYSTEM_ACTOR, makeActor as resolveActor } from '../../core/actor.ts';
 import { PuterServer } from '../../server.ts';
 import { bucketTag } from '../../stores/metering/MeteringBufferStore.ts';
 import { setupTestServer } from '../../testUtil.ts';
@@ -423,10 +423,10 @@ describe('MeteringService', () => {
         });
 
         it('writes the per-actor / per-app aux record', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await target.incrementUsage(appActor, 'kv:read', 1, 100);
             await waitFor(async () => {
                 const u = await target.getActorAppUsage(appActor, 'my-app');
@@ -762,7 +762,10 @@ describe('MeteringService', () => {
         });
 
         it('still writes the per-app aggregate for an app actor', async () => {
-            const appActor: Actor = { ...actor, app: { uid: 'batch-app' } };
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'batch-app' },
+            });
             await target.batchIncrementUsages(appActor, [
                 { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
             ]);
@@ -852,7 +855,10 @@ describe('MeteringService', () => {
 
         it('keeps actors and their apps in separate buckets', async () => {
             const other = makeActor();
-            const appActor: Actor = { ...actor, app: { uid: 'app-1' } };
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'app-1' },
+            });
             target.bufferIncrementUsages(actor, [
                 { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
             ]);
@@ -1062,14 +1068,14 @@ describe('MeteringService', () => {
 
         it('returns the recorded usage and app totals after increments', async () => {
             const userId = actor.user.uuid;
-            const appA: Actor = {
+            const appA: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'A', id: 1 },
-            };
-            const appB: Actor = {
+            });
+            const appB: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'B', id: 2 },
-            };
+            });
             await target.incrementUsage(appA, 'kv:read', 1, 100);
             await target.incrementUsage(appB, 'kv:read', 1, 50);
 
@@ -1089,14 +1095,14 @@ describe('MeteringService', () => {
 
         it('filters appTotals by actor.app.uid and rolls others into "others"', async () => {
             const userId = actor.user.uuid;
-            const appA: Actor = {
+            const appA: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'A', id: 1 },
-            };
-            const appB: Actor = {
+            });
+            const appB: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'B', id: 2 },
-            };
+            });
             await target.incrementUsage(appA, 'kv:read', 1, 100);
             await target.incrementUsage(appB, 'kv:read', 1, 50);
 
@@ -1121,10 +1127,10 @@ describe('MeteringService', () => {
 
     describe('getActorCurrentMonthAppUsageDetails', () => {
         it('returns the per-app record for an explicit appId', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await target.incrementUsage(appActor, 'kv:read', 1, 250);
             await waitFor(async () => {
                 const r = await target.getActorCurrentMonthAppUsageDetails(
@@ -1136,10 +1142,10 @@ describe('MeteringService', () => {
         });
 
         it('defaults to the actor app id when none is supplied', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await target.incrementUsage(appActor, 'kv:read', 1, 75);
             await waitFor(async () => {
                 const r =
@@ -1151,10 +1157,10 @@ describe('MeteringService', () => {
         it('allows an app actor to query the global namespace', async () => {
             const userOnly: Actor = { user: makeUser() };
             await target.incrementUsage(userOnly, 'kv:read', 1, 60);
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: userOnly.user,
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await waitFor(async () => {
                 const r = await target.getActorCurrentMonthAppUsageDetails(
                     appActor,
@@ -1165,10 +1171,10 @@ describe('MeteringService', () => {
         });
 
         it('forbids an app actor from querying another app', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'mine', id: 1 },
-            };
+            });
             await expect(
                 target.getActorCurrentMonthAppUsageDetails(
                     appActor,
@@ -1314,10 +1320,10 @@ describe('MeteringService', () => {
         });
 
         it('forbids an app actor from reading another app', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'mine', id: 1 },
-            };
+            });
             await expect(
                 target.getActorAppUsage(appActor, 'theirs'),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -2120,7 +2126,10 @@ describe('MeteringService', () => {
 
         it('bills the user, not the app that happened to trigger it', async () => {
             chargeOnce(700);
-            const appActor: Actor = { ...actor, app: { uid: 'app-abc' } };
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'app-abc' },
+            });
 
             await target.incrementUsage(appActor, 'kv:read', 1, 50);
             await server.stores.meteringBuffer.flushCycle();
@@ -2147,13 +2156,13 @@ describe('MeteringService', () => {
             const listener = chargeOnce(800);
 
             await target.incrementUsage(
-                { ...actor, app: { uid: 'app-one' } },
+                resolveActor({ ...actor, app: { uid: 'app-one' } }),
                 'kv:read',
                 1,
                 10,
             );
             await target.incrementUsage(
-                { ...actor, app: { uid: 'app-two' } },
+                resolveActor({ ...actor, app: { uid: 'app-two' } }),
                 'kv:read',
                 1,
                 10,
@@ -2172,7 +2181,7 @@ describe('MeteringService', () => {
             );
 
             await target.incrementUsage(
-                { ...actor, app: { uid: 'app-abc' } },
+                resolveActor({ ...actor, app: { uid: 'app-abc' } }),
                 'kv:read',
                 1,
                 10,

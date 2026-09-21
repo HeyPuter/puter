@@ -63,7 +63,7 @@ export const SHARE_NOTIFY_RECIPIENT_DAILY_LIMIT = 50;
  * span goes as a single message. Email can't be rewritten the way the in-app
  * notification can, so it gets the grouped wording by waiting instead.
  */
-export const SHARE_EMAIL_BATCH_SECONDS = 30;
+export const SHARE_EMAIL_BATCH_SECONDS = 5;
 
 // Long enough to list, claim and send; short enough that a crashed flusher
 // doesn't strand the digest.
@@ -124,19 +124,19 @@ const skipped = (reason: string, detail: Record<string, unknown>): void => {
     console.log('[share-notify] not emailing:', reason, detail);
 };
 
-/**
- * Telling people what has been shared with them. Separate from `ShareService`
- * because sharing succeeds or fails on its own; being told is best-effort and
- * always off the response path.
- *
- * Two decisions per share: what the recipient's notification _says_ is always
- * kept current, while whether it may _interrupt_ them — pushed to their screen,
- * mailed to them — is budgeted, since that is the part that can bury someone.
- */
 /** Where a single-item notification points; a masked path, opened in place. */
 interface ShareNotificationTarget {
     path: string;
     name: string;
+}
+
+/**
+ * The issuing app: `label` is what the mail says, `match` what the link
+ * carries.
+ */
+interface IssuingApp {
+    label: string | null;
+    match: string;
 }
 
 /**
@@ -155,10 +155,17 @@ interface DigestEntryRecord {
     names: string[];
     /** As `names`, plus links. Absent on records queued before this shipped. */
     items?: DigestItem[];
+    /** The app the shares came through, when one did. */
+    app?: IssuingApp | null;
     /** Arrival order — KV lists by key, which is a uuid and says nothing. */
     queuedAt: number;
 }
 
+/**
+ * Tells people what was shared with them, off the response path. What the
+ * notification says is always kept current; whether it may interrupt them
+ * (push, email) is budgeted.
+ */
 export class ShareNotificationService extends PuterService {
     /**
      * The flush timers this node owns, keyed per recipient. Timers only — the
@@ -261,6 +268,7 @@ export class ShareNotificationService extends PuterService {
         const issuerId = actor.user?.id;
         const issuer = actor.user?.username;
         if (typeof issuerId !== 'number') return;
+        const app = await this.#issuingApp(actor);
 
         const counts = new Map<number, number>();
         const named = new Map<number, DigestItem[]>();
@@ -271,7 +279,7 @@ export class ShareNotificationService extends PuterService {
             issuerId,
         )) {
             counts.set(holderId, (counts.get(holderId) ?? 0) + 1);
-            const item = this.#digestItem(share);
+            const item = this.#digestItem(share, app);
             if (item) {
                 const items = named.get(holderId) ?? [];
                 if (items.length < DIGEST_NAMES_PER_SENDER) items.push(item);
@@ -309,6 +317,7 @@ export class ShareNotificationService extends PuterService {
                         count,
                         named.get(holderId) ?? [],
                         interrupt,
+                        app,
                     );
                 } catch (err) {
                     console.warn(
@@ -321,7 +330,7 @@ export class ShareNotificationService extends PuterService {
         );
 
         try {
-            await this.#emailInvites(actor, shares);
+            await this.#emailInvites(actor, shares, app);
         } catch (err) {
             console.warn('[share-notify] could not email invites:', err);
         }
@@ -634,6 +643,7 @@ export class ShareNotificationService extends PuterService {
         count: number,
         items: DigestItem[],
         mayOpen: boolean,
+        app: IssuingApp | null,
     ): Promise<void> {
         // Explicitly false, not falsy: unset means on.
         if (this.config.share_email_notifications === false) {
@@ -677,7 +687,44 @@ export class ShareNotificationService extends PuterService {
             count,
             items,
             mayOpen,
+            app,
         );
+    }
+
+    /** The app this call shares through (label: title, then name, then host). */
+    async #issuingApp(actor: Actor): Promise<IssuingApp | null> {
+        const uid = actor.effectiveApp?.uid;
+        if (!uid) return null;
+        try {
+            const app = (await this.stores.app.getByUid(uid)) as {
+                name?: string | null;
+                title?: string | null;
+                index_url?: string | null;
+            } | null;
+            if (!app) return { label: null, match: uid };
+            return {
+                label:
+                    app.title ||
+                    app.name ||
+                    this.#originOf(app.index_url) ||
+                    null,
+                match: app.name || uid,
+            };
+        } catch (err) {
+            // The mail still goes; it just can't name the app.
+            console.warn('[share-notify] could not resolve issuing app:', err);
+            return { label: null, match: uid };
+        }
+    }
+
+    /** `https://draw.example.com/v2/` → `draw.example.com`. */
+    #originOf(indexUrl: string | null | undefined): string | null {
+        if (!indexUrl) return null;
+        try {
+            return new URL(indexUrl).host || null;
+        } catch {
+            return null;
+        }
     }
 
     /**
@@ -685,13 +732,16 @@ export class ShareNotificationService extends PuterService {
      * `share.path` — that is the owner's real path here, not the recipient's to
      * see. Both forms name the owner first, which is where it comes from.
      */
-    #digestItem(share: ResolvedShare): DigestItem | null {
+    #digestItem(
+        share: ResolvedShare,
+        app: IssuingApp | null,
+    ): DigestItem | null {
         if (!share.name) return null;
         const path = this.#targetPath(share);
         if (!path) return { name: share.name };
         return {
             name: share.name,
-            link: shareDeepLink(this.#appLink(), path),
+            link: shareDeepLink(this.#appLink(), path, app?.match),
             path,
         };
     }
@@ -730,6 +780,7 @@ export class ShareNotificationService extends PuterService {
         count: number,
         items: DigestItem[],
         mayOpen: boolean,
+        app: IssuingApp | null,
     ): Promise<void> {
         // A digest is one email, so the budget is spent opening one, not per
         // share — anything arriving while one collects joins it for free.
@@ -746,6 +797,7 @@ export class ShareNotificationService extends PuterService {
             // can flush this entry; `items` is what this one reads.
             names: items.map((item) => item.name),
             items,
+            app,
             queuedAt: Date.now(),
         };
         await this.stores.kv.set({
@@ -880,8 +932,17 @@ export class ShareNotificationService extends PuterService {
                     record.sender,
                     record.count,
                     this.#recordItems(record),
+                    record.app?.label,
                 );
             }
+            // Name the app on the button only when the whole mail is its doing.
+            const matches = new Set(
+                claimed.map(({ record }) => record.app?.match ?? null),
+            );
+            const linkApp =
+                matches.size === 1
+                    ? (matches.values().next().value ?? null)
+                    : null;
             const [{ record: first }] = claimed;
             console.log('[share-notify] sending digest:', {
                 key,
@@ -905,6 +966,7 @@ export class ShareNotificationService extends PuterService {
                             link: sharedViewLink(
                                 this.#appLink(),
                                 digestItemPaths(entries),
+                                linkApp,
                             ),
                             // The template composes the unsubscribe URL from
                             // the origin, so `?` and `=` stay literal instead
@@ -963,7 +1025,11 @@ export class ShareNotificationService extends PuterService {
      * `share_email_notifications` says — there is no Puter inbox to use instead
      * — but still budgeted: an invite reaches someone who never asked for it.
      */
-    async #emailInvites(actor: Actor, shares: ResolvedShare[]): Promise<void> {
+    async #emailInvites(
+        actor: Actor,
+        shares: ResolvedShare[],
+        app: IssuingApp | null,
+    ): Promise<void> {
         if (!this.config.email) return;
         const issuerId = actor.user?.id;
         if (typeof issuerId !== 'number') return;
@@ -1007,6 +1073,7 @@ export class ShareNotificationService extends PuterService {
                     count,
                     items,
                     mayOpen,
+                    app,
                 );
             } catch (err) {
                 console.warn('[share-notify] invite email failed:', err);

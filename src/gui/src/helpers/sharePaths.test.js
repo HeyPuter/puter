@@ -19,6 +19,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+    isUuid,
     is_share_root,
     parent_path_for,
     parse_shared_path,
@@ -154,5 +155,15 @@ describe('share_link_for', () => {
             uid: UID,
             segments: ['Q3 report.txt'],
         });
+    });
+});
+
+describe('isUuid', () => {
+    it('accepts a uuid in either case and nothing else', () => {
+        expect(isUuid(UID)).toBe(true);
+        expect(isUuid(UID.toUpperCase())).toBe(true);
+        expect(isUuid(`/${UID}`)).toBe(false);
+        expect(isUuid('notes.txt')).toBe(false);
+        expect(isUuid(undefined)).toBe(false);
     });
 });

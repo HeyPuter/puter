@@ -84,6 +84,26 @@ describe('aggregateShares', () => {
         expect(groups[1].directPaths).toEqual(['/me/b']);
     });
 
+    it('keeps an invitation whose address was withheld, unnamed and unactionable', () => {
+        // Hiding the row would under-report who reaches the item.
+        const groups = aggregateShares(['/me/a', '/me/b'], new Map([
+            ['/me/a', [grant(null, 'read', { pending: true, uid: 's1' })]],
+            ['/me/b', [grant(null, 'read', { pending: true, uid: 's2' })]],
+        ]));
+
+        // Two invites, not one row folded together on the empty name.
+        expect(groups).toHaveLength(2);
+        expect(groups.map((g) => g.key)).toEqual(['invite:s1', 'invite:s2']);
+        for ( const group of groups ) {
+            expect(group).toMatchObject({
+                anonymous: true,
+                pending: true,
+                name: 'share_invited_someone',
+                accessCount: 1,
+            });
+        }
+    });
+
     it('counts an item once when two grants on it name the same person', () => {
         // Two holders can grant the same access; the item is still one item.
         const groups = aggregateShares(['/me/a'], new Map([

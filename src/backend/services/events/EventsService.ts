@@ -33,6 +33,7 @@ import {
     EVENTS_KV_HANDLE_LIMIT,
     EVENTS_KV_HANDLES_PER_APP,
     EVENTS_KV_HANDLES_PER_USER,
+    EVENTS_KV_VALUE_MAX_BYTES,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -261,6 +262,8 @@ import {
 export interface SubscribeRequest {
     subject?: unknown;
     targets?: unknown;
+    /** KV subjects only: deliver the key's new value alongside the key. */
+    includeValue?: unknown;
 }
 
 export interface UnsubscribeRequest {
@@ -386,6 +389,8 @@ export interface SubscriptionView {
     match: string | null;
     op: FsOp | null;
     targets: SubscriptionTarget[];
+    /** Whether KV deliveries on this row carry the key's new value. */
+    includeValue: boolean;
 }
 
 /**
@@ -599,6 +604,8 @@ export interface KvDispatchInput {
     namespace: string;
     keys: readonly string[];
     op: KvOp;
+    /** What each key now holds, aligned with `keys`; absent when unknown. */
+    values?: readonly unknown[];
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -901,6 +908,7 @@ const toView = (sub: DispatchSubscription): SubscriptionView => {
                 : sub.match,
         op: sub.op,
         targets: sub.targets ?? SESSION_TARGETS,
+        includeValue: sub.includeValue === true,
     };
 };
 
@@ -1111,6 +1119,51 @@ const isCrossAppKvRow = (
 ): boolean => rowAppUid !== null && rowAppUid !== targetAppUid;
 
 // -- Durable request parsing ------------------------------------------
+
+/** A flag: `true` to opt in, anything falsy for the default. */
+const parseIncludeValue = (value: unknown): true | undefined => {
+    if (value === undefined || value === null || value === false)
+        return undefined;
+    if (value === true) return true;
+    throw badRequest('includeValue must be a boolean', 'invalid_include_value');
+};
+
+/**
+ * A value rides only on a key-value row — the other families have no value to
+ * name. Decided on the raw subject, before anything is resolved, so the refusal
+ * names this and not whatever resolution would have said.
+ */
+const assertValueDeliverable = (rawSubject: string): void => {
+    if (parseSubject(rawSubject).family !== 'kv')
+        throw badRequest(
+            'includeValue applies to kv: subjects only',
+            'invalid_include_value',
+        );
+};
+
+/**
+ * The value as a delivery may carry it: the value itself under the cap, nothing
+ * over it. `undefined` never rides — it is what "no value in hand" looks like.
+ */
+const inlineKvValue = (value: unknown): { value: unknown } | undefined => {
+    if (value === undefined) return undefined;
+    const bytes = Buffer.byteLength(JSON.stringify(value) ?? 'null', 'utf8');
+    return bytes > EVENTS_KV_VALUE_MAX_BYTES ? undefined : { value };
+};
+
+/**
+ * The value rides only where the row asked for it. A share-handle row is no
+ * exception: the owner minted the handle over that region, and the delivery
+ * re-check that stops a revoked handle stops its values with it.
+ */
+const valueAsRowAskedFor = (
+    row: DispatchSubscription,
+    event: ProjectedKvEvent,
+): ProjectedKvEvent => {
+    if (event.value === undefined || row.includeValue === true) return event;
+    const { value: _value, ...withoutValue } = event;
+    return withoutValue;
+};
 
 const parseDelivery = (value: unknown): DeliveryClass => {
     if (value === undefined || value === null || value === 'broadcast')
@@ -1564,7 +1617,9 @@ export class EventsService extends PuterService {
         await this.#spendCallBudget(holderUserId);
 
         const targets = parseSessionTargets(request?.targets);
+        const includeValue = parseIncludeValue(request?.includeValue);
         const rawSubject = String(request?.subject ?? '');
+        if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
         const sub: SessionSubscription = {
@@ -1581,6 +1636,7 @@ export class EventsService extends PuterService {
             appUid: actor.effectiveApp?.uid ?? null,
             permission: anchor.permission,
             targets,
+            ...(includeValue ? { includeValue } : {}),
         };
 
         const bump = await this.stores.eventSubscription.add(sub);
@@ -1662,6 +1718,7 @@ export class EventsService extends PuterService {
         const handlerHash = parseHandlerHash(request?.handlerHash);
         const context = parseContext(request?.context);
         const expiresAt = parseExpiresAt(request?.expiresAt);
+        const includeValue = parseIncludeValue(request?.includeValue);
 
         // A `single` is owed to exactly one consumer, and the handler is the
         // only one that is always there to take it.
@@ -1679,6 +1736,7 @@ export class EventsService extends PuterService {
             await this.#assertHandlerBinding(appUid, handlerName, handlerHash);
 
         const rawSubject = String(request?.subject ?? '');
+        if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
         const { row, bump } = await this.stores.durableSubscription.create({
@@ -1698,6 +1756,7 @@ export class EventsService extends PuterService {
             permission: anchor.permission,
             expiresAt,
             limits,
+            ...(includeValue ? { includeValue } : {}),
         });
         this.#publishGeneration(bump, true);
 
@@ -3525,7 +3584,8 @@ export class EventsService extends PuterService {
      * reaching another app's namespace still reaches it under its own user.
      *
      * A batch is one bus event over many keys, so the watched-set check is one
-     * command for the whole batch rather than one per key.
+     * command for the whole batch rather than one per key. A value is measured
+     * once per key, and only once something is listening for it.
      */
     async dispatchKv(
         input: KvDispatchInput,
@@ -3557,6 +3617,11 @@ export class EventsService extends PuterService {
             id: options.forwarded && options.id ? options.id : randomUUID(),
             ts,
         }));
+        const carried: Array<{ value: unknown } | undefined> = [];
+        const valueAt = (i: number): { value: unknown } | undefined => {
+            if (!(i in carried)) carried[i] = inlineKvValue(input.values?.[i]);
+            return carried[i];
+        };
 
         const tokensPerKey = contexts.map((context) => subject.tokens(context));
         const { local, remote } =
@@ -3583,6 +3648,7 @@ export class EventsService extends PuterService {
                         appUid: namespace.appUid,
                         kvKey: context.kvKey,
                         op: context.op,
+                        ...valueAt(i),
                     },
                 });
             });
@@ -3596,6 +3662,11 @@ export class EventsService extends PuterService {
         if (options.forwarded)
             rows = rows.filter((row) => row.socketId !== undefined);
         if (rows.length === 0) return false;
+
+        if (rows.some((row) => row.includeValue === true))
+            contexts.forEach((context, i) =>
+                Object.assign(context, valueAt(i)),
+            );
 
         // Indexed once: a row holds one token, so a key's candidates are the
         // rows under the tokens it enumerated.
@@ -3688,6 +3759,9 @@ export class EventsService extends PuterService {
                     namespace: `v1:${item.kv.userUuid}:${item.kv.appUid}`,
                     keys: [item.kv.kvKey],
                     op: item.kv.op,
+                    ...(item.kv.value !== undefined
+                        ? { values: [item.kv.value] }
+                        : {}),
                 },
                 {
                     actingUserId: item.actingUserId,
@@ -3912,15 +3986,13 @@ export class EventsService extends PuterService {
             if (!isFsToken(row.token)) return event;
             return this.#asRecipientAddressesIt(row, event);
         }
+        const kv = valueAsRowAskedFor(row, event as ProjectedKvEvent);
         const handle = kvHandleFromSubject(row.subject);
-        if (handle === null) return event;
+        if (handle === null) return kv as P;
 
-        const key = relativeToKvShareRoot(
-            row.permission,
-            (event as ProjectedKvEvent).key,
-        );
+        const key = relativeToKvShareRoot(row.permission, kv.key);
         if (key === null) return null;
-        return { ...event, subject: `kv:${handle}:${key}`, key };
+        return { ...kv, subject: `kv:${handle}:${key}`, key } as P;
     }
 
     /**

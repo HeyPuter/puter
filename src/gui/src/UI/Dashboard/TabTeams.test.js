@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// The tab pulls in the dialog primitives, which pull in the whole window stack.
-// Only the tab-object contract is under test here.
-vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
-vi.mock('../UIPrompt.js', () => ({ default: vi.fn() }));
+// The tab's dialogs mount into the window; only the tab-object contract is under test here.
+vi.mock('./UIDashboardDialog.js', () => ({ default: vi.fn() }));
 
 globalThis.i18n = (key) => key;
 globalThis.html_encode = (value) => String(value);

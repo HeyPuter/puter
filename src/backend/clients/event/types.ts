@@ -54,19 +54,9 @@ export type TeamBillingEvent = TeamBillingContext & {
 };
 
 /**
- * Extension-augmentable half of {@link EventMap}. Extensions that emit their own
- * events declare the payload here by declaration merging, so both the emitter
- * and every listener are typed against the same shape:
- *
- *     declare module '@heyputer/backend/clients/event/types' {
- *         interface IExtensionEventMap {
- *             'my.thing.happened': { thingId: string };
- *         }
- *     }
- *
- * Deliberately member-less and index-signature-free: an index signature here
- * would widen `keyof EventMap` to `string` and silently disable key checking on
- * every `emit` in the tree.
+ * Extension-augmentable half of {@link EventMap}, declaration-merged like
+ * `IExtensionClientInstances`. No index signature: it would widen `keyof
+ * EventMap` to `string` and disable key checking on every `emit`.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IExtensionEventMap {}
@@ -433,6 +423,12 @@ export type EventMap = {
         userId: number;
         keys: string[];
         op: KvOp;
+        /**
+         * What each key holds after the change, aligned with `keys`: the
+         * written value on a `set`, `null` on a `del`. Absent when the write
+         * did not have it in hand, as an `expire` does not.
+         */
+        values?: unknown[];
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
@@ -698,6 +694,11 @@ export type EventMap = {
     // wildcard + veto semantics as the driver lifecycle above.
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
+    // Cost factor for recorded AI usage, keyed by driver and model:
+    // `ai.cost.factor.<driverName>.<provider>:<model>`. Emitted once per model
+    // per batch; the last listener to set `factor` wins.
+    [K in `ai.cost.factor.${string}`]: AiCostFactorEvent;
+} & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
 } & {
     /**
@@ -716,6 +717,18 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** Payload for `ai.cost.factor.<driver>.<model>` events. */
+export type AiCostFactorEvent = {
+    /** Driver doing the pricing, e.g. `ai-chat`. */
+    driver: string;
+    /** `<provider>:<model>` the usage is recorded under. */
+    model: string;
+    /** Who the usage is being charged to. */
+    actor: Actor;
+    /** Applied to the cost, starting at 1. Values <= 0 are ignored. */
+    factor: number;
+};
 
 /**
  * Phase of a request/method lifecycle. `reject` is emitted when a `before`

@@ -88,18 +88,21 @@ export class ShareStore extends PuterStore {
         const afterId = this.#afterId(cursor);
         const groups = [...new Set(groupIds)].filter(Boolean);
 
-        // Same keyset page: `ORDER BY id` holds whatever the holder is.
+        // Same keyset page: `ORDER BY id` holds whatever the holder is. A
+        // per-sender block deliberately does not apply here — a team share is
+        // the team's, not one colleague's to withhold from another.
         const holderClause = groups.length
             ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
                   .map(() => '?')
                   .join(', ')}))`
             : '`holder_user_id` = ?';
+        const holderParams = [holderUserId, ...groups];
 
         // One extra row tells us whether another page exists.
         const rows = await this.clients.db.read(
             `SELECT * FROM \`share\` WHERE ${holderClause} AND \`id\` > ? ` +
                 'ORDER BY `id` LIMIT ?',
-            [holderUserId, ...groups, afterId, size + 1],
+            [...holderParams, afterId, size + 1],
         );
 
         const hasMore = rows.length > size;
@@ -307,15 +310,47 @@ export class ShareStore extends PuterStore {
      */
     async listByFsentrySubtree(fsentryId) {
         const rows = await this.clients.db.read(
-            'WITH RECURSIVE `subtree`(`id`) AS (' +
-                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
-                'UNION ALL ' +
-                'SELECT `f`.`id` FROM `fsentries` `f` ' +
-                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
-                ') ' +
+            this.#subtreeCte() +
                 'SELECT `share`.* FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 'WHERE `share`.`holder_user_id` IS NOT NULL ' +
+                'ORDER BY `share`.`id`',
+            [fsentryId],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Team-held rows on a directory or anything beneath it. What a revoked
+     * issuer re-shared to _teams_; `listByFsentrySubtree` only sees holders.
+     *
+     * @param {number} fsentryId
+     */
+    async listGroupSharesBySubtree(fsentryId) {
+        const rows = await this.clients.db.read(
+            this.#subtreeCte() +
+                'SELECT `share`.* FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
+                'WHERE `share`.`holder_group_id` IS NOT NULL ' +
+                'ORDER BY `share`.`id`',
+            [fsentryId],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Every share row on a node and everything beneath it, whatever kind —
+     * user, group and link shares plus unclaimed invites.
+     * `listByFsentrySubtree` answers the narrower question; this one is for
+     * retiring the lot.
+     *
+     * @param {number} fsentryId
+     */
+    async listAllByFsentrySubtree(fsentryId) {
+        const rows = await this.clients.db.read(
+            this.#subtreeCte() +
+                'SELECT `share`.* FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 'ORDER BY `share`.`id`',
             [fsentryId],
         );
@@ -360,7 +395,8 @@ export class ShareStore extends PuterStore {
                 'JOIN `group` `g` ON `g`.`id` = `share`.`holder_group_id` ' +
                 `WHERE \`share\`.\`fsentry_id\` IN (${placeholders}) ` +
                 'AND `share`.`holder_group_id` IS NOT NULL ' +
-                'AND `g`.`deleted_at` IS NULL ORDER BY `share`.`id`',
+                'AND `g`.`deleted_at` IS NULL ' +
+                'ORDER BY `share`.`id`',
             fsentryIds,
         );
         // Shaped as a holder row, so the caller's fan-out needs no group branch.
@@ -368,6 +404,23 @@ export class ShareStore extends PuterStore {
             ...this.#normalizeRow(r),
             holder_user_id: Number(r.member_user_id),
         }));
+    }
+
+    /**
+     * Everyone who issued any share row (active, pending or team-held) on a
+     * directory or anything beneath it.
+     *
+     * @param {number} fsentryId
+     * @returns {Promise<number[]>}
+     */
+    async listIssuerIdsBySubtree(fsentryId) {
+        const rows = await this.clients.db.read(
+            this.#subtreeCte() +
+                'SELECT DISTINCT `share`.`issuer_user_id` FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id`',
+            [fsentryId],
+        );
+        return rows.map((row) => Number(row.issuer_user_id));
     }
 
     /**
@@ -407,6 +460,8 @@ export class ShareStore extends PuterStore {
      */
     async countByHolder(holderUserId, { groupIds = [] } = {}) {
         const groups = [...new Set(groupIds)].filter(Boolean);
+        // Same union as `listByHolder`, blocks included, or the total and the
+        // page disagree.
         const holderClause = groups.length
             ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
                   .map(() => '?')
@@ -808,12 +863,7 @@ export class ShareStore extends PuterStore {
         // dialects disagree on. The gap between the two only ever leaves an
         // invite standing, and the claim path re-checks authority anyway.
         const rows = await this.clients.db.read(
-            'WITH RECURSIVE `subtree`(`id`) AS (' +
-                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
-                'UNION ALL ' +
-                'SELECT `f`.`id` FROM `fsentries` `f` ' +
-                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
-                ') ' +
+            this.#subtreeCte() +
                 'SELECT `share`.`uid` FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
                 // Group and link rows also have no holder user; deleting one
@@ -1006,6 +1056,18 @@ export class ShareStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
+
+    /** The recursive walk of a directory's row ids, by parent linkage. */
+    #subtreeCte() {
+        return (
+            'WITH RECURSIVE `subtree`(`id`) AS (' +
+            'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
+            'UNION ALL ' +
+            'SELECT `f`.`id` FROM `fsentries` `f` ' +
+            'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
+            ') '
+        );
+    }
 
     /** @param {number} [limit] */
     #pageSize(limit) {

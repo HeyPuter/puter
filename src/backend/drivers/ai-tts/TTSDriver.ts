@@ -19,6 +19,7 @@
 
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -72,6 +73,11 @@ export class TTSDriver extends PuterDriver {
     readonly concurrent = AI_CONCURRENT;
 
     #providers: Record<string, ITTSProvider> = {};
+
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
 
     override onServerStart() {
         this.#registerProviders();
@@ -244,7 +250,7 @@ export class TTSDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const m = this.services.metering;
+        const m = this.#aiMetering;
 
         const openaiConfig =
             (providers['openai-tts'] as Record<string, unknown> | undefined) ??
@@ -317,7 +323,7 @@ export class TTSDriver extends PuterDriver {
     }
 
     #registerGeminiProvider(providers: Record<string, unknown>) {
-        const m = this.services.metering;
+        const m = this.#aiMetering;
         const gemini = (providers['gemini'] ?? providers['gemini-tts']) as
             Record<string, unknown> | undefined;
         const geminiKey =
@@ -339,7 +345,7 @@ export class TTSDriver extends PuterDriver {
     }
 
     #registerXAIProvider(providers: Record<string, unknown>) {
-        const m = this.services.metering;
+        const m = this.#aiMetering;
         const xai = (providers['xai'] ?? providers['xai-tts']) as
             Record<string, unknown> | undefined;
         const xaiKey =
@@ -361,7 +367,7 @@ export class TTSDriver extends PuterDriver {
     }
 
     #registerSpeechifyProvider(providers: Record<string, unknown>) {
-        const m = this.services.metering;
+        const m = this.#aiMetering;
         const speechify = (providers['speechify'] ??
             providers['speechify-tts']) as Record<string, unknown> | undefined;
         const speechifyKey =

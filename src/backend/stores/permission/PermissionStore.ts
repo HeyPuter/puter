@@ -986,6 +986,9 @@ export class PermissionStore extends PuterStore {
      * Reads group permissions granted to groups the user is a member of, for a
      * given set of permission strings. Result already joined against
      * `jct_user_group` so callers don't need group membership resolution.
+     * Deliberately blind to the block list: this reading also answers authority
+     * checks that gate permanent revocations, and a block only suspends
+     * delivery (which the share listings and fan-out filter themselves).
      */
     async readUserGroupPerms(
         userId: number,

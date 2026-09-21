@@ -4729,8 +4729,8 @@ export class AuthController extends PuterController {
         };
         try {
             await this.clients.event?.emitAndWait(
-                'email.validate' as never,
-                validateEvent as never,
+                'email.validate',
+                validateEvent,
                 {},
             );
         } catch (e) {

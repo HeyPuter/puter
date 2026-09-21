@@ -27,6 +27,7 @@ import type { IGenerateParams, IImageProvider } from '../../types.js';
 import { XAI_IMAGE_GENERATION_MODELS, type XaiImageModel } from './models.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { toUrlOrDataUri } from '../../inputImage.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 const DEFAULT_MODEL = 'grok-imagine-image';
 // xAI's Grok Imagine edit endpoint accepts up to 5 source images per request.
@@ -120,7 +121,7 @@ export class XAIImageProvider implements IImageProvider {
                 legacyCode: 'unauthorized',
             });
         }
-        const userIdentifier = `${actor.user.id ?? ''}${actor.app?.uid ? `:${actor.app.uid}` : ''}`;
+        const userIdentifier = upstreamUserIdentifier(actor);
 
         const outputPriceInCents = selectedModel.costs[outputCostKey];
         const mediaInputPriceInCents = selectedModel.costs.media_input ?? 0;
