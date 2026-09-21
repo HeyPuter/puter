@@ -1127,12 +1127,16 @@ describe('share endpoints over HTTP', () => {
             expect(mine.status).toBe(200);
             expect(await mine.text()).toContain(email);
 
+            // The app is answered, but bounded to the rows it issued — and it
+            // issued none, so the owner's invite is not among them.
             const app = await appHolding(owner, file.uid, (u) => `fs:${u}:read`);
             const peeked = await get('/share/shares', app.token, {
                 uid: file.uid,
             });
-            expect(peeked.status).not.toBe(200);
-            expect(await peeked.text()).not.toContain(email);
+            expect(peeked.status).toBe(200);
+            const peekedBody = await peeked.text();
+            expect(peekedBody).not.toContain(email);
+            expect(JSON.parse(peekedBody).items).toEqual([]);
 
             // `return_shares` is the same listing on an access-token surface.
             const stat = await post('/fs/stat', app.token, {
@@ -1147,7 +1151,7 @@ describe('share endpoints over HTTP', () => {
 
         // The ticket's second route in: `ShareController` admits no access
         // token, but `/fs/stat` does, and `return_shares` is the same listing.
-        it('refuses a list-scoped access token on the `return_shares` surface', async () => {
+        it('withholds the listing from a list-scoped access token', async () => {
             const owner = env.users.user;
             const { file, email } = await invitedFile(owner);
             const user = await env.server.stores.user.getByUsername(
@@ -1208,8 +1212,13 @@ describe('share endpoints over HTTP', () => {
             });
             expect(res.status).toBe(200);
             const text = await res.text();
-            // The invite is listed; the address it names is not.
-            expect(JSON.parse(text).items.some((i: { pending?: boolean }) => i.pending)).toBe(true);
+            // `manage` buys an app authority over the item, not sight of who
+            // else the owner invited to it.
+            expect(
+                JSON.parse(text).items.some(
+                    (i: { pending?: boolean }) => i.pending,
+                ),
+            ).toBe(false);
             expect(text).not.toContain(email);
         });
     });

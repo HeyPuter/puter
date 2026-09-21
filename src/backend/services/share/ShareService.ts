@@ -2208,10 +2208,19 @@ export class ShareService extends PuterService {
         // reaches the node — another app, a delegate, an address the user
         // invited — is the user's business, not the app's.
         const actingApp = this.#actingAppUid(actor);
-        const issuedHere = <T extends { data?: unknown }>(list: T[]): T[] =>
-            actingApp
-                ? list.filter((row) => issuedByApp(row) === actingApp)
-                : list;
+        // A scoped token issues nothing under its own name, so it is bounded
+        // to nothing: filtering it by a null app would hand it the owner's own
+        // rows instead of none. A full-access token holds the account's reach
+        // and is not bounded at all.
+        const scopedToken =
+            !!actor.accessToken && actor.accessToken.fullAccess !== true;
+        const issuedHere = <T extends { data?: unknown }>(list: T[]): T[] => {
+            if (scopedToken) return [];
+            if (actingApp) {
+                return list.filter((row) => issuedByApp(row) === actingApp);
+            }
+            return list;
+        };
 
         const inherited: Array<{ row: ShareIndexRow; via: string }> =
             issuedHere(
