@@ -1,16 +1,33 @@
 import { PuterPeerConnection } from './PuterPeerConnection.js';
-import { PuterPeerServerConnectionEvent } from './events.js';
+import {
+    PuterPeerServerConnectionEvent,
+    PuterPeerServerReconnectEvent,
+} from './events.js';
 import { ServerSignallingChannel } from './signalling.js';
 
 /** @typedef {import('./types.js').PuterPeerOptions} PuterPeerOptions */
+
+/** How long to wait for the signaller to answer a registration. */
+const CREATE_TIMEOUT_MS = 15_000;
+
+/** Reconnect backoff for a socket that dropped under a running server. */
+const RECONNECT_BASE_MS = 500;
+const RECONNECT_MAX_MS = 15_000;
 
 /**
  * A peer server. One websocket to the signaller carries every client, so
  * connections are addressed on it by id; each gets its own channel wrapper.
  *
- * The socket is registered once and never replaced. While it is down no new
- * client can be accepted and nothing reaches the ones already connected, so
- * `signallingAlive` says so and every channel is told.
+ * A socket that drops is dialled again, and the registration reclaims the
+ * session it left behind: same invite code, same clients still routed to
+ * it. That is what lets a host whose laptop slept pick the call back up
+ * instead of every guest having to build a new link. Until it is back,
+ * `signallingAlive` is false and every channel knows it.
+ *
+ * A reclaim that fails - gone too long, signaller restarted - registers
+ * fresh instead, under a new code. The clients that were attached to the
+ * old session can no longer be reached, so their channels are stranded
+ * rather than left to time out one signal at a time.
  */
 export class PuterPeerServer extends EventTarget {
     connections = new Map();
@@ -24,6 +41,13 @@ export class PuterPeerServer extends EventTarget {
     /** @type {{ resolve: Function, reject: Function } | null} */
     #pendingCreate = null;
     #alive = false;
+    #closed = false;
+    /** @type {PuterPeerOptions} */
+    #options = {};
+    /** @type {string | undefined} */
+    #resumeToken;
+    #reconnectTimer = null;
+    #reconnectAttempts = 0;
 
     constructor ( peerConfig ) {
         super();
@@ -39,6 +63,19 @@ export class PuterPeerServer extends EventTarget {
      * @returns {Promise<string>}
      */
     async start ( options = {} ) {
+        this.#options = options;
+        const { inviteCode } = await this.#register();
+        return inviteCode;
+    }
+
+    /**
+     * Opens a socket and registers on it. On every call after the first this
+     * presents the resume token, so the signaller hands the same session
+     * back while it still holds it.
+     *
+     * @returns {Promise<{ inviteCode: string, resumed: boolean }>}
+     */
+    async #register () {
         const ws = new WebSocket(this.#peerConfig.signallerUrl);
         this.#wsconn = ws;
 
@@ -50,28 +87,36 @@ export class PuterPeerServer extends EventTarget {
 
         this.#alive = true;
         ws.onerror = null;
-        ws.onmessage = (event) => this.#message(event);
+        ws.onmessage = (event) => this.#message(event, ws);
         ws.onclose = () => {
+            if ( this.#wsconn !== ws ) return;
             this.#alive = false;
             this.#wsconn = null;
             for ( const channel of this.#channels.values() ) channel.onunusable();
-            this.#settleCreate((pending) => {
+            this.#settleCreate(ws, (pending) => {
                 pending.reject(new Error('Connection closed unexpectedly'));
             });
+            if ( ! this.#closed ) this.#scheduleReconnect();
         };
 
         ws.send(JSON.stringify({
             server: {
                 create: {
                     authToken: this.#peerConfig.authToken,
-                    anonToken: options.anonToken,
-                    port: options.port,
+                    anonToken: this.#options.anonToken,
+                    port: this.#options.port,
+                    resume: this.#resumeToken,
                 },
             },
         }));
 
-        this.inviteCode = await new Promise((resolve, reject) => {
-            this.#pendingCreate = { resolve, reject };
+        const reply = await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.#settleCreate(ws, (pending) => {
+                    pending.reject(new Error('Server creation timed out'));
+                });
+            }, CREATE_TIMEOUT_MS);
+            this.#pendingCreate = { ws, resolve, reject, timer };
         }).catch((error) => {
             ws.onclose = null;
             try {
@@ -79,18 +124,62 @@ export class PuterPeerServer extends EventTarget {
             } catch {
                 // The failed registration is already unusable.
             }
-            this.#alive = false;
-            this.#wsconn = null;
+            // Only if this socket is still the live one: a registration
+            // already replaced must not mark its successor dead.
+            if ( this.#wsconn === ws ) {
+                this.#alive = false;
+                this.#wsconn = null;
+            }
             throw error;
         });
 
-        return this.inviteCode;
+        const resumed = !! reply.resumed;
+        // A registration that did not reclaim the old session leaves every
+        // client of it unreachable, whatever the socket says.
+        for ( const channel of this.#channels.values() ) {
+            if ( resumed ) channel.onusable();
+            else channel.strand();
+        }
+        this.#resumeToken = reply.resumeToken ?? this.#resumeToken;
+        this.inviteCode = reply.invitecode ?? this.inviteCode;
+        return { inviteCode: this.inviteCode, resumed };
     }
 
-    /** Settles the registration handshake, if one is still waiting on a reply. */
-    #settleCreate ( settle ) {
+    #scheduleReconnect () {
+        if ( this.#closed || this.#reconnectTimer ) return;
+        const attempt = this.#reconnectAttempts++;
+        const backoff = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+        const delay = backoff / 2 + Math.random() * (backoff / 2);
+        this.#reconnectTimer = setTimeout(() => {
+            this.#reconnectTimer = null;
+            void this.#reconnect();
+        }, delay);
+    }
+
+    async #reconnect () {
+        if ( this.#closed ) return;
+        let registration;
+        try {
+            registration = await this.#register();
+        } catch {
+            if ( ! this.#closed ) this.#scheduleReconnect();
+            return;
+        }
+        this.#reconnectAttempts = 0;
+        this.dispatchEvent(
+            new PuterPeerServerReconnectEvent(registration.inviteCode, registration.resumed),
+        );
+    }
+
+    /**
+     * Settles the registration `ws` is waiting on, if it is still the one in
+     * flight - a replaced socket must not settle its successor's handshake.
+     * Passing no socket settles whichever is, which is what closing does.
+     */
+    #settleCreate ( ws, settle ) {
         const pending = this.#pendingCreate;
-        if ( ! pending ) return;
+        if ( ! pending || ( ws && pending.ws !== ws ) ) return;
+        clearTimeout(pending.timer);
         this.#pendingCreate = null;
         settle(pending);
     }
@@ -110,7 +199,7 @@ export class PuterPeerServer extends EventTarget {
         }
     }
 
-    async #message ( event ) {
+    async #message ( event, ws ) {
         let data;
         try {
             data = JSON.parse(event.data);
@@ -121,9 +210,9 @@ export class PuterPeerServer extends EventTarget {
 
         if ( data.server.create ) {
             const reply = data.server.create;
-            this.#settleCreate((pending) => {
+            this.#settleCreate(ws, (pending) => {
                 if ( reply.success ) {
-                    pending.resolve(reply.invitecode);
+                    pending.resolve(reply);
                 } else {
                     pending.reject(new Error(reply.error));
                 }
@@ -161,9 +250,15 @@ export class PuterPeerServer extends EventTarget {
     }
 
     close () {
-        this.#settleCreate((pending) => {
+        this.#closed = true;
+        if ( this.#reconnectTimer ) clearTimeout(this.#reconnectTimer);
+        this.#reconnectTimer = null;
+        this.#settleCreate(null, (pending) => {
             pending.reject(new Error('The server was closed'));
         });
+        // Give the invite code up rather than leave it held for a server
+        // that is never coming back.
+        if ( this.#alive ) this.relay({ release: {} });
         for ( const connection of this.connections.values() ) connection.close();
         this.connections.clear();
         this.#channels.clear();

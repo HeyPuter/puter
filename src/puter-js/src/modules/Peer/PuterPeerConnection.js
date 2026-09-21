@@ -13,8 +13,19 @@ import {
 /** @typedef {import('./types.js').PuterPeerOptions} PuterPeerOptions */
 /** @typedef {import('./tracks.js').PuterPeerPublishOptions} PuterPeerPublishOptions */
 
-/** How many times ICE may be restarted before the connection is given up on. */
-const ICE_RESTART_LIMIT = 3;
+/**
+ * How long to keep trying to rescue a link before giving it up.
+ *
+ * Counted in time rather than attempts, because what recovery is usually
+ * waiting on is the peer coming back - a lid reopened, a network rejoined -
+ * and that takes as long as it takes. A minute covers the ordinary cases
+ * and still ends a call to someone who is not coming back.
+ */
+const RECOVERY_BUDGET_MS = 60_000;
+
+/** Gap between restart attempts, doubling, so a long wait stays quiet. */
+const RECOVERY_BACKOFF_MS = 2000;
+const RECOVERY_BACKOFF_MAX_MS = 15_000;
 
 /** How long an answered restart is given to bring the transport back. */
 const TRANSPORT_SETTLE_TIMEOUT = 8000;
@@ -52,10 +63,11 @@ export class PuterPeerConnection extends EventTarget {
     #tracks;
     #datachannel;
     #bufferedMessages = [];
-    #iceRestarts = 0;
     #recovering = false;
-    #peerGone = false;
+    /** The peer said goodbye, or closed the channel. Proof, not evidence. */
+    #peerHungUp = false;
     #transportWaiters = new Set();
+    #signallingWaiters = new Set();
 
     /**
      * @param {object} peerConfig
@@ -85,7 +97,7 @@ export class PuterPeerConnection extends EventTarget {
         };
         this.#datachannel.onclose = () => {
             // A channel the peer closed cleanly is a hangup, not a fault.
-            this.#peerGone = true;
+            this.#peerHungUp = true;
             this.#doclose(undefined, undefined);
         };
         this.#datachannel.onerror = (evt) => {
@@ -107,8 +119,9 @@ export class PuterPeerConnection extends EventTarget {
         this.#channel.onanswer = (description, names) => this.#negotiator.acceptAnswer(description, names);
         this.#channel.oncandidate = (candidate) => this.#negotiator.acceptCandidate(candidate);
         this.#channel.onbye = (reason) => this.#onBye(reason);
-        this.#channel.onpeergone = (reason) => this.#onPeerGone(reason);
+        this.#channel.onpeergone = (reason, resumable) => this.#onPeerGone(reason, resumable);
         this.#channel.onunusable = () => this.#onSignallingLost();
+        this.#channel.onusable = () => this.#wakeSignallingWaiters();
     }
 
     /**
@@ -141,19 +154,24 @@ export class PuterPeerConnection extends EventTarget {
 
     /** The peer said goodbye, so there is nothing to recover. */
     #onBye ( reason ) {
-        this.#peerGone = true;
+        this.#peerHungUp = true;
         this.#doclose(reason, undefined);
     }
 
     /**
-     * The peer's signalling session ended. That is evidence the peer hung up,
-     * not proof - its data channel may still be carrying traffic - so it only
-     * decides anything once ICE has actually failed.
+     * The peer's signalling session ended. Evidence they hung up, never
+     * proof - the data channel may still be carrying traffic - so while we
+     * are connected it decides nothing and recovery is left to find out.
+     * A session the signaller says is reclaimable is not even evidence:
+     * the peer is expected back on it.
      *
      * @param {string} [reason]
+     * @param {boolean} [resumable]
      */
-    #onPeerGone ( reason ) {
-        this.#peerGone = true;
+    #onPeerGone ( reason, resumable ) {
+        if ( ! resumable ) this.#peerHungUp = true;
+        // A handshake has nothing to wait on either way: whoever is dialling
+        // needs a definite answer rather than a socket that may come back.
         if ( ! this.connected ) this.#doclose(reason, undefined);
     }
 
@@ -162,6 +180,9 @@ export class PuterPeerConnection extends EventTarget {
      * it returns, but an open data channel keeps working without it.
      */
     #onSignallingLost () {
+        // Anything waiting on signalling has to look again: it may have
+        // gone for good rather than merely gone away.
+        this.#wakeSignallingWaiters();
         if ( ! this.connected ) {
             this.#doclose('lost the signalling connection before the peer connected', undefined);
         }
@@ -171,7 +192,6 @@ export class PuterPeerConnection extends EventTarget {
         this.#wakeTransportWaiters();
         switch ( this.peerconnection.connectionState ) {
             case 'connected':
-                this.#iceRestarts = 0;
                 this.#setLinkState('connected');
                 break;
             // 'disconnected' is transient: ICE either recovers by itself or
@@ -216,16 +236,22 @@ export class PuterPeerConnection extends EventTarget {
     async #recover () {
         if ( this.closed || this.#recovering ) return;
         this.#recovering = true;
+        const deadline = Date.now() + RECOVERY_BUDGET_MS;
+        let attempt = 0;
         try {
             let unanswered = false;
             while ( ! this.closed && this.peerconnection.connectionState === 'failed' ) {
-                // Signalling does not come back on its own, so a restart
-                // that cannot be offered never will be.
-                if ( this.#peerGone || ! this.#channel.alive ) {
+                if ( this.#peerHungUp ) {
+                    this.#doclose('the peer hung up', undefined);
+                    return;
+                }
+                // No route left to offer over, and none coming.
+                if ( this.#channel.stranded ) {
                     this.#doclose('the peer is no longer reachable', undefined);
                     return;
                 }
-                if ( this.#iceRestarts >= ICE_RESTART_LIMIT ) {
+                const left = deadline - Date.now();
+                if ( left <= 0 ) {
                     this.#doclose(
                         unanswered ? 'the peer stopped responding' : 'could not restore the connection',
                         undefined,
@@ -233,24 +259,60 @@ export class PuterPeerConnection extends EventTarget {
                     return;
                 }
 
-                this.#iceRestarts++;
-                this.#setLinkState('recovering', { attempt: this.#iceRestarts, of: ICE_RESTART_LIMIT });
+                // Nothing can be offered without signalling. It comes back
+                // on its own when a peer server reclaims its session, so
+                // wait on it rather than spend an attempt failing.
+                if ( ! this.#channel.alive ) {
+                    await this.#awaitSignalling(left);
+                    if ( ! this.#channel.alive ) continue;
+                }
+
+                attempt++;
+                this.#setLinkState('recovering', { attempt });
                 try {
                     await this.#negotiator.restartIce();
                     unanswered = false;
                 } catch {
                     unanswered = true;
-                    continue;
                 }
-                // Answered: the new candidates need a moment to either take
-                // over or fail, and only then is another attempt warranted.
+
+                // Either the new candidates take over or they do not, and
+                // only then is another attempt worth making.
                 if ( this.peerconnection.connectionState === 'failed' ) {
-                    await this.#nextTransportChange(TRANSPORT_SETTLE_TIMEOUT);
+                    const backoff = Math.min(
+                        RECOVERY_BACKOFF_MAX_MS,
+                        RECOVERY_BACKOFF_MS * 2 ** (attempt - 1),
+                    );
+                    await this.#nextTransportChange(
+                        Math.min(unanswered ? backoff : TRANSPORT_SETTLE_TIMEOUT, deadline - Date.now()),
+                    );
                 }
             }
         } finally {
             this.#recovering = false;
         }
+    }
+
+    /**
+     * Resolves when signalling is usable again, or when `timeout` runs out.
+     *
+     * @param {number} timeout
+     * @returns {Promise<void>}
+     */
+    #awaitSignalling ( timeout ) {
+        return new Promise((resolve) => {
+            const done = () => {
+                clearTimeout(timer);
+                this.#signallingWaiters.delete(done);
+                resolve();
+            };
+            const timer = setTimeout(done, timeout);
+            this.#signallingWaiters.add(done);
+        });
+    }
+
+    #wakeSignallingWaiters () {
+        for ( const wake of [...this.#signallingWaiters] ) wake();
     }
 
     /**
@@ -283,6 +345,7 @@ export class PuterPeerConnection extends EventTarget {
         // `close()` below need not raise another state change, so recovery is
         // told directly that there is nothing left to wait for.
         this.#wakeTransportWaiters();
+        this.#wakeSignallingWaiters();
         this.#setLinkState('closed');
         this.#negotiator.stop();
         this.#tracks.close();
@@ -290,7 +353,7 @@ export class PuterPeerConnection extends EventTarget {
         // Say goodbye while signalling is still up. An explicit hangup is the
         // only thing that separates a peer that left from one that broke, and
         // it carries the reason the far side reports to its own listeners.
-        if ( ! this.#peerGone ) this.#channel.sendBye(reason);
+        if ( ! this.#peerHungUp ) this.#channel.sendBye(reason);
         this.#channel.close();
 
         if ( this.#datachannel ) {
