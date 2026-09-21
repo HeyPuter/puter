@@ -231,3 +231,12 @@ describe('remote names and a rejected description', () => {
         expect(conn.media.has('screen')).toBe(true);
     });
 });
+
+describe('publishing to a closed connection', () => {
+    it('is ignored rather than thrown, so one dead link cannot stop the others', async () => {
+        const { conn } = await makeConnection();
+        conn.close();
+        expect(() => conn.publish('camera', new FakeMediaStream([track('video')]))).not.toThrow();
+        expect(conn.publications.size).toBe(0);
+    });
+});

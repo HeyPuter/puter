@@ -72,7 +72,10 @@ export class TrackPublisher {
      * @returns {void}
      */
     publish ( name, source, options ) {
-        if ( this.#closed ) throw new Error('The connection is closed.');
+        // Publishing to a link that has already gone is how an app that
+        // sends the same media to everyone behaves while one peer is being
+        // rebuilt. Nothing to send it over, and nothing worth throwing for.
+        if ( this.#closed ) return;
 
         let slot = this.#published.get(name);
         if ( ! slot ) {

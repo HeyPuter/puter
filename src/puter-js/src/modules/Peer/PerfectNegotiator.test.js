@@ -147,9 +147,9 @@ describe('PerfectNegotiator.restartIce', () => {
             polite.negotiator.enable();
             await flush();
 
-            // The peer is gone: nothing it sends can reach us any more.
-            polite.channel.kill();
-            impolite.channel.kill();
+            // The offer still leaves; the peer behind it has stopped
+            // answering, which is what a throttled tab looks like.
+            impolite.channel.peer = null;
 
             const restarted = impolite.negotiator.restartIce(5000);
             const assertion = expect(restarted).rejects.toThrow('did not answer');
@@ -158,6 +158,18 @@ describe('PerfectNegotiator.restartIce', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('rejects at once when there is no signalling path to offer over', async () => {
+        const { impolite, polite } = makePair();
+        impolite.negotiator.start();
+        polite.negotiator.enable();
+        await flush();
+
+        // No offer can go out, so waiting out the answer timeout would only
+        // delay a failure already decided.
+        impolite.channel.kill();
+        await expect(impolite.negotiator.restartIce(5000)).rejects.toThrow('cannot renegotiate');
     });
 
     it('fails a pending restart when the connection stops', async () => {

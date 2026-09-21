@@ -9,10 +9,6 @@
  * guest for the duration of the session and skips the sign-in prompt.
  * @property {string} [turnGrant] A grant from `puter.peer.createGuestGrant()`, letting a guest with
  * no session use the Puter-managed relays on the granting account's allowance.
- * @property {string} [name] `serve()` only: serve under a room name instead of a generated invite
- * code. Lowercase letters, digits and hyphens, 3-64 characters.
- * @property {string} [guestGrant] `serve()` only: a grant handed to guests through the signaller.
- * Renew it with `server.setGuestGrant()`.
  * @property {number} [port] Internal loopback port used by supported Puter environments.
  */
 

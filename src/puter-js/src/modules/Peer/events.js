@@ -8,22 +8,6 @@ export class PuterPeerServerConnectionEvent extends Event {
     }
 }
 
-export class PuterPeerServerReconnectEvent extends Event {
-    inviteCode;
-    constructor (inviteCode) {
-        super('reconnect');
-        this.inviteCode = inviteCode;
-    }
-}
-
-export class PuterPeerServerCloseEvent extends Event {
-    reason;
-    constructor (reason) {
-        super('close');
-        this.reason = reason;
-    }
-}
-
 export class PuterPeerConnectionMessageEvent extends Event {
     data;
     constructor (message) {

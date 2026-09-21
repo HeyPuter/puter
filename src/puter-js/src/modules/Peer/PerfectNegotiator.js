@@ -25,6 +25,7 @@ export class PerfectNegotiator {
     #enabled = false;
     #mayOffer = false;
     #tail = Promise.resolve();
+    #offerQueued = false;
     #waiters = new Set();
     #pendingCandidates = [];
     /**
@@ -53,7 +54,7 @@ export class PerfectNegotiator {
         this.#localNames = localNames ?? (() => ({}));
         this.#onRemoteNames = onRemoteNames ?? (() => null);
 
-        this.#pc.onnegotiationneeded = () => this.#enqueue(() => this.#offer());
+        this.#pc.onnegotiationneeded = () => this.#requestOffer();
         this.#pc.onicecandidate = ({ candidate }) => {
             if ( candidate ) this.#channel.sendCandidate(candidate);
         };
@@ -82,7 +83,7 @@ export class PerfectNegotiator {
         this.#enabled = true;
         if ( this.#mayOffer ) return;
         this.#mayOffer = true;
-        this.#enqueue(() => this.#offer());
+        this.#requestOffer();
     }
 
     /**
@@ -127,6 +128,11 @@ export class PerfectNegotiator {
     async restartIce ( timeout = DEFAULT_ANSWER_TIMEOUT ) {
         const negotiated = this.#nextNegotiation(timeout);
         this.#pc.restartIce();
+        // `restartIce()` only raises the negotiation flag, and a connection
+        // that is mid-exchange - or a browser that has already spent the
+        // event - never fires it. Ask for the offer rather than wait for it;
+        // `#requestOffer` collapses this with the event's own request.
+        this.#requestOffer();
         await negotiated;
     }
 
@@ -150,9 +156,34 @@ export class PerfectNegotiator {
         return next;
     }
 
+    /**
+     * Queues one offer. Several things ask for the same one - the
+     * negotiation flag, an ICE restart, a rolled-back offer that has to be
+     * made again - and each extra offer is one the peer has to answer before
+     * the exchange settles, so they collapse into the one already waiting.
+     */
+    #requestOffer () {
+        if ( this.#offerQueued ) return;
+        this.#offerQueued = true;
+        this.#enqueue(() => {
+            this.#offerQueued = false;
+            return this.#offer();
+        });
+    }
+
     async #offer () {
-        if ( ! this.#enabled || ! this.#mayOffer || ! this.#channel.alive ) return;
-        if ( this.#pc.signalingState === 'closed' ) return;
+        // Nothing can be offered, so anything waiting on one is waiting for
+        // something that will not happen: say so now rather than let it
+        // spend a whole answer timeout first.
+        if ( ! this.#enabled || ! this.#mayOffer || ! this.#channel.alive
+            || this.#pc.signalingState === 'closed' ) {
+            this.#failUnboundWaiters(new Error('The connection cannot renegotiate'));
+            return;
+        }
+        // Only what was already waiting when the description was built can
+        // be carried by it: an ICE restart asked for during `createOffer`
+        // belongs to the next offer, not this one.
+        const carried = [...this.#waiters];
         try {
             this.#makingOffer = true;
             await this.#pc.setLocalDescription();
@@ -161,7 +192,7 @@ export class PerfectNegotiator {
                 await this.#abandonOffer();
                 return;
             }
-            this.#bindWaiters(generation);
+            this.#bindWaiters(generation, carried);
         } catch ( e ) {
             this.#onerror(e);
         } finally {
@@ -213,7 +244,7 @@ export class PerfectNegotiator {
                 // Nothing raises the negotiation flag again for an offer that
                 // was rolled back, so the replacement has to be asked for -
                 // once there is a signalling path to carry it.
-                if ( rebound && delivered ) this.#enqueue(() => this.#offer());
+                if ( rebound && delivered ) this.#requestOffer();
             }
             if ( ! delivered ) {
                 this.#failWaiters(new Error('The signalling connection is unavailable'));
@@ -270,10 +301,11 @@ export class PerfectNegotiator {
     async #addCandidate ( candidate ) {
         try {
             await this.#pc.addIceCandidate(candidate);
-        } catch ( e ) {
-            // Candidates belonging to an offer we ignored have no description
-            // to attach to; that is expected, not a fault.
-            if ( ! this.#ignoreOffer ) this.#onerror(e);
+        } catch {
+            // Candidates are best effort. One left over from an offer that
+            // was ignored, or from the ufrag an ICE restart just replaced,
+            // has nothing to attach to - routine, and not the connection's
+            // problem, which is what reporting it here would make it.
         }
     }
 
@@ -286,10 +318,12 @@ export class PerfectNegotiator {
         }
     }
 
-    /** Ties everything waiting for a negotiation to the offer just sent. */
-    #bindWaiters ( generation ) {
-        for ( const waiter of this.#waiters ) {
-            if ( waiter.generation === null ) waiter.generation = generation;
+    /** Ties the waiters this offer carries to the offer just sent. */
+    #bindWaiters ( generation, carried ) {
+        for ( const waiter of carried ) {
+            if ( this.#waiters.has(waiter) && waiter.generation === null ) {
+                waiter.generation = generation;
+            }
         }
     }
 
@@ -319,6 +353,15 @@ export class PerfectNegotiator {
     #failWaiters ( error ) {
         for ( const waiter of this.#waiters ) waiter.fail(error);
         this.#waiters.clear();
+    }
+
+    /** Fails only what is waiting for an offer that has not gone out yet. */
+    #failUnboundWaiters ( error ) {
+        for ( const waiter of [...this.#waiters] ) {
+            if ( waiter.generation !== null ) continue;
+            this.#waiters.delete(waiter);
+            waiter.fail(error);
+        }
     }
 
     #nextNegotiation ( timeout ) {

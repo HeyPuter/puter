@@ -2,7 +2,6 @@ import { fetchUrl } from '../../lib/networkUtils.js';
 import { PuterModule } from '../../lib/PuterModule.js';
 import { PuterPeerConnection } from './PuterPeerConnection.js';
 import { PuterPeerServer } from './PuterPeerServer.js';
-import { isRoomName } from './signalling.js';
 
 /** @typedef {import('./types.js').PuterPeerOptions} PuterPeerOptions */
 
@@ -139,7 +138,6 @@ export class PeerModule extends PuterModule {
             iceServers,
             signallerUrl: this.#signallerUrl,
             forceRelay: options?.forceRelay,
-            iceServersFor: (relayOptions) => this.#iceServersFor(relayOptions),
         };
     }
 
@@ -151,9 +149,6 @@ export class PeerModule extends PuterModule {
      * @returns {Promise<PuterPeerServer>}
      */
     async serve (options) {
-        if ( options?.name !== undefined && ! isRoomName(options.name) ) {
-            throw new TypeError('Room names are 3-64 lowercase letters, digits and hyphens, not starting or ending with a hyphen.');
-        }
         if ( !options?.anonToken ) await this.#authenticateForPeerAction('create a server');
         const peerConfig = await this.#resolvePeerConfig(options);
         const server = new PuterPeerServer(peerConfig);
@@ -189,5 +184,4 @@ export class PeerModule extends PuterModule {
 
 export const Peer = /** @type {PeerConstructor} */ (PeerModule);
 
-export { isRoomName } from './signalling.js';
 export default Peer;
