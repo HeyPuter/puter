@@ -2468,9 +2468,9 @@ export class ShareService extends PuterService {
      * asking the user to rebuild it.
      *
      * `updateMetadata` merges rather than replaces, and refreshes the cached
-     * row, so the switch bites on the very next share. Deliberately does not
-     * gate team-delivered shares; blocking the sender, or leaving the team,
-     * does.
+     * row, so the switch bites on the very next share. Shares made to a team
+     * are out of scope, as they are for `blockSender`: leaving the team is what
+     * ends those.
      */
     async setBlockAllSenders(
         actor: Actor,
@@ -2486,9 +2486,13 @@ export class ShareService extends PuterService {
     /**
      * Refuse further shares from `username`. Existing shares stand: access
      * someone already has is theirs until it is withdrawn, and a control
-     * labelled "block" silently revoking it would be a surprise. Team-delivered
-     * items from this sender stop being listed, announced or pushed while the
-     * block stands; the grants are untouched, so unblocking restores the view.
+     * labelled "block" silently revoking it would be a surprise.
+     *
+     * Shares made to a team both accounts belong to are deliberately out of
+     * scope: the grant is the team's, and one colleague does not get to
+     * withhold the team's files from another. Leaving the team ends those. The
+     * notification is still suppressed, so a block always stops the
+     * interruption even where it does not stop the access.
      */
     async blockSender(
         actor: Actor,

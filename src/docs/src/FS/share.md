@@ -37,7 +37,8 @@ Who to share with. A string containing `@` is treated as an email address, and a
 
 Where the deployment has [Teams](/Teams/), pass `{ team: uid }` to share with every member of a team the caller belongs to — including anyone added to it later. There is no string form for a team: a bare string is always read as an email or username.
 
-A team share is never refused for one member's sake, so it does not produce `recipient_not_accepting_shares` — but a member who has blocked the sharer is not reached by it. Nothing you share with the team is listed, announced, or pushed to them while their block stands; the grant itself is untouched, so lifting the block restores their view without a re-share. The rest of the team is unaffected, and nothing tells the sharer. The blanket "block everyone" switch does not extend to teams the recipient belongs to — blocking the sender, or leaving the team, is what stops those.
+A team share is never refused for one member's sake, so it does not produce `recipient_not_accepting_shares`, and **recipient blocks do not apply to it**: the grant is the team's, not one colleague's to withhold from another. A member who has blocked you still reaches anything you share with a team you both belong to — they are simply not notified about it. Leaving the team is what ends that access.
+
 Pass `{ anyone: true }` to share with **anyone with the link** — see below. Only the object form is read as that; the word `anyone` typed as a string is a username like any other.
 
 #### `mode` (String) (optional)

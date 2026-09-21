@@ -19,19 +19,6 @@
 
 import { PuterStore } from '../types';
 
-/**
- * SQL fragment: true when `blockerExpr` has no block against `blockedExpr`. The
- * one spelling of the rule, so every filtered surface stays in step. Exprs are
- * SQL (a column or a `?`), never user input.
- */
-export const notBlockedSql = (
-    blockerExpr: string,
-    blockedExpr: string,
-): string =>
-    'NOT EXISTS (SELECT 1 FROM `user_block` `ub` ' +
-    `WHERE \`ub\`.\`blocker_user_id\` = ${blockerExpr} ` +
-    `AND \`ub\`.\`blocked_user_id\` = ${blockedExpr})`;
-
 /** One row of `user_block`. `created_at` is unix seconds. */
 export interface UserBlockRow {
     id: number;

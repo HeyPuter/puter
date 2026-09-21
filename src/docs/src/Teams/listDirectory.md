@@ -30,16 +30,43 @@ The team's `uid`, from [`list()`](/Teams/list/).
 
 #### `options` (Object) (optional)
 
-The standard list options — `limit`, `cursor`, `includeTotal` and `stream`. See
-[Pagination](/Teams/#pagination) for what each form returns. `offset` is not
-accepted.
+The standard list options. All four are optional, and they decide the shape of what resolves:
+
+| Call | Resolves to |
+| -- | -- |
+| No options | The whole set as an array, fetched page by page under the hood |
+| `{ limit }` | An array, capped at one page |
+| `{ cursor }` or `{ includeTotal: true }` | One `{ items, cursor? }` page. `cursor` is absent on the last page |
+| `{ stream: true }` | An async iterator of `{ items, cursor? }` pages |
+
+This route is keyset-paginated, so `offset` is not accepted — passing it throws `invalid_request`. Pass `cursor` to resume from a position.
 
 ## Return value
 
 A `Promise` that resolves to an array of
-[`TeamDirectoryEntry`](/Teams/#teamdirectoryentry) objects, or to a
+`TeamDirectoryEntry` objects, or to a
 `{ items, cursor? }` page when a pagination option is given. With
 `stream: true` it returns an async iterator of pages instead.
+
+#### `TeamDirectoryEntry`
+
+| Field | Type | Description |
+| -- | -- | -- |
+| `username` | `string` | A colleague's Puter username. |
+| `uuid` | `string` | Their stable account identifier. |
+
+## Errors
+
+A rejection carries an `Error` with a stable `code`:
+
+| Code | Meaning |
+| -- | -- |
+| `invalid_request` | Refused before reaching the server — a blank `uid`, or an `offset` on a keyset list. |
+| `unauthorized` | Not signed in. |
+| `account_is_not_verified` | The caller's email has not been confirmed. |
+| `not_found` | Teams are turned off on this deployment. |
+| `team_not_found` | No such team, the caller is not a member of it, or the owner has not opened the directory to apps. |
+| `too_many_requests` | The rate limit was exceeded. See [Rate Limits & Quotas](/rate-limits-and-quotas/). |
 
 ## Examples
 

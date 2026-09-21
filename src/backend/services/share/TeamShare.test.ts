@@ -611,9 +611,9 @@ describe('sharing with a team', () => {
     });
 
     // -- the recipient block list ---------------------------------------
-    // A block suspends delivery only — listing, count, fan-out, telling. The
-    // grant and the authority graph stay whole, or a reversible block turns
-    // into permanent revocations downstream.
+    // A team share is the team's, so a per-sender block does not withhold it
+    // from a colleague; only the notification is suppressed. Leaving the team
+    // is what ends the access.
 
     const block = (blocker: FixtureUser, blocked: FixtureUser) =>
         fx.env.server.stores.userBlock.create(blocker.userId, blocked.userId);
@@ -623,36 +623,30 @@ describe('sharing with a team', () => {
             blocked.userId,
         );
 
-    it('does not deliver a team share to a member who blocked the sender', async () => {
+    it('still delivers a team share to a member who blocked the sender', async () => {
         const [blockingSeat, otherSeat] = fx.a.seats;
         await block(blockingSeat, fx.a.owner);
         try {
-            const before = await shares().listSharedWithMe(
-                await actorFor(blockingSeat.userId),
-                { limit: 100, includeTotal: true },
-            );
             const file = await makeFile(fx.a.owner.userId);
             await shareWithTeam(fx.a.owner.userId, file.path, {
                 team: fx.a.uid,
             });
 
-            // Neither the listing entry nor the count moves for the blocker.
-            const after = await shares().listSharedWithMe(
+            // The block is about one person's contact, not the team's files.
+            const mine = await shares().listSharedWithMe(
                 await actorFor(blockingSeat.userId),
                 { limit: 100, includeTotal: true },
             );
-            expect(after.items.map((i) => i.entryUid)).not.toContain(file.uid);
-            expect(after.total).toBe(before.total);
+            expect(mine.items.map((i) => i.entryUid)).toContain(file.uid);
 
-            // The grant itself stands — nothing is revoked by a block.
-            const perms =
+            // And the grant is there to back it, not just the listing row.
+            expect(
                 await fx.env.server.stores.permission.readUserGroupPerms(
                     blockingSeat.userId,
                     [`fs:${file.uid}:read`],
-                );
-            expect(perms).toHaveLength(1);
+                ),
+            ).toHaveLength(1);
 
-            // The rest of the team is unaffected.
             const others = (await inbox(otherSeat.userId)).items;
             expect(others.map((i) => i.entryUid)).toContain(file.uid);
         } finally {
@@ -660,31 +654,26 @@ describe('sharing with a team', () => {
         }
     });
 
-    it('suspends delivery on block and restores it on unblock', async () => {
+    it('counts a team share for a blocking member, so page and total agree', async () => {
         const seat = fx.a.seats[0];
-        const file = await makeFile(fx.a.owner.userId);
-        await shareWithTeam(fx.a.owner.userId, file.path, { team: fx.a.uid });
-        expect((await inbox(seat.userId)).items.map((i) => i.entryUid)).toContain(
-            file.uid,
-        );
-
         await block(seat, fx.a.owner);
         try {
-            expect(
-                (await inbox(seat.userId)).items.map((i) => i.entryUid),
-            ).not.toContain(file.uid);
+            const file = await makeFile(fx.a.owner.userId);
+            await shareWithTeam(fx.a.owner.userId, file.path, {
+                team: fx.a.uid,
+            });
+            const res = await shares().listSharedWithMe(
+                await actorFor(seat.userId),
+                { limit: 100, includeTotal: true },
+            );
+            expect(res.total).toBeGreaterThanOrEqual(res.items.length);
         } finally {
             await unblock(seat, fx.a.owner);
         }
-
-        // Nothing was revoked, so lifting the block needs no re-share.
-        expect((await inbox(seat.userId)).items.map((i) => i.entryUid)).toContain(
-            file.uid,
-        );
     });
 
-    it('keeps a blocked member out of the live-event fan-out', async () => {
-        const [blockingSeat, otherSeat] = fx.a.seats;
+    it('keeps a blocking member in the live-event fan-out', async () => {
+        const [blockingSeat] = fx.a.seats;
         const file = await makeFile(fx.a.owner.userId);
         await shareWithTeam(fx.a.owner.userId, file.path, { team: fx.a.uid });
         const entry = await fx.env.server.stores.fsEntry.getEntryByUuid(
@@ -693,63 +682,16 @@ describe('sharing with a team', () => {
 
         await block(blockingSeat, fx.a.owner);
         try {
-            // Pushing changes to them would tell them what the block hides.
+            // They can open the file, so they have to be told it changed.
             const rows =
                 await fx.env.server.stores.share.listGroupReachingMembers([
                     entry.id,
                 ]);
-            const reached = rows.map((r) => Number(r.holder_user_id));
-            expect(reached).not.toContain(blockingSeat.userId);
-            expect(reached).toContain(otherSeat.userId);
+            expect(rows.map((r) => Number(r.holder_user_id))).toContain(
+                blockingSeat.userId,
+            );
         } finally {
             await unblock(blockingSeat, fx.a.owner);
-        }
-    });
-
-    it('only suspends the blocked pair, not the member\'s other shares', async () => {
-        const seat = fx.a.seats[0];
-        const peerFile = await makeFile(fx.a.seats[1].userId);
-        await shareWithTeam(fx.a.seats[1].userId, peerFile.path, {
-            team: fx.a.uid,
-        });
-
-        await block(seat, fx.a.owner);
-        try {
-            const items = (await inbox(seat.userId)).items;
-            expect(items.map((i) => i.entryUid)).toContain(peerFile.uid);
-        } finally {
-            await unblock(seat, fx.a.owner);
-        }
-    });
-
-    it('leaves a blocked member their authority, so they can still withdraw', async () => {
-        const seat = fx.a.seats[0];
-        const file = await makeFile(fx.a.owner.userId);
-        await shareWithTeam(
-            fx.a.owner.userId,
-            file.path,
-            { team: fx.a.uid },
-            'manage',
-        );
-        await shares().share(await actorFor(seat.userId), {
-            path: file.path,
-            recipient: { username: fx.outsider.username },
-            mode: 'read',
-        } as never);
-
-        await block(seat, fx.a.owner);
-        try {
-            // Authority must survive the block, or what they granted becomes
-            // theirs to keep but not theirs to take back.
-            await shares().unshare(await actorFor(seat.userId), {
-                path: file.path,
-                recipient: { username: fx.outsider.username },
-            } as never);
-            expect(
-                (await inbox(fx.outsider.userId)).items.map((i) => i.entryUid),
-            ).not.toContain(file.uid);
-        } finally {
-            await unblock(seat, fx.a.owner);
         }
     });
 
