@@ -350,6 +350,11 @@ export class AppConnection extends EventListener {
         // TODO: Set this.#puterOrigin to the puter origin
 
         (globalThis.document) && window.addEventListener('message', event => {
+            // Relayed by the host environment; a window that guessed an
+            // appInstanceID must not be able to forge one directly.
+            if ( event.source !== this.messageTarget ) return;
+            if ( ! event.data ) return;
+
             if ( event.data.msg === 'messageToApp' ) {
                 if ( event.data.appInstanceID !== this.targetAppInstanceID ) {
                     // Message is from a different AppConnection; ignore it.
@@ -577,7 +582,7 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve);
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget);
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -648,6 +653,11 @@ export class UIModule extends EventListener {
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
         (globalThis.document) && window.addEventListener('message', async (e) => {
+            // Only the host environment drives these. Pinning the source
+            // rather than the origin keeps locally-hosted and self-hosted
+            // deployments working, and still rejects a sibling app iframe or
+            // a third-party page that framed us.
+            if ( e.source !== this.messageTarget ) return;
             if ( ! e.data ) return;
             // `error`
             if ( e.data.error ) {

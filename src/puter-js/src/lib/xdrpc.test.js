@@ -69,3 +69,60 @@ describe('xdrpc prototype safety', () => {
         expect(posted[0].args).toEqual(['arg']);
     });
 });
+
+describe('xdrpc callback source binding', () => {
+    const $SCOPE = '9a9c83a4-7897-43a0-93b9-53217b84fde6';
+
+    /** A stand-in for `globalThis` that lets a test deliver a message event. */
+    const fakeWindow = () => {
+        const handlers = [];
+        return {
+            addEventListener: (type, handler) =>
+                type === 'message' && handlers.push(handler),
+            deliver: event => handlers.forEach(handler => handler(event)),
+        };
+    };
+
+    const register = ({ source }) => {
+        const manager = new CallbackManager();
+        const calls = [];
+        const id = manager.register_callback((...args) => calls.push(args), source);
+        const listener = fakeWindow();
+        manager.attach_to_source(listener);
+        return { calls, id, listener };
+    };
+
+    it('invokes a callback for a message from its registered source', () => {
+        const gui = {};
+        const { calls, id, listener } = register({ source: gui });
+        listener.deliver({ source: gui, data: { $SCOPE, id, args: ['ok'] } });
+        expect(calls).toEqual([['ok']]);
+    });
+
+    it('ignores the same message from another window', () => {
+        const gui = {};
+        const { calls, id, listener } = register({ source: gui });
+        listener.deliver({
+            source: { sibling: true },
+            data: { $SCOPE, id, args: ['forged'] },
+        });
+        expect(calls).toEqual([]);
+    });
+
+    it('ignores a callback registered without a source', () => {
+        const { calls, id, listener } = register({ source: undefined });
+        listener.deliver({ source: {}, data: { $SCOPE, id, args: [] } });
+        expect(calls).toEqual([]);
+    });
+
+    it('hands out ids that cannot be guessed from an earlier one', () => {
+        const manager = new CallbackManager();
+        const ids = Array.from({ length: 5 }, () =>
+            manager.register_callback(() => {}, {}),
+        );
+        expect(new Set(ids).size).toBe(ids.length);
+        for ( const id of ids ) {
+            expect(id).toMatch(/^[0-9a-f]{32}$/);
+        }
+    });
+});
