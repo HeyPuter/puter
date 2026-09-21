@@ -82,6 +82,37 @@ export default suite('sharing', {
         t.assert.ok(closed.status !== 200, `should close again (got ${closed.status})`);
     },
 
+    'getShareLink builds the link that opens a file in an app': async (t) => {
+        const path = scratch(t, 'link');
+        const written = await t.puter.fs.write(path, 'open me');
+        const guiOrigin = new URL(t.puter.defaultGUIOrigin).origin;
+
+        const link = new URL(await t.puter.fs.getShareLink(path, 'editor'));
+        t.assert.equal(link.origin, guiOrigin);
+        t.assert.equal(link.pathname, '/app/editor');
+        t.assert.equal(link.searchParams.get('file'), written.uid);
+
+        // A uid stands in for the path, and so does the options form.
+        t.assert.equal(await t.puter.fs.getShareLink(written.uid, 'editor'), link.href);
+        t.assert.equal(
+            await t.puter.fs.getShareLink({ uid: written.uid, appName: 'editor' }),
+            link.href,
+        );
+    },
+
+    'getShareLink refuses a directory and needs an app to open with': async (t) => {
+        const dir = `${home(t)}/sharing-linkdir-${Math.random().toString(36).slice(2, 8)}`;
+        await t.puter.fs.mkdir(dir);
+        const notAFile = await t.assert.rejects(() => t.puter.fs.getShareLink(dir, 'editor'));
+        t.assert.equal((notAFile as { code?: string }).code, 'not_a_file');
+
+        const path = scratch(t, 'noapp');
+        await t.puter.fs.write(path, 'x');
+        // Outside a Puter app the SDK has no app of its own to fall back on.
+        const noApp = await t.assert.rejects(() => t.puter.fs.getShareLink(path));
+        t.assert.equal((noApp as { code?: string }).code, 'app_name_required');
+    },
+
     'share accepts an options object and defaults to read': async (t) => {
         const path = scratch(t, 'options');
         await t.puter.fs.write(path, 'x');

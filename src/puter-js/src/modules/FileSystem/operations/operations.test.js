@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import copy from './copy.js';
 import deleteFSEntry from './deleteFSEntry.js';
 import getReadURL from './getReadUrl.js';
+import getShareLink from './getShareLink.js';
 import mkdir from './mkdir.js';
 import move from './move.js';
 import read from './read.js';
@@ -81,11 +82,13 @@ const makeFS = () => ({
     APIOrigin: 'https://api.test',
     authToken: 'test-token',
     socket: { id: 'socket-1' },
+    // getShareLink reads the GUI origin and the calling app off the instance.
+    get puter () { return globalThis.puter; },
     // write delegates to upload, which has its own tests.
     upload: vi.fn(async () => ({ uid: 'written' })),
-    copy, delete: deleteFSEntry, getReadURL, mkdir, move, read, readdir,
-    readdirSubdomains, rename, revokeReadURL, share, sign, space, stat,
-    unshare, write,
+    copy, delete: deleteFSEntry, getReadURL, getShareLink, mkdir, move, read,
+    readdir, readdirSubdomains, rename, revokeReadURL, share, sign, space,
+    stat, unshare, write,
 });
 
 const makeCache = () => {
@@ -668,5 +671,64 @@ describe('authentication gate', () => {
         });
         await fs.space();
         expect(FakeXHR.requests).toHaveLength(1);
+    });
+});
+
+describe('getShareLink', () => {
+    const FILE_UID = '2b7d8c1e-4f3a-4b6c-9d1e-0a1b2c3d4e5f';
+    const statFile = () => ({ uid: FILE_UID, is_dir: false });
+
+    beforeEach(() => {
+        globalThis.puter.defaultGUIOrigin = 'https://gui.test/';
+        globalThis.puter.appName = undefined;
+    });
+
+    it('stats the path and builds the app link on the file uid', async () => {
+        FakeXHR.respondWith = statFile;
+        const link = await fs.getShareLink('/a/file.txt', 'editor');
+        expect(lastRequest().url).toBe('https://api.test/stat');
+        expect(lastBody()).toMatchObject({ path: '/a/file.txt' });
+        expect(link).toBe(`https://gui.test/app/editor?file=${FILE_UID}`);
+    });
+
+    it('takes a uid in place of a path, and the options form', async () => {
+        FakeXHR.respondWith = statFile;
+        await fs.getShareLink(FILE_UID, 'editor');
+        expect(lastBody()).toMatchObject({ uid: FILE_UID });
+        expect(lastBody().path).toBeUndefined();
+
+        const link = await fs.getShareLink({ uid: FILE_UID, appName: 'my app' });
+        expect(link).toBe(`https://gui.test/app/my%20app?file=${FILE_UID}`);
+    });
+
+    it('defaults the app to the one the SDK runs in', async () => {
+        FakeXHR.respondWith = statFile;
+        globalThis.puter.appName = 'notepad';
+        expect(await fs.getShareLink('/a/file.txt')).toBe(`https://gui.test/app/notepad?file=${FILE_UID}`);
+    });
+
+    it('rejects before the network without a file or an app', async () => {
+        await expect(fs.getShareLink('/a/file.txt')).rejects.toMatchObject({ code: 'app_name_required' });
+        await expect(fs.getShareLink({ appName: 'editor' })).rejects.toMatchObject({ code: 'field_missing' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('rejects a directory', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'dir-uid', is_dir: true });
+        await expect(fs.getShareLink('/a/dir', 'editor')).rejects.toMatchObject({ code: 'not_a_file' });
+    });
+
+    it('feeds legacy callbacks the same result', async () => {
+        FakeXHR.respondWith = statFile;
+        const success = vi.fn();
+        const error = vi.fn();
+        const link = await fs.getShareLink('/a/file.txt', 'editor', success, error);
+        expect(success).toHaveBeenCalledWith(link);
+        expect(error).not.toHaveBeenCalled();
+
+        const failed = vi.fn();
+        await expect(fs.getShareLink('/a/file.txt', undefined, vi.fn(), failed))
+            .rejects.toMatchObject({ code: 'app_name_required' });
+        expect(failed).toHaveBeenCalledWith(expect.objectContaining({ code: 'app_name_required' }));
     });
 });

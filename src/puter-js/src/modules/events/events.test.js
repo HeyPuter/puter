@@ -202,6 +202,36 @@ describe('delivery routing', () => {
     });
 });
 
+describe('includeValue', () => {
+    it('is sent with the subscribe and again on every re-subscribe', async () => {
+        const events = makeModule();
+        const sub = await subscribed(events, 'kv:cart', () => {}, { includeValue: true });
+        expect(sub.includeValue).toBe(true);
+        expect(sockets[0].sent.find(s => s.verb === 'events.subscribe').payload).toEqual({
+            subject: 'kv:cart',
+            includeValue: true,
+        });
+
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+        sockets[0].answer('events.subscribe', okSub('sub-2', 'kv:app-1:cart'));
+        await Promise.resolve();
+
+        const resent = sockets[0].sent.filter(s => s.verb === 'events.subscribe');
+        expect(resent).toHaveLength(2);
+        expect(resent[1].payload).toEqual({ subject: 'kv:cart', includeValue: true });
+    });
+
+    it('is left off the wire unless asked for', async () => {
+        const events = makeModule();
+        const sub = await subscribed(events, 'kv:cart', () => {});
+        expect(sub.includeValue).toBe(false);
+        expect(sockets[0].sent.find(s => s.verb === 'events.subscribe').payload).toEqual({
+            subject: 'kv:cart',
+        });
+    });
+});
+
 describe('reconnect', () => {
     it('re-subscribes on reconnect and keeps the same handle', async () => {
         const events = makeModule();

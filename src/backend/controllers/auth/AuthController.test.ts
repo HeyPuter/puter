@@ -33,7 +33,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
@@ -2356,10 +2356,10 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         );
         appUid = app.uid;
         appId = app.id;
-        appActor = {
+        appActor = makeActor({
             user: userActor.user,
             app: { id: app.id, uid: app.uid },
-        } as unknown as Actor;
+        });
     });
 
     const grant = (body: Record<string, unknown>) =>
@@ -5822,10 +5822,10 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         const granted = `user:${user.uuid}:email:read`;
         const ungranted = `apps-of-user:${user.uuid}:read`;
 
-        const appActor = {
+        const appActor = makeActor({
             user: actor.user,
             app: { id: app.id, uid: app.uid },
-        } as unknown as Actor;
+        });
         const before = makeRes();
         await inCtx(appActor, () =>
             controller.handleCheckPermissions(

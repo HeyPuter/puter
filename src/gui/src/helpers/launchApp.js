@@ -23,6 +23,7 @@ import UIWindow from '../UI/UIWindow.js';
 import { starts_hidden } from './startsHidden.js';
 import { append_signed_item_params } from './appendSignedItemParams.js';
 import { expand_home_path } from './expandHomePath.js';
+import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -317,32 +318,53 @@ const launch_app = async (options) => {
     {
         file_signature = options.file_signature;
     }
-    else if ( options.file_uid ) {
+    else if ( options.file_uid && ! options.confirm_file_access ) {
         file_signature = await puter.fs.sign(app_info.uuid, { uid: options.file_uid, action: 'write' });
         // add token to options
         options.token = file_signature.token;
         // add file_signature to options
         file_signature = file_signature.items;
     }
-    // A launch that names its file by path alone (a URL landing, a default-app
-    // preference). Sign it here so the app receives it as an opened item.
-    else if ( options.file_path ) {
-        options.file_path = expand_home_path(options.file_path, window.home_path);
-        try {
-            const signed = await puter.fs.sign(app_info.uuid, { path: options.file_path, action: 'write' });
-            // A path the user can't reach comes back as an empty signature
-            // rather than an error, so there is nothing to check but the uid.
-            if ( signed?.items?.uid ) {
-                options.token = signed.token;
-                file_signature = signed.items;
-            } else {
+    // A launch that names its file by path or uid alone (a URL landing, a
+    // default-app preference). Sign it here so the app receives it as an
+    // opened item.
+    else if ( options.file_path || options.file_uid ) {
+        if ( options.file_path ) {
+            options.file_path = expand_home_path(options.file_path, window.home_path);
+        }
+        let target = options.file_uid ? { uid: options.file_uid } : { path: options.file_path };
+        // `confirm_file_access` marks a file the user didn't pick — see
+        // confirmUrlFileAccess. Refused, the app still opens, just without it.
+        if ( options.confirm_file_access ) {
+            const entry = await confirmUrlFileAccess({
+                ...target,
+                appUid: app_info.uuid,
+                appName: app_info.name,
+            });
+            target = entry ? { uid: entry.uid } : null;
+            // The stat'd path names the window; a refusal clears both.
+            options.file_path = entry?.path;
+            options.file_uid = entry?.uid;
+        }
+        if ( target ) {
+            try {
+                const signed = await puter.fs.sign(app_info.uuid, { ...target, action: 'write' });
+                // A path the user can't reach comes back as an empty signature
+                // rather than an error, so there is nothing to check but the uid.
+                if ( signed?.items?.uid ) {
+                    options.token = signed.token;
+                    file_signature = signed.items;
+                } else {
+                    options.file_path = undefined;
+                    options.file_uid = undefined;
+                }
+            } catch ( e ) {
+                // Open the app without the file rather than not at all. Clearing
+                // the path also keeps it out of the window title.
+                console.warn(`launch_app: could not open ${options.file_path ?? options.file_uid}`, e);
                 options.file_path = undefined;
+                options.file_uid = undefined;
             }
-        } catch ( e ) {
-            // Open the app without the file rather than not at all. Clearing
-            // the path also keeps it out of the window title.
-            console.warn(`launch_app: could not open ${options.file_path}`, e);
-            options.file_path = undefined;
         }
     }
 

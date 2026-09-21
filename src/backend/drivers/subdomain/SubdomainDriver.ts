@@ -220,7 +220,7 @@ export class SubdomainDriver extends PuterDriver {
                 subdomain,
                 rootDirId,
                 associatedAppId: null,
-                appOwner: actor.app?.id ?? null,
+                appOwner: actor.effectiveApp?.id ?? null,
             });
         } catch (err) {
             if (!isUniqueViolation(err)) throw err;
@@ -285,7 +285,7 @@ export class SubdomainDriver extends PuterDriver {
             (await this.#hasPermission(actor, 'read-all-subdomains'));
 
         // App actors only see subdomains they own; read-all bypasses scoping.
-        const appOwner = !widenToAll && actor.app ? actor.app.id : undefined;
+        const appOwner = widenToAll ? undefined : actor.effectiveApp?.id;
         // Worker deployments live in the same table but aren't sites —
         // they're listed through the workers driver instead.
         const listOpts = {
@@ -557,9 +557,7 @@ export class SubdomainDriver extends PuterDriver {
      * of its branches; this is the same rule, written as nesting.
      *
      * The inner check is the predicate `select` applies in SQL: an app sees
-     * what it created, not everything its user owns. Read `effectiveApp`, not
-     * `app` — an app-minted access token carries no `app` of its own and would
-     * otherwise slip past as though no app were involved.
+     * what it created, not everything its user owns.
      */
     async #checkReadAccess(
         row: Record<string, unknown>,
@@ -613,10 +611,11 @@ export class SubdomainDriver extends PuterDriver {
         actor: Actor,
     ): Promise<void> {
         // App actor matching app_owner
+        const app = actor.effectiveApp;
         let hasAccess = false;
-        if (!actor.app?.id) {
+        if (!app?.id) {
             hasAccess = actor.user?.id === row.user_id;
-        } else if (actor.app.id === row.app_owner) {
+        } else if (app.id === row.app_owner) {
             hasAccess = actor.user?.id === row.user_id;
         }
         // System-wide write

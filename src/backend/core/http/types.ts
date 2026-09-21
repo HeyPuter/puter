@@ -138,8 +138,10 @@ export interface RouteOptions {
     adminOnly?: boolean | string[];
 
     /**
-     * Reject app-under-user actors whose app is not listed. Actors with no app
-     * of their own pass; see `allowedAppIdsGate`. Implies `requireAuth`.
+     * Reject actors acting as an app that is not listed, whether carried
+     * directly or through the app that issued their access token. Actors with
+     * no app in the chain pass; see `allowedAppIdsGate`. Implies
+     * `requireAuth`.
      */
     allowedAppIds?: string[];
 

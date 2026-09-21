@@ -27,6 +27,7 @@ export {
     isSystemActor,
     isAppActor,
     isAccessTokenActor,
+    isPlainUserActor,
     actorUid,
     assertResolvedActor,
     makeActor,

@@ -26,6 +26,8 @@ import { icons } from '../helpers/actionIcons.js';
 import { mode_label, options_for } from '../helpers/shareModes.js';
 import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
 import { share_outcome } from '../helpers/shareOutcome.js';
+import shareRecipientPicker from '../helpers/shareRecipientPicker.js';
+import { share_key } from '../helpers/shareSuggest.js';
 import {
     team_for_share, team_label, teams_for_sharing,
 } from '../helpers/shareTeams.js';
@@ -69,22 +71,10 @@ async function UIWindowShare (options) {
     h += `<label for="share-recipient">${i18n('share_with')}</label>`;
     h += '<div class="share-dialog-row">';
     h += `<input class="share-recipient" id="share-recipient" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="${html_encode(i18n('share_add_people'))}" />`;
+                 placeholder="${i18n('share_add_people')}" />`;
     h += `<select class="share-mode">${options_for('read', { allow_manage })}</select>`;
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
-
-    // A team can't be typed into the field above: a bare string there is
-    // already read as an email or a username, so it needs its own control.
-    h += '<div class="share-team" style="display:none;">';
-    h += `<label for="share-team-select">${i18n('share_with_team')}</label>`;
-    h += '<div class="share-dialog-row">';
-    h += '<select class="share-team-select" id="share-team-select"></select>';
-    h += `<select class="share-team-mode">${options_for('read', { allow_manage })}</select>`;
-    h += '</div>';
-    h += `<p class="share-team-note">${i18n('share_team_note')}</p>`;
-    h += `<button class="share-team-btn button button-block button-normal">${i18n('share')}</button>`;
-    h += '</div>';
 
     // The owner's switch between people-only and anyone with the link. A
     // delegate passes access on to people; opening the item to everyone is
@@ -141,6 +131,9 @@ async function UIWindowShare (options) {
         onAppend: function (this_window) {
             $(this_window).find('.share-recipient').get(0)?.focus({ preventScroll: true });
         },
+        // The recipient field listens on the document to know when a click
+        // landed outside its suggestions; that has to come off with the window.
+        on_close: () => picker.destroy(),
         window_class: 'window-share',
         window_css: { height: 'initial' },
         body_css: { width: 'initial', padding: '0', 'background-color': 'rgb(245 247 249)' },
@@ -175,14 +168,28 @@ async function UIWindowShare (options) {
     /** The item's uid, which its link is built on; looked up once. */
     let item_uid = options.uid ?? null;
 
-    const render_team_picker = () => {
-        if ( ! teams.length ) return;
-        const options = teams
-            .map(team => `<option value="${html_encode(team.uid)}">${html_encode(team_label(team))}</option>`)
-            .join('');
-        $(el_window).find('.share-team-select').html(options);
-        $(el_window).find('.share-team').show();
-    };
+    const $recipient = $(el_window).find('.share-recipient');
+    const $share_btn = $(el_window).find('.share-btn');
+
+    // One field for every kind of recipient: a colleague, a whole team, someone
+    // shared with before, or an address typed from scratch.
+    const picker = shareRecipientPicker({
+        $input: $recipient,
+        $row: $recipient.closest('.share-dialog-row'),
+        // Nobody already on the list below: offering them again would only
+        // re-grant what the row next to it already shows.
+        excluded: () => shown_shares.map(share_key).filter(Boolean),
+        onChange: () => { $share_btn.prop('disabled', ! picker.recipient()); },
+    });
+    $share_btn.prop('disabled', true);
+
+    // Enter shares, the way it submits the Dashboard's dialog. Bound after the
+    // picker, which takes the press for itself while it is choosing a row.
+    $recipient.on('keydown', (e) => {
+        if ( e.key !== 'Enter' || e.isDefaultPrevented() ) return;
+        if ( $share_btn.prop('disabled') ) return;
+        $share_btn.trigger('click');
+    });
 
     const render = (shares) => {
         shown_shares = Array.isArray(shares) ? shares : [];
@@ -330,60 +337,34 @@ async function UIWindowShare (options) {
     });
 
     $(el_window).on('click', '.share-btn', async function () {
-        const recipient = $(el_window).find('.share-recipient').val().trim();
-        if ( !recipient ) return;
+        // A team is named by uid; anything typed goes as-is, since a bare
+        // string is what the backend reads as an email or a username.
+        const chosen = picker.recipient();
+        if ( ! chosen ) return;
 
         $(this).prop('disabled', true);
         try {
             const created = await with_verification_gate(() => puter.fs.share({
                 path: item_path,
-                recipient,
+                recipient: chosen.value,
                 mode: $(el_window).find('.share-mode').val(),
             }));
-            $(el_window).find('.share-recipient').val('');
+            picker.clear();
             $error.hide();
             // `i18n()` encodes its replacements; encoding first would show the
             // entities to anyone whose address or username contains one.
             show_success(
                 i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
-                    recipient,
+                    recipient: chosen.label,
                 }),
             );
+            picker.remember(chosen, created);
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
             show_error(e?.message ?? i18n('share_failed'));
         } finally {
-            $(this).prop('disabled', false);
-        }
-    });
-
-    $(el_window).on('click', '.share-team-btn', async function () {
-        const uid = $(el_window).find('.share-team-select').val();
-        const team = teams.find(t => t.uid === uid);
-        if ( ! team ) return;
-
-        $(this).prop('disabled', true);
-        try {
-            // The object form, not a string: a `team:`-style prefix would
-            // change how an already-released spelling is read.
-            const created = await with_verification_gate(() => puter.fs.share({
-                path: item_path,
-                recipient: { team: team.uid },
-                mode: $(el_window).find('.share-team-mode').val(),
-            }));
-            $error.hide();
-            show_success(
-                i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
-                    recipient: team_label(team),
-                }),
-            );
-            invalidate_shared_roots();
-            await refresh();
-        } catch (e) {
-            show_error(e?.message ?? i18n('share_failed'));
-        } finally {
-            $(this).prop('disabled', false);
+            $(this).prop('disabled', ! picker.recipient());
         }
     });
 
@@ -457,9 +438,12 @@ async function UIWindowShare (options) {
         }).catch(() => { /* the button just stays hidden */ });
     }
 
-    // Teams first: the access list names its rows from them.
+    // Teams first: the access list names its rows from them, and the recipient
+    // field suggests both them and the people in them.
     teams = await teams_for_sharing();
-    render_team_picker();
+    picker.setTeams(teams);
+    // Not the encoded form: an attribute set from JS shows entities literally.
+    if ( teams.length ) $recipient.attr('placeholder', i18n('share_add_people_teams', [], false));
     await refresh();
     return el_window;
 }

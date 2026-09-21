@@ -43,7 +43,7 @@ import {
 } from 'vitest';
 
 import type { Actor } from '../../../../core/actor.js';
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -361,10 +361,10 @@ describe('MetaProvider.complete request shape', () => {
 
     it('derives safety_identifier from the actor and truncates it to 64 chars', async () => {
         createMock.mockResolvedValueOnce(OK_COMPLETION);
-        const userActor: Actor = {
+        const userActor: Actor = makeActor({
             user: { id: 42, uuid: 'u42', username: 'alice' },
             app: { id: 7, uid: 'a'.repeat(80) },
-        };
+        });
 
         await complete(makeProvider(), {}, userActor);
 

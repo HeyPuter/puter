@@ -168,7 +168,7 @@ Sharing is bounded twice: on the calls, and on how many people one account can r
 | Recipients per request                       | 10           |
 | Items per request                            | 50           |
 
-The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need.
+The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need. `stat()` with `returnShares` does the same listing work, so it spends from this bucket too, on top of its own `stat` budget.
 
 A "new share" is one that gives someone access they didn't already have. Changing the mode on an existing share, or re-sharing an item the recipient already has, costs nothing. Over the daily limit, `share` fails with `share_daily_limit_reached`.
 
@@ -181,7 +181,7 @@ Separately, the notification and email that tell a recipient about a share are b
 
 Recipients are emailed by default and opt out with the unsubscribe link the mail carries; a deployment can turn share email off entirely with `share_email_notifications: false`.
 
-Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
+Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 5-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
 ### Teams and teams
 
@@ -245,6 +245,7 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Events per fetch page                        | 200          |
 | Matched subscriptions per event              | 50           |
 | Filter evaluations per event                 | 200          |
+| Key-value value inlined in a delivery        | 16 KB        |
 | Broadcast deliveries per minute, per subscription | 600     |
 | `single` deliveries per minute, per subscription | 120      |
 | Handler invocations per minute, per (account, app) | 60     |
@@ -291,7 +292,7 @@ Deleting the node a subscription is anchored on ends it too, unless the subject 
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**, with **one `*` per segment** and **one `**` per pattern**; anything past that is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 
-A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`.
+A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`. A subscription made with `includeValue` is handed the key's new value on each delivery, up to **16 KB** serialized; a larger value is left out of the event and the subscriber reads the key back. A share-handle subscription may ask for values too, and receives them for as long as the handle stands.
 
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 

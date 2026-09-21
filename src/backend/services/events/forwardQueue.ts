@@ -95,7 +95,14 @@ export interface ForwardEvent {
             ancestors: Array<{ uid: string; path: string }>;
         };
     };
-    kv?: { userUuid: string; appUid: string; kvKey: string; op: KvOp };
+    kv?: {
+        userUuid: string;
+        appUid: string;
+        kvKey: string;
+        op: KvOp;
+        /** The value after the change, when it is small enough to carry. */
+        value?: unknown;
+    };
 }
 
 /** A subscription-set or presence generation moved in another region. */

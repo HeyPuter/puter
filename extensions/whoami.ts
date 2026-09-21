@@ -110,7 +110,7 @@ export const handleWhoami = async (
         return;
     }
 
-    const isUser = !actor.app;
+    const isUser = !actor.effectiveApp;
     const user = await stores.user.getById(actor.user.id);
     if (!user) {
         res.status(404).json({ error: 'User not found' });
@@ -287,8 +287,9 @@ export const handleWhoami = async (
         delete details.referral_code;
     }
 
-    if (actor.app) {
-        details.app_name = actor.app.uid;
+    const app = actor.effectiveApp;
+    if (app) {
+        details.app_name = app.uid;
     }
 
     try {

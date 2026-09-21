@@ -45,8 +45,10 @@
  * @param {string|null|undefined} proof - The `opener_state` query parameter.
  * @param {string|null|undefined} msgId - The popup's current `msg_id`. A proof
  *   minted for a different one belongs to another flow.
- * @returns {Promise<{opener_origin: string|null, oidc_login: boolean}|null>}
- *   `null` when there is no usable proof.
+ * @returns {Promise<{opener_origin: string|null, oidc_login: boolean, user_uuid: string|null}|null>}
+ *   `null` when there is no usable proof. `user_uuid` is the account that
+ *   completed OIDC; the caller must confirm it matches the current user before
+ *   treating `oidc_login` as consent to skip the account picker.
  */
 export const verifyOidcPopupReturn = async (proof, msgId) => {
     if (!proof) return null;
@@ -87,5 +89,6 @@ export const verifyOidcPopupReturn = async (proof, msgId) => {
     return {
         opener_origin: attested.opener_origin,
         oidc_login: attested.oidc_login === true,
+        user_uuid: attested.user_uuid ?? null,
     };
 };

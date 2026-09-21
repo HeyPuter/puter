@@ -19,7 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -140,10 +140,10 @@ describe('AppPermissionService — app-is-owner implicator', () => {
         const owner = await makeUser();
         const app = await makeApp(owner.user.id!);
         // An app must not inherit its owner's app-management reach.
-        const appActor: Actor = {
+        const appActor: Actor = makeActor({
             user: owner.user,
             app: { uid: app.uid, id: app.id },
-        };
+        });
         expect(
             await permissions.check(appActor, `app:uid#${app.uid}:read`),
         ).toBe(false);
@@ -204,10 +204,10 @@ describe('AppPermissionService — own-apps / own-subdomains implicator', () => 
     it("denies an app-under-user actor acting on its user's apps", async () => {
         const user = await makeUser();
         const app = await makeApp(user.user.id!);
-        const appActor: Actor = {
+        const appActor: Actor = makeActor({
             user: user.user,
             app: { uid: app.uid, id: app.id },
-        };
+        });
         expect(
             await permissions.check(
                 appActor,
@@ -224,10 +224,10 @@ describe('AppPermissionService — own-apps / own-subdomains implicator', () => 
     ])('%s: a granted write satisfies a read check', async (namespace) => {
         const user = await makeUser();
         const app = await makeApp(user.user.id!);
-        const appActor: Actor = {
+        const appActor: Actor = makeActor({
             user: user.user,
             app: { uid: app.uid, id: app.id },
-        };
+        });
         const uuid = user.user.uuid;
 
         expect(
@@ -254,10 +254,10 @@ describe('AppPermissionService — own-apps / own-subdomains implicator', () => 
     it('does not let a granted read satisfy a write check', async () => {
         const user = await makeUser();
         const app = await makeApp(user.user.id!);
-        const appActor: Actor = {
+        const appActor: Actor = makeActor({
             user: user.user,
             app: { uid: app.uid, id: app.id },
-        };
+        });
         const uuid = user.user.uuid;
 
         await runWithContext({ actor: user }, () =>
@@ -281,10 +281,10 @@ describe('AppPermissionService — own-apps / own-subdomains implicator', () => 
         const user = await makeUser();
         const other = await makeUser();
         const app = await makeApp(user.user.id!);
-        const appActor: Actor = {
+        const appActor: Actor = makeActor({
             user: user.user,
             app: { uid: app.uid, id: app.id },
-        };
+        });
 
         await runWithContext({ actor: user }, () =>
             permissions.grantUserAppPermission(
@@ -416,10 +416,10 @@ describe('AppPermissionService — app-root-dir rewriter', () => {
         const owner = await makeUser();
         const { app } = await makeHostedApp(owner);
         const target = await makeApp(owner.user.id!);
-        const appActor: Actor = {
+        const appActor: Actor = makeActor({
             user: owner.user,
             app: { uid: target.uid, id: target.id },
-        };
+        });
         await expect(
             runWithContext({ actor: appActor }, () =>
                 permissions.grantUserAppPermission(
@@ -525,10 +525,10 @@ describe('AppPermissionService — app-data cross-app permissions', () => {
     ) => {
         const grantee = await makeApp(owner.user.id!);
         const target = await makeApp(targetOwner.user.id!);
-        const granteeActor: Actor = {
+        const granteeActor: Actor = makeActor({
             user: owner.user,
             app: { uid: grantee.uid, id: grantee.id },
-        };
+        });
         return { grantee, target, granteeActor };
     };
 
@@ -1030,10 +1030,10 @@ describe('AppPermissionService — cross-app grant withdrawal', () => {
 
     it('makes the withdrawal effective immediately, not after the cache TTL', async () => {
         const { owner, grantee, target, permission } = await setupGrant();
-        const granteeActor = {
+        const granteeActor = makeActor({
             user: owner.user,
             app: { uid: grantee.uid, id: grantee.id },
-        } as Actor;
+        });
         // Warm the scan cache with an allow.
         expect(await permissions.check(granteeActor, permission)).toBe(true);
 

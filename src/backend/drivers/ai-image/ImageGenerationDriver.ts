@@ -24,6 +24,7 @@ import { Readable } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
@@ -72,6 +73,11 @@ export class ImageGenerationDriver extends PuterDriver {
 
     #providers: Record<string, IImageProvider> = {};
     #modelIdMap: Record<string, IImageModel[]> = {};
+
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
 
     override onServerStart() {
         this.#registerProviders();
@@ -253,7 +259,7 @@ export class ImageGenerationDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const m = this.services.metering;
+        const m = this.#aiMetering;
 
         const readKey = (
             ...cfgs: Array<Record<string, unknown> | undefined>
@@ -299,8 +305,7 @@ export class ImageGenerationDriver extends PuterDriver {
         const cloudflare = (providers['cloudflare-image-generation'] ??
             providers['cloudflare-workers-ai-image'] ??
             providers['cloudflare-workers-ai']) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const cfToken =
             (cloudflare?.apiToken as string | undefined) ??
             (cloudflare?.apiKey as string | undefined) ??
@@ -315,8 +320,7 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiToken: cfToken,
                         accountId: cfAccount,
                         apiBaseUrl: cloudflare?.apiBaseUrl as
-                            | string
-                            | undefined,
+                            string | undefined,
                     },
                     m,
                 );
@@ -348,11 +352,9 @@ export class ImageGenerationDriver extends PuterDriver {
         // pair its missing apiBaseUrl with the shared block's key (or vice
         // versa) and point a region-scoped key at the wrong endpoint.
         const byteplusImageCfg = providers['byteplus-image-generation'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusKey = readKey(byteplusImageCfg, byteplusSharedCfg);
         if (byteplusKey) {
             this.#providers['byteplus-image-generation'] =
@@ -361,8 +363,7 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiKey: byteplusKey,
                         apiBaseUrl: (byteplusImageCfg?.apiBaseUrl ??
                             byteplusSharedCfg?.apiBaseUrl) as
-                            | string
-                            | undefined,
+                            string | undefined,
                     },
                     m,
                 );

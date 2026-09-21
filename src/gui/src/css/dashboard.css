@@ -2531,8 +2531,6 @@ input.share-modal-recipient:focus {
     box-shadow: 0 0 0 3px var(--select-ring);
 }
 select.share-modal-mode,
-select.share-modal-team-select,
-select.share-modal-team-mode,
 select.share-modal-link-access,
 select.share-modal-link-mode,
 select.share-modal-row-mode {
@@ -2557,13 +2555,10 @@ select.share-modal-row-mode {
     transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
 }
 select.share-modal-mode,
-select.share-modal-team-mode,
 select.share-modal-link-mode {
     flex-shrink: 0;
 }
 select.share-modal-mode:focus,
-select.share-modal-team-select:focus,
-select.share-modal-team-mode:focus,
 select.share-modal-link-access:focus,
 select.share-modal-link-mode:focus,
 select.share-modal-row-mode:focus {
@@ -2572,8 +2567,6 @@ select.share-modal-row-mode:focus {
     box-shadow: 0 0 0 3px var(--select-ring);
 }
 select.share-modal-mode:disabled,
-select.share-modal-team-select:disabled,
-select.share-modal-team-mode:disabled,
 select.share-modal-link-access:disabled,
 select.share-modal-link-mode:disabled,
 select.share-modal-row-mode:disabled {
@@ -2586,69 +2579,23 @@ select.share-modal-row-mode:disabled {
 .device-phone input.share-modal-recipient,
 .device-phone input.share-modal-recipient:focus,
 .device-phone select.share-modal-mode,
-.device-phone select.share-modal-team-select,
-.device-phone select.share-modal-team-mode,
 .device-phone select.share-modal-link-access,
 .device-phone select.share-modal-link-mode,
 .device-phone select.share-modal-row-mode {
     font-size: 16px;
 }
 
-/* Its own block under the people field, separated the way the desktop
-   dialog separates them. The button is quieter: an alternative, not the
-   main path. */
-.share-modal-teams {
-    margin-top: 18px;
-    padding-top: 16px;
-    border-top: 1px solid var(--dashboard-border);
-}
-
-.share-modal-teams-label {
-    display: block;
-    margin-bottom: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--dashboard-text-primary);
-}
-
-.share-modal-teams-note {
-    margin: 8px 0 0;
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--dashboard-text-hint);
-}
-
-.share-modal-team-select {
-    min-width: 0;
-    flex: 1 1 auto;
-}
-
-.share-modal-team-btn {
-    width: 100%;
-    height: 38px;
-    margin-top: 10px;
-    padding: 0 16px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 10px;
-    background: transparent;
-    font-size: 13.5px;
-    font-weight: 600;
-    font-family: inherit;
-    color: var(--dashboard-text-primary);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-}
-
-@media (hover: hover) {
-    .share-modal-team-btn:hover:not(:disabled) {
-        background: var(--dashboard-card-background);
-        border-color: var(--dashboard-text-hint);
-    }
-}
-
-.share-modal-team-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
+/* Recipient suggestions. The structure lives in style.css, shared with the
+   desktop share dialog; only the palette is restated here so the list picks
+   up the dashboard's tokens in both themes. */
+.share-modal {
+    --share-suggest-bg: var(--dashboard-card-background);
+    --share-suggest-border: var(--dashboard-border);
+    --share-suggest-hover: var(--dashboard-hover);
+    --share-suggest-shadow: var(--dashboard-shadow-medium);
+    --share-suggest-fg: var(--dashboard-text-primary);
+    --share-suggest-muted: var(--dashboard-text-muted);
+    --share-suggest-picked-bg: var(--select-tint);
 }
 
 /* General access: the owner's switch between people-only and anyone with
@@ -3070,9 +3017,16 @@ select.share-modal-row-mode:focus {
 
 @media (prefers-color-scheme: dark) {
     /* The avatar's tinted fill needs a lighter glyph over dark surfaces */
-    .share-modal-avatar {
+    .share-modal-avatar,
+    .share-modal .share-suggest-avatar {
         background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
         color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+    }
+    /* Restated after the rule above, which would otherwise repaint the glyph
+       variant with a hue it does not carry. */
+    .share-modal .share-suggest-avatar-team {
+        background: var(--share-suggest-hover);
+        color: var(--share-suggest-muted);
     }
     /* Chevron: slate-400, lighter than the light theme's stroke */
     select.share-modal-mode,

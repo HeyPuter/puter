@@ -24,14 +24,15 @@ import { invalidate_shared_roots } from '../../helpers/sharedAccess.js';
 import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/shareModes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
-import { avatarHue, avatarInitial } from './shareAvatar.js';
+import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
 import {
     has_direct_share,
     mark_item_shared,
 } from '../../helpers/sharedBadge.js';
 import { share_outcome } from '../../helpers/shareOutcome.js';
 import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
-import { team_label, teams_for_sharing } from '../../helpers/shareTeams.js';
+import shareRecipientPicker from '../../helpers/shareRecipientPicker.js';
+import { teams_for_sharing } from '../../helpers/shareTeams.js';
 import { share_link_for } from '../../helpers/sharePaths.js';
 import { is_plan_gate_error, open_upgrade_flow } from '../../helpers/planGate.js';
 import { with_verification_gate } from '../../helpers/verification_gates.js';
@@ -134,7 +135,6 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     // Nothing to share: an empty selection is a caller's mistake, not a dialog.
     if ( total === 0 ) return { close: () => {} };
     const items_list_id = `share-modal-items-${++modal_seq}`;
-    const teams_select_id = `share-modal-teams-${modal_seq}`;
 
     // The header names the one item, or the size of the pile with the names
     // folded into an expandable list below it.
@@ -182,7 +182,6 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                             <span class="share-modal-submit-label">${i18n('share')}</span>
                         </button>
                     </form>
-                    <div class="share-modal-teams" hidden></div>
                     ${allow_manage ? `<div class="share-modal-general">
                         <h3 class="share-modal-heading">${i18n('share_general_access')}</h3>
                         <div class="share-modal-general-row">
@@ -243,6 +242,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         closed = true;
         $overlay.removeClass('share-modal-show');
         $(document).off('keydown.share-modal');
+        // The recipient field listens on the document to know when a click
+        // landed outside its suggestions; that has to come off with the dialog.
+        picker.destroy();
         setTimeout(() => $overlay.remove(), 200);
         if ( el_previous_focus && document.contains(el_previous_focus) ) {
             try {
@@ -631,76 +633,56 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     /** A team is named by uid; a person by the name the row already shows. */
     const recipient_of = (group) => (group.teamUid ? { team: group.teamUid } : group.name);
 
-    // One grant reaching every colleague. Its own control, as on the desktop
-    // dialog: a bare string in the field above already reads as a person.
-    let teams = [];
-    (async () => {
-        teams = await teams_for_sharing();
-        if ( closed || teams.length === 0 ) return;
-        const options = teams
-            .map((team) => `<option value="${html_encode(team.uid)}">${html_encode(team_label(team))}</option>`)
-            .join('');
-        $overlay.find('.share-modal-teams').html(`
-            <label class="share-modal-teams-label" for="${teams_select_id}">${i18n('share_with_team')}</label>
-            <div class="share-modal-add-row">
-                <select class="share-modal-team-select" id="${teams_select_id}">${options}</select>
-                <select class="share-modal-team-mode" aria-label="${i18n('share_access_level')}">${options_for('read', { allow_manage })}</select>
-            </div>
-            <p class="share-modal-teams-note">${i18n('share_team_note')}</p>
-            <button type="button" class="share-modal-team-btn">${i18n('share')}</button>
-        `).prop('hidden', false);
-    })();
-
-    $overlay.on('click', '.share-modal-team-btn', async function () {
-        const team = teams.find((t) => t.uid === $overlay.find('.share-modal-team-select').val());
-        if ( ! team ) return;
-        const name = team_label(team);
-        const $btn = $(this).prop('disabled', true);
-        try {
-            const created = await grant_access(
-                { team: team.uid },
-                $overlay.find('.share-modal-team-mode').val(),
-                target_paths,
-            );
-            const granted = created?.length ?? 0;
-            show_success(granted < total
-                ? i18n('share_shared_with_partial', { recipient: name, count: granted, total })
-                : shared_message(name, total));
-            invalidate_shared_roots();
-            await refresh();
-        } catch (err) {
-            show_error(error_html(err));
-        }
-        $btn.prop('disabled', false);
-        focus_dialog();
+    // One field for every kind of recipient: a colleague, a whole team, someone
+    // shared with before, or an address typed from scratch.
+    const picker = shareRecipientPicker({
+        $input: $recipient,
+        $row: $overlay.find('.share-modal-add-row'),
+        // Nobody already on the list below: offering them again would only
+        // re-grant what their row already shows.
+        excluded: () => last_groups.map((group) => group.key),
+        onChange: () => {
+            $submit.prop('disabled', ! picker.recipient());
+            // Choosing again retires a stale success/error message.
+            clear_status();
+        },
     });
+
+    (async () => {
+        const teams = await teams_for_sharing();
+        if ( closed ) return;
+        picker.setTeams(teams);
+        if ( teams.length ) {
+            // Not the encoded form: an attribute set from JS shows entities
+            // literally.
+            const label = i18n('share_add_people_teams', [], false);
+            $recipient.attr('placeholder', label).attr('aria-label', label);
+        }
+    })();
 
     /** "Shared with ann" / "Shared with ann on 4 items". */
     const shared_message = (recipient, count) => (count === 1
         ? i18n('share_shared_with', { recipient })
         : i18n('share_shared_with_items', { recipient, count }));
 
-    $recipient.on('input', function () {
-        $submit.prop('disabled', $(this).val().trim() === '');
-        // Typing again retires a stale success/error message.
-        clear_status();
-    });
-
     $overlay.on('submit', '.share-modal-add', async function (e) {
         e.preventDefault();
-        const recipient = $recipient.val().trim();
-        if ( !recipient ) return;
+        // A team is named by uid; anything typed goes as-is, since a bare
+        // string is what the backend reads as an email or a username.
+        const chosen = picker.recipient();
+        if ( ! chosen ) return;
+        const recipient = chosen.label;
 
         $submit.prop('disabled', true).addClass('share-modal-btn-busy');
         try {
             const created = await grant_access(
-                recipient,
+                chosen.value,
                 $overlay.find('.share-modal-mode').val(),
                 target_paths,
             );
             // Clear only what we sent; a name typed mid-flight shouldn't vanish.
-            if ( $recipient.val().trim() === recipient ) $recipient.val('');
-            $submit.prop('disabled', $recipient.val().trim() === '');
+            if ( $recipient.val().trim() === recipient ) picker.clear();
+            $submit.prop('disabled', ! picker.recipient());
             // A pair the backend refused doesn't fail the others, so say how
             // many items actually landed rather than implying all of them did.
             const granted = created?.length ?? 0;
@@ -724,6 +706,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                     ? i18n('share_invited_items', { recipient, count: total })
                     : shared_message(recipient, total));
             }
+            picker.remember(chosen, created);
             invalidate_shared_roots();
             await refresh();
             $recipient.get(0)?.focus({ preventScroll: true });

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { isPlainUserActor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { puterStores } from '../../stores/index.js';
@@ -85,7 +86,7 @@ export class AppPermissionService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
 
                 const parts = PermissionUtil.split(permission);
@@ -118,7 +119,7 @@ export class AppPermissionService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.uuid) return undefined;
                 const parts = PermissionUtil.split(permission);
                 if (parts[1] === actor.user.uuid) return {};
@@ -165,7 +166,7 @@ export class AppPermissionService extends PuterService {
                     return PERMISSION_FOR_NOTHING_IN_PARTICULAR;
                 }
                 const actor = Context.get('actor');
-                if (!actor || actor.app || actor.accessToken) {
+                if (!actor || !isPlainUserActor(actor)) {
                     throw new HttpError(403, 'Forbidden', {
                         legacyCode: 'forbidden',
                     });
@@ -247,7 +248,7 @@ export class AppPermissionService extends PuterService {
             matches: (permission: string) =>
                 permission.startsWith(`${APP_DATA_PERMISSION_PREFIX}:`),
             check: async ({ actor }): Promise<unknown> => {
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
                 return {};
             },

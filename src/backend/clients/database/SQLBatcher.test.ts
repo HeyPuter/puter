@@ -86,6 +86,45 @@ describe('SQLBatcher', () => {
         expect(conn.release).toHaveBeenCalledTimes(1);
     });
 
+    it('skips the transaction wrapper on a readOnly batcher', async () => {
+        const conn = makeConnection(happyBatch);
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, {
+            maxTimeInQueue: 5,
+            readOnly: true,
+        });
+
+        const [a, b] = await Promise.all([
+            batcher.query('SELECT a', []),
+            batcher.query('SELECT b', []),
+        ]);
+        expect(a[0]).toEqual([{ n: 0 }]);
+        expect(b[0]).toEqual([{ n: 1 }]);
+        // BEGIN and COMMIT are round trips; a SELECT-only batch has nothing to
+        // roll back, so it must not pay for them.
+        expect(conn.beginTransaction).not.toHaveBeenCalled();
+        expect(conn.commit).not.toHaveBeenCalled();
+        expect(conn.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not roll back a failed readOnly batch', async () => {
+        const conn = makeConnection((sql: string) => {
+            if (isBatchQuery(sql)) throw makeError('ER_LOCK_DEADLOCK');
+            return [[{ n: 0 }], undefined];
+        });
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, {
+            maxTimeInQueue: 5,
+            readOnly: true,
+        });
+
+        await Promise.all([
+            batcher.query('SELECT a', []),
+            batcher.query('SELECT b', []),
+        ]);
+        expect(conn.rollback).not.toHaveBeenCalled();
+    });
+
     it('drops the oldest item with reason queueOverflow at the high-water mark', async () => {
         const conn = makeConnection(happyBatch);
         const { pool } = makePool(conn);

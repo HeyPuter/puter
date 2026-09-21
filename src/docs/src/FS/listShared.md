@@ -12,7 +12,9 @@ This method lists what other Puter users have shared with you, a page at a time.
 > read, and nothing more. Files its user owns but never handed to the app stay
 > out of reach, and `listShared()` shows an app only the shares it can reach.
 > Shares an app creates are attributed to the user and carry `issuedByApp`, so
-> the owner can tell them apart in [`getShares()`](/FS/getShares/).
+> the owner can tell them apart in [`getShares()`](/FS/getShares/) — and those
+> are the only ones an app can list or withdraw on an item. Opening an item to
+> anyone with the link is the owner's own call, never an app's.
 
 ## Syntax
 

@@ -19,6 +19,7 @@
 
 import type { Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
+import { makeActor } from '../../actor.js';
 import { TokenService } from '../../../services/auth/TokenService.js';
 import {
     createStepUpGate,
@@ -187,7 +188,10 @@ describe('createStepUpGate', () => {
         });
         const next = vi.fn();
         const req = reqWith(undefined, USER_UUID, {
-            actor: { user: { uuid: USER_UUID }, app: { uid: 'app-xyz' } },
+            actor: makeActor({
+                user: { uuid: USER_UUID },
+                app: { uid: 'app-xyz' },
+            }),
         } as never);
         gate(req, {} as Response, next);
         expect(next).toHaveBeenCalledWith();
@@ -201,7 +205,10 @@ describe('createStepUpGate', () => {
         });
         const next = vi.fn();
         const req = reqWith(undefined, USER_UUID, {
-            actor: { user: { uuid: USER_UUID }, app: { uid: 'app-xyz' } },
+            actor: makeActor({
+                user: { uuid: USER_UUID },
+                app: { uid: 'app-xyz' },
+            }),
         } as never);
         gate(req, {} as Response, next);
         expect(next.mock.calls[0][0]?.statusCode).toBe(403);
@@ -212,7 +219,10 @@ describe('createStepUpGate', () => {
         const gate = createStepUpGate({ tokenService: ts });
         const next = vi.fn();
         const req = reqWith(undefined, USER_UUID, {
-            actor: { user: { uuid: USER_UUID }, app: { uid: 'app-xyz' } },
+            actor: makeActor({
+                user: { uuid: USER_UUID },
+                app: { uid: 'app-xyz' },
+            }),
         } as never);
         gate(req, {} as Response, next);
         expect(next.mock.calls[0][0]?.statusCode).toBe(403);

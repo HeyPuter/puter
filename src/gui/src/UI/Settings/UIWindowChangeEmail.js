@@ -18,6 +18,7 @@
  */
 
 import { openRevalidatePopup } from '../../util/openid.js';
+import { fetchWithSessionCookieRetry, isSessionAuthError } from '../../util/sessionAuth.js';
 import Placeholder from '../../util/Placeholder.js';
 import PasswordEntry from '../Components/PasswordEntry.js';
 import UIWindow from '../UIWindow.js';
@@ -141,8 +142,9 @@ async function UIWindowChangeEmail (options) {
             await myOpenRevalidatePopup();
 
             const res = await doSubmit({ new_email });
-            const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+            const data = await res.json().catch(() => ({}));
             if ( res.ok ) onSuccess();
+            else if ( isSessionAuthError(res, data) ) onReauthRequired(data);
             else onError(data.message || 'Request failed');
             return;
         }
@@ -151,24 +153,36 @@ async function UIWindowChangeEmail (options) {
         $(el_window).find('.new-email').attr('disabled', true);
 
         let res = await doSubmit({ new_email, password });
-        const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({}));
 
         if ( res.ok ) {
             onSuccess();
             return;
         }
+        if ( isSessionAuthError(res, data) ) {
+            onReauthRequired(data);
+            return;
+        }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
             await myOpenRevalidatePopup(data.revalidate_url);
             const r = await doSubmit({ new_email });
-            if ( r.ok ) onSuccess();
-            else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
+            if ( r.ok ) {
+                onSuccess();
+                return;
+            }
+            const d = await r.json().catch(() => ({}));
+            if ( isSessionAuthError(r, d) ) onReauthRequired(d);
+            else onError(d.message || 'Request failed');
             return;
         }
         onError(data.message || 'Request failed');
     });
 
-    function doSubmit ({ new_email, password }) {
-        return fetch(apiUrl, {
+    function doSubmit ({ new_email, password } = {}) {
+        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie).
+        // On a 401 caused by a missing/bad cookie the wrapper mints the cookie
+        // from the GUI bearer token via /session/sync-cookie and retries once.
+        const send = () => fetch(apiUrl, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -177,6 +191,7 @@ async function UIWindowChangeEmail (options) {
                 password: password !== undefined && password !== '' ? password : undefined,
             }),
         });
+        return fetchWithSessionCookieRetry(send, { origin, authToken: window.auth_token });
     }
 
     function onError (message) {
@@ -184,6 +199,14 @@ async function UIWindowChangeEmail (options) {
         $(el_window).find('.form-error-msg').fadeIn();
         $(el_window).find('.change-email-btn').removeClass('disabled');
         $(el_window).find('.new-email').attr('disabled', false);
+    }
+
+    // Session cookie is absent and couldn't be minted from the bearer
+    // token — force the sign-in flow so it gets set, then the user can
+    // retry the change.
+    function onReauthRequired (data) {
+        onError(i18n('reauth_required_message'));
+        window.handleReauthRequired({ reason: data.reason, auth_id: data.auth_id });
     }
 
     function onSuccess () {
