@@ -836,6 +836,15 @@ export class AuthController extends PuterController {
             );
         }
 
+        // ...and the same against the filesystem: a free username whose home
+        // path is occupied would provision a second root there, and the two
+        // trees then resolve interchangeably.
+        if (await this.stores.fsEntry.findHomePathConflict(body.username)) {
+            throw new HttpError(400, 'This username is not available.', {
+                legacyCode: 'bad_request',
+            });
+        }
+
         // Duplicate confirmed-email check. A confirmed account (any
         // credential type — password OR OIDC) on this email → reject.
         //
@@ -2587,6 +2596,19 @@ export class AuthController extends PuterController {
                 legacyCode: 'username_already_in_use',
             });
         }
+        // Before the username is written, not after: the rename below is what
+        // keeps the account's files reachable, and it can't run onto a taken
+        // path.
+        if (
+            await this.stores.fsEntry.findHomePathConflict(
+                new_username,
+                req.actor!.user.id!,
+            )
+        ) {
+            throw new HttpError(400, 'This username is not available.', {
+                legacyCode: 'username_already_in_use',
+            });
+        }
 
         await this.stores.user.update(req.actor!.user.id!, {
             username: new_username,
@@ -2908,6 +2930,11 @@ export class AuthController extends PuterController {
         const existingUsername = await this.stores.user.getByUsername(username);
         if (existingUsername && existingUsername.id !== user.id) {
             throw new HttpError(400, 'This username is already taken.', {
+                legacyCode: 'username_already_in_use',
+            });
+        }
+        if (await this.stores.fsEntry.findHomePathConflict(username, user.id)) {
+            throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'username_already_in_use',
             });
         }

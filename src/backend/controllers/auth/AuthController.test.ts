@@ -5423,6 +5423,35 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         }
     });
 
+    it('change-username: 400 when the home path is already occupied, before the rename', async () => {
+        const { user, actor } = await makeUserAndActor();
+        // A name no account holds, whose home path a stray row does. This is
+        // the shape of legacy drift; it used to leave two roots at one path.
+        const parked = `p_${uniq()}`;
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.id,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}`, root.id],
+        );
+        const { user: mover, actor: moverActor } = await makeUserAndActor();
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: parked }, { actor: moverActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // The username claim is refused whole: the user row keeps its name.
+        const after = await server.stores.user.getById(mover.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(mover.username);
+        void actor;
+    });
+
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {
         const { actor } = await makeUserAndActor();
         await expect(

@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { AbstractDatabaseClient } from '../clients/database/DatabaseClient';
+import { HttpError } from '../core/http/HttpError';
 import type { GroupStore } from '../stores/group/GroupStore';
 import type { UserRow, UserStore } from '../stores/user/UserStore';
 import type { IConfig } from '../types';
@@ -57,6 +58,19 @@ export async function generateDefaultFsentries(
     // Idempotency guard: if trash_uuid is already set, the tree exists.
     // Cheap check vs. a redundant INSERT + UPDATE on retries / re-runs.
     if (user.trash_uuid) return;
+
+    // Callers check the name is free before provisioning, so this only fires
+    // on drift that predates those checks. A home written on top of another
+    // row gives both accounts a tree answering to one path.
+    const occupied = (await db.pread(
+        'SELECT id FROM fsentries WHERE path = ? LIMIT 1',
+        [`/${user.username}`],
+    )) as Array<{ id: number }>;
+    if (occupied.length > 0) {
+        throw new HttpError(400, 'This username is not available.', {
+            legacyCode: 'username_already_in_use',
+        });
+    }
 
     const home_uuid = uuidv4();
     const folderUuids: Record<FolderName, string> = {
