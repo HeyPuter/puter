@@ -61,11 +61,13 @@ describe('ShareService', () => {
 
     /** A real fsentry under the user's home, so ancestor chains resolve. */
     const makeFile = async (owner: { id: number; username: string }) => {
+        const home = await server.stores.fsEntry.getRootEntryForUser(owner.id);
+        if (!home) throw new Error('home directory missing');
         const uuid = uuidv4();
         const name = `f-${uuid.slice(0, 8)}.txt`;
         const path = `/${owner.username}/${name}`;
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 uuid,
                 name,
@@ -73,6 +75,8 @@ describe('ShareService', () => {
                 owner.id,
                 server.clients.db.booleanValue(false),
                 Math.floor(Date.now() / 1000),
+                home.id,
+                home.uuid,
             ],
         );
         const entry = await server.stores.fsEntry.getEntryByPath(path);
@@ -85,6 +89,8 @@ describe('ShareService', () => {
      * shares.
      */
     const makeDirWithFile = async (owner: { id: number; username: string }) => {
+        const home = await server.stores.fsEntry.getRootEntryForUser(owner.id);
+        if (!home) throw new Error('home directory missing');
         const dirUuid = uuidv4();
         const dirName = `d-${dirUuid.slice(0, 8)}`;
         const dirPath = `/${owner.username}/${dirName}`;
@@ -93,7 +99,7 @@ describe('ShareService', () => {
         const now = Math.floor(Date.now() / 1000);
 
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 dirUuid,
                 dirName,
@@ -101,6 +107,8 @@ describe('ShareService', () => {
                 owner.id,
                 server.clients.db.booleanValue(true),
                 now,
+                home.id,
+                home.uuid,
             ],
         );
         const dirRow = await server.stores.fsEntry.getEntryByPath(dirPath);

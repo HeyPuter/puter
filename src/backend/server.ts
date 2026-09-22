@@ -107,6 +107,9 @@ import type {
     WithLifecycle,
 } from './types';
 
+/** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
+
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
     stores!: LayerInstances<typeof puterStores>;
@@ -1410,6 +1413,13 @@ export class PuterServer {
         // to hook into the raw server (socket.io upgrades, WebSockets, …) runs
         // its `attachHttpServer(server)` here, pre-listen.
         const httpServer = http.createServer(this.#app);
+        // Keep-alive has to outlive the idle timeout of any proxy in front: if
+        // this server closes a pooled connection first, a request the proxy
+        // dispatches onto it reaches the client as a 502. Node's 5s default is
+        // below every common proxy setting. `headersTimeout` counts from a
+        // request's first byte, so it needs no matching bump.
+        httpServer.keepAliveTimeout =
+            this.#config.keep_alive_timeout ?? DEFAULT_KEEP_ALIVE_TIMEOUT;
         for (const service of Object.values(this.services) as Array<
             WithLifecycle & {
                 attachHttpServer?: (s: http.Server) => void | Promise<void>;

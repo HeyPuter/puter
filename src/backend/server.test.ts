@@ -19,6 +19,7 @@
  */
 
 import http from 'node:http';
+import net from 'node:net';
 import type { Request, RequestHandler, Response } from 'express';
 import {
     afterAll,
@@ -583,5 +584,53 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields.status).toBe(500);
         expect(fields.error).toBeInstanceOf(Error);
         expect(fields).not.toHaveProperty('details');
+    });
+});
+
+/**
+ * A proxy in front pools upstream connections, so this server closing an idle
+ * one first surfaces as a 502 to its clients. Run with a short timeout so the
+ * close is observable; what matters is that the configured value reaches the
+ * socket at all.
+ */
+describe('PuterServer keep-alive timeout', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            { port, keep_alive_timeout: 300 } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('closes an idle keep-alive connection at the configured timeout', async () => {
+        const socket = net.connect(port, '127.0.0.1');
+        await new Promise<void>((resolve, reject) => {
+            socket.once('connect', resolve);
+            socket.once('error', reject);
+        });
+        socket.write(
+            'GET /healthcheck HTTP/1.1\r\nHost: puter.localhost\r\n\r\n',
+        );
+        await new Promise<void>((resolve) => socket.once('data', resolve));
+
+        let timer: NodeJS.Timeout;
+        const closed = await Promise.race([
+            new Promise<boolean>((resolve) =>
+                socket.once('close', () => resolve(true)),
+            ),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), 3000);
+            }),
+        ]);
+        clearTimeout(timer!);
+        socket.destroy();
+        expect(closed).toBe(true);
     });
 });
