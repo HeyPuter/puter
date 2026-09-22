@@ -22,6 +22,8 @@ import { describe, expect, it } from 'vitest';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     CONTENT_FILTER_PATTERN,
+    CREDIT_EXHAUSTION_PATTERN,
+    isCreditExhaustion,
     isTransientUpstreamError,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
@@ -112,6 +114,57 @@ describe('CONTENT_FILTER_PATTERN', () => {
     });
 });
 
+describe('credit exhaustion detection', () => {
+    it('matches provider credit and billing failures', () => {
+        for (const { status, code, message } of [
+            {
+                status: 403,
+                code: undefined,
+                message:
+                    'Your current credits have been used up and we are unable to process further requests. Please visit https://openrouter.ai/settings/credits to add credits.',
+            },
+            {
+                status: 402,
+                code: undefined,
+                message:
+                    'Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+            },
+            {
+                status: 429,
+                code: undefined,
+                message:
+                    'Free model requires Team balance greater than $4.999999. (request id: 20260921210512505339070jYB)',
+            },
+            {
+                status: 403,
+                code: 'insufficient_user_quota',
+                message: 'request rejected',
+            },
+            {
+                status: 429,
+                code: 'insufficient_quota',
+                message: 'request rejected',
+            },
+        ]) {
+            if (message !== 'request rejected') {
+                expect(message).toMatch(CREDIT_EXHAUSTION_PATTERN);
+            }
+            expect(isCreditExhaustion(status, code, message)).toBe(true);
+        }
+    });
+
+    it('does not mistake ordinary rate limits for exhausted credits', () => {
+        for (const message of [
+            'Rate limit exceeded',
+            'Too many requests',
+            'Quota exceeded for this key',
+        ]) {
+            expect(message).not.toMatch(CREDIT_EXHAUSTION_PATTERN);
+            expect(isCreditExhaustion(429, undefined, message)).toBe(false);
+        }
+    });
+});
+
 describe('sanitizeUpstreamMessage', () => {
     it('strips markup and collapses whitespace', () => {
         expect(
@@ -125,5 +178,13 @@ describe('sanitizeUpstreamMessage', () => {
         const out = sanitizeUpstreamMessage('x'.repeat(1000));
         expect(out.length).toBe(300);
         expect(out.endsWith('...')).toBe(true);
+    });
+
+    it('redacts URLs and request identifiers', () => {
+        expect(
+            sanitizeUpstreamMessage(
+                'Add credits at https://vendor.test/billing (request id: req-parenthesized) request_id: req_standalone',
+            ),
+        ).toBe('Add credits at');
     });
 });
