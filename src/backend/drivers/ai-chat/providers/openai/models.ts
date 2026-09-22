@@ -114,12 +114,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        // OpenAI's promotional pricing, guaranteed only through 2026-11-21.
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 500,
-            cached_tokens: 50,
-            cache_write_tokens: 500 * 1.25,
-            completion_tokens: 3000,
+            prompt_tokens: 400,
+            cached_tokens: 40,
+            cache_write_tokens: 400 * 1.25,
+            completion_tokens: 2000,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
         context: 1_050_000,
