@@ -1712,6 +1712,32 @@ describe('PermissionService — scan paths', () => {
             expect(await permService.check(actor, permission)).toBe(false);
         });
 
+        // The traversal used to run beside the flat read with nobody awaiting it.
+        it('answers a flat hit without running the linked traversal', async () => {
+            const { row, actor } = await makeGroupedUser();
+            const permission = `zztest:flat-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(row.id, permission, {
+                permission,
+                deleted: false,
+                issuer_user_id: row.id,
+            } as never);
+
+            const linked = vi
+                .spyOn(server.stores.permission, 'readLinkedUserUserPerms')
+                .mockRejectedValue(new Error('db wobble'));
+            try {
+                const reading = await permService.validateUserPerms({
+                    actor,
+                    permissions: [permission],
+                });
+                expect(reading).toHaveLength(1);
+                expect(reading[0]).toMatchObject({ permission });
+                expect(linked).not.toHaveBeenCalled();
+            } finally {
+                linked.mockRestore();
+            }
+        });
+
         it('returns nothing for an actor with no user id', async () => {
             expect(
                 await permService.validateUserPerms({
