@@ -33,6 +33,7 @@ import {
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
+import { isPlainUserActor, makeActor } from '../../core/actor.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
@@ -3562,27 +3563,66 @@ export class AuthController extends PuterController {
 
     // -- Permission checks -------------------------------------------
 
+    /**
+     * The caller's account acting as `appIdentifier`, resolved uid-or-name like
+     * the grant handlers.
+     */
+    async #appUnderUserActor(
+        actor: Actor,
+        appIdentifier: unknown,
+    ): Promise<Actor> {
+        this.#validateAppPermissionParams({ app_uid: appIdentifier });
+        // Sessions only: for an app, this would be a window onto its neighbours' grants.
+        if (!isPlainUserActor(actor)) {
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const app = await this.stores.app.resolveApp(appIdentifier as string);
+        if (!app) {
+            throw new HttpError(404, `App ${appIdentifier} does not exist`, {
+                legacyCode: 'not_found',
+            });
+        }
+        return makeActor({
+            user: actor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+    }
+
     @Post('/auth/check-permissions', {
         subdomain: 'api',
         requireAuth: true,
         rateLimit: AUTH_CHECK_LIMIT,
     })
     async handleCheckPermissions(req: Request, res: Response): Promise<void> {
-        const { permissions } = req.body ?? {};
+        const { permissions, app_uid } = req.body ?? {};
         if (!Array.isArray(permissions)) {
             throw new HttpError(400, 'Missing or invalid `permissions` array', {
                 legacyCode: 'bad_request',
             });
         }
 
+        // Present but empty must not fall through to checking the user: on their own file every `fs:` scope answers `true`.
+        if (
+            app_uid !== undefined &&
+            (typeof app_uid !== 'string' || !app_uid)
+        ) {
+            throw new HttpError(400, 'Invalid `app_uid`', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        // `app_uid` asks what an app of mine holds, not what I hold.
+        const actor = app_uid
+            ? await this.#appUnderUserActor(req.actor!, app_uid)
+            : req.actor!;
+
         const unique = [...new Set(permissions)] as string[];
         const result: Record<string, boolean> = {};
         let granted: Map<string, boolean>;
         try {
-            granted = await this.services.permission.checkMany(
-                req.actor!,
-                unique,
-            );
+            granted = await this.services.permission.checkMany(actor, unique);
         } catch {
             granted = new Map<string, boolean>();
         }

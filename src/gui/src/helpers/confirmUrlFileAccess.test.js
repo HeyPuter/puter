@@ -31,11 +31,14 @@ const FILE = '/alice/Documents/notes.txt';
 const FILE_UID = '2b7d8c1e-4f3a-4b6c-9d1e-0a1b2c3d4e5f';
 
 let permissionDialog;
-const deps = (stat) => ({ stat, permissionDialog });
+let appHoldsPermissions;
+const deps = (stat) => ({ stat, permissionDialog, appHoldsPermissions });
 
 beforeEach(() => {
     permissionDialog = vi.fn(async () => true);
+    appHoldsPermissions = vi.fn(async () => false);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 describe('urlFileLaunchOptions', () => {
@@ -76,6 +79,30 @@ describe('confirmUrlFileAccess', () => {
         expect(permissionDialog).toHaveBeenCalledWith(expect.objectContaining({
             permission: `fs:${FILE_UID}:write`,
         }));
+    });
+
+    // The reason this gate stopped asking on every launch of the same link.
+    it('hands the file over without prompting when the app already holds the grant', async () => {
+        const stat = vi.fn(async () => ({ uid: FILE_UID, path: FILE, is_dir: false }));
+        appHoldsPermissions = vi.fn(async () => true);
+
+        await expect(confirmUrlFileAccess(
+            { path: FILE, appUid: APP, appName: 'notepad' }, deps(stat),
+        )).resolves.toEqual({ uid: FILE_UID, path: FILE });
+
+        expect(appHoldsPermissions).toHaveBeenCalledWith([`fs:${FILE_UID}:write`], APP);
+        expect(permissionDialog).not.toHaveBeenCalled();
+    });
+
+    // A check that couldn't be made is not consent, and must not fail the launch either.
+    it('prompts when the check for an existing grant throws', async () => {
+        const stat = vi.fn(async () => ({ uid: FILE_UID, path: FILE, is_dir: false }));
+        appHoldsPermissions = vi.fn(async () => { throw new Error('network down'); });
+
+        await expect(confirmUrlFileAccess(
+            { path: FILE, appUid: APP }, deps(stat),
+        )).resolves.toEqual({ uid: FILE_UID, path: FILE });
+        expect(permissionDialog).toHaveBeenCalled();
     });
 
     it('reports a refusal when the user denies', async () => {
