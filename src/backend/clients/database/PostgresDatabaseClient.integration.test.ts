@@ -33,7 +33,9 @@ import { PostgresDatabaseClient } from './PostgresDatabaseClient.js';
 const postgresUrl = process.env.PUTER_TEST_POSTGRES_URL;
 const postgresMigrationsPath = POSTGRES_TEST_MIGRATIONS_PATH;
 const postgresTestSchemaPattern = /^puter_test_[a-f0-9]{32}$/u;
-const postgresIntegrationTimeoutMs = 180_000;
+// Applying every native migration twice (once to check idempotency) takes
+// ~2 minutes on its own, and the suite runs this file alongside 350 others.
+const postgresIntegrationTimeoutMs = 300_000;
 
 let postgresTestSchema: string | undefined;
 let postgresTestUrl: string | undefined;

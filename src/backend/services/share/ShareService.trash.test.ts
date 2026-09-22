@@ -57,13 +57,23 @@ describe('ShareService: deleting a shared item', () => {
         return { user: fresh!, actor, email };
     };
 
+    /** The account's home row — fixture entries hang off it, as real ones do. */
+    const homeOf = async (owner: { username: string }) => {
+        const home = await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}`,
+        );
+        if (!home) throw new Error('home directory missing');
+        return home;
+    };
+
     /** A real fsentry under the user's home, so ancestor chains resolve. */
     const makeFile = async (owner: { id: number; username: string }) => {
         const uuid = uuidv4();
         const name = `f-${uuid.slice(0, 8)}.txt`;
         const path = `/${owner.username}/${name}`;
+        const home = await homeOf(owner);
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 uuid,
                 name,
@@ -71,6 +81,8 @@ describe('ShareService: deleting a shared item', () => {
                 owner.id,
                 server.clients.db.booleanValue(false),
                 Math.floor(Date.now() / 1000),
+                home.id,
+                home.uuid,
             ],
         );
         const entry = await server.stores.fsEntry.getEntryByPath(path);
@@ -89,9 +101,10 @@ describe('ShareService: deleting a shared item', () => {
         const fileUuid = uuidv4();
         const fileName = `f-${fileUuid.slice(0, 8)}.txt`;
         const now = Math.floor(Date.now() / 1000);
+        const home = await homeOf(owner);
 
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 dirUuid,
                 dirName,
@@ -99,6 +112,8 @@ describe('ShareService: deleting a shared item', () => {
                 owner.id,
                 server.clients.db.booleanValue(true),
                 now,
+                home.id,
+                home.uuid,
             ],
         );
         const dirRow = await server.stores.fsEntry.getEntryByPath(dirPath);
