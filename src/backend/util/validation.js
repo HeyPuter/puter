@@ -25,20 +25,29 @@ import { HttpError } from '../core/http/HttpError.js';
  */
 
 /**
- * Protocols accepted for app origins and `index_url` values. Anything outside
- * this list is an XSS/SSRF primitive when the value ends up as `iframe.src`.
- * Shared by AuthService.#originFromUrl, AppStore.createFromOrigin, and
- * AppDriver.#validateInput — keep them in sync by importing this constant.
+ * Real web origins. Anything outside this list is an XSS/SSRF primitive once
+ * the value is consumed as `iframe.src`, `window.location`, a server-side
+ * fetch, etc. — `new URL()` alone happily parses `javascript:alert(1)`,
+ * `data:text/html,…`, `file:///etc/passwd`, and `vbscript:`.
  */
-export const WEB_AND_EXTENSION_PROTOCOLS = [
-    'http:',
-    'https:',
+export const WEB_PROTOCOLS = Object.freeze(['http:', 'https:']);
+
+/**
+ * Web origins plus the browser-extension schemes, for app origins and
+ * `index_url` values. Shared by AuthService.#originFromUrl,
+ * AppStore.createFromOrigin and AppDriver.#validateInput.
+ *
+ * Only Chrome derives the extension host from the signing key. Firefox and
+ * Safari generate it per install, so one extension is a distinct origin — and
+ * therefore a distinct app row — for each user who installs it.
+ */
+export const WEB_AND_EXTENSION_PROTOCOLS = Object.freeze([
+    ...WEB_PROTOCOLS,
     'chrome-extension:',
     'moz-extension:',
     'safari-extension:',
     'safari-web-extension:',
-    'extension:',
-];
+]);
 
 export function validateString(
     value,
@@ -82,13 +91,9 @@ export function validateUrl(
         key,
         maxLen = 3000,
         required = true,
-        // Default allowlist is http(s) only — anything else is an XSS/SSRF
-        // primitive when the value is later consumed as `iframe.src`,
-        // `window.location`, a server-side fetch, etc. `new URL()` alone
-        // happily parses `javascript:alert(1)`, `data:text/html,…`,
-        // `file:///etc/passwd`, and `vbscript:`; callers that need
-        // something exotic must opt in explicitly.
-        protocols = ['http:', 'https:'],
+        // http(s) by default (see WEB_PROTOCOLS); callers that need something
+        // exotic must opt in explicitly.
+        protocols = WEB_PROTOCOLS,
     } = {},
 ) {
     if (value === undefined || value === null) {
@@ -113,6 +118,14 @@ export function validateUrl(
             `\`${key}\` must use one of the following protocols: ${protocols.join(', ')}`,
             { legacyCode: 'bad_request' },
         );
+    }
+    // Only "special" schemes (http:, https:, ws:, …) require an authority.
+    // `new URL()` accepts `chrome-extension:` and `extension:javascript:alert(1)`
+    // with an empty host, which slips past every host-based guard downstream.
+    if (!parsed.hostname) {
+        throw new HttpError(400, `\`${key}\` must include a host`, {
+            legacyCode: 'bad_request',
+        });
     }
     return value;
 }

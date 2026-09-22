@@ -21,7 +21,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isUniqueViolation } from '../../util/dbError.js';
-import { validateUrl, WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
+import {
+    validateUrl,
+    WEB_AND_EXTENSION_PROTOCOLS,
+} from '../../util/validation.js';
 
 /**
  * Persistence + cache for the `apps` table.

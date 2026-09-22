@@ -776,6 +776,10 @@ describe('AppStore CRUD and cache invalidation', () => {
         'javascript:alert(1)',
         'data:text/html,<script>alert(1)</script>',
         'file:///etc/passwd',
+        // Allow-listed scheme, but `new URL()` accepts it with no authority.
+        'chrome-extension:',
+        // Not a scheme any browser emits.
+        'extension://my-extension-id',
     ])('refuses to bootstrap an app from the %s origin', async (origin) => {
         await expect(
             appStore.createFromOrigin(
@@ -787,7 +791,7 @@ describe('AppStore CRUD and cache invalidation', () => {
 
     it('creates an origin-bootstrap app for a browser extension origin', async () => {
         const uid = `app-ext-${Math.random().toString(36).slice(2, 10)}`;
-        const origin = 'chrome-extension://cafneielldmiliebnkhaeaaibinihgpb';
+        const origin = `chrome-extension://${uid}`;
 
         const app = await appStore.createFromOrigin(uid, origin);
 
