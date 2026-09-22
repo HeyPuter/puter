@@ -111,24 +111,6 @@ Returns a `Promise` that resolves to either:
 
 In case of an error, the `Promise` will reject with an error message.
 
-## Current OpenAI and Anthropic models
-
-Use `gpt-6-sol`, `gpt-6-luna`, or `claude-opus-5-5` in the `model` option. The vendor-prefixed aliases `openai/gpt-6-sol`, `openai/gpt-6-luna`, and `anthropic/claude-opus-5-5` also work. GPT-6 Astra and earlier versioned model IDs remain available.
-
-```html
-<script src="https://js.puter.com/v2/"></script>
-<script>
-    puter.ai.chat('Explain how a rainbow forms.', {
-        model: 'gpt-6-luna',
-        reasoning_effort: 'low'
-    }).then(response => puter.print(response.message.content));
-</script>
-```
-
-`claude-opus` and `claude-opus-latest` select Opus 5.5; use `claude-opus-5` to keep selecting Opus 5. Opus 5.5 uses adaptive thinking and omits temperature. Both Opus 5.5 and Sonnet 5 accept `reasoning_effort` (or `reasoning.effort`) values of `low`, `medium`, and `high`, and support up to 128,000 output tokens. Call [`puter.ai.listModels()`](/AI/listModels/) for the available models and their pricing.
-
-Provider specifications: [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), [Claude Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview), and [Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing).
-
 ## Vendors
 
 We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.

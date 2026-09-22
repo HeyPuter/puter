@@ -50,8 +50,6 @@ Shared by chat, image generation, video, TTS, speech and OCR:
 
 Concurrency is counted per interface, so an image generation and a chat completion do not compete for the same slots.
 
-Chat token limits depend on the model. GPT-6 Sol and GPT-6 Luna have a 1,050,000-token context window and a 128,000-token maximum output. Claude Opus 5.5 and Claude Sonnet 5 have a 1,000,000-token context window and a 128,000-token maximum output. Use `max_tokens` to request a smaller output budget; [`puter.ai.listModels()`](/AI/listModels/) reports each model's `context` and `max_tokens`.
-
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) additionally require a paid plan — a free account calling them gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, under the limits above; the model catalogue endpoints stay open to everyone.
 
 Sharing a file or folder with **anyone with the link** ([`puter.fs.share()`](/FS/share/) with `{ anyone: true }`) is a paid-plan feature too: a free account gets `subscription_required`, and a link stops working while its owner's plan has lapsed. Sharing with named people and teams is open to every account.
