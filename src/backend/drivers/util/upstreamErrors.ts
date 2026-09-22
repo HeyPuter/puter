@@ -113,14 +113,34 @@ const MAX_UPSTREAM_MESSAGE_LENGTH = 300;
 export const CONTENT_FILTER_PATTERN =
     /\bnsfw\b|sensitive|content[\s_-]?policy|moderation|safety|\bunsafe\b|\bflagged\b|prohibited|\bE005\b/i;
 
+/** Provider messages that indicate the account cannot fund another request. */
+export const CREDIT_EXHAUSTION_PATTERN =
+    /insufficient[\s_-]?(credits?|quota|funds|balance)|credits? (have been|are) used up|out of credits|(team )?balance (greater than|below|too low)|billing hard limit/i;
+
+/** A provider account has exhausted its credits or billing allowance. */
+export const isCreditExhaustion = (
+    status: number | undefined,
+    code: string | undefined,
+    message: string,
+): boolean =>
+    status === 402 ||
+    (code !== undefined &&
+        /insufficient_(user_)?quota|insufficient_credits|billing/i.test(
+            code,
+        )) ||
+    CREDIT_EXHAUSTION_PATTERN.test(message);
+
 /**
- * Strips markup and bounds length so an upstream HTML error page never rides
- * through into a response body or an alarm signature.
+ * Strips markup, URLs and request ids, then bounds length so provider details
+ * never ride through into a response body or an alarm signature.
  */
 export const sanitizeUpstreamMessage = (raw: string): string => {
     const text = raw
         .replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ')
         .replace(/<[^>]*>/g, ' ')
+        .replace(/https?:\/\/\S+/gi, ' ')
+        .replace(/\(\s*request[\s_-]?id\s*:\s*[^)]*\)/gi, ' ')
+        .replace(/\brequest[\s_-]?id\s*:\s*\S+/gi, ' ')
         .replace(/\s+/g, ' ')
         .trim();
     return text.length > MAX_UPSTREAM_MESSAGE_LENGTH

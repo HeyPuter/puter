@@ -30,7 +30,11 @@ import type { MeteringService } from '../../services/metering/MeteringService.js
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
-import { isUpstreamTimeoutError } from '../util/upstreamErrors.js';
+import {
+    isCreditExhaustion as isUpstreamCreditExhaustion,
+    isUpstreamTimeoutError,
+    sanitizeUpstreamMessage,
+} from '../util/upstreamErrors.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
 import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider.js';
@@ -153,10 +157,13 @@ const toAttempt = (
         provider: providerId,
         status,
         code: e?.error?.code ?? e?.code,
-        error: message,
+        error: sanitizeUpstreamMessage(message),
         ...(isUpstreamTimeoutError(err) ? { timedOut: true } : {}),
     };
 };
+
+const isCreditExhaustion = (a: ProviderAttempt) =>
+    isUpstreamCreditExhaustion(a.status, a.code, a.error);
 
 const isRateLimit = (a: ProviderAttempt) =>
     a.status === 429 ||
@@ -184,6 +191,7 @@ const isUpstream5xx = (a: ProviderAttempt) =>
  */
 const isRouteLevelFailure = (a: ProviderAttempt) =>
     a.status === undefined ||
+    isCreditExhaustion(a) ||
     isRateLimit(a) ||
     isAuthFailure(a) ||
     isUpstream5xx(a);
@@ -197,6 +205,7 @@ const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
  *
  * Per-class rules (see also alarm gate in server.ts):
  *
+ * - All credit-exhausted → 503 `upstream_credits_exhausted` (alerted)
  * - All rate-limited → 429 `upstream_rate_limited` (alerted, unless every attempt
  *   was on a free model — see `allModelsFree`)
  * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
@@ -217,6 +226,12 @@ const classifyAttempts = (
         });
     }
 
+    if (attempts.every(isCreditExhaustion)) {
+        return new HttpError(503, 'AI provider out of credits', {
+            legacyCode: 'upstream_credits_exhausted',
+            fields,
+        });
+    }
     if (attempts.every(isRateLimit)) {
         return new HttpError(429, 'AI provider rate limit exceeded', {
             legacyCode: 'upstream_rate_limited',
@@ -659,7 +674,9 @@ export class ChatCompletionDriver extends PuterDriver {
                     passthrough.write(
                         `${JSON.stringify({
                             type: 'error',
-                            message: (e as Error).message,
+                            message: sanitizeUpstreamMessage(
+                                e instanceof Error ? e.message : String(e),
+                            ),
                         })}\n`,
                     );
                     passthrough.end();

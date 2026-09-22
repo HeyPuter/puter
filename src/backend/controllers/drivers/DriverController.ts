@@ -31,7 +31,11 @@ import {
 } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { DriverMeta } from '../../drivers/meta.js';
-import { isUpstreamTimeoutError } from '../../drivers/util/upstreamErrors.js';
+import {
+    isCreditExhaustion,
+    isUpstreamTimeoutError,
+    sanitizeUpstreamMessage,
+} from '../../drivers/util/upstreamErrors.js';
 import {
     isDriverStreamResult,
     resolveCallableMethods,
@@ -120,6 +124,18 @@ const translateProviderError = (err: unknown): unknown => {
         cause?: unknown;
     };
     const status = extractUpstreamStatus(e);
+    const msg = sanitizeUpstreamMessage(
+        e.error?.message ?? e.message ?? 'Upstream provider error',
+    );
+    const upstreamCode = e.error?.code ?? e.code;
+    const fields = { upstreamStatus: status, upstreamCode };
+
+    if (isCreditExhaustion(status, upstreamCode, msg)) {
+        return new HttpError(503, 'AI provider out of credits', {
+            legacyCode: 'upstream_credits_exhausted',
+            fields,
+        });
+    }
     if (typeof status !== 'number') {
         if (isUpstreamTimeoutError(e)) {
             const cause = e.cause as { code?: string } | undefined;
@@ -131,10 +147,6 @@ const translateProviderError = (err: unknown): unknown => {
         }
         return err;
     }
-
-    const msg = e.error?.message ?? e.message ?? 'Upstream provider error';
-    const upstreamCode = e.error?.code ?? e.code;
-    const fields = { upstreamStatus: status, upstreamCode };
 
     if (status === 429) {
         return new HttpError(429, msg, {

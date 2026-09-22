@@ -821,6 +821,8 @@ export class PuterServer {
                         // Our credentials for a provider stopped working —
                         // everything through it fails until someone looks.
                         ['upstream_auth_failed', 'warning'],
+                        // A vendor account is dry — everything through it fails until someone tops up.
+                        ['upstream_credits_exhausted', 'warning'],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
