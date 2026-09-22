@@ -19,6 +19,8 @@
 
 import TeePromise from '../util/TeePromise.js';
 import UIWindow from './UIWindow.js';
+import UIWindowMagicLinkSignIn from './UIWindowMagicLinkSignIn.js';
+import { looksLikeEmail, magicLinkOffered, nextAuthWindow } from '../helpers/magicLinkSignIn.js';
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
 import UIWindowSignup from './UIWindowSignup.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
@@ -325,6 +327,8 @@ async function UIWindowLogin (options) {
         h += `<button type="button" class="oidc-microsoft-btn oidc-btn button button-block button-normal" style="display:none; align-items:center; justify-content:center; gap:8px; margin-top:8px;"><svg style="width:20px; height:20px;" viewBox="0 0 23 23" fill="none"><rect x="1" y="1" width="10" height="10" fill="#f25022"/><rect x="12" y="1" width="10" height="10" fill="#7fba00"/><rect x="1" y="12" width="10" height="10" fill="#00a4ef"/><rect x="12" y="12" width="10" height="10" fill="#ffb900"/></svg>${i18n('sign_in_with_microsoft')}</button>`;
         h += `<button type="button" class="oidc-apple-btn oidc-btn button button-block button-normal" style="display:none; align-items:center; justify-content:center; gap:8px; margin-top:8px;"><svg style="width:20px; height:20px;" viewBox="0 0 384 512" fill="currentColor"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>${i18n('sign_in_with_apple')}</button>`;
         h += '<div class="oidc-custom-providers"></div>';
+        // Sign-in link, a sign-in method in its own right
+        h += `<button type="button" class="magic-link-btn oidc-btn button button-block button-normal" style="display:none; align-items:center; justify-content:center; gap:8px; margin-top:8px;"><svg style="width:20px; height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>${i18n('sign_in_with_email_link')}</button>`;
         h += '</div>';
         h += '</form>';
         h += '</div>';
@@ -339,6 +343,7 @@ async function UIWindowLogin (options) {
         }
         h += '</div>';
 
+        let switching_window = false;
         const el_window = await UIWindow({
             title: null,
             app: 'login',
@@ -361,7 +366,9 @@ async function UIWindowLogin (options) {
             width: 350,
             dominant: true,
             on_close: () => {
-                resolve(false);
+                // A switch to another auth window resolves with that
+                // window's result instead.
+                if ( ! switching_window ) resolve(false);
             },
             onAppend: function (this_window) {
                 if ( options.authError ) {
@@ -873,6 +880,7 @@ async function UIWindowLogin (options) {
 
         $(el_window).find('.signup-c2a-clickable').on('click', async function (e) {
             //destroy this window
+            switching_window = true;
             $(el_window).close();
             // create Signup window
             const signup = await UIWindowSignup({
@@ -885,8 +893,51 @@ async function UIWindowLogin (options) {
             });
             if ( signup )
             {
-                resolve(true);
+                resolve(signup);
             }
+        });
+
+        $(el_window).find('.oidc-providers-wrapper').show();
+        $(el_window).find('.magic-link-btn').css('display', 'flex').on('click', async function () {
+            // Carry a typed email over so the link window starts with it.
+            const typed = String($(el_window).find('.email_or_username').val() ?? '').trim();
+            const email = looksLikeEmail(typed) ? typed : undefined;
+            switching_window = true;
+            $(el_window).close();
+
+            // A sign-in popup that carries its opener's return URL hands the
+            // link flow to the popup's own routing, which delivers the app's
+            // token to the opener and lands the link on the opener's page.
+            if ( window.embedded_in_popup && window.gui_action === 'sign-in' && magicLinkOffered({
+                embeddedInPopup: window.embedded_in_popup,
+                openerOrigin: window.openerOrigin,
+                params: window.url_query_params,
+            }) ) {
+                resolve({ next: 'magic', email });
+                return;
+            }
+
+            // Otherwise the link signs the user in to Puter itself. The
+            // sign-in finishes on the tab the link opens, so this window
+            // only ever comes back here or is closed.
+            const magic = await UIWindowMagicLinkSignIn({
+                email,
+                show_close_button: options.show_close_button,
+                window_options: options.window_options,
+            });
+            if ( nextAuthWindow(magic) === 'login' ) {
+                resolve(await UIWindowLogin({
+                    referrer: options.referrer,
+                    reload_on_success: options.reload_on_success,
+                    redirect_url: options.redirect_url,
+                    window_options: options.window_options,
+                    show_close_button: options.show_close_button,
+                    send_confirmation_code: options.send_confirmation_code,
+                    email_or_username: email,
+                }));
+                return;
+            }
+            resolve(false);
         });
 
         $(el_window).find(`#toggle-show-password-${internal_id}`).on('click', function (e) {

@@ -384,7 +384,7 @@ function UIWindowSignup(options) {
                     show_password: false,
                 });
                 if (login) {
-                    resolve(true);
+                    resolve(login);
                 }
             });
 

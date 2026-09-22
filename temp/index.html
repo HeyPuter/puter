@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Puter Todo</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; color: #222; }
+        h1 { font-size: 1.4rem; margin-bottom: 4px; }
+        #status { color: #666; font-size: 0.9rem; margin-bottom: 16px; }
+        form { display: flex; gap: 8px; margin-bottom: 16px; }
+        input[type="text"] { flex: 1; padding: 8px; font-size: 1rem; }
+        button { padding: 8px 12px; font-size: 0.95rem; cursor: pointer; }
+        ul { list-style: none; padding: 0; margin: 0; }
+        li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee; }
+        li span { flex: 1; }
+        li.done span { text-decoration: line-through; color: #999; }
+        li button { padding: 4px 8px; }
+        #app[hidden] { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Puter Todo</h1>
+    <div id="status">Loading…</div>
+
+    <div id="sign-in-box" hidden>
+        <p>Pretend your app already knows the user's email:</p>
+        <form id="email-form">
+            <input id="email" type="email" placeholder="you@example.com" required>
+            <button type="submit">Continue with Puter</button>
+        </form>
+        <p><button id="sign-in" type="button">Sign in with password instead</button></p>
+    </div>
+
+    <div id="app" hidden>
+        <form id="add-form">
+            <input id="new-todo" type="text" placeholder="What needs doing?" autocomplete="off" required>
+            <button type="submit">Add</button>
+        </form>
+        <ul id="list"></ul>
+        <p><button id="sign-out">Sign out</button></p>
+    </div>
+
+    <!-- Point the SDK at the local backend. Must run before the SDK loads. -->
+    <script>
+        window.PUTER_ORIGIN = 'http://puter.localhost:4100';
+        window.PUTER_API_ORIGIN = 'http://api.puter.localhost:4100';
+    </script>
+    <script src="http://puter.localhost:4100/sdk/puter.js"></script>
+
+    <script>
+        const KEY = 'todos';
+        const $ = (id) => document.getElementById(id);
+        let todos = [];
+
+        async function load() {
+            todos = (await puter.kv.get(KEY)) ?? [];
+            render();
+        }
+
+        async function save() {
+            await puter.kv.set(KEY, todos);
+            render();
+        }
+
+        function render() {
+            const list = $('list');
+            list.innerHTML = '';
+            for (const todo of todos) {
+                const li = document.createElement('li');
+                li.className = todo.done ? 'done' : '';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = todo.done;
+                checkbox.onchange = () => { todo.done = checkbox.checked; save(); };
+
+                const text = document.createElement('span');
+                text.textContent = todo.text;
+
+                const remove = document.createElement('button');
+                remove.textContent = '✕';
+                remove.onclick = () => { todos = todos.filter(t => t !== todo); save(); };
+
+                li.append(checkbox, text, remove);
+                list.append(li);
+            }
+        }
+
+        $('add-form').onsubmit = (e) => {
+            e.preventDefault();
+            const input = $('new-todo');
+            todos.push({ text: input.value.trim(), done: false, created: Date.now() });
+            input.value = '';
+            save();
+        };
+
+        $('sign-in').onclick = async () => {
+            await puter.auth.signIn();
+            await showApp();
+        };
+
+        // Passwordless: the popup emails a link to this address and resolves
+        // once it's clicked. returnUrl is where the link lands the user.
+        $('email-form').onsubmit = async (e) => {
+            e.preventDefault();
+            try {
+                await puter.auth.signIn({ email: $('email').value, returnUrl: location.href });
+                await showApp();
+            } catch (err) {
+                $('status').textContent = 'Sign-in failed: ' + (err.error ?? err.msg ?? err);
+            }
+        };
+
+        // Landing here from the emailed link: the SDK picks the token up on
+        // its own; give it a moment, then show the app.
+        puter.onAuthStateChanged(() => { if (puter.auth.isSignedIn()) showApp(); });
+
+        $('sign-out').onclick = () => {
+            puter.auth.signOut();
+            location.reload();
+        };
+
+        async function showApp() {
+            const user = await puter.auth.getUser();
+            $('status').textContent = `Signed in as ${user.username}`;
+            $('sign-in-box').hidden = true;
+            $('app').hidden = false;
+            await load();
+        }
+
+        (async () => {
+            if (puter.auth.isSignedIn()) {
+                await showApp();
+            } else {
+                $('status').textContent = 'Not signed in';
+                $('sign-in-box').hidden = false;
+            }
+        })();
+    </script>
+</body>
+</html>

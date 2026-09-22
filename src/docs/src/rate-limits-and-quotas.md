@@ -357,6 +357,10 @@ Signalling details are public deployment config and bounded per network instead 
 
 Guests are bounded per _host_: everyone holding grants from the same account shares **60 relay-credential requests/min**. Relay traffic a guest sends is metered against the account that issued the grant, so treat a grant as something that spends your allowance — issue it for the session you meant to host, and let it expire rather than reusing one indefinitely.
 
+### Sign-in links
+
+[`puter.auth.signIn({ email })`](/Auth/signIn/) sends a sign-in link by email. Each link works **once** and expires after **15 minutes**; the signed-in token it leaves for your page is collected within **2 minutes** of the click or discarded. Link requests are limited to **10 per 15 minutes per network** and **5 per 15 minutes per address**; past either cap the popup asks the user to wait. A self-hosted Puter with no email delivery configured prints the message to its server console instead of sending it.
+
 ### Everything at once
 
 Every driver call also passes one shared per-account budget of **8,000 calls/min** before the per-API limits above. It exists to catch a runaway loop, not to shape normal traffic — a client that sees a 429 from it is looping.

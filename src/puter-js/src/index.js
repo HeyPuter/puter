@@ -729,6 +729,10 @@ export class Puter {
                 console.error('Error accessing localStorage:', error);
             }
 
+            // Landing here from a magic link: the link's page parked this
+            // site's token under the sign-in session id it appended.
+            this.claimMagicLinkSignIn_(URLParams);
+
             // Print a CTA for developers to publish their app on the Puter App Store
             this.printDevCTA();
 
@@ -1024,6 +1028,57 @@ export class Puter {
             currentOrigin: this.APIOrigin,
             defaultAPIOrigin: this.defaultAPIOrigin,
         });
+    };
+
+    /**
+     * Collect the token a magic link left for this page, when the URL carries
+     * a `puter.signin_session`. The parameter is stripped either way so it
+     * never lingers in history or a referrer. Fire-and-forget: the page keeps
+     * booting while the token is fetched.
+     *
+     * @param {URLSearchParams} urlParams
+     * @internal
+     */
+    claimMagicLinkSignIn_ = function (urlParams) {
+        const PARAM = 'puter.signin_session';
+        const session = urlParams.get(PARAM);
+        if (!session) return;
+        try {
+            const clean = new URL(location.href);
+            clean.searchParams.delete(PARAM);
+            history.replaceState(history.state, document.title, clean.href);
+        } catch {
+            // A page that can't rewrite its URL still gets its token.
+        }
+        if (!/^[0-9a-f-]{36}$/i.test(session)) return;
+
+        (async () => {
+            // The consume page redirects here right after parking the
+            // token, so a couple of retries cover the write racing the
+            // redirect; the parked copy lives for two minutes.
+            for (let attempt = 0; attempt < 5; attempt++) {
+                try {
+                    const resp = await fetchUrl(
+                        `${this.APIOrigin}/login/wait`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ session }),
+                        },
+                    );
+                    if (resp.ok) {
+                        const { auth_token } = await resp.json();
+                        if (auth_token) {
+                            this.setAuthToken(auth_token);
+                            return;
+                        }
+                    }
+                } catch {
+                    // Retry below.
+                }
+                await new Promise((r) => setTimeout(r, 1000));
+            }
+        })();
     };
 
     /** @param {string} APIOrigin */

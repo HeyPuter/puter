@@ -185,6 +185,24 @@ export default suite('auth', {
         t.assert.equal(whoami.uuid, user.uuid);
     },
 
+    'signIn with email validates its options before opening anything': async (t) => {
+        const signIn = t.puter.auth.signIn as (
+            options?: Record<string, unknown>,
+        ) => Promise<unknown>;
+        const rejection = async (options: Record<string, unknown>) => {
+            try {
+                await signIn(options);
+            } catch (e) {
+                return (e as { error?: string }).error;
+            }
+            return 'resolved';
+        };
+        t.assert.equal(await rejection({ email: 'not-an-email', returnUrl: 'https://a.example/' }), 'invalid_email');
+        t.assert.equal(await rejection({ returnUrl: 'not a url' }), 'invalid_return_url');
+        t.assert.equal(await rejection({ email: 'user@example.com', returnUrl: 'not a url' }), 'invalid_return_url');
+        t.assert.equal(await rejection({ email: 'user@example.com', returnUrl: 'ftp://a.example/' }), 'invalid_return_url');
+    },
+
     'isSignedIn reports true with a valid token': async (t) => {
         t.assert.equal(t.puter.auth.isSignedIn(), true);
     },
