@@ -170,6 +170,18 @@ Mounting with a `-token` username and an API token as the password skips the per
 | Concurrent worker calls             | 10   | 5    | 3         |
 | Concurrent deploys                  | 5    | 2    | 2         |
 
+### Profiles
+
+| Limit                      | Value               |
+| -------------------------- | ------------------- |
+| `getProfile` reads         | 120/min per network |
+| `updateProfile` writes     | 30/min per account  |
+| Profile picture (data URL) | 512 KiB             |
+| Display name               | 64 characters       |
+| Bio                        | 280 characters      |
+
+Another user's profile is readable only while that user is on a paid plan; the owner can always read and write their own.
+
 ### Sharing
 
 Sharing is bounded twice: on the calls, and on how many people one account can reach in a day.

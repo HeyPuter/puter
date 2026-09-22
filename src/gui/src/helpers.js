@@ -623,30 +623,16 @@ window.update_auth_data = async (auth_token, user) => {
     }
 
     // ----------------------------------------------------
-    // get .profile file and update user profile
+    // load the user's profile
     // ----------------------------------------------------
     user.profile = {};
-    puter.fs.read(`/${user.username}/Public/.profile`).then((blob) => {
-        blob.text()
-            .then(text => {
-                const profile = JSON.parse(text);
-                if ( profile.picture ) {
-                    window.user.profile.picture = html_encode(profile.picture);
-                }
-
-                // update profile picture in GUI
-                if ( window.user.profile.picture ) {
-                    $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
-                }
-            })
-            .catch(error => {
-                console.error('Error converting Blob to JSON:', error);
-            });
-    }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
-            // create .profile file
-            puter.fs.write(`/${user.username}/Public/.profile`, JSON.stringify({}));
+    puter.auth.getProfile().then((profile) => {
+        if ( profile?.picture ) {
+            window.user.profile.picture = html_encode(profile.picture);
+            $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
         }
+    }).catch((error) => {
+        console.error('Error loading profile:', error);
     });
 
     // ----------------------------------------------------
@@ -3510,30 +3496,17 @@ window.countSubstr = (str, substring) => {
     return count;
 };
 
+// Updates the signed-in user's profile; `username` is kept for callers that
+// still pass it.
 window.update_profile = function (username, key_vals) {
-    puter.fs.read(`/${username}/Public/.profile`).then((blob) => {
-        blob.text()
-            .then(text => {
-                const profile = JSON.parse(text);
-
-                for ( const key in key_vals ) {
-                    profile[key] = key_vals[key];
-                    // update window.user.profile
-                    window.user.profile[key] = key_vals[key];
-                }
-
-                puter.fs.write(`/${username}/Public/.profile`, JSON.stringify(profile));
-            })
-            .catch(error => {
-                console.error('Error converting Blob to JSON:', error);
-            });
-    }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
-            // create .profile file
-            puter.fs.write(`/${username}/Public/.profile`, JSON.stringify({}));
+    return puter.auth.updateProfile(key_vals).then((profile) => {
+        window.user.profile = window.user.profile ?? {};
+        for ( const key in key_vals ) {
+            window.user.profile[key] = profile?.[key] ?? key_vals[key];
         }
-        // Ignored
-        console.log(e);
+        return profile;
+    }).catch((e) => {
+        console.error('Error updating profile:', e);
     });
 };
 
@@ -3546,24 +3519,9 @@ window.blob2str = (blob) => {
     });
 };
 
+// Another user's picture is only available while they are on a paid plan.
 window.get_profile_picture = async function (username) {
-    let icon;
-    // try getting profile pic
-    try {
-        let stat = await puter.fs.stat({ path: `/${ username }/Public/.profile`, consistency: 'eventual' });
-        if ( stat.size > 0 && stat.is_dir === false && stat.size < 1000000 ) {
-            let profile_json = await puter.fs.read(`/${ username }/Public/.profile`);
-            profile_json = await blob2str(profile_json);
-            const profile = JSON.parse(profile_json);
-
-            if ( profile.picture && profile.picture.startsWith('data:image') ) {
-                icon = profile.picture;
-            }
-        }
-    } catch (e) {
-    }
-
-    return icon;
+    return (await puter.auth.getProfilePicture(username)) ?? undefined;
 };
 
 window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {

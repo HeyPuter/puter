@@ -876,6 +876,63 @@ describe('createPuterSiteMiddleware — file serving', () => {
 // FSService so we exercise parsing, path resolution, and the loop-
 // prevention guard together.
 
+describe('createPuterSiteMiddleware — site.access.check', () => {
+    const serveUnder = async (listener?: (data: unknown) => void) => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `gate-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/secret.txt`,
+            Buffer.from('shh'),
+            'text/plain',
+        );
+        const seen: unknown[] = [];
+        server.clients.event.on('site.access.check', (_key, data) => {
+            if (data.subdomain !== sub) return;
+            seen.push(data);
+            listener?.(data);
+        });
+        const { out } = await runMiddleware(
+            buildMiddleware(),
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/secret.txt',
+            }),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return { out, seen, sub };
+    };
+
+    it('asks listeners before streaming and serves when nobody objects', async () => {
+        const { out, seen, sub } = await serveUnder();
+        expect(out.statusCode).toBe(200);
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({
+            subdomain: sub,
+            host: `${sub}.site.puter.localhost`,
+            requestPath: '/secret.txt',
+            entry: { name: 'secret.txt' },
+            result: { allowed: true },
+        });
+    });
+
+    it('returns the plain file 404 when a listener withholds the entry', async () => {
+        const { out } = await serveUnder((data) => {
+            (data as { result: { allowed: boolean } }).result.allowed = false;
+        });
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).toContain('Not Found');
+        expect(out.headers['Content-Type']).toBeUndefined();
+    });
+});
+
 describe('createPuterSiteMiddleware — .puter_site_config', () => {
     const setupSiteWithConfig = async (config: unknown) => {
         const owner = await makeUserWithHome();

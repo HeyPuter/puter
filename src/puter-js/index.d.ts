@@ -79,6 +79,8 @@ export type {
     MonthlyUsage,
     SignInResult,
     User,
+    UserProfile,
+    UserProfilePatch,
 } from './types/modules/Auth.js';
 
 // -- puter.debug --

@@ -38,6 +38,7 @@ import { LocalWorkerService } from './localworker/LocalWorkerService';
 import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
+import { ProfileService } from './profile/ProfileService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { ShareNotificationService } from './share/ShareNotificationService';
 import { ShareService } from './share/ShareService';
@@ -62,6 +63,7 @@ declare module './types' {
         acl: ACLService;
         share: ShareService;
         shareNotification: ShareNotificationService;
+        profile: ProfileService;
         token: TokenService;
         auth: AuthService;
         fs: FSService;
@@ -111,6 +113,9 @@ export const puterServices = {
     // Delivery only; it reaches `notification` at call time, so its position
     // relative to that service does not matter.
     shareNotification: ShareNotificationService,
+    // Reads and writes profile files through `fs` and asks `metering` about
+    // the owner's plan, so it follows both.
+    profile: ProfileService,
     // Declared after `fs` — account teardown tears the user's filesystem down
     // first.
     userAccount: UserAccountService,

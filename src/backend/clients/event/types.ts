@@ -605,6 +605,16 @@ export type EventMap = {
         requestHash?: string;
         mime: string;
     };
+    // Asked before a hosted file is streamed. A listener that owns the site
+    // sets `result.allowed = false` to withhold the entry; the visitor then
+    // sees the same 404 as for a missing file.
+    'site.access.check': {
+        subdomain: string;
+        host: string;
+        requestPath: string;
+        entry: { name: string; path: string };
+        result: { allowed: boolean };
+    };
 
     // ---- Thumbnails ----
     // The listener rewrites `thumbnail` in place (an s3:// key or legacy
@@ -808,10 +818,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
