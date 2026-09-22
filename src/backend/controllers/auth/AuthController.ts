@@ -110,6 +110,8 @@ const FINGERPRINT_MAX_LENGTH = 128;
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
 const DISPATCH_ID_MAX_LENGTH = 128;
+// One name for the flag, so the write and the read cannot drift apart.
+const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
 
 // -- Post-login route limits -----------------------------------------
 //
@@ -3938,7 +3940,7 @@ export class AuthController extends PuterController {
             this.services.permission.grantUserAppPermission(
                 req.actor!,
                 app_uid,
-                'flag:app-is-authenticated',
+                APP_AUTHENTICATED_FLAG,
                 {},
                 {},
             );
@@ -4022,13 +4024,15 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        // Check if the app is authenticated for this user
-        const authenticated = await this.services.permission
-            .check(
-                req.actor!,
-                `service:${app_uid}:ii:flag:app-is-authenticated`,
-            )
-            .catch(() => false);
+        // The exact row, not a scan: a `service:`-shaped check falls open on the `service` root.
+        const app = await this.stores.app.resolveApp(app_uid);
+        const userId = req.actor!.user?.id;
+        const authenticated =
+            !!app?.id &&
+            !!userId &&
+            (await this.stores.permission
+                .hasUserAppPerm(userId, app.id, APP_AUTHENTICATED_FLAG)
+                .catch(() => false));
 
         const result: {
             app_uid: string;
@@ -4036,9 +4040,10 @@ export class AuthController extends PuterController {
             token?: string;
         } = { app_uid, authenticated };
         if (authenticated) {
+            // The resolved uid: the token carries it as the app's identity.
             result.token = await this.services.auth.getUserAppToken(
                 req.actor!,
-                app_uid,
+                app!.uid,
             );
         }
         res.json(result);

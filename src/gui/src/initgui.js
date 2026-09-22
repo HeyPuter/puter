@@ -1679,7 +1679,7 @@ window.initgui = async function (options) {
         let response = await window.checkUserSiteRelationship(
             window.openerOrigin,
         );
-        window.userAppToken = response.token;
+        window.userAppToken = response?.token;
 
         if (
             !picked_a_user_for_sdk_login &&
