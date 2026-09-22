@@ -21,9 +21,7 @@ import { Readable } from 'node:stream';
 import { makeActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import type { LayerInstances } from '../../types';
 import { isUniqueViolation } from '../../util/dbError.js';
-import type { puterServices } from '../index';
 import { actorHasSubscription } from '../metering/enforcement.js';
 import { PuterService } from '../types.js';
 
@@ -123,8 +121,6 @@ const validateField = (field: ProfileField, value: unknown): string | null => {
  * hosting middleware asks before streaming any file of that site.
  */
 export class ProfileService extends PuterService {
-    declare protected services: LayerInstances<typeof puterServices>;
-
     #ownerUserId: number | null = null;
     #dirReady: Promise<void> | null = null;
 

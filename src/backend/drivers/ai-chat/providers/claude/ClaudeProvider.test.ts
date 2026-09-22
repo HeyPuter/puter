@@ -829,6 +829,29 @@ describe('ClaudeProvider.complete request shape', () => {
         expect('temperature' in args).toBe(false);
     });
 
+    it('forwards reasoning_effort as adaptive thinking + output_config effort on opus 5.5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus-5-5',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'low',
+                temperature: 0.5,
+            } as never),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        // Opus 5.5 rejects disabled thinking, `budget_tokens`, and sampling params.
+        expect(args.thinking).toEqual({
+            type: 'adaptive',
+            display: 'summarized',
+        });
+        expect(args.output_config).toEqual({ effort: 'low' });
+        expect('temperature' in args).toBe(false);
+    });
+
     it('builds an enabled thinking budget from reasoning_effort on older Sonnet models', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -895,6 +918,22 @@ describe('ClaudeProvider model resolution', () => {
 
         expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
             'claude-fable-5-1',
+        );
+    });
+
+    it('routes the bare claude-opus alias to opus 5.5 rather than opus 5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+            'claude-opus-5-5',
         );
     });
 
