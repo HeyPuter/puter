@@ -1925,3 +1925,45 @@ describe('FSEntryStore lost-insert recovery', () => {
         ).resolves.toMatchObject({ size: 77, uuid: entry?.uuid });
     });
 });
+
+describe('FSEntryStore duplicate paths', () => {
+    // `path` has no unique constraint — only `(parent_id, name)` does — so a
+    // duplicated directory root can leave two rows on one path. Readers used
+    // `WHERE path = ? LIMIT 1` (first row) while the write path used
+    // `WHERE path IN (...)` and kept the last, so a write landed on one row
+    // and a read served the other: the hosted copy of a file froze at its
+    // first write while the API showed every later one.
+    it('resolves one row for a duplicated path, reads and writes alike', async () => {
+        const user = await makeUser();
+        const path = `${user.home}/Documents/dup.txt`;
+        const first = await createFile(user, path);
+        const second = await createFile(
+            user,
+            `${user.home}/Documents/other.txt`,
+        );
+
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE uuid = ?',
+            [path, second.uuid],
+        );
+        for (const uuid of [first.uuid, second.uuid]) {
+            await store.invalidateEntryCacheByUuid(uuid);
+        }
+        await server.clients.redis.flushall?.();
+
+        expect(second.id).toBeGreaterThan(first.id);
+
+        // The reader's lookup.
+        await expect(store.getEntryByPath(path)).resolves.toMatchObject({
+            uuid: first.uuid,
+        });
+
+        // The lookup `FSService.#resolveWriteTargets` makes, same options.
+        const [writeTarget] = await store.getEntriesByPathsForUser(
+            user.userId,
+            [path],
+            { useTryHardRead: true, skipCache: true, crossNamespace: true },
+        );
+        expect(writeTarget?.uuid).toBe(first.uuid);
+    });
+});

@@ -313,6 +313,23 @@ export class FSEntryStore extends PuterStore {
         ];
     }
 
+    /**
+     * One entry per path, lowest id first. `path` carries no unique constraint
+     * (only `(parent_id, name)` does), so a duplicated directory root can put
+     * two rows on one path. Picking the same one every time is what keeps two
+     * readers of that path — the API and the hosting middleware, say — on the
+     * same file. Expects rows already ordered by id.
+     */
+    #dedupeByPath(entries: FSEntry[]): FSEntry[] {
+        const byPath = new Map<string, FSEntry>();
+        for (const entry of entries) {
+            if (!byPath.has(entry.path)) {
+                byPath.set(entry.path, entry);
+            }
+        }
+        return [...byPath.values()];
+    }
+
     async #readEntryFromCache(cacheKey: string): Promise<FSEntry | null> {
         try {
             const cached = await this.clients.redis.get(cacheKey);
@@ -359,7 +376,7 @@ export class FSEntryStore extends PuterStore {
         ];
 
         const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? LIMIT 1`,
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? ORDER BY id ASC LIMIT 1`,
             [normalizedPath],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -600,7 +617,7 @@ export class FSEntryStore extends PuterStore {
                 }
 
                 const placeholders = chunk.map(() => '?').join(', ');
-                const selectSql = `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path IN (${placeholders})`;
+                const selectSql = `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path IN (${placeholders}) ORDER BY id ASC`;
                 const rows = (useTryHardRead
                     ? await this.clients.db.tryHardRead(selectSql, chunk)
                     : await this.clients.db.read(
@@ -608,7 +625,9 @@ export class FSEntryStore extends PuterStore {
                           chunk,
                       )) as unknown as FSEntryRow[];
 
-                const entries = rows.map((row) => this.#mapFSEntryRow(row));
+                const entries = this.#dedupeByPath(
+                    rows.map((row) => this.#mapFSEntryRow(row)),
+                );
                 if (entries.length > 0) {
                     await Promise.all(
                         entries.map((entry) => this.#writeEntryToCache(entry)),
@@ -992,7 +1011,7 @@ export class FSEntryStore extends PuterStore {
         }
 
         const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? LIMIT 1`,
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path = ? ORDER BY id ASC LIMIT 1`,
             [normalizedPath],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
@@ -1248,10 +1267,12 @@ export class FSEntryStore extends PuterStore {
                     }
                     const placeholders = chunk.map(() => '?').join(', ');
                     const rows = (await this.clients.db.read(
-                        `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path IN (${placeholders})`,
+                        `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path IN (${placeholders}) ORDER BY id ASC`,
                         chunk,
                     )) as unknown as FSEntryRow[];
-                    const entries = rows.map((row) => this.#mapFSEntryRow(row));
+                    const entries = this.#dedupeByPath(
+                        rows.map((row) => this.#mapFSEntryRow(row)),
+                    );
                     await Promise.all(
                         entries.map((entry) => this.#writeEntryToCache(entry)),
                     );
