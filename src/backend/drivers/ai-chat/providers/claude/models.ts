@@ -44,7 +44,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
             input_tokens: 1000,
             ephemeral_5m_input_tokens: 1000 * 1.25,
             ephemeral_1h_input_tokens: 1000 * 2,
-            // Fable 5.1 bills cache reads at 0.025x input.
+            // 0.025x input, not the usual 0.1x.
             cache_read_input_tokens: 1000 * 0.025,
             output_tokens: 5000,
         },
@@ -127,6 +127,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
             input_tokens: 400,
             ephemeral_5m_input_tokens: 400 * 1.25,
             ephemeral_1h_input_tokens: 400 * 2,
+            // 0.05x input, not the usual 0.1x.
             cache_read_input_tokens: 400 * 0.05,
             output_tokens: 2000,
         },
