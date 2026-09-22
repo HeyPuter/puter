@@ -2489,6 +2489,65 @@ describe('FSService remove', () => {
     });
 });
 
+describe('FSService home directory guard', () => {
+    // A home free to be renamed or moved can be parked on a name another
+    // account later claims, and from then on both trees resolve at one path —
+    // whichever row has the lower id answers, and new entries there inherit
+    // ITS owner. Only `renameUserHome` writes a home's name.
+    it('refuses to rename a home directory', async () => {
+        const user = await makeUser();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        ))!;
+
+        const error = await caught(() =>
+            fs.rename(user.userId, root, 'some-other-name'),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(error.message).toContain('home directory');
+        const unchanged = await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        );
+        expect(unchanged?.path).toBe(user.home);
+    });
+
+    it('refuses to move a home directory into another tree', async () => {
+        const user = await makeUser();
+        const other = await makeUser();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        ))!;
+        const destination = (await entryAt(other, '/Documents'))!;
+
+        const error = await caught(() =>
+            runWithContext({ actor: user.actor }, () =>
+                fs.move(user.userId, {
+                    source: root,
+                    destinationParent: destination,
+                }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        const unchanged = await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        );
+        expect(unchanged?.path).toBe(user.home);
+    });
+
+    it('still renames an ordinary directory at the top of a home', async () => {
+        const user = await makeUser();
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/notahome`,
+        });
+
+        const renamed = await fs.rename(user.userId, dir, 'renamed');
+
+        expect(renamed.path).toBe(`${user.home}/renamed`);
+    });
+});
+
 describe('FSService move', () => {
     let user: TestUser;
     beforeAll(async () => {

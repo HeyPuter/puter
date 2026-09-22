@@ -3464,6 +3464,7 @@ export class FSService extends PuterService {
         entry: FSEntry,
         newName: string,
     ): Promise<FSEntry> {
+        this.#assertNotUserRoot(entry, 'rename');
         await this.#assertCanRename(entry, userId);
         this.#assertUsableName(newName);
         if (entry.name === newName) return entry;
@@ -3601,6 +3602,25 @@ export class FSService extends PuterService {
             throw new HttpError(400, 'Name cannot be `.` or `..`', {
                 legacyCode: 'bad_request',
             });
+    }
+
+    /**
+     * A home's name is the account's username, and ACL authorizes by matching
+     * the first path segment against it — so a root free to be renamed or moved
+     * can be parked on a name another account later claims, leaving two trees
+     * at one path. `renameUserHome` is the only writer of a home's name.
+     *
+     * Both parent columns have to be NULL: `parent_uid` alone is NULL on legacy
+     * rows that only ever carried `parent_id`.
+     */
+    #assertNotUserRoot(entry: FSEntry, verb: string): void {
+        if (entry.parentUid === null && entry.parentId === null) {
+            throw new HttpError(
+                403,
+                `Cannot ${verb} a home directory — its name follows the account username.`,
+                { legacyCode: 'forbidden' },
+            );
+        }
     }
 
     /**
@@ -3996,6 +4016,7 @@ export class FSService extends PuterService {
         },
     ): Promise<FSEntry> {
         const { source, destinationParent } = input;
+        this.#assertNotUserRoot(source, 'move');
         // The source only: moving *into* another app's AppData is a write, and
         // ACL plus the fs:write class already cover that.
         await this.#assertCrossAppDeleteAllowed(source.path);

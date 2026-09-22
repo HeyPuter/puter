@@ -2608,7 +2608,8 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            { v: unknown; id: number; s?: string; o?: string } | undefined;
+            | { v: unknown; id: number; s?: string; o?: string }
+            | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -3074,6 +3075,32 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
+    /**
+     * A row already sitting at `/{username}` that `ownerUserId` doesn't own.
+     * Two rows at one home path make each account's tree answer for the
+     * other's, so every point that claims a username checks this first. Reads
+     * the primary: a racing signup has to see the row just written.
+     */
+    async findHomePathConflict(
+        username: string,
+        ownerUserId?: number,
+    ): Promise<FSEntry | null> {
+        const path = this.#normalizePath(`/${username}`);
+        const rows = (await this.clients.db.pread(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE path = ? ORDER BY id ASC`,
+            [path],
+        )) as unknown as FSEntryRow[];
+        for (const row of rows) {
+            const entry = this.#mapFSEntryRow(row);
+            if (ownerUserId !== undefined && entry.userId === ownerUserId) {
+                continue;
+            }
+            return entry;
+        }
+        return null;
+    }
+
     // Heal a user's home tree to `/{username}`: if the root entry's path/name
     // already match, no-op; otherwise rewrite the root row and cascade the
     // prefix to descendants. Used by the username change flow AND by the
@@ -3089,6 +3116,15 @@ export class FSEntryStore extends PuterStore {
         const newPath = `/${newUsername}`;
         if (root.path === newPath && root.name === newUsername) {
             return root;
+        }
+
+        // Never heal onto a path someone else's row holds — the two would
+        // resolve interchangeably from then on.
+        const conflict = await this.findHomePathConflict(newUsername, userId);
+        if (conflict) {
+            throw new HttpError(409, `An entry already exists at ${newPath}`, {
+                legacyCode: 'conflict',
+            });
         }
 
         const oldPath = root.path;

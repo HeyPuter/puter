@@ -1459,6 +1459,34 @@ describe('FSEntryStore home and prefix rewrites', () => {
         ).resolves.toBeNull();
     });
 
+    it('refuses to heal a home onto a path another user holds', async () => {
+        const occupant = await makeUser();
+        const mover = await makeUser();
+
+        const conflict = await caught(() =>
+            store.renameUserHome(mover.userId, occupant.username),
+        );
+        expect(conflict.statusCode).toBe(409);
+
+        // The mover's home is untouched — no second row at that path.
+        const root = await store.getRootEntryForUser(mover.userId);
+        expect(root?.path).toBe(mover.home);
+    });
+
+    it('reports a home path conflict only for a foreign owner', async () => {
+        const owner = await makeUser();
+
+        const foreign = await store.findHomePathConflict(owner.username);
+        expect(foreign?.userId).toBe(owner.userId);
+
+        await expect(
+            store.findHomePathConflict(owner.username, owner.userId),
+        ).resolves.toBeNull();
+        await expect(
+            store.findHomePathConflict('nobody-has-this-name'),
+        ).resolves.toBeNull();
+    });
+
     it('rewrites a path prefix and reports how many rows moved', async () => {
         const user = await makeUser();
         await store.ensureDirectoriesForUser(user.userId, [
