@@ -44,7 +44,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
             input_tokens: 1000,
             ephemeral_5m_input_tokens: 1000 * 1.25,
             ephemeral_1h_input_tokens: 1000 * 2,
-            // Fable 5.1 bills cache reads at 0.025x input; every other Claude model is 0.1x.
+            // Fable 5.1 bills cache reads at 0.025x input.
             cache_read_input_tokens: 1000 * 0.025,
             output_tokens: 5000,
         },
@@ -80,6 +80,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
         open_weights: false,
         tool_call: true,
+        knowledge: '2026-01',
         release_date: '2026-06-30',
         aliases: [
             'claude-sonnet',
@@ -93,14 +94,14 @@ export const CLAUDE_MODELS: IChatModel[] = [
         output_cost_key: 'output_tokens',
         costs: {
             tokens: 1_000_000,
-            input_tokens: 300,
-            ephemeral_5m_input_tokens: 300 * 1.25,
-            ephemeral_1h_input_tokens: 300 * 2,
-            cache_read_input_tokens: 300 * 0.1,
-            output_tokens: 1500,
+            input_tokens: 200,
+            ephemeral_5m_input_tokens: 200 * 1.25,
+            ephemeral_1h_input_tokens: 200 * 2,
+            cache_read_input_tokens: 200 * 0.1,
+            output_tokens: 1000,
         },
         context: 1000000,
-        max_tokens: 64000,
+        max_tokens: 128000,
     },
     {
         puterId: 'anthropic:anthropic/claude-opus-5-5',
@@ -126,7 +127,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
             input_tokens: 400,
             ephemeral_5m_input_tokens: 400 * 1.25,
             ephemeral_1h_input_tokens: 400 * 2,
-            cache_read_input_tokens: 400 * 0.1,
+            cache_read_input_tokens: 400 * 0.05,
             output_tokens: 2000,
         },
         context: 1000000,

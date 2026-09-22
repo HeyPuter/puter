@@ -175,8 +175,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
+        const isGpt6Model = modelUsed.id.startsWith('gpt-6-');
         const supportsReasoningControls =
-            typeof model === 'string' && model.startsWith('gpt-5');
+            isGpt6Model ||
+            (typeof model === 'string' && model.startsWith('gpt-5'));
 
         // Translate the neutral compaction opt-in (or pass a raw
         // `context_management` payload through) to OpenAI's Responses shape.
@@ -232,6 +234,17 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                           : {}),
                   }),
             ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
+            ...(isGpt6Model && requestedReasoningEffort !== undefined
+                ? {
+                      reasoning: {
+                          ...reasoning,
+                          effort: requestedReasoningEffort,
+                      },
+                  }
+                : {}),
+            ...(isGpt6Model && requestedVerbosity !== undefined
+                ? { text: { ...text, verbosity: requestedVerbosity } }
+                : {}),
         } as unknown as ResponseCreateParams;
 
         // console.log("completion params: ", completionParams)

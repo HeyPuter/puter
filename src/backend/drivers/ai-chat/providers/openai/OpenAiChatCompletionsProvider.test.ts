@@ -171,6 +171,8 @@ describe('OpenAiChatProvider model catalog', () => {
         // gpt-5-nano is a Chat-Completions model, must be present.
         expect(ids).toContain('gpt-5-nano-2025-08-07');
         expect(ids).toContain('gpt-6-astra');
+        expect(ids).toContain('gpt-6-sol');
+        expect(ids).toContain('gpt-6-luna');
     });
 
     it('list() flattens canonical ids and aliases', () => {
@@ -315,25 +317,30 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.safety_identifier).toBe('puter-u42');
     });
 
-    it('resolves the namespaced GPT-6 Astra alias', async () => {
-        const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
+    it.each(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+        'resolves the namespaced %s alias',
+        async (model) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'openai/gpt-6-astra',
-                messages: [{ role: 'user', content: 'hello' }],
-            }),
-        );
+            await withTestActor(() =>
+                provider.complete({
+                    model: `openai/${model}`,
+                    messages: [{ role: 'user', content: 'hello' }],
+                    reasoning_effort: 'low',
+                }),
+            );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('gpt-6-astra');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'openai:gpt-6-astra',
-            expect.any(Object),
-        );
-    });
+            expect(createMock.mock.calls[0]![0].model).toBe(model);
+            expect(createMock.mock.calls[0]![0].reasoning_effort).toBe('low');
+            expect(recordSpy).toHaveBeenCalledWith(
+                expect.any(Object),
+                expect.anything(),
+                `openai:${model}`,
+                expect.any(Object),
+            );
+        },
+    );
 
     it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
         const { provider } = makeProvider();

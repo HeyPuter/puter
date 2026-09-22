@@ -806,14 +806,12 @@ export class ClaudeProvider implements IChatProvider {
     }) {
         if (!reasoningEffort) return undefined;
 
-        // Fable 5/5.1, Opus 4.7+, 4.6, and Sonnet 4.6 use adaptive thinking
-        // (`budget_tokens` is deprecated on 4.6/Sonnet 4.6, removed on
-        // Fable 5+ and Opus 4.7+). Fable 5/5.1 and Opus 4.7+ omit thinking
-        // content by default; `display: 'summarized'` restores visible
-        // reasoning in the stream.
+        // These models reject manual thinking budgets; summarized display
+        // keeps reasoning visible in the stream.
         if (
             modelId === 'claude-fable-5-1' ||
             modelId === 'claude-fable-5' ||
+            modelId === 'claude-sonnet-5' ||
             modelId === 'claude-opus-5-5' ||
             modelId === 'claude-opus-5' ||
             modelId === 'claude-opus-4-8' ||

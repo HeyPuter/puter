@@ -198,6 +198,38 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
         expect(ids).not.toContain('gpt-5-nano-2025-08-07');
     });
 
+    it.each([
+        ['gpt-6-sol', '2026-04-20', 200, 20, 1000],
+        ['gpt-6-luna', '2026-05-18', 10, 1, 50],
+    ])(
+        'exposes %s with current pricing and limits',
+        (id, knowledge, input, cached, output) => {
+            const { provider } = makeProvider();
+            expect(
+                provider.models().find((model) => model.id === id),
+            ).toMatchObject({
+                puterId: `openai:openai/${id}`,
+                aliases: [`openai/${id}`],
+                knowledge,
+                release_date: '2026-09-22',
+                modalities: { input: ['text', 'image'], output: ['text'] },
+                costs_currency: 'usd-cents',
+                costs: {
+                    tokens: 1_000_000,
+                    prompt_tokens: input,
+                    cached_tokens: cached,
+                    completion_tokens: output,
+                },
+                context: 1_050_000,
+                max_tokens: 128_000,
+                responses_api: true,
+            });
+            expect(provider.list()).toEqual(
+                expect.arrayContaining([id, `openai/${id}`]),
+            );
+        },
+    );
+
     it('models({ no_restrictions: true }) returns the entire catalog (used by complete())', () => {
         const { provider } = makeProvider();
         const ids = provider
@@ -385,6 +417,58 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         const [o3Args] = responsesCreateMock.mock.calls[1]!;
         expect(o3Args.reasoning_effort).toBe('medium');
         expect(o3Args.verbosity).toBe('low');
+    });
+
+    it.each(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+        'maps flat controls to Responses options for %s aliases',
+        async (model) => {
+            const { provider } = makeProvider();
+            responsesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() =>
+                provider.complete({
+                    model: `openai/${model}`,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning_effort: 'high',
+                    verbosity: 'low',
+                }),
+            );
+            const [args] = responsesCreateMock.mock.calls[0]!;
+            expect(args.model).toBe(model);
+            expect(args.reasoning).toEqual({ effort: 'high' });
+            expect(args.text).toEqual({ verbosity: 'low' });
+            expect(args).not.toHaveProperty('reasoning_effort');
+            expect(args).not.toHaveProperty('verbosity');
+            expect(recordSpy.mock.calls[0]![2]).toBe(`openai:${model}`);
+        },
+    );
+
+    it('preserves nested GPT-6 controls and gives flat options precedence', async () => {
+        const { provider } = makeProvider();
+        const reasoning = { effort: 'medium', summary: 'auto' };
+        const text = { verbosity: 'high', format: { type: 'text' } };
+        for (const flat of [false, true]) {
+            responsesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-6-sol',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning,
+                    text,
+                    ...(flat
+                        ? { reasoning_effort: 'low', verbosity: 'low' }
+                        : {}),
+                } as never),
+            );
+            const [args] = responsesCreateMock.mock.lastCall!;
+            expect(args.reasoning).toEqual({
+                ...reasoning,
+                effort: flat ? 'low' : 'medium',
+            });
+            expect(args.text).toEqual({
+                ...text,
+                verbosity: flat ? 'low' : 'high',
+            });
+        }
     });
 });
 

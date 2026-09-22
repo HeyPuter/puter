@@ -7,6 +7,8 @@ The Puter.js AI feature allows you to integrate artificial intelligence capabili
 
 You can use AI models from various providers to perform tasks such as chat, text-to-image, image-to-text, text-to-video, and text-to-speech conversion. And with the [User-Pays Model](/user-pays-model/), you don't have to set up your own API keys and top up credits, because users cover their own AI costs.
 
+AI chat supports GPT-6 Sol, GPT-6 Luna, and Claude Opus 5.5. See [chat models and examples](/AI/chat/#current-openai-and-anthropic-models) for their model IDs and options.
+
 ## Features
 
 <div style="overflow:hidden; margin-bottom: 30px;">
