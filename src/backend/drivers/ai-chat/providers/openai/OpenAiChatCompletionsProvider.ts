@@ -217,13 +217,26 @@ export class OpenAiChatProvider implements IChatProvider {
 
         return OpenAiUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
+                const cachedTokens =
+                    usage.prompt_tokens_details?.cached_tokens ?? 0;
+                // GPT-5.6 and later bill cache writes at 1.25x input. They're
+                // reported inside `prompt_tokens`, like cached reads.
+                // The SDK doesn't type `cache_write_tokens` yet.
+                const cacheWriteTokens =
+                    (
+                        usage.prompt_tokens_details as
+                            { cache_write_tokens?: number } | undefined
+                    )?.cache_write_tokens ?? 0;
                 const trackedUsage = {
                     prompt_tokens:
                         (usage.prompt_tokens ?? 0) -
-                        (usage.prompt_tokens_details?.cached_tokens ?? 0),
+                        cachedTokens -
+                        cacheWriteTokens,
                     completion_tokens: usage.completion_tokens ?? 0,
-                    cached_tokens:
-                        usage.prompt_tokens_details?.cached_tokens ?? 0,
+                    cached_tokens: cachedTokens,
+                    ...(cacheWriteTokens
+                        ? { cache_write_tokens: cacheWriteTokens }
+                        : {}),
                 };
 
                 const costsOverrideFromModel = buildCostsOverride(

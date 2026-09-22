@@ -602,6 +602,89 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
         });
     });
 
+    it('splits cache writes out of input and bills them at 1.25x input', async () => {
+        const luna = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-luna')!;
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [{ role: 'assistant' }],
+            output_text: 'hi',
+            usage: {
+                input_tokens: 5000,
+                output_tokens: 20,
+                input_tokens_details: {
+                    cached_tokens: 1000,
+                    cache_write_tokens: 3000,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 1000,
+            completion_tokens: 20,
+            cached_tokens: 1000,
+            cache_write_tokens: 3000,
+        });
+        expect(luna.costs.cache_write_tokens).toBe(
+            Number(luna.costs.prompt_tokens) * 1.25,
+        );
+        expect(overrides).toEqual({
+            prompt_tokens: 1000 * Number(luna.costs.prompt_tokens),
+            completion_tokens: 20 * Number(luna.costs.completion_tokens),
+            cached_tokens: 1000 * Number(luna.costs.cached_tokens),
+            cache_write_tokens: 3000 * Number(luna.costs.cache_write_tokens),
+        });
+    });
+
+    it('bills the whole request at long-context rates past 272K input tokens', async () => {
+        const sol = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-sol')!;
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [{ role: 'assistant' }],
+            output_text: 'hi',
+            usage: {
+                input_tokens: 300_000,
+                output_tokens: 10_000,
+                input_tokens_details: {
+                    cached_tokens: 50_000,
+                    cache_write_tokens: 20_000,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-sol',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        // $0.92 + $0.02 + $0.10 + $0.15 = $1.19, against $0.62 at the
+        // standard rates.
+        expect(overrides).toEqual({
+            prompt_tokens: 230_000 * Number(sol.costs.prompt_tokens) * 2,
+            cached_tokens: 50_000 * Number(sol.costs.cached_tokens) * 2,
+            cache_write_tokens:
+                20_000 * Number(sol.costs.cache_write_tokens) * 2,
+            completion_tokens:
+                10_000 * Number(sol.costs.completion_tokens) * 1.5,
+        });
+        const totalCents =
+            Object.values(overrides as Record<string, number>).reduce(
+                (a, b) => a + b,
+                0,
+            ) / 1_000_000;
+        expect(totalCents).toBeCloseTo(119);
+    });
+
     it('bills cached tokens at the input rate when the model prices no cache read', async () => {
         // gpt-5.4-pro is responses-API-only and its catalogue entry has no
         // cached_tokens rate. Cached tokens are subtracted out of the input
