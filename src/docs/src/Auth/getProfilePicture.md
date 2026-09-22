@@ -1,31 +1,31 @@
 ---
 title: puter.auth.getProfilePicture()
-description: Read a user's public profile picture, returning null when unavailable.
+description: Read a user's profile picture, returning null when unavailable.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Reads the `picture` field from `/<username>/Public/.profile`. The file must contain a JSON object with a base64 image data URL, such as `{"picture":"data:image/png;base64,..."}`.
+Returns the `picture` field of a user's profile (see [`puter.auth.getProfile()`](/Auth/getProfile/)). A user can always read their own picture. Another user's picture is available only while that user is on a paid plan.
 
 ## Syntax
 
 ```js
-puter.auth.getProfilePicture()
-puter.auth.getProfilePicture(username)
+puter.auth.getProfilePicture();
+puter.auth.getProfilePicture(username);
 ```
 
 ## Parameters
 
 ### `username` (optional)
 
-The username to look up. Defaults to the signed-in user's username. Pass a username, not a filesystem path.
+The username to look up. Defaults to the signed-in user.
 
 ## Return value
 
 A promise that resolves to the picture's base64 image data URL, or `null` if no picture is available. The method checks the data URL's format but does not decode or verify the image itself.
 
-Missing users, directories or files, invalid usernames, malformed JSON, missing or invalid `picture` fields, permission errors, and request failures all resolve to `null`. The method uses the caller's existing filesystem permissions and does not create or modify the profile file.
+Missing users, profiles that are not public to the caller, profiles with no picture set, and request failures all resolve to `null`.
 
-When signed out, it returns `null` without opening a sign-in prompt. Sign in first if needed.
+When signed out with no `username`, it resolves to `null` without opening a sign-in prompt.
 
 ## Example
 
