@@ -631,6 +631,33 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
+        // A listener owning the site may withhold this entry (a system site
+        // that publishes per-user files conditionally). Denied looks exactly
+        // like missing, and a listener failure denies rather than serves.
+        const accessCheck = {
+            subdomain,
+            host,
+            requestPath: req.path,
+            entry,
+            result: { allowed: true },
+        };
+        try {
+            await layers.clients.event.emitAndWait(
+                'site.access.check',
+                accessCheck,
+                {},
+            );
+        } catch (e) {
+            console.error('[puter-site] site.access.check threw', e);
+            accessCheck.result.allowed = false;
+        }
+        if (!accessCheck.result.allowed) {
+            res.status(404)
+                .type('text/html; charset=UTF-8')
+                .send('<h1>404</h1><p>Not Found</p>');
+            return;
+        }
+
         // Stream the file. `fsEntry.readContent` honours Range + emits
         // ETag/Last-Modified when the S3 layer returns them. Range
         // requests are suppressed when serving a custom error page so

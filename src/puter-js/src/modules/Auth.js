@@ -27,6 +27,23 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
  */
 
 /**
+ * A user's public profile. Every field is present; `null` where the user has
+ * set nothing.
+ *
+ * @typedef {Object} UserProfile
+ * @property {string | null} picture Profile picture as a base64 image data URL.
+ * @property {string | null} displayName Name shown next to the picture.
+ * @property {string | null} bio A short self-description.
+ */
+
+/**
+ * Fields to change on the signed-in user's profile. `null` clears a field; a
+ * field left out is left as it is.
+ *
+ * @typedef {Partial<UserProfile>} UserProfilePatch
+ */
+
+/**
  * Information about the user's resource allowance and consumption.
  *
  * @typedef {Object} AllowanceInfo
@@ -331,36 +348,79 @@ export class AuthModule extends PuterModule {
     };
 
     /**
-     * Reads a user's public profile picture. Resolves to null when unavailable
-     * or invalid, including authentication, file-read, and JSON parsing failures.
+     * A user's profile, or `null` when none is available: the user does not
+     * exist, or their profile is not public and they are not the signed-in
+     * user. Another user's profile is public only while that user is on a
+     * paid plan. Never opens a sign-in prompt.
      *
-     * @param {string} [username] Defaults to the signed-in user's username.
-     * @returns {Promise<string | null>} A base64 image data URL, or null.
+     * @param {string} [username] Defaults to the signed-in user.
+     * @returns {Promise<UserProfile | null>}
      */
-    async getProfilePicture (username) {
+    async getProfile (username) {
         try {
-            // An optional avatar lookup must not open a sign-in prompt.
-            if ( ! this.authToken ) return null;
-
             if ( username === undefined ) {
-                username = (await this.getUser()).username;
-            }
-            if ( typeof username !== 'string' || ! /^[a-z0-9_-]+$/i.test(username) ) {
+                if ( ! this.authToken ) return null;
+            } else if ( typeof username !== 'string' || ! /^[a-z0-9_-]{1,64}$/i.test(username) ) {
                 return null;
             }
-
-            const blob = await this.puter.fs.read(`/${username}/Public/.profile`);
-            const profile = JSON.parse(await blob.text());
+            const url = new URL(`${this.APIOrigin}/profile`);
+            if ( username !== undefined ) url.searchParams.set('username', username);
+            const resp = await fetchUrl(url.toString(), {
+                includePuterAuth: true,
+                interactiveReauth: false,
+                logContext: { service: 'auth', operation: 'get_profile', params: { username } },
+            });
+            if ( ! resp.ok ) return null;
+            const profile = await resp.json();
             if ( ! profile || typeof profile !== 'object' || Array.isArray(profile) ) {
                 return null;
             }
-            const picture = profile.picture;
-            return typeof picture === 'string' &&
-                /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/]+={0,2}$/i.test(picture)
-                ? picture : null;
+            return profile;
         } catch {
             return null;
         }
+    }
+
+    /**
+     * Update the signed-in user's profile and return the result. Rejects with
+     * the backend's `{ code, message }` when a field is unknown, malformed, or
+     * too large (`profile_field_not_allowed`, `profile_picture_invalid`,
+     * `profile_picture_too_large`, `profile_field_too_long`).
+     *
+     * @param {UserProfilePatch} patch
+     * @returns {Promise<UserProfile>}
+     */
+    async updateProfile (patch) {
+        if ( ! patch || typeof patch !== 'object' || Array.isArray(patch) ) {
+            throw { message: 'patch must be an object of profile fields', code: 'profile_patch_invalid' };
+        }
+        const resp = await fetchUrl(`${this.APIOrigin}/profile`, {
+            method: 'POST',
+            includePuterAuth: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch),
+            logContext: { service: 'auth', operation: 'update_profile', params: { fields: Object.keys(patch) } },
+        });
+        const body = await resp.json();
+        if ( ! resp.ok ) throw body;
+        return body;
+    }
+
+    /**
+     * A user's profile picture, or `null` when none is available. Reads the
+     * `picture` field of {@link getProfile}, so another user's picture is only
+     * available while that user is on a paid plan. Never opens a sign-in
+     * prompt.
+     *
+     * @param {string} [username] Defaults to the signed-in user.
+     * @returns {Promise<string | null>} A base64 image data URL, or null.
+     */
+    async getProfilePicture (username) {
+        const profile = await this.getProfile(username);
+        const picture = profile?.picture;
+        return typeof picture === 'string' &&
+            /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/]+={0,2}$/i.test(picture)
+            ? picture : null;
     }
 
     /**

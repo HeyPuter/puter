@@ -254,6 +254,22 @@ let sidebar = [
                 path: '/Auth/getUser',
             },
             {
+                title: '<code>getProfile()</code>',
+                page_title: '<code>puter.auth.getProfile()</code>',
+                title_tag: 'puter.auth.getProfile()',
+                icon: '/assets/img/function.svg',
+                source: '/Auth/getProfile.md',
+                path: '/Auth/getProfile',
+            },
+            {
+                title: '<code>updateProfile()</code>',
+                page_title: '<code>puter.auth.updateProfile()</code>',
+                title_tag: 'puter.auth.updateProfile()',
+                icon: '/assets/img/function.svg',
+                source: '/Auth/updateProfile.md',
+                path: '/Auth/updateProfile',
+            },
+            {
                 title: '<code>getProfilePicture()</code>',
                 page_title: '<code>puter.auth.getProfilePicture()</code>',
                 title_tag: 'puter.auth.getProfilePicture()',
@@ -1399,6 +1415,13 @@ let sidebar = [
                 icon: '/assets/img/object.svg',
                 source: '/Objects/user.md',
                 path: '/Objects/user',
+            },
+            {
+                title: '<code>UserProfile</code>',
+                title_tag: 'UserProfile',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/userprofile.md',
+                path: '/Objects/userprofile',
             },
             {
                 title: '<code>WorkerDeployment</code>',

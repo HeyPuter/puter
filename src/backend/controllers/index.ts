@@ -40,11 +40,13 @@ import { WebDAVController } from './webdav/WebDAVController.js';
 import { WispController } from './wisp/WispController.js';
 import type { IPuterControllerRegistry } from './types.js';
 import { PeerController } from './peer/PeerController.js';
+import { ProfileController } from './profile/ProfileController.js';
 
 export const puterControllers = {
     staticAssets: StaticAssetsController,
     staticPages: StaticPagesController,
     auth: AuthController,
+    profile: ProfileController,
     apps: AppController,
     appFeedback: AppFeedbackController,
     desktop: DesktopController,

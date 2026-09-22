@@ -33,115 +33,135 @@ const withoutToken = async (t: TestContext, fn: () => Promise<void>) => {
 };
 
 export default suite('auth', {
-    'getProfilePicture handles missing files, valid pictures, and malformed profiles':
+    'getProfile and updateProfile round-trip the signed-in user profile':
         async (t) => {
-            const username = t.env.users.user.username;
-            const directory = `/${username}/Public`;
-            const path = `${directory}/.profile`;
             const picture =
                 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=';
-
-            t.assert.equal(
-                await t.puter.auth.getProfilePicture(username),
-                null,
-            );
-            await t.puter.fs.mkdir(directory);
             try {
-                t.assert.equal(
-                    await t.puter.auth.getProfilePicture(username),
-                    null,
+                t.assert.deepEqual(
+                    await t.puter.auth.updateProfile({
+                        picture,
+                        displayName: ' Ada ',
+                    }),
+                    { picture, displayName: 'Ada', bio: null },
                 );
-                await t.puter.fs.write(
-                    path,
-                    JSON.stringify({ picture, name: 'Ignored' }),
-                );
-                t.assert.equal(
-                    await t.puter.auth.getProfilePicture(username),
+                t.assert.deepEqual(await t.puter.auth.getProfile(), {
                     picture,
+                    displayName: 'Ada',
+                    bio: null,
+                });
+                t.assert.deepEqual(
+                    await t.puter.auth.getProfile(t.env.users.user.username),
+                    { picture, displayName: 'Ada', bio: null },
                 );
                 t.assert.equal(await t.puter.auth.getProfilePicture(), picture);
 
-                for (const content of [
-                    '',
-                    '{broken',
-                    'null',
-                    '[]',
-                    'true',
-                    '42',
-                    '"text"',
-                    '{}',
-                    ...[
-                        null,
-                        false,
-                        123,
-                        {},
-                        [],
-                        '',
-                        ' ',
-                        'https://example.com/avatar.png',
-                        'data:text/html;base64,SGk=',
-                        'data:image/png;base64,',
-                        'data:image/png;base64,%%%',
-                    ].map((picture) => JSON.stringify({ picture })),
-                ]) {
-                    await t.puter.fs.write(path, content);
-                    t.assert.equal(
-                        await t.puter.auth.getProfilePicture(username),
-                        null,
-                    );
-                }
-                await t.puter.fs.delete(path);
-                await t.puter.fs.mkdir(path);
-                t.assert.equal(
-                    await t.puter.auth.getProfilePicture(username),
-                    null,
+                // A later patch leaves untouched fields alone; null clears.
+                t.assert.deepEqual(
+                    await t.puter.auth.updateProfile({
+                        bio: 'hi',
+                        picture: null,
+                    }),
+                    { picture: null, displayName: 'Ada', bio: 'hi' },
                 );
+                t.assert.equal(await t.puter.auth.getProfilePicture(), null);
             } finally {
-                await t.puter.fs.delete(directory, { recursive: true });
+                await t.puter.auth.updateProfile({
+                    picture: null,
+                    displayName: null,
+                    bio: null,
+                });
             }
         },
 
-    'getProfilePicture respects access to another user profile': async (t) => {
-        const directory = `/${t.env.users.user.username}/Public`;
-        const path = `${directory}/.profile`;
+    'updateProfile rejects unknown fields and malformed values with the backend code':
+        async (t) => {
+            const cases: Array<[unknown, string]> = [
+                [{ name: 'x' }, 'profile_field_not_allowed'],
+                [
+                    { picture: 'https://example.com/avatar.png' },
+                    'profile_picture_invalid',
+                ],
+                [
+                    { picture: 'data:text/html;base64,SGk=' },
+                    'profile_picture_invalid',
+                ],
+                [{ picture: 42 }, 'profile_field_invalid'],
+                [{ displayName: 'x'.repeat(65) }, 'profile_field_too_long'],
+                ['nope', 'profile_patch_invalid'],
+            ];
+            for (const [patch, code] of cases) {
+                const error = (await t.assert.rejects(
+                    () => t.puter.auth.updateProfile(patch as never),
+                    `expected ${JSON.stringify(patch)} to be rejected`,
+                )) as { code?: string };
+                t.assert.equal(error.code, code, JSON.stringify(patch));
+            }
+            t.assert.deepEqual(await t.puter.auth.getProfile(), {
+                picture: null,
+                displayName: null,
+                bio: null,
+            });
+        },
+
+    'getProfile of another user follows the deployment plan gate': async (
+        t,
+    ) => {
+        // This env runs with plan gates off (`meteringEnforcement.subscriptions:
+        // false`), so every profile is public. On a gated deployment the same
+        // read of a free user resolves to null.
         const picture = 'data:image/png;base64,iVBORw0KGgo=';
-        await t.puter.fs.mkdir(directory);
+        await t.puter.auth.updateProfile({ picture });
         try {
-            await t.puter.fs.write(path, JSON.stringify({ picture }));
             t.puter.setAuthToken(t.env.users.other.token);
-            t.assert.equal(
-                await t.puter.auth.getProfilePicture(t.env.users.user.username),
-                null,
+            t.assert.deepEqual(
+                await t.puter.auth.getProfile(t.env.users.user.username),
+                { picture, displayName: null, bio: null },
             );
-            t.puter.setAuthToken(t.env.users.user.token);
-            await t.puter.fs.share(path, t.env.users.other.username, 'read');
-            t.puter.setAuthToken(t.env.users.other.token);
             t.assert.equal(
                 await t.puter.auth.getProfilePicture(t.env.users.user.username),
                 picture,
             );
+            // Unknown users, and usernames that cannot be one, are null.
+            t.assert.equal(
+                await t.puter.auth.getProfile('no-such-user-here'),
+                null,
+            );
+            t.assert.equal(await t.puter.auth.getProfile('not valid'), null);
         } finally {
             t.puter.setAuthToken(t.env.users.user.token);
-            await t.puter.fs.delete(directory, { recursive: true });
+            await t.puter.auth.updateProfile({ picture: null });
         }
     },
 
-    'getProfilePicture returns null while signed out or when user lookup fails':
+    'getProfile returns null while signed out or when the API is unreachable':
         async (t) => {
-            await withoutToken(t, async () => {
-                t.assert.equal(await t.puter.auth.getProfilePicture(), null);
-                t.assert.equal(
-                    await t.puter.auth.getProfilePicture(
-                        t.env.users.user.username,
-                    ),
-                    null,
-                );
-            });
+            const picture = 'data:image/png;base64,iVBORw0KGgo=';
+            await t.puter.auth.updateProfile({ picture });
+            try {
+                await withoutToken(t, async () => {
+                    // No username means the signed-in user, and nobody is.
+                    t.assert.equal(await t.puter.auth.getProfile(), null);
+                    t.assert.equal(
+                        await t.puter.auth.getProfilePicture(),
+                        null,
+                    );
+                    // A public profile reads anonymously (plan gates are off here).
+                    t.assert.deepEqual(
+                        await t.puter.auth.getProfile(
+                            t.env.users.user.username,
+                        ),
+                        { picture, displayName: null, bio: null },
+                    );
+                });
+            } finally {
+                await t.puter.auth.updateProfile({ picture: null });
+            }
             const p = internals(t);
             const origin = p.APIOrigin;
             try {
                 p.APIOrigin = `${origin}/missing-profile-api`;
-                t.assert.equal(await t.puter.auth.getProfilePicture(), null);
+                t.assert.equal(await t.puter.auth.getProfile(), null);
                 t.assert.equal(
                     await t.puter.auth.getProfilePicture(
                         t.env.users.user.username,
@@ -448,44 +468,47 @@ export default suite('auth', {
     // Every environment without a UI surface has to report reauth as a
     // structured error rather than driving a prompt. `env` is forced so the
     // guard is reached from whichever runtime is executing.
-    'reauth rejects with a structured error where no prompt can be shown': async (
-        t,
-    ) => {
-        const p = internals(t);
-        const realEnv = p.env;
-        const seen: Array<{ reason?: string; auth_id?: string }> = [];
-        const dispose = p.on('puter.auth.reauth_required', (payload) => {
-            seen.push(payload as { reason?: string; auth_id?: string });
-        });
-        try {
-            for (const env of ['nodejs', 'web-worker', 'service-worker']) {
-                p.env = env;
-                const error = (await t.assert.rejects(() =>
-                    p.triggerReauth({
-                        reason: 'session_expired',
-                        auth_id: `auth-${env}`,
-                    }),
-                )) as { code?: string; reason?: string; auth_id?: string };
-                t.assert.equal(error.code, 'reauth_required');
-                t.assert.equal(error.reason, 'session_expired');
-                t.assert.equal(error.auth_id, `auth-${env}`);
-                t.assert.equal(
-                    p.authToken,
-                    null,
-                    'the poisoned token must be dropped before reauth runs',
-                );
-            }
-            t.assert.equal(seen.length, 3, 'each attempt notifies subscribers');
-            t.assert.deepEqual(seen[0], {
-                reason: 'session_expired',
-                auth_id: 'auth-nodejs',
+    'reauth rejects with a structured error where no prompt can be shown':
+        async (t) => {
+            const p = internals(t);
+            const realEnv = p.env;
+            const seen: Array<{ reason?: string; auth_id?: string }> = [];
+            const dispose = p.on('puter.auth.reauth_required', (payload) => {
+                seen.push(payload as { reason?: string; auth_id?: string });
             });
-        } finally {
-            dispose();
-            p.env = realEnv;
-            t.puter.setAuthToken(t.env.users.user.token);
-        }
-    },
+            try {
+                for (const env of ['nodejs', 'web-worker', 'service-worker']) {
+                    p.env = env;
+                    const error = (await t.assert.rejects(() =>
+                        p.triggerReauth({
+                            reason: 'session_expired',
+                            auth_id: `auth-${env}`,
+                        }),
+                    )) as { code?: string; reason?: string; auth_id?: string };
+                    t.assert.equal(error.code, 'reauth_required');
+                    t.assert.equal(error.reason, 'session_expired');
+                    t.assert.equal(error.auth_id, `auth-${env}`);
+                    t.assert.equal(
+                        p.authToken,
+                        null,
+                        'the poisoned token must be dropped before reauth runs',
+                    );
+                }
+                t.assert.equal(
+                    seen.length,
+                    3,
+                    'each attempt notifies subscribers',
+                );
+                t.assert.deepEqual(seen[0], {
+                    reason: 'session_expired',
+                    auth_id: 'auth-nodejs',
+                });
+            } finally {
+                dispose();
+                p.env = realEnv;
+                t.puter.setAuthToken(t.env.users.user.token);
+            }
+        },
 
     'parallel reauth callers share a single attempt': async (t) => {
         const p = internals(t);
@@ -525,7 +548,10 @@ export default suite('auth', {
         const realEnv = p.env;
         try {
             p.env = 'gui';
-            t.assert.equal(await p.triggerReauth({ reason: 'whatever' }), undefined);
+            t.assert.equal(
+                await p.triggerReauth({ reason: 'whatever' }),
+                undefined,
+            );
             t.assert.equal(p.authToken, null);
         } finally {
             p.env = realEnv;
