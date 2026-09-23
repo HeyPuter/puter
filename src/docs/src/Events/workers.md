@@ -47,9 +47,9 @@ Both methods reject with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
-| `events_worker_owner_only` | `list()` was called with a scoped access token that carries no app. |
+| `events_worker_owner_only` | `list()` was called with a scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, whichever account or app issued it. |
 | `events_handler_not_found` | `destroy()` named an app with no published handlers. |
-| `events_handler_forbidden` | The caller does not own the app named to `destroy()` — and an app that is not there answers the same way. |
+| `events_handler_forbidden` | The caller does not own the app named to `destroy()`, or is a scoped access token — and an app that is not there answers the same way. |
 | `too_many_requests` | Over the handler publish/remove or listing budget. |
 | `events_disabled` | Events are not enabled on this server. |
 | `events_failed` | The server answered with something the SDK could not make sense of. |

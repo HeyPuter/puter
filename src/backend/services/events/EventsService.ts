@@ -792,7 +792,7 @@ const handleOwnerOnly = (): HttpError =>
         { legacyCode: 'events_kv_handle_owner_only' },
     );
 
-/** A scoped token with no app: neither the account nor an app to scope to. */
+/** A scoped token, whoever issued it: neither the account nor the app. */
 const eventsWorkerOwnerOnly = (): HttpError =>
     new HttpError(
         403,
@@ -2125,7 +2125,7 @@ export class EventsService extends PuterService {
     // The billable artifact a published handler set implies, not the handlers
     // themselves. An account session or full-access token sees every app it
     // owns; an app sees only its own, the same scope `#handlerApp` gives
-    // publish and destroy. A scoped token with no app is refused outright.
+    // publish and destroy. A scoped token is refused outright.
 
     /**
      * The events workers billed to this account — one per app it owns with at
@@ -2146,8 +2146,9 @@ export class EventsService extends PuterService {
         // Unresolved is not "no app": reading it that way would show a token
         // that skipped `makeActor` every app's worker instead of refusing it.
         if (acting === undefined) throw eventsWorkerOwnerOnly();
-        // A scoped token carries no app either, and is not the account itself.
-        if (acting === null && !isAccountContext(actor))
+        // A scoped token is neither the account nor the app, including one an
+        // app issued (a read URL): its effectiveApp is that app.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
             throw eventsWorkerOwnerOnly();
 
         const ownerUserId = actor.user?.id;
@@ -2931,11 +2932,11 @@ export class EventsService extends PuterService {
         // Unresolved is not "no app": reading it that way is what would let an
         // app token publish into a namespace it never named.
         if (acting === undefined) throw handlerAppForbidden();
-        // Naming an app is the account's to do, and a scoped token carries no
-        // app either — without this, a token minted for one narrow purpose
-        // replaces the handler code of every app its user owns, and that code
-        // then runs holding each subscriber's own credential.
-        if (acting === null && !isAccountContext(actor))
+        // A scoped token acts as neither the account nor the app, including
+        // one an app issued (a read URL): without this, a token minted for one
+        // narrow purpose replaces handler code that then runs holding each
+        // subscriber's own credential.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
             throw handlerAppForbidden();
 
         const named = parseAppUid(requested);

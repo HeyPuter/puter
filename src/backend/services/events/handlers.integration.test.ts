@@ -309,6 +309,26 @@ describe('who may publish a handler', () => {
         expect(refused.body.code).toBe('events_handler_forbidden');
     });
 
+    it('refuses a scoped token an app issued, even into that app', async () => {
+        // Its effectiveApp is the issuing app, so an app-scope check alone
+        // would let a read URL minted inside the app replace its handlers.
+        const actor = await env.server.services.auth.authenticate(appToken);
+        const entry = await env.server.stores.fsEntry.getEntryByPath(anchor);
+        const scoped = await env.server.services.auth.createAccessToken(
+            actor.actor!,
+            [[`fs:${entry!.uid}:list`]],
+            { label: 'handlers-app-scope' },
+        );
+
+        const refused = await publish(scoped, {
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
+
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_handler_forbidden');
+    });
+
     it('refuses an app token reaching into another app`s namespace', async () => {
         const refused = await publish(appToken, {
             appUid: foreignAppUid,

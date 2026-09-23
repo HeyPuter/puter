@@ -565,6 +565,9 @@ describe('what each answer does to the delivery', () => {
     it('holds one it could not answer, for longer each time', async () => {
         answer = 500;
         const subId = await subscribe();
+        // Freeze the clock so the first hold reads exactly, as later ones do
+        // after `jump`; on real time a slow run reads 2s as 1s.
+        jump(0);
 
         await touch('failing.txt');
         await invoked(1);
