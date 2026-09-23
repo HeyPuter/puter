@@ -43,6 +43,17 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     input_cost_key?: keyof T;
     output_cost_key?: keyof T;
     costs: T;
+    /**
+     * A request whose input exceeds `threshold` tokens is billed at raised
+     * rates for the whole request, not only the tokens past the threshold:
+     * every input-side rate (uncached, cached, cache writes) is multiplied by
+     * `input_multiplier` and every output-side rate by `output_multiplier`.
+     */
+    long_context_pricing?: {
+        threshold: number;
+        input_multiplier: number;
+        output_multiplier: number;
+    };
     context?: number;
     max_tokens: number;
     subscriberOnly?: boolean;

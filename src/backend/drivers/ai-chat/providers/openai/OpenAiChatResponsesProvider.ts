@@ -175,8 +175,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
+        const isGpt6Model = modelUsed.id.startsWith('gpt-6-');
         const supportsReasoningControls =
-            typeof model === 'string' && model.startsWith('gpt-5');
+            isGpt6Model ||
+            (typeof model === 'string' && model.startsWith('gpt-5'));
 
         // Translate the neutral compaction opt-in (or pass a raw
         // `context_management` payload through) to OpenAI's Responses shape.
@@ -232,6 +234,17 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                           : {}),
                   }),
             ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
+            ...(isGpt6Model && requestedReasoningEffort !== undefined
+                ? {
+                      reasoning: {
+                          ...reasoning,
+                          effort: requestedReasoningEffort,
+                      },
+                  }
+                : {}),
+            ...(isGpt6Model && requestedVerbosity !== undefined
+                ? { text: { ...text, verbosity: requestedVerbosity } }
+                : {}),
         } as unknown as ResponseCreateParams;
 
         // console.log("completion params: ", completionParams)
@@ -240,14 +253,23 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         // console.log("Completion: ", completion)
         return OpenAiUtil.handle_completion_output_responses_api({
             usage_calculator: ({ usage }) => {
+                const cachedTokens =
+                    (usage as any).input_tokens_details?.cached_tokens ?? 0;
+                // GPT-5.6 and later bill cache writes at 1.25x input. They're
+                // reported inside `input_tokens`, like cached reads.
+                const cacheWriteTokens =
+                    (usage as any).input_tokens_details?.cache_write_tokens ??
+                    0;
                 const trackedUsage = {
                     prompt_tokens:
                         ((usage as any).input_tokens ?? 0) -
-                        ((usage as any).input_tokens_details?.cached_tokens ??
-                            0),
+                        cachedTokens -
+                        cacheWriteTokens,
                     completion_tokens: (usage as any).output_tokens ?? 0,
-                    cached_tokens:
-                        (usage as any).input_tokens_details?.cached_tokens ?? 0,
+                    cached_tokens: cachedTokens,
+                    ...(cacheWriteTokens
+                        ? { cache_write_tokens: cacheWriteTokens }
+                        : {}),
                 };
 
                 const costsOverrideFromModel = buildCostsOverride(

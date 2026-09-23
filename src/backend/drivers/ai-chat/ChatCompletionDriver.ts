@@ -86,7 +86,13 @@ import {
     normalizeResultToOpenAI,
     shouldPresentAsOpenAI,
 } from './utils/normalizeToOpenAI.js';
-import { costKeys, isFreeModel } from './utils/pricing.js';
+import {
+    costKeys,
+    isFreeModel,
+    isOutputCostKey,
+    longContextMultipliers,
+    trackedInputTokens,
+} from './utils/pricing.js';
 import {
     isRouteUnhealthy,
     markRouteUnhealthy,
@@ -813,11 +819,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 ? outputRateRaw
                 : undefined;
 
-        const isOutputKey = (key: string) =>
-            key === outputKey ||
-            key === 'output_tokens' ||
-            key === 'completion_tokens' ||
-            key === 'thinking_tokens';
+        const isOutputKey = (key: string) => isOutputCostKey(key, outputKey);
+        const multipliers = longContextMultipliers(
+            model,
+            trackedInputTokens(usage, model),
+        );
 
         let inputMicroCents = 0;
         let outputMicroCents = 0;
@@ -851,12 +857,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 }
             }
 
-            const sub = rawAmount * rate;
             sawAnyRate = true;
             if (isOutputKey(key)) {
-                outputMicroCents += sub;
+                outputMicroCents += rawAmount * rate * multipliers.output;
             } else {
-                inputMicroCents += sub;
+                inputMicroCents += rawAmount * rate * multipliers.input;
             }
         }
 
@@ -923,9 +928,14 @@ export class ChatCompletionDriver extends PuterDriver {
         const metering = this.services.metering;
         const { promptTokenEstimate, requestedMaxTokens } = estimates;
         const { inputKey, outputKey } = costKeys(model);
+        // A prompt estimated past a long-context threshold pays the raised
+        // rates on input and output alike.
+        const multipliers = longContextMultipliers(model, promptTokenEstimate);
         // `|| 0` also catches NaN from a malformed cost table.
-        const inputTokenCost = Number(model.costs?.[inputKey] ?? 0) || 0;
-        const outputTokenCost = Number(model.costs?.[outputKey] ?? 0) || 0;
+        const inputTokenCost =
+            (Number(model.costs?.[inputKey] ?? 0) || 0) * multipliers.input;
+        const outputTokenCost =
+            (Number(model.costs?.[outputKey] ?? 0) || 0) * multipliers.output;
         const approximateInputCost = promptTokenEstimate * inputTokenCost;
         const minimumCredits = Number(model.minimumCredits || 1);
 

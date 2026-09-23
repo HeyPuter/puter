@@ -495,6 +495,43 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
         expect(res.usage.usd_cents).toBe(expectedMicroCents / 1_000_000);
     });
 
+    it('prices `usd_cents` at long-context rates once input passes the threshold', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'priced',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                long_context_pricing: {
+                    threshold: 5,
+                    input_multiplier: 2,
+                    output_multiplier: 1.5,
+                },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: { input_tokens: 10, output_tokens: 7 },
+            finish_reason: 'stop',
+        } as never);
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { usage: Record<string, number> };
+
+        const expectedMicroCents = 10 * 1000 * 2 + 7 * 2000 * 1.5;
+        expect(res.usage.usd_cents).toBe(expectedMicroCents / 1_000_000);
+    });
+
     it('does not override `usd_cents` when the provider already returned one (e.g. OpenRouter)', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
             message: {
@@ -661,6 +698,54 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
         expect(passed.max_tokens).toBeDefined();
         expect(passed.max_tokens!).toBeLessThanOrEqual(50);
+        expect(passed.max_tokens!).toBeGreaterThan(0);
+    });
+
+    it('caps `max_tokens` at the long-context output rate for a prompt past the threshold', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'capme',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                long_context_pricing: {
+                    threshold: 10,
+                    input_multiplier: 2,
+                    output_multiplier: 1.5,
+                },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        // A ~100-token prompt is past the threshold. 1_000_000 microcents at
+        // 2000 * 1.5 per output token leaves at most 333 output tokens before
+        // the prompt is paid for; the standard rate would allow ~450 after it.
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            1_000_000,
+        );
+
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce({
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'ok' }],
+                },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+
+        await withTestActor(() =>
+            d.complete({
+                model: 'capme',
+                messages: [{ role: 'user', content: 'x'.repeat(400) }],
+                max_tokens: 10_000,
+            }),
+        );
+
+        const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+        expect(passed.max_tokens!).toBeLessThanOrEqual(333);
         expect(passed.max_tokens!).toBeGreaterThan(0);
     });
 
