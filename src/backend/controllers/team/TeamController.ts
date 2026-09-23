@@ -25,6 +25,7 @@ import {
     Post,
     Put,
 } from '../../core/http/decorators.js';
+import { isAccountContext } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { TeamRow } from '../../stores/team/TeamStore.js';
 import { PuterController } from '../types.js';
@@ -70,7 +71,9 @@ const toClientTeam = (team: TeamRow, isOwner: boolean) => ({
 
 @Controller('/teams')
 export class TeamController extends PuterController {
-    // `requireUserActor` installs the auth gates; reads need it too.
+    // Most routes gate with `requireUserActor`; `listTeams` and `listMembers`
+    // use `requireAuth` so an app can read a team whose owner opted into the
+    // directory (see `directory_enabled`).
 
     /** Off means `/teams` 404s and no team route is registered at all. */
     isEnabled(): boolean {
@@ -100,7 +103,7 @@ export class TeamController extends PuterController {
 
     @Get('', {
         subdomain: 'api',
-        requireUserActor: true,
+        requireAuth: true,
         requireVerified: true,
         rateLimit: TEAM_READ_LIMIT,
     })
@@ -108,8 +111,13 @@ export class TeamController extends PuterController {
         const userId = this.#requireUserId(req);
         await this.#requireTeamsAvailable(req, userId);
         const teams = await this.stores.team.listTeamsForUser(userId);
+        // An app only sees a team whose owner opened the directory to apps;
+        // a team that hasn't is indistinguishable from no team at all.
+        const visible = isAccountContext(req.actor)
+            ? teams
+            : teams.filter((t) => this.services.team.isDirectoryOpen(t));
         res.json({
-            items: teams.map((t) =>
+            items: visible.map((t) =>
                 toClientTeam(t, t.owner_user_id === userId),
             ),
         });
@@ -178,7 +186,7 @@ export class TeamController extends PuterController {
 
     @Get('/:uid/members', {
         subdomain: 'api',
-        requireUserActor: true,
+        requireAuth: true,
         requireVerified: true,
         rateLimit: TEAM_READ_LIMIT,
     })
@@ -188,9 +196,13 @@ export class TeamController extends PuterController {
             this.#param(req, 'uid'),
             userId,
         );
-        // Only the owner: the uuid is what billing keys a seat's plan on, and
-        // one member has no business identifying another.
-        const isOwner = team.owner_user_id === userId;
+        const accountContext = isAccountContext(req.actor);
+        // Same consent as the directory: an app only reads a team that opted in.
+        if (!accountContext) this.services.team.assertDirectoryOpen(team);
+
+        // uuid only when the team owner calls with their own session or API
+        // token; an app needing a stable id uses `listDirectory()` instead.
+        const showUuid = accountContext && team.owner_user_id === userId;
 
         const page = await this.stores.team.listMembers(
             this.#param(req, 'uid'),
@@ -200,23 +212,30 @@ export class TeamController extends PuterController {
                     typeof req.query.cursor === 'string'
                         ? req.query.cursor
                         : undefined,
+                // An app's view matches the directory's: active seats only.
+                activeOnly: !accountContext,
             },
         );
+        // An app only ever gets a username; org_owned/created_at are account-only.
         res.json({
-            items: page.items.map((m) => ({
-                username: m.username,
-                org_owned: Number(m.org_owned) === 1,
-                created_at: m.created_at,
-                ...(isOwner ? { uuid: m.uuid } : {}),
-            })),
+            items: page.items.map((m) =>
+                accountContext
+                    ? {
+                          username: m.username,
+                          org_owned: Number(m.org_owned) === 1,
+                          created_at: m.created_at,
+                          ...(showUuid ? { uuid: m.uuid } : {}),
+                      }
+                    : { username: m.username },
+            ),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         });
     }
 
     /**
-     * The only team route that admits an app actor. It discloses nothing a
-     * colleague cannot already read through `/members`, and the team has to
-     * have opted in, so an app cannot enumerate a team by default.
+     * Admits an app actor, like `listTeams` and `listMembers`, once the team
+     * has opted in. Discloses nothing a colleague cannot already read through
+     * `/members`.
      */
     @Get('/:uid/directory', {
         subdomain: 'api',

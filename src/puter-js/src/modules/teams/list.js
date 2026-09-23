@@ -25,6 +25,9 @@ import { mapListResult, toTeam } from './lib/shapes.js';
  * default. `cursor` or `includeTotal` switches to the `{ items, cursor? }`
  * envelope, and `stream: true` returns an async iterator of envelopes.
  *
+ * From an app, only includes teams whose owner opened the directory to apps
+ * (see `directoryEnabled`); a team that has not is simply omitted, not errored.
+ *
  * A deployment with teams turned off has no `/teams` route at all, so this
  * rejects with `not_found` rather than returning an empty list — which is how a
  * caller tells "turned off" from "none yet".

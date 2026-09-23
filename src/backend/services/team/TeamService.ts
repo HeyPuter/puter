@@ -435,10 +435,26 @@ export class TeamService extends PuterService {
         return team;
     }
 
+    /** Whether the owner opened the team to the apps its members use. */
+    isDirectoryOpen(team: TeamRow): boolean {
+        return Number(team.directory_enabled) === 1;
+    }
+
     /**
-     * The member list as an app may read it. Unlike every other team route this
-     * admits an app actor, so the team has to have opted in and the page
-     * carries only what a colleague already sees.
+     * 404 rather than 403: whether a team opened its directory is itself
+     * something an app should not be able to probe for.
+     */
+    assertDirectoryOpen(team: TeamRow): void {
+        if (!this.isDirectoryOpen(team)) {
+            throw new HttpError(404, 'Team not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+    }
+
+    /**
+     * The member list as an app may read it, once the team has opted in. The
+     * page carries only what a colleague already sees through `/members`.
      */
     async listDirectory(
         teamUid: string,
@@ -446,13 +462,7 @@ export class TeamService extends PuterService {
         opts: { limit?: unknown; cursor?: string } = {},
     ): Promise<PageResult<{ username: string; uuid: string }>> {
         const team = await this.requireMembership(teamUid, actorUserId);
-        // 404 rather than 403: whether a team has this on is itself
-        // something an app should not be able to probe for.
-        if (Number(team.directory_enabled) !== 1) {
-            throw new HttpError(404, 'Team not found', {
-                legacyCode: 'team_not_found',
-            });
-        }
+        this.assertDirectoryOpen(team);
 
         const page = await this.stores.team.listDirectory(teamUid, opts);
         return {
@@ -725,16 +735,18 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map((row): MemberActivityEntry => ({
-                action: row.action,
-                reason: row.reason,
-                created_at: epochSeconds(row.created_at),
-                username: name(row.user_id_keep),
-                actor_username: name(row.actor_user_id),
-                // Only a sign-in carries these; the shape stays uniform.
-                ip: null,
-                user_agent: null,
-            })),
+            items: page.items.map(
+                (row): MemberActivityEntry => ({
+                    action: row.action,
+                    reason: row.reason,
+                    created_at: epochSeconds(row.created_at),
+                    username: name(row.user_id_keep),
+                    actor_username: name(row.actor_user_id),
+                    // Only a sign-in carries these; the shape stays uniform.
+                    ip: null,
+                    user_agent: null,
+                }),
+            ),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }

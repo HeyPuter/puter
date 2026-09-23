@@ -19,8 +19,9 @@
 
 /**
  * The events worker as a billable artifact: the `events.worker.create` /
- * `events.worker.destroy` lifecycle a rent listener keys on, the owner-scoped
- * listing, and the destroy route's whole-app removal.
+ * `events.worker.destroy` lifecycle a rent listener keys on, the listing
+ * (account-wide for a session, one app's own for an app token), and the
+ * destroy route's whole-app removal.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -340,11 +341,58 @@ describe('GET /events/workers', () => {
         expect(listed.body.items).toEqual([]);
     });
 
-    it('refuses an app token — this is the owner`s own view', async () => {
+    it('scopes an app token to its own worker among the apps its user owns', async () => {
+        const appA = await makeApp(userId);
+        const appB = await makeApp(userId);
+        await publish(appA.token, { appUid: appA.uid, name: 'a', source: SOURCE });
+        await publish(appB.token, {
+            appUid: appB.uid,
+            name: 'b',
+            source: OTHER_SOURCE,
+        });
+
+        const listedByA = await call('GET', '/events/workers', appA.token);
+        expect(listedByA.status).toBe(200);
+        expect(listedByA.body.items).toEqual([
+            expect.objectContaining({ appUid: appA.uid }),
+        ]);
+
+        const listedBySession = await call(
+            'GET',
+            '/events/workers',
+            env.users.user.token,
+        );
+        expect(listedBySession.status).toBe(200);
+        const uids = (
+            listedBySession.body.items as Array<Record<string, unknown>>
+        )
+            .map((item) => item.appUid)
+            .sort();
+        expect(uids).toEqual([appA.uid, appB.uid].sort());
+    });
+
+    it('refuses a scoped access token that carries no app', async () => {
         const app = await makeApp(userId);
         await publish(app.token, { appUid: app.uid, name: 'a', source: SOURCE });
 
-        const listed = await call('GET', '/events/workers', app.token);
+        // Same shape as the `handlers.integration.test.ts` scoped-token case:
+        // an fs permission the issuing session actually holds.
+        const anchor = `/${env.users.user.username}/${uuidv4()}`;
+        await env.server.services.fs.mkdir(userId, {
+            path: anchor,
+            createMissingParents: true,
+        });
+        const entry = await env.server.stores.fsEntry.getEntryByPath(anchor);
+        const { actor } = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+        const scoped = await env.server.services.auth.createAccessToken(
+            actor!,
+            [[`fs:${entry!.uid}:list`]],
+            { label: 'workers-scope' },
+        );
+
+        const listed = await call('GET', '/events/workers', scoped);
         expect(listed.status).toBe(403);
         expect(listed.body.code).toBe('events_worker_owner_only');
     });

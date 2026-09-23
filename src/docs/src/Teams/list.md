@@ -1,7 +1,7 @@
 ---
 title: puter.teams.list()
 description: List the teams you belong to.
-platforms: [websites, apps]
+platforms: [websites, apps, nodejs, workers]
 ---
 
 <div class="info">The Teams API is in beta. Method shapes, limits, and behavior may change between releases.</div>
@@ -9,6 +9,8 @@ platforms: [websites, apps]
 Returns the teams the caller belongs to — both those they own and those they were provisioned into.
 
 This is also how an app discovers whether teams exist on this deployment at all: it rejects with `not_found` where the feature is off, and resolves to an empty array where it is on and the caller has no team.
+
+Called from an app acting for the user, the list only includes teams whose owner opened the directory to apps (see [`listDirectory()`](/Teams/listDirectory/)); a team that has not is simply left out, the same way a team the caller isn't in would be.
 
 ## Syntax
 
@@ -44,6 +46,7 @@ A `Promise` that resolves to an array of `Team` objects, or to a `{ items, curso
 | `name` | `string \| null` | Its display name. |
 | `handle` | `string \| null` | Its short handle, unique while the team exists. |
 | `isOwner` | `boolean` | Whether the caller is the owner account. |
+| `directoryEnabled` | `boolean` | Whether the owner has opened the member directory to apps. |
 | `createdAt` | `string` | When it was created. |
 
 ## Errors
@@ -53,7 +56,9 @@ A rejection carries an `Error` with a stable `code`:
 | Code | Meaning |
 | -- | -- |
 | `invalid_request` | Refused before reaching the server — a blank `uid`, or an `offset` on a keyset list. |
-| `unauthorized` | Not signed in. |
+| `token_missing` | No authentication token was presented. |
+| `token_auth_failed` | The token presented did not authenticate. |
+| `forbidden` | Called with a scoped access token. |
 | `account_is_not_verified` | The caller's email has not been confirmed. |
 | `not_found` | Teams are turned off on this deployment. |
 | `too_many_requests` | The rate limit was exceeded. See [Rate Limits & Quotas](/rate-limits-and-quotas/). |
