@@ -3119,6 +3119,39 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(bootstrapped).toBeTruthy();
         expect(bootstrapped?.owner_user_id).toBe(owner!.id);
     });
+
+    it('canonicalizes alternate-host origins to one bootstrap row per subdomain', async () => {
+        const subdomain = `sd-${uuidv4().slice(0, 8)}`;
+        await server.stores.subdomain.create({ userId: user.id, subdomain });
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq(
+                    { origin: `https://${subdomain}.host.puter.localhost` },
+                    { actor },
+                ),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        const bootstrapped = await server.stores.app.getByUid(body.app_uid);
+        expect(bootstrapped?.index_url).toBe(
+            `http://${subdomain}.site.puter.localhost`,
+        );
+
+        const res2 = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq(
+                    { origin: `https://${subdomain}.app.puter.localhost` },
+                    { actor },
+                ),
+                res2,
+            ),
+        );
+        expect((res2.body as { app_uid: string }).app_uid).toBe(body.app_uid);
+    });
 });
 
 // ── Access tokens: create + revoke ─────────────────────────────────
@@ -5112,7 +5145,9 @@ describe('AuthController password recovery', () => {
         expect((res.body as { message: string }).message).toMatch(
             /If that account exists/i,
         );
-        const after = await server.stores.user.getById(seat.id, { force: true });
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
         expect(after!.pass_recovery_token).toBeFalsy();
     });
 
@@ -5377,7 +5412,10 @@ describe('AuthController user-protected mutations (validation paths)', () => {
 
         await expect(
             controller.handleChangeEmail(
-                makeReq({ new_email: `moved_${uniq()}@example.com` }, { actor }),
+                makeReq(
+                    { new_email: `moved_${uniq()}@example.com` },
+                    { actor },
+                ),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
@@ -5405,7 +5443,9 @@ describe('AuthController user-protected mutations (validation paths)', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
 
-        const after = await server.stores.user.getById(seat.id, { force: true });
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
         expect(after!.username).toBe(seat.username);
     });
 
@@ -5951,10 +5991,7 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
 
         await inCtx(actor, () =>
             controller.handleGrantUserApp(
-                makeReq(
-                    { app_uid: app.uid, permission, extra: {} },
-                    { actor },
-                ),
+                makeReq({ app_uid: app.uid, permission, extra: {} }, { actor }),
                 makeRes(),
             ),
         );
@@ -5991,7 +6028,10 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             inCtx(appActor, () =>
                 controller.handleCheckPermissions(
                     makeReq(
-                        { permissions: ['service:foo:ii:read'], app_uid: app.uid },
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: app.uid,
+                        },
                         { actor: appActor },
                     ),
                     makeRes(),
@@ -6836,7 +6876,9 @@ describe('AuthController.handleDeleteOwnUser', () => {
             controller.handleDeleteOwnUser(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 403 });
 
-        const after = await server.stores.user.getById(seat.id, { force: true });
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
         expect(after).toBeTruthy();
     });
 
