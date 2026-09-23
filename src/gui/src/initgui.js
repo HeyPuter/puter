@@ -1410,6 +1410,7 @@ window.initgui = async function (options) {
         window.oidcPopupReturn = await verifyOidcPopupReturn(
             window.url_query_params.get('opener_state'),
             window.url_query_params.get('msg_id'),
+            action,
         );
         window.openerOrigin =
             window.oidcPopupReturn?.opener_origin || document.referrer;

@@ -636,7 +636,7 @@ describe('OIDCService — state tokens', () => {
         expect(oidc().verifyState(`${token}x`)).toBeNull();
     });
 
-    it('round-trips a popup-return proof through the same verifier', () => {
+    it('round-trips a popup-return proof', () => {
         const token = oidc().signPopupReturn({
             opener_origin: 'https://app.test',
             logged_in: true,
@@ -650,10 +650,37 @@ describe('OIDCService — state tokens', () => {
 
     it('signs a revalidation token naming the user and purpose', () => {
         const token = oidc().signRevalidation('user-uuid-1');
-        expect(oidc().verifyState(token)).toMatchObject({
-            user_uuid: 'user-uuid-1',
-            purpose: 'revalidate',
-        });
+        expect(server.services.token.verify('oidc-state', token)).toMatchObject(
+            {
+                user_uuid: 'user-uuid-1',
+                purpose: 'revalidate',
+            },
+        );
+    });
+
+    it('does not accept a state or a revalidation token as a popup-return proof', () => {
+        expect(
+            oidc().verifyPopupReturn(
+                oidc().signState({
+                    provider: 'google',
+                    opener_origin: 'https://app.test',
+                }),
+            ),
+        ).toBeNull();
+        expect(
+            oidc().verifyPopupReturn(oidc().signRevalidation('user-uuid-1')),
+        ).toBeNull();
+    });
+
+    it('does not accept a popup-return proof or a revalidation token as a state', () => {
+        expect(
+            oidc().verifyState(
+                oidc().signPopupReturn({ opener_origin: 'https://app.test' }),
+            ),
+        ).toBeNull();
+        expect(
+            oidc().verifyState(oidc().signRevalidation('user-uuid-1')),
+        ).toBeNull();
     });
 });
 

@@ -952,7 +952,6 @@ describe('OIDCController login callback', () => {
             makeReq({ query: { code: 'c', state } }),
             res,
         );
-        expect(captured.cookies).toHaveLength(1);
         expect(captured.redirectUrl).toContain('embedded_in_popup=true');
         expect(captured.redirectUrl).toContain('oidc_login=true');
 
@@ -966,6 +965,15 @@ describe('OIDCController login callback', () => {
         const user = await server.stores.user.getByEmail(email);
         expect(user?.uuid).toBeTruthy();
         expect(proof?.user_uuid).toBe(user!.uuid);
+
+        // Session cookie plus the proof's binding companion.
+        expect(captured.cookies).toHaveLength(2);
+        const binding = captured.cookies.find(
+            (c) => c.name === 'puter_oidc_popup_return',
+        );
+        expect(binding?.value).toBeTruthy();
+        expect(proof?.nonce).toBe(binding!.value);
+        expect(proof?.action).toBe('sign-in');
     });
 
     it('uses popup-style error URL (msg_id + opener_origin) when the popup-state user is suspended', async () => {
@@ -1017,6 +1025,14 @@ describe('OIDCController login callback', () => {
         expect(captured.redirectUrl).toContain(
             `opener_origin=${encodeURIComponent('http://opener.test')}`,
         );
+
+        // The error leg must stamp the action its own redirect names.
+        const url = new URL(captured.redirectUrl!);
+        const proof = oidc().verifyPopupReturn(
+            url.searchParams.get('opener_state')!,
+        );
+        expect(proof?.oidc_login).toBe(false);
+        expect(proof?.action).toBe(url.searchParams.get('action'));
     });
 
     it('links an OIDC identity to an existing CONFIRMED password account via email match', async () => {
@@ -1835,19 +1851,34 @@ describe('OIDCController GET /auth/revalidate-done', () => {
  * attested rather than read.
  */
 describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
-    const redeem = async (opener_state: unknown) => {
+    const NONCE = 'binding-nonce';
+
+    const mint = (payload: Record<string, unknown>) =>
+        server.services.oidc.signPopupReturn({
+            nonce: NONCE,
+            action: 'sign-in',
+            ...payload,
+        });
+
+    const redeemWith = (openerState: unknown, nonce: string | null = NONCE) =>
+        makeReq({
+            body: { opener_state: openerState },
+            cookies: nonce === null ? {} : { puter_oidc_popup_return: nonce },
+        });
+
+    const redeem = async (openerState: unknown) => {
         const { res, captured } = makeRes();
         await callRoute(
             'post',
             '/auth/oidc/verify-popup-return',
-            makeReq({ body: { opener_state } }),
+            redeemWith(openerState),
             res,
         );
         return captured;
     };
 
     it('hands back what a genuine proof attests', async () => {
-        const proof = server.services.oidc.signPopupReturn({
+        const proof = mint({
             opener_origin: 'https://opener.test',
             msg_id: '77',
             oidc_login: true,
@@ -1856,6 +1887,7 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
         expect(captured.body).toEqual({
             opener_origin: 'https://opener.test',
             msg_id: '77',
+            action: 'sign-in',
             oidc_login: true,
             user_uuid: null,
         });
@@ -1864,7 +1896,7 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
     it('hands back the account a proof is bound to', async () => {
         // The popup compares this against its current user to reject a proof
         // replayed from another account's login.
-        const proof = server.services.oidc.signPopupReturn({
+        const proof = mint({
             opener_origin: 'https://opener.test',
             msg_id: '77',
             oidc_login: true,
@@ -1875,9 +1907,13 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
     });
 
     it('rejects a proof signed with someone else’s key', async () => {
-        // The whole point: only the server can mint one of these.
         const forged = jwt.sign(
-            { opener_origin: 'https://console.puter.com', oidc_login: true },
+            {
+                opener_origin: 'https://console.puter.com',
+                oidc_login: true,
+                purpose: 'popup-return',
+                nonce: NONCE,
+            },
             'not-the-server-secret',
             { keyid: 'v2' },
         );
@@ -1885,7 +1921,7 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
             callRoute(
                 'post',
                 '/auth/oidc/verify-popup-return',
-                makeReq({ body: { opener_state: forged } }),
+                redeemWith(forged),
                 makeRes().res,
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -1896,14 +1932,19 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
         // redeemed on the very next request, so a stale one is never genuine.
         const stale = server.services.token.sign(
             'oidc-state',
-            { opener_origin: 'https://opener.test', oidc_login: true },
+            {
+                opener_origin: 'https://opener.test',
+                oidc_login: true,
+                purpose: 'popup-return',
+                nonce: NONCE,
+            },
             { expiresIn: -600 },
         );
         await expect(
             callRoute(
                 'post',
                 '/auth/oidc/verify-popup-return',
-                makeReq({ body: { opener_state: stale } }),
+                redeemWith(stale),
                 makeRes().res,
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -1915,7 +1956,7 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
                 callRoute(
                     'post',
                     '/auth/oidc/verify-popup-return',
-                    makeReq({ body: { opener_state: bad } }),
+                    redeemWith(bad),
                     makeRes().res,
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
@@ -1925,12 +1966,81 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
     it('reports oidc_login false when the proof does not claim a login', async () => {
         // The error leg mints one of these: a real return, but nothing was
         // signed in on it, so it must not suppress the account picker.
-        const proof = server.services.oidc.signPopupReturn({
+        const proof = mint({
             opener_origin: 'https://opener.test',
             msg_id: '77',
             oidc_login: false,
         });
         expect((await redeem(proof)).body).toMatchObject({ oidc_login: false });
+    });
+
+    it('rejects an authorization state presented as a proof', async () => {
+        const state = server.services.oidc.signState({
+            provider: 'google',
+            redirect_uri: 'https://puter.test/action/sign-in',
+            embedded_in_popup: true,
+            msg_id: '77',
+            opener_origin: 'https://opener.test',
+            nonce: NONCE,
+        });
+        await expect(
+            callRoute(
+                'post',
+                '/auth/oidc/verify-popup-return',
+                redeemWith(state),
+                makeRes().res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a proof redeemed without its binding cookie', async () => {
+        const proof = mint({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: true,
+        });
+        for (const cookie of [null, 'a-different-nonce']) {
+            await expect(
+                callRoute(
+                    'post',
+                    '/auth/oidc/verify-popup-return',
+                    redeemWith(proof, cookie),
+                    makeRes().res,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('clears the binding cookie so a proof redeems once', async () => {
+        const proof = mint({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: true,
+        });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'post',
+            '/auth/oidc/verify-popup-return',
+            redeemWith(proof),
+            res,
+        );
+        expect(captured.clearedCookies).toContainEqual(
+            expect.objectContaining({ name: 'puter_oidc_popup_return' }),
+        );
+    });
+
+    it('leaves the binding cookie in place when redemption fails', async () => {
+        // A junk POST must not consume a cookie an in-flight return needs.
+        const { res, captured } = makeRes();
+        await expect(
+            callRoute(
+                'post',
+                '/auth/oidc/verify-popup-return',
+                redeemWith('not.a.proof'),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(captured.clearedCookies).toEqual([]);
     });
 });
 
