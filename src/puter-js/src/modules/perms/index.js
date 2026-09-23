@@ -119,11 +119,14 @@ export class PermsModule extends PuterModule {
 
 /**
  * The public face of the module: derived from the class, with the internal
- * `puter` handle and the legacy `authToken` accessor omitted.
+ * `puter` handle and the legacy `authToken` accessor omitted, plus the
+ * grant/revoke methods below, which only an account's own session can call.
  *
  * @typedef {import('../../lib/types.js').OmitMembers<
  *     typeof PermsModule,
  *     'puter' | 'authToken'
+ *     | 'grantApp' | 'grantAppAnyUser' | 'grantOrigin'
+ *     | 'revokeApp' | 'revokeAppAnyUser' | 'revokeOrigin'
  * >} PermsConstructor
  */
 

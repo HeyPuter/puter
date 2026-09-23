@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import {
+    isAccountContext,
     isAppActor,
     isPlainUserActor,
     makeActor,
@@ -1642,20 +1643,83 @@ export class AuthService extends PuterService {
             }
         }
 
-        await this.#dropAccessTokenGrants(tokenUid);
+        await this.#revokeAccessTokenTail(
+            tokenUid,
+            sessionUidFromJwt,
+            sessionRow,
+        );
+    }
 
-        if (sessionUidFromJwt) {
-            await this.stores.session.removeByUuid(sessionUidFromJwt);
-        } else {
-            // A v1 JWT carries no `session_uid`, so the row still has to be
-            // found by token identity here.
-            const row =
-                sessionRow ??
-                (await this.stores.session.findActiveByAccessTokenUid(
-                    tokenUid,
-                ));
-            if (row) await this.stores.session.removeByUuid(row.uuid);
+    /**
+     * Revoke an access token presented as its JWT. The account may revoke any
+     * of its scoped tokens, an app only those it issued. An expired token
+     * resolves: there is nothing left to revoke.
+     */
+    async revokeOwnAccessToken(actor: Actor, token: string): Promise<void> {
+        if (!actor.user)
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        if (actor.effectiveApp === undefined) {
+            throw new HttpError(403, 'Actor is unresolved', {
+                legacyCode: 'forbidden',
+            });
         }
+
+        let decoded: AccessTokenPayload;
+        try {
+            decoded = this.services.token.verify<AccessTokenPayload>(
+                'auth',
+                token,
+            );
+        } catch (err) {
+            const name = (err as { name?: string } | null)?.name;
+            if (name === 'TokenExpiredError') return;
+            throw new HttpError(400, 'Invalid access token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (decoded.type !== 'access-token' || !decoded.token_uid) {
+            throw new HttpError(400, 'Invalid access token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+
+        if (decoded.user_uid !== actor.user.uuid) {
+            throw new HttpError(404, 'Access token not found', {
+                legacyCode: 'not_found',
+            });
+        }
+
+        // The account itself may revoke any of its tokens; an app only one it
+        // issued — an account-issued token (no `app_uid`) presented by an app
+        // is a mismatch too, not "no app" passing open.
+        if (!isAccountContext(actor)) {
+            if (
+                !actor.effectiveApp ||
+                decoded.app_uid !== actor.effectiveApp.uid
+            ) {
+                throw new HttpError(404, 'Access token not found', {
+                    legacyCode: 'not_found',
+                });
+            }
+        }
+
+        // Personal API tokens are revoked from account settings only, so a
+        // leaked one holding a sibling's JWT cannot kill it through here.
+        if (decoded.full_access === true) {
+            throw new HttpError(
+                403,
+                'Personal API tokens are revoked from account settings',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        await this.#revokeAccessTokenTail(
+            decoded.token_uid,
+            decoded.session_uid,
+            null,
+        );
     }
 
     /**
@@ -1690,6 +1754,31 @@ export class AuthService extends PuterService {
             [tokenUid],
         );
         await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
+    }
+
+    /**
+     * Shared tail of `revokeAccessToken` and `revokeOwnAccessToken`: drop the
+     * grant manifest and remove the session row backing the token.
+     */
+    async #revokeAccessTokenTail(
+        tokenUid: string,
+        sessionUidFromJwt: string | undefined,
+        sessionRow: SessionRow | null,
+    ): Promise<void> {
+        await this.#dropAccessTokenGrants(tokenUid);
+
+        if (sessionUidFromJwt) {
+            await this.stores.session.removeByUuid(sessionUidFromJwt);
+        } else {
+            // A v1 JWT carries no `session_uid`, so the row still has to be
+            // found by token identity here.
+            const row =
+                sessionRow ??
+                (await this.stores.session.findActiveByAccessTokenUid(
+                    tokenUid,
+                ));
+            if (row) await this.stores.session.removeByUuid(row.uuid);
+        }
     }
 
     // -- Internals ---------------------------------------------------

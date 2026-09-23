@@ -262,14 +262,6 @@ let sidebar = [
                 path: '/Auth/getProfile',
             },
             {
-                title: '<code>updateProfile()</code>',
-                page_title: '<code>puter.auth.updateProfile()</code>',
-                title_tag: 'puter.auth.updateProfile()',
-                icon: '/assets/img/function.svg',
-                source: '/Auth/updateProfile.md',
-                path: '/Auth/updateProfile',
-            },
-            {
                 title: '<code>getProfilePicture()</code>',
                 page_title: '<code>puter.auth.getProfilePicture()</code>',
                 title_tag: 'puter.auth.getProfilePicture()',
@@ -381,6 +373,14 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/FS/getReadURL.md',
                 path: '/FS/getReadURL',
+            },
+            {
+                title: '<code>revokeReadURL()</code>',
+                page_title: '<code>puter.fs.revokeReadURL()</code>',
+                title_tag: 'puter.fs.revokeReadURL()',
+                icon: '/assets/img/function.svg',
+                source: '/FS/revokeReadURL.md',
+                path: '/FS/revokeReadURL',
             },
             {
                 title: '<code>upload()</code>',
@@ -1198,6 +1198,14 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/Teams/list.md',
                 path: '/Teams/list',
+            },
+            {
+                title: '<code>listMembers()</code>',
+                page_title: '<code>puter.teams.listMembers()</code>',
+                title_tag: 'puter.teams.listMembers()',
+                icon: '/assets/img/function.svg',
+                source: '/Teams/listMembers.md',
+                path: '/Teams/listMembers',
             },
             {
                 title: '<code>listDirectory()</code>',

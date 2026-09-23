@@ -133,6 +133,14 @@ const CREDENTIAL_MINT_LIMIT = {
     key: 'user',
 } as const;
 
+/** Revoking is cheap and undoing a mistake shouldn't fight the mint budget. */
+const ACCESS_TOKEN_REVOKE_LIMIT = {
+    scope: 'auth-access-token-revoke',
+    limit: 60,
+    window: 60_000,
+    key: 'user',
+} as const;
+
 /**
  * Second-factor configuration, including the verify leg. Shorter window than
  * the mint limit because enabling 2FA legitimately involves a few attempts in a
@@ -4116,10 +4124,36 @@ export class AuthController extends PuterController {
         res.json({ token });
     }
 
+    /**
+     * Revokes an access token given as its JWT. Unlike
+     * `/auth/revoke-access-token`, apps may call this; the service limits an
+     * app to tokens it issued and refuses personal API tokens.
+     */
+    @Post('/auth/revoke-own-access-token', {
+        subdomain: 'api',
+        requireAuth: true,
+        rateLimit: ACCESS_TOKEN_REVOKE_LIMIT,
+    })
+    async handleRevokeOwnAccessToken(
+        req: Request,
+        res: Response,
+    ): Promise<void> {
+        const { token } = req.body ?? {};
+        if (!token || typeof token !== 'string') {
+            throw new HttpError(400, 'Missing `token`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        await this.services.auth.revokeOwnAccessToken(req.actor!, token);
+        res.json({ ok: true });
+    }
+
     // Wired imperatively in `registerRoutes` so the cookie-only gate
     // (built from `this.config`) can be composed in. Cookie-only is
-    // mandatory: a leaked access token must not be able to silently
-    // revoke its own siblings.
+    // mandatory: a leaked access token must not be able to revoke a
+    // personal API token, or revoke by raw uuid — those stay web-session-only
+    // here; `/auth/revoke-own-access-token` covers revoking scoped tokens by
+    // JWT and already refuses PATs itself.
     async handleRevokeAccessToken(req: Request, res: Response): Promise<void> {
         let { tokenOrUuid } = req.body ?? {};
         if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {

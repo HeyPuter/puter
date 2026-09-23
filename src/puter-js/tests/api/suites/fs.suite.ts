@@ -540,6 +540,17 @@ export default suite('fs', {
         );
     },
 
+    'revokeReadURL revokes a URL from getReadURL': async (t) => {
+        const path = `${home(t)}/fs-suite-revoke-readurl.txt`;
+        await t.puter.fs.write(path, 'revoke me');
+        const url = await t.puter.fs.getReadURL(path);
+        t.assert.equal((await fetch(url)).status, 200);
+
+        await t.puter.fs.revokeReadURL(url);
+        const status = (await fetch(url)).status;
+        t.assert.ok(status !== 200, `expected revoked URL to stop serving, got ${status}`);
+    },
+
     'upload stores multiple files into a directory': async (t) => {
         const dir = `${home(t)}/fs-suite-upload`;
         await t.puter.fs.mkdir(dir);

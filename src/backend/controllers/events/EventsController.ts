@@ -287,12 +287,14 @@ export class EventsController extends PuterController {
 
     // -- Events workers ------------------------------------------------
     //
-    // The billable artifact a published handler set implies. Account-scoped
-    // like the kv-handle surface above: this is the owner's own view of what
-    // it is paying for, so — unlike the handler routes — an app token cannot
-    // act here on its owner's behalf.
+    // The billable artifact a published handler set implies. An account
+    // session or full-access token sees every app it owns; an app sees only
+    // its own worker, the same scope publish and destroy use.
 
-    /** GET /events/workers — the caller's own events workers, one per app. */
+    /**
+     * GET /events/workers — an account's events workers, one per app, or an
+     * app's own worker (0 or 1 item).
+     */
     @Get('/workers', {
         subdomain: 'api',
         requireAuth: true,

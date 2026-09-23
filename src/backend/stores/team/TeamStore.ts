@@ -148,7 +148,10 @@ const RESERVED_HANDLES = new Set([
 ]);
 
 export type HandleRejection =
-    'too_short' | 'too_long' | 'malformed' | 'reserved';
+    | 'too_short'
+    | 'too_long'
+    | 'malformed'
+    | 'reserved';
 
 /** Trimmed and capped, so the same name is accepted on every engine. */
 export const normalizeTeamName = (name: string): string => {
@@ -181,6 +184,20 @@ export class TeamStore extends PuterStore {
     #live(alias = ''): string {
         const prefix = alias ? `${alias}.` : '';
         return `${prefix}\`kind\` = ? AND ${prefix}\`deleted_at\` IS NULL`;
+    }
+
+    /**
+     * Excludes a suspended account and one that never took up its credential
+     * (activation is `requires_password_change` clearing, not the password
+     * existing — a provisioned seat holds the temporary one from birth).
+     */
+    #activeAccount(alias = ''): string {
+        const prefix = alias ? `${alias}.` : '';
+        return (
+            `(${prefix}\`suspended\` IS NULL OR ${prefix}\`suspended\` = 0) ` +
+            `AND (${prefix}\`requires_password_change\` IS NULL ` +
+            `OR ${prefix}\`requires_password_change\` = 0)`
+        );
     }
 
     // -- Reads --------------------------------------------------------
@@ -388,10 +405,13 @@ export class TeamStore extends PuterStore {
         return rows.map((row) => Number(row.user_id));
     }
 
-    /** A team's members, keyset-paginated on `id` per doc/pagination.md. */
+    /**
+     * A team's members, keyset-paginated on `id` per doc/pagination.md.
+     * `activeOnly` keeps only accounts the directory would list.
+     */
     async listMembers(
         teamUid: string,
-        opts: { limit?: unknown; cursor?: string } = {},
+        opts: { limit?: unknown; cursor?: string; activeOnly?: boolean } = {},
     ): Promise<PageResult<TeamMemberRow>> {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
@@ -406,6 +426,7 @@ export class TeamStore extends PuterStore {
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND g.${this.#live()}` +
+                (opts.activeOnly ? ` AND ${this.#activeAccount('u')}` : '') +
                 (after === null ? '' : ' AND ug.`id` > ?') +
                 ' ORDER BY ug.`id` LIMIT ?',
             after === null
@@ -425,9 +446,6 @@ export class TeamStore extends PuterStore {
      * The directory page: who a member may be suggested alongside. Excludes
      * suspended accounts and ones that never activated -- offering someone who
      * cannot sign in is noise, and their existence is not this list's to tell.
-     *
-     * Activation is `requires_password_change` clearing, not the password
-     * existing: a provisioned seat holds the temporary one from birth.
      */
     async listDirectory(
         teamUid: string,
@@ -444,9 +462,7 @@ export class TeamStore extends PuterStore {
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND g.${this.#live()} ` +
-                'AND (u.`suspended` IS NULL OR u.`suspended` = 0) ' +
-                'AND (u.`requires_password_change` IS NULL ' +
-                'OR u.`requires_password_change` = 0)' +
+                `AND ${this.#activeAccount('u')}` +
                 (after === null ? '' : ' AND ug.`id` > ?') +
                 ' ORDER BY ug.`id` LIMIT ?',
             after === null

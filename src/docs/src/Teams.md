@@ -1,7 +1,7 @@
 ---
 title: Teams
 description: Detect team context and look up a user's colleagues with the Teams API
-platforms: [websites, apps]
+platforms: [websites, apps, nodejs, workers]
 ---
 
 <div class="info">The Teams API is in beta. Method shapes, limits, and behavior may change between releases.</div>
@@ -12,9 +12,9 @@ A team is a Puter account that pays for other accounts. Members are ordinary Put
 
 ## Features
 
-**Team context.** `list()` tells you whether the signed-in user belongs to a team, and is also how you detect whether the deployment has Teams at all: it rejects with `not_found` where the feature is off, and resolves to an empty array where it is on and the user has no team.
+**Team context.** `list()` tells you whether the signed-in user belongs to a team, and is also how you detect whether the deployment has Teams at all: it rejects with `not_found` where the feature is off, and resolves to an empty array where it is on and the user has no team. Called from an app, it only includes teams whose owner opened the directory to apps (see below); others are simply omitted.
 
-**Colleague lookup.** `listDirectory()` returns the team's members so your app can suggest people by name instead of asking users to type usernames. It is opt-in per team — until an owner opens the directory, it answers `team_not_found`, which is indistinguishable from having no team.
+**Member and colleague lookup.** `listDirectory()` returns the team's active members so your app can suggest people by name instead of asking users to type usernames. `listMembers()` returns the same roster; called with the user's own session or API token it also carries `orgOwned` and `createdAt`, but an app only ever gets `username`. Both are opt-in per team: until an owner opens the directory to apps, an app gets `team_not_found`, which is indistinguishable from having no team.
 
 **Sharing with a team.** Anything shared with a team reaches every member with one grant, including anyone added later. Pass the team's `uid` as the recipient of [`puter.fs.share()`](/FS/share/); there is no string form, since a bare string is always read as an email or username.
 
@@ -23,9 +23,10 @@ A team is a Puter account that pays for other accounts. Members are ordinary Put
 ## Functions
 
 - **[`puter.teams.list()`](/Teams/list/)** - List the teams the signed-in user belongs to, and detect whether Teams is available at all
+- **[`puter.teams.listMembers()`](/Teams/listMembers/)** - List a team's accounts, with owner-only seat details
 - **[`puter.teams.listDirectory()`](/Teams/listDirectory/)** - List a team's members, where the owner has opened the directory to apps
 
-Both are keyset-paginated and take the same options; see either method page for the paging forms and the full error list.
+All three are keyset-paginated and take the same options; see each method page for the paging forms and the full error list.
 
 ## Examples
 

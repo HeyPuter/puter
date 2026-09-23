@@ -340,7 +340,10 @@ export interface RemovedHandlerView {
     suspended: number;
 }
 
-/** Query for `GET /events/workers`. Always the caller's own account. */
+/**
+ * Query for `GET /events/workers`. Scoped to the caller — the account's own
+ * apps, or one app's own worker.
+ */
 export interface ListEventsWorkersRequest {
     limit?: number;
     cursor?: string;
@@ -789,15 +792,13 @@ const handleOwnerOnly = (): HttpError =>
         { legacyCode: 'events_kv_handle_owner_only' },
     );
 
-/**
- * Events workers are billed to the owning account, so listing them is that
- * account's own view of what it is paying for — an app has no surface of its
- * own here, unlike a share handle, where an app may manage what it minted.
- */
+/** A scoped token with no app: neither the account nor an app to scope to. */
 const eventsWorkerOwnerOnly = (): HttpError =>
-    new HttpError(403, 'Only an account session may list its events workers', {
-        legacyCode: 'events_worker_owner_only',
-    });
+    new HttpError(
+        403,
+        'Listing events workers requires an account, or an app acting for one',
+        { legacyCode: 'events_worker_owner_only' },
+    );
 
 /**
  * An app minting is delegation, and the `manage:` grant on the region is the
@@ -2122,14 +2123,14 @@ export class EventsService extends PuterService {
     // -- Events workers ------------------------------------------------
     //
     // The billable artifact a published handler set implies, not the handlers
-    // themselves. Listing is account-scoped like kv handle listing — this is
-    // the owner's own view of what it is paying for, so it takes no `appUid`
-    // and, unlike the handler routes, an app cannot act on its owner's behalf
-    // here. Destroying one is scoped to an app, the same way publishing is.
+    // themselves. An account session or full-access token sees every app it
+    // owns; an app sees only its own, the same scope `#handlerApp` gives
+    // publish and destroy. A scoped token with no app is refused outright.
 
     /**
      * The events workers billed to this account — one per app it owns with at
-     * least one published handler.
+     * least one published handler. Narrowed to a single app when the actor is
+     * one.
      */
     async listEventsWorkers(
         actor: Actor,
@@ -2140,13 +2141,25 @@ export class EventsService extends PuterService {
         deployable: boolean;
     }> {
         if (!this.enabled) throw disabled();
-        if (!isAccountContext(actor)) throw eventsWorkerOwnerOnly();
+
+        const acting = actor.effectiveApp;
+        // Unresolved is not "no app": reading it that way would show a token
+        // that skipped `makeActor` every app's worker instead of refusing it.
+        if (acting === undefined) throw eventsWorkerOwnerOnly();
+        // A scoped token carries no app either, and is not the account itself.
+        if (acting === null && !isAccountContext(actor))
+            throw eventsWorkerOwnerOnly();
+
         const ownerUserId = actor.user?.id;
         if (ownerUserId === undefined) throw disabled();
 
         const page = await this.stores.eventHandler.listEventsWorkersForOwner(
             ownerUserId,
-            { limit: request.limit, cursor: request.cursor },
+            {
+                limit: request.limit,
+                cursor: request.cursor,
+                ...(acting ? { appUid: acting.uid } : {}),
+            },
         );
         const items: EventsWorkerView[] = [];
         for (const worker of page.items) {

@@ -572,10 +572,28 @@ describe('getReadURL / revokeReadURL', () => {
         expect(FakeXHR.requests).toHaveLength(1);
     });
 
-    it('revokes by URL, token or uuid', async () => {
-        await expect(fs.revokeReadURL('  tok  ')).resolves.toBeUndefined();
-        expect(lastRequest().url).toBe('https://api.test/auth/revoke-access-token');
-        expect(lastBody()).toEqual({ tokenOrUuid: 'tok' });
+    const JWT = 'aaa.bbb.ccc';
+
+    it('revokes by bare JWT', async () => {
+        await expect(fs.revokeReadURL(`  ${JWT}  `)).resolves.toBeUndefined();
+        expect(lastRequest().url).toBe('https://api.test/auth/revoke-own-access-token');
+        expect(lastBody()).toEqual({ token: JWT });
+    });
+
+    it('revokes by the URL getReadURL() returns', async () => {
+        await expect(fs.revokeReadURL(`https://api.test/token-read?uid=u1&token=${JWT}`)).resolves.toBeUndefined();
+        expect(lastBody()).toEqual({ token: JWT });
+    });
+
+    it('rejects a value with no extractable JWT before sending a request', async () => {
+        await expect(fs.revokeReadURL('not-a-token')).rejects.toMatchObject({ code: 'field_invalid' });
+        await expect(fs.revokeReadURL(`https://api.test/token-read/${JWT}`)).rejects.toMatchObject({ code: 'field_invalid' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('rejects an empty value before sending a request', async () => {
+        await expect(fs.revokeReadURL('  ')).rejects.toMatchObject({ code: 'field_missing' });
+        expect(FakeXHR.requests).toHaveLength(0);
     });
 });
 
@@ -655,7 +673,7 @@ describe('authentication gate', () => {
         sign: () => fs.sign('app-1', { uid: 'one' }),
         space: () => fs.space(),
         stat: () => fs.stat('/a'),
-        revokeReadURL: () => fs.revokeReadURL('tok'),
+        revokeReadURL: () => fs.revokeReadURL('aaa.bbb.ccc'),
     };
 
     for ( const [ name, call ] of Object.entries(operations) ) {

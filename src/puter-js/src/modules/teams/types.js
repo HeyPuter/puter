@@ -45,10 +45,11 @@
 /**
  * @typedef {Object} TeamMember
  * @property {string} username The member's Puter username.
- * @property {boolean} orgOwned Whether the team provisioned and pays for this account, as opposed
- * to a pre-existing account that joined it.
- * @property {string} createdAt When the account joined the team, in `YYYY-MM-DDTHH:MM:SSZ` format.
-  * @property {string} [uuid] Present for the team owner only; billing keys a seat's plan on it.
+ * @property {boolean} [orgOwned] Whether the team provisioned and pays for this account, as opposed
+ * to a pre-existing account that joined it. Absent when an app calls: it gets `username` only.
+ * @property {string} [createdAt] When the account joined the team. Absent when an app calls.
+ * @property {string} [uuid] Present only when the team owner calls with their own session or
+ * API token; billing keys a seat's plan on it.
  */
 
 /**
