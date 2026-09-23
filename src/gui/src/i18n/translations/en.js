@@ -843,6 +843,11 @@ const en = {
         'signup_blocked_message': 'Your account could not be created.',
         'contact_support': 'Please contact support@puter.com.',
         'contact_support_with_code': 'Please contact support@puter.com and include this code: {{id}}.',
+        'signup_bonus_code_invalid': 'This bonus code is invalid or no longer available.',
+        'signup_bonus_code_invalid_retry': 'This bonus code is invalid or no longer available. You can still create your account without it.',
+        'signup_bonus_requires_phone': 'To claim it, you\'ll verify your phone number after signing up.',
+        'signup_bonus_requires_card': 'To claim it, you\'ll verify a card after signing up.',
+        'signup_bonus_requires_phone_and_card': 'To claim it, you\'ll verify your phone number and a card after signing up.',
 
         // Welcome Window
         'welcome': 'Welcome',

@@ -227,7 +227,39 @@ export type EventMap = {
         fingerprint?: string | null;
         /** True when the created account is a temp user (no email/password). */
         is_temp?: boolean;
+        /** The bonus code `puter.signup-bonus.validate` accepted, if any. */
+        bonus_code?: string;
         [key: string]: unknown;
+    };
+    // Signup bonus codes are pure mechanism here: an extension decides what a
+    // code is worth and fills these in (both emitted via `emitAndWait`).
+    'puter.signup-bonus.check': {
+        code: string;
+        ip: string | null;
+        fingerprint: string | null;
+        valid: boolean;
+        /** Opaque to core; forwarded to the client when `valid` is false. */
+        reason: string | null;
+        display: { title: string; description: string } | null;
+        /** Verification the code will require after signup. */
+        requirements: { phone: boolean; card: boolean } | null;
+    };
+    /**
+     * Emitted once a signup has passed `puter.signup.validate`, so listeners
+     * see the harness's verdict. A listener sets `accepted` to honor the code,
+     * and may raise (never lower) the verification requirements.
+     */
+    'puter.signup-bonus.validate': {
+        code: string;
+        email?: string;
+        clean_email?: string;
+        ip?: string | null;
+        fingerprint?: string | null;
+        reputation?: number | null;
+        source?: 'oidc';
+        requires_phone_verification: boolean;
+        requires_card_verification: boolean;
+        accepted: boolean;
     };
     'email.validate': {
         email: string;

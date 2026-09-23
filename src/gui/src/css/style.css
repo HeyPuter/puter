@@ -2241,6 +2241,25 @@ label {
     color: #5f6368;
 }
 
+.signup-bonus-notice {
+    text-align: center;
+    margin: 15px 0;
+    padding: 12px;
+    border-radius: 4px;
+    background-color: #eaf5ee;
+    color: #1e4620;
+    font-size: 14px;
+}
+
+.signup-bonus-notice p {
+    margin: 6px 0 0;
+}
+
+.signup-bonus-notice-invalid {
+    background-color: #fdecea;
+    color: #611a15;
+}
+
 /* -- Logo strip above the login / signup forms -- */
 .auth-logo-header {
     display: flex;

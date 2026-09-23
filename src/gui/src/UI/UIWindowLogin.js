@@ -440,6 +440,10 @@ async function UIWindowLogin (options) {
                         if ( referrer ) {
                             url += `&referrer=${encodeURIComponent(referrer)}`;
                         }
+                        // A provider login can create the account, so a signup link's code rides along.
+                        if ( window.signup_bonus_code ) {
+                            url += `&bonusCode=${encodeURIComponent(window.signup_bonus_code)}`;
+                        }
                         if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
                             url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
                             if ( window.openerOrigin ) {
