@@ -86,6 +86,36 @@ const makeApp = async (ownerUserId: number): Promise<{ uid: string; token: strin
     return { uid, token };
 };
 
+/**
+ * A scoped token minted from inside `app`, as `getReadURL()` does there: its
+ * effectiveApp is the app, but it is not the app.
+ */
+const appIssuedScopedToken = async (app: {
+    uid: string;
+    token: string;
+}): Promise<string> => {
+    const anchor = `/${env.users.user.username}/${uuidv4()}`;
+    await env.server.services.fs.mkdir(userId, {
+        path: anchor,
+        createMissingParents: true,
+    });
+    const entry = await env.server.stores.fsEntry.getEntryByPath(anchor);
+    const { actor: owner } = await env.server.services.auth.authenticate(
+        env.users.user.token,
+    );
+    await env.server.services.permission.grantUserAppPermission(
+        owner!,
+        app.uid,
+        `fs:${entry!.uid}:list`,
+    );
+    const { actor } = await env.server.services.auth.authenticate(app.token);
+    return env.server.services.auth.createAccessToken(
+        actor!,
+        [[`fs:${entry!.uid}:list`]],
+        { label: 'workers-app-scope' },
+    );
+};
+
 const SOURCE = 'async ({ event }) => { console.log(event.path); }';
 const OTHER_SOURCE = 'async ({ event, ctx }) => { console.log(ctx.url); }';
 
@@ -396,6 +426,16 @@ describe('GET /events/workers', () => {
         expect(listed.status).toBe(403);
         expect(listed.body.code).toBe('events_worker_owner_only');
     });
+
+    it('refuses a scoped access token an app issued', async () => {
+        const app = await makeApp(userId);
+        await publish(app.token, { appUid: app.uid, name: 'a', source: SOURCE });
+        const scoped = await appIssuedScopedToken(app);
+
+        const listed = await call('GET', '/events/workers', scoped);
+        expect(listed.status).toBe(403);
+        expect(listed.body.code).toBe('events_worker_owner_only');
+    });
 });
 
 describe('POST /events/workers/destroy', () => {
@@ -534,6 +574,19 @@ describe('POST /events/workers/destroy', () => {
             workerName: EVENTS_WORKER_SESSION_NAME,
         });
         expect(freshSession?.revoked_at).toBeNull();
+    });
+
+    it('refuses a scoped access token an app issued, even for that app', async () => {
+        const app = await makeApp(userId);
+        await publish(app.token, { appUid: app.uid, name: 'a', source: SOURCE });
+        const scoped = await appIssuedScopedToken(app);
+
+        const refused = await call('POST', '/events/workers/destroy', scoped, {
+            appUid: app.uid,
+        });
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_handler_forbidden');
+        expect(destroys).toEqual([]);
     });
 
     it('refuses an app token destroying an app it is not', async () => {
