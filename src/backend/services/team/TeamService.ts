@@ -395,11 +395,10 @@ export class TeamService extends PuterService {
                 );
             }
         } catch (e) {
-            // Unserialized would mean an unenforced cap, so this is fatal.
+            // Same answer as contention below — the caller retries either way.
+            // Logged, because unlike contention the cause is ours.
             console.warn('[team] cap lock unavailable:', e);
-            throw new HttpError(503, 'Busy — try that again in a moment', {
-                legacyCode: 'service_unavailable' as never,
-            });
+            held = false;
         }
         if (!held) {
             throw new HttpError(409, 'Busy — try that again in a moment', {

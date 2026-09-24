@@ -215,7 +215,7 @@ describe('team and seat caps', () => {
             .mockRejectedValue(new Error('redis down'));
         try {
             await expect(provision(team.uid, owner.id)).rejects.toMatchObject({
-                statusCode: 503,
+                statusCode: 409,
             });
         } finally {
             set.mockRestore();
