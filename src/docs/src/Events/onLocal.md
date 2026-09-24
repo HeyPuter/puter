@@ -32,7 +32,7 @@ Called with a single `{ event }` object per delivery. `event.op === 'gap'` means
 
 - `onError` (Function): Called with `{ message, code }` if the subscription lapses — re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A connection the server closes once is reconnected without calling it. The subscription is over at that point; call `onLocal()` again to resume. Without it, a lapse is reported on the console.
 - `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
-- `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject.
+- `includeValue` (Boolean): For a `kv:` subject, request the key's new value as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Values are also omitted from every delivery when the event matches more than 128 subscriptions in that region or its filter-evaluation ceiling is reached before counting finishes, even with `includeValue: true`; the key and other event metadata are still delivered. Refused on a non-`kv:` subject.
 
 ## Return value
 

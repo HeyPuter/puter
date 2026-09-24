@@ -298,7 +298,7 @@ describe('minting a handle', () => {
         }
     });
 
-    it('holds one namespace to its own cap while another still has room', async () => {
+    it('lets a paid namespace fill the account cap and then refuses other namespaces', async () => {
         const namespace = 'app-perapp-probe';
         try {
             for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit; i++) {
@@ -319,46 +319,13 @@ describe('minting a handle', () => {
             });
             await expect(
                 mint({ appUid: 'app-another-probe', prefix: 'still:room:' }),
-            ).resolves.toEqual(
-                expect.objectContaining({ prefix: 'still:room:' }),
-            );
+            ).rejects.toMatchObject({
+                legacyCode: 'events_kv_handle_limit_reached',
+            });
         } finally {
             await env.server.clients.db.write(
                 'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? AND `app_uid` IN (?, ?)',
                 [owner.id, namespace, 'app-another-probe'],
-            );
-        }
-    });
-
-    it('does not hold the global namespace to the per-app cap', async () => {
-        try {
-            for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit; i++) {
-                const prefix = `global:${i}:`;
-                await env.server.stores.kvShareHandle.mint({
-                    ownerUserId: owner.id,
-                    granteeUserId: guest.id,
-                    appUid: KV_GLOBAL_APP_KEY,
-                    keyPrefix: prefix,
-                    permission: kvSharePermission(
-                        owner.uuid,
-                        KV_GLOBAL_APP_KEY,
-                        prefix,
-                    ),
-                });
-            }
-
-            await expect(
-                mint({ prefix: 'global:still:room:' }),
-            ).resolves.toEqual(
-                expect.objectContaining({ prefix: 'global:still:room:' }),
-            );
-        } finally {
-            // By prefix, not by namespace: the global one is where the rest of
-            // this file's handles live too.
-            await env.server.clients.db.write(
-                'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? ' +
-                    "AND `app_uid` = ? AND `key_prefix` LIKE 'global:%'",
-                [owner.id, KV_GLOBAL_APP_KEY],
             );
         }
     });
@@ -773,5 +740,41 @@ describe('what a plan lets an account hold', () => {
             'app-tiered-free-other',
         );
         expect(accepted.status).toBe(200);
+    });
+
+    it('lets a free global namespace exceed the per-app cap', async () => {
+        await setEmail(`${tiered.users.user.username}@example.invalid`);
+        await tiered.server.clients.db.write(
+            'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ?',
+            [tieredUserId],
+        );
+        const cap =
+            EVENTS_KV_HANDLES_PER_APP.bySubscription[DEFAULT_FREE_SUBSCRIPTION];
+        const grantee = await tiered.server.stores.user.getByUsername(
+            tiered.users.other.username,
+        );
+        try {
+            for (let i = 0; i < cap; i++) {
+                const prefix = `global:${i}:`;
+                await tiered.server.stores.kvShareHandle.mint({
+                    ownerUserId: tieredUserId,
+                    granteeUserId: grantee!.id,
+                    appUid: KV_GLOBAL_APP_KEY,
+                    keyPrefix: prefix,
+                    permission: kvSharePermission(
+                        tieredUuid,
+                        KV_GLOBAL_APP_KEY,
+                        prefix,
+                    ),
+                });
+            }
+            const accepted = await mintTiered('global:still:room:');
+            expect(accepted.status).toBe(200);
+        } finally {
+            await tiered.server.clients.db.write(
+                'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ?',
+                [tieredUserId],
+            );
+        }
     });
 });

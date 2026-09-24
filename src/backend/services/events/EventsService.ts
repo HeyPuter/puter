@@ -33,7 +33,10 @@ import {
     EVENTS_KV_HANDLE_LIMIT,
     EVENTS_KV_HANDLES_PER_APP,
     EVENTS_KV_HANDLES_PER_USER,
+    EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
+    EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
+    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -116,6 +119,7 @@ import {
     type SocketSpecifier,
 } from '../socket/SocketService.js';
 import { PuterService } from '../types.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import {
     resolveFsAnchor,
     resolveKvAnchor,
@@ -611,6 +615,12 @@ export interface KvDispatchInput {
     values?: readonly unknown[];
     /** Keys among `keys` private to the namespace's app. */
     noShareKeys?: readonly string[];
+}
+
+interface RouteLimits {
+    matchedSubscriptions: number;
+    filterEvaluations: number;
+    omitKvValueAbove?: number;
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -1167,6 +1177,23 @@ const valueAsRowAskedFor = (
     const { value: _value, ...withoutValue } = event;
     return withoutValue;
 };
+
+/** Omit inline values without changing the event's key metadata. */
+const withoutKvValue = <C extends EventContextBase>(context: C): C => {
+    const { value: _value, ...withoutValue } = context as C & {
+        value?: unknown;
+    };
+    return withoutValue as C;
+};
+
+/** Candidate counts at or below this can't reach any KV fan-out cap. */
+const KV_ROUTE_LIMITS_NEVER_BIND = Math.min(
+    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+    EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+    ...Object.values(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription),
+    EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.limit,
+    ...Object.values(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription),
+);
 
 const parseDelivery = (value: unknown): DeliveryClass => {
     if (value === undefined || value === null || value === 'broadcast')
@@ -3682,6 +3709,12 @@ export class EventsService extends PuterService {
             rows = rows.filter((row) => row.socketId !== undefined);
         if (rows.length === 0) return false;
 
+        const limits = await this.#kvRouteLimits(
+            ownerUserId,
+            namespace.userUuid,
+            rows.length,
+        );
+
         if (rows.some((row) => row.includeValue === true))
             contexts.forEach((context, i) =>
                 Object.assign(context, valueAt(i)),
@@ -3712,9 +3745,55 @@ export class EventsService extends PuterService {
                         namespace.appUid,
                         context.noShare === true,
                     ),
+                limits,
             );
         }
         return matchedAny;
+    }
+
+    /**
+     * The namespace owner's plan bounds a mutation's delivery work. Below the
+     * smallest cap nothing can bind, so the owner lookup is skipped.
+     */
+    async #kvRouteLimits(
+        ownerUserId: number,
+        ownerUserUuid: string,
+        candidates: number,
+    ): Promise<RouteLimits> {
+        const plan =
+            candidates <= KV_ROUTE_LIMITS_NEVER_BIND
+                ? DEFAULT_FREE_SUBSCRIPTION
+                : await this.#kvOwnerPlan(ownerUserId, ownerUserUuid);
+        return {
+            matchedSubscriptions: limitFor(
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+                plan,
+            ),
+            filterEvaluations: limitFor(
+                EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
+                plan,
+            ),
+            omitKvValueAbove: EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+        };
+    }
+
+    /** The key owner's plan; the free one when it can't be resolved. */
+    async #kvOwnerPlan(
+        ownerUserId: number,
+        ownerUserUuid: string,
+    ): Promise<string | null> {
+        if (!this.services.metering) return null;
+        try {
+            const owner = await this.stores.user.getById(ownerUserId);
+            if (owner?.uuid !== ownerUserUuid) return DEFAULT_FREE_SUBSCRIPTION;
+            return (
+                (await this.#planId(makeActor({ user: owner }))) ??
+                DEFAULT_FREE_SUBSCRIPTION
+            );
+        } catch (err) {
+            console.warn("[events] could not resolve a key owner's plan", err);
+            return DEFAULT_FREE_SUBSCRIPTION;
+        }
     }
 
     /**
@@ -3898,6 +3977,10 @@ export class EventsService extends PuterService {
         authorize: (
             rows: DispatchSubscription[],
         ) => Promise<DispatchSubscription[]>,
+        limits: RouteLimits = {
+            matchedSubscriptions: EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+            filterEvaluations: FILTER_EVALUATIONS_PER_EVENT,
+        },
     ): Promise<void> {
         const rows = candidates.filter(deliverable);
         if (rows.length === 0) return;
@@ -3915,11 +3998,18 @@ export class EventsService extends PuterService {
         const evaluated = evaluateWithCap(
             rows,
             (row) => this.#passes(row, subject, op, matchOn, context),
-            FILTER_EVALUATIONS_PER_EVENT,
+            limits.filterEvaluations,
         );
 
+        const deliveryContext =
+            limits.omitKvValueAbove !== undefined &&
+            (evaluated.stoppedEarly ||
+                evaluated.matched.length > limits.omitKvValueAbove)
+                ? withoutKvValue(context)
+                : context;
+
         const matched = await authorize(
-            evaluated.matched.slice(0, EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT),
+            evaluated.matched.slice(0, limits.matchedSubscriptions),
         );
 
         let seq = 0;
@@ -3927,7 +4017,7 @@ export class EventsService extends PuterService {
             const event = this.#asRowAddressesIt(
                 row,
                 subject.project({
-                    ...context,
+                    ...deliveryContext,
                     // A row watching only where the node landed was never
                     // shown where it came from, so it is not handed that path.
                     ...(sawItLeave(row, context)
@@ -3975,9 +4065,9 @@ export class EventsService extends PuterService {
         // over-reporting is the only safe direction when we cannot know. It is
         // itself capped, or a fan-out ceiling would be a fan-out of markers.
         const missed = [
-            ...evaluated.matched.slice(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT),
+            ...evaluated.matched.slice(limits.matchedSubscriptions),
             ...rows.slice(evaluated.evaluated),
-        ].slice(0, EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
+        ].slice(0, limits.matchedSubscriptions);
         if (missed.length === 0) return;
 
         // Same re-check the delivery path applies: a row a revoked grant

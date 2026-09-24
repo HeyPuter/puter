@@ -257,14 +257,18 @@ Both buckets are per account, not per team, so administering several teams spend
 
 One write can reach many subscriptions, so events are bounded on both halves: how much you may register, and how much any one event may turn into.
 
-Durable subscriptions and cross-user share handles outlive the connection that made them, so they are the half that varies by plan:
+Durable subscription quotas, cross-user share-handle quotas, and KV event fan-out vary by plan:
 
-| Limit                                             | Paid | Free | Anonymous |
-| ------------------------------------------------- | ---- | ---- | --------- |
-| Durable subscriptions per account                 | 500  | 100  | —         |
-| Durable subscriptions per app, per account        | 100  | 25   | —         |
-| Live key-value share handles per account          | 500  | 200  | —         |
-| Live key-value share handles per app, per account | 100  | 50   | —         |
+| Limit                                             | Paid  | Free | Anonymous |
+| ------------------------------------------------- | ----- | ---- | --------- |
+| Durable subscriptions per account                 | 500   | 100  | —         |
+| Durable subscriptions per app, per account        | 100   | 25   | —         |
+| Live key-value share handles per account          | 512   | 200  | —         |
+| Live key-value share handles per app, per account | 512   | 128  | —         |
+| Matched subscriptions per KV event, per region    | 512   | 128  | 128       |
+| Filter evaluations per KV event, per region       | 2,048 | 512  | 512       |
+
+The KV event caps use the **owner of the key's plan**, not the writer's or listeners' plans. They count subscriptions, not distinct people, and are shared by all matching subscriptions for that change in the region, including share-handle subscriptions. An owner whose plan cannot be resolved takes the free cap; a deployment with no metering service uses the paid cap.
 
 A temporary (anonymous) account cannot create durable subscriptions at all — `subscribe` fails with `events_durable_requires_account`, and session subscriptions, which live and die with the connection, are the surface it has. Past either cap the call fails with `events_subscription_limit`; unsubscribing frees a slot immediately. Minting a share handle fails the same way — `events_kv_handle_requires_account` — and past either handle cap the mint fails with `events_kv_handle_limit_reached`; revoking frees a slot, and retired handles stay listed without counting. The per-app handle cap bounds each app namespace; a handle minted without naming one answers to the account cap alone.
 
@@ -279,8 +283,8 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Key-value share-handle listing page size     | 200          |
 | Missed-event fetches per minute              | 120          |
 | Events per fetch page                        | 200          |
-| Matched subscriptions per event              | 50           |
-| Filter evaluations per event                 | 200          |
+| Matched subscriptions per non-KV event, per region | 50      |
+| Filter evaluations per non-KV event, per region | 200       |
 | Key-value value inlined in a delivery        | 16 KB        |
 | Broadcast deliveries per minute, per subscription | 600     |
 | `single` deliveries per minute, per subscription | 120      |
@@ -328,11 +332,11 @@ Deleting the node a subscription is anchored on ends it too, unless the subject 
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**, with **one `*` per segment** and **one `**` per pattern**; anything past that is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 
-A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`. A subscription made with `includeValue` is handed the key's new value on each delivery, up to **16 KB** serialized; a larger value is left out of the event and the subscriber reads the key back. A share-handle subscription may ask for values too, and receives them for as long as the handle stands.
+A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`. A subscription made with `includeValue` may receive the key's new value, up to **16 KB** serialized. Values are omitted from **all deliveries** for that change when more than **128 subscriptions match in the region**, or when the filter-evaluation ceiling prevents completing that count. This count is taken before delivery-time permission checks and delivery truncation; it includes subscriptions that did not request values. The event still carries its key and other metadata. A larger value is also omitted. Subscribers with KV read access can fetch the key; a share handle grants event access only, so its holder needs a separate authorized app data path when the value is omitted.
 
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 
-The two per-event ceilings — matched subscriptions and filter evaluations — do not fail your call: they truncate the delivery and send a `gap` marker in its place, with `reason: 'matched_subscription_limit'` or `reason: 'filter_evaluation_limit'` respectively — an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed". Both ceilings are counted **per region**: a change is evaluated against every matching region's own copy of your subscriptions, so an account with subscribers spread across several regions can see more than 50 matched, or 200 evaluated, in total for one event, even though no single region ever exceeds its own cap.
+The two per-event ceilings — matched subscriptions and filter evaluations — do not fail your call: they truncate the delivery and send a `gap` marker in its place, with `reason: 'matched_subscription_limit'` or `reason: 'filter_evaluation_limit'` respectively — an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed". Both ceilings are counted **per region**, so an event can reach more subscriptions in total when its audience spans regions. KV events use the owner-plan limits above; other event families remain capped at 50 matched subscriptions and 200 evaluations. Gap markers are also capped at the matched-subscription limit: with 1,100 matching subscriptions in a paid owner's region, up to 512 receive the event, the next 512 receive a gap, and the remaining 76 receive neither. A gap is not guaranteed for every omitted subscription.
 
 A **background delivery** — one that runs your app's handler with nobody there — takes the user's consent, the per-app permission `events:background`, and a subscription targeting `worker` without it is refused with `events_background_consent_required`. The handler runs as your app's own session for that user — the same reach it has from a tab, not a credential cut down to this one subscription's grant — and that session is what the consent authorizes running unattended; it shows up in the user's sessions list as a worker session, and revoking it there stops every background delivery for your app the same way withdrawing the permission does. Destroying the app's events worker ([`puter.events.workers.destroy()`](/Events/workers/)) retires that session too, and deleting the app ends it along with every subscription and anything they were owed. A handler has **30 seconds** to answer each invocation. Answering `2xx` takes the delivery; `4xx` refuses it, and it is dropped with a `gap` marker carrying `reason: 'handler_rejected'` rather than sent again to the same answer; `5xx`, `429` and a timeout are all "not now", and the delivery is held **2 seconds** before the next attempt, doubling each time up to **5 minutes**. **Five failures in a row** — refusals included — suspend the subscription with `failures`, hold what it is owed under the suspended-backlog rules above, and notify the app's developer. Publishing a handler is all the deployment there is: the app's events worker is brought up the first time a delivery needs it, and again if it has been idle long enough to be evicted, so the first background delivery after a publish pays a short cold start. Nothing else can invoke it — it answers one platform route, and only the platform can reach it.
 
