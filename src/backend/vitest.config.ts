@@ -114,6 +114,9 @@ export default defineConfig(({ mode }) => ({
             'src/mcp-connector/**/*.test.{js,ts}',
             // Root-level tools/ scripts are exercised through this suite.
             'tools/**/*.test.mjs',
+            // The worker runtimes ship as a preamble rather than as their own
+            // package, so their unit tests run with the backend's.
+            'src/worker/**/*.test.{js,ts}',
         ],
         // Root is the repo root so that the file transformer (which
         // applies `lowerDecoratorsPlugin`) sees both src/backend and
