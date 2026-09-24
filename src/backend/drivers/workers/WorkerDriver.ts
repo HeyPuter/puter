@@ -1130,6 +1130,10 @@ export class WorkerDriver extends PuterDriver {
                 // (user, app_uid, worker_name) so a hot-reload reuses
                 // the same row across reloads and the long-lived token
                 // stays stable for the worker's whole lifetime.
+                //
+                // A null `app_owner` means the worker was never bound to
+                // an app: a deleted app takes its rows with it, so this
+                // row cannot be a binding that was lost.
                 const appOwnerId = row.app_owner as number | null;
                 let authorization: string;
                 if (appOwnerId) {

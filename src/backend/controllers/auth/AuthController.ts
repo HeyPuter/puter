@@ -76,6 +76,13 @@ import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
 import { parsePhone } from '../../util/phone.js';
+import {
+    bonusCodeInvalidError,
+    checkSignupBonus,
+    isAbsentBonusCode,
+    normalizeBonusCode,
+    validateSignupBonus,
+} from '../../util/signupBonus.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import { getTaskbarItems } from '../../util/taskbarItems.js';
 import {
@@ -130,6 +137,14 @@ const CREDENTIAL_MINT_LIMIT = {
     scope: 'auth-credential-mint',
     limit: 20,
     window: 60 * 60_000,
+    key: 'user',
+} as const;
+
+/** Revoking is cheap and undoing a mistake shouldn't fight the mint budget. */
+const ACCESS_TOKEN_REVOKE_LIMIT = {
+    scope: 'auth-access-token-revoke',
+    limit: 60,
+    window: 60_000,
     key: 'user',
 } as const;
 
@@ -807,6 +822,18 @@ export class AuthController extends PuterController {
             }
         }
 
+        // Only the shape is judged here; whether the code is honored is up to
+        // `puter.signup-bonus.validate`, after the abuse checks below.
+        let bonusCode: string | null = null;
+        if (!is_temp && !isAbsentBonusCode(body.bonusCode)) {
+            if (typeof body.bonusCode !== 'string')
+                throw new HttpError(400, 'bonusCode must be a string.', {
+                    legacyCode: 'bad_request',
+                });
+            bonusCode = normalizeBonusCode(body.bonusCode);
+            if (!bonusCode) throw bonusCodeInvalidError();
+        }
+
         // Signup-disabled gate. Runs before the duplicate checks so a
         // disabled endpoint doesn't reveal which usernames or emails
         // exist. Claiming a pre-existing placeholder row is still
@@ -879,6 +906,20 @@ export class AuthController extends PuterController {
         let pseudo_user = is_temp
             ? null
             : await this.#resolveSignupEmailClaim(body.email);
+
+        // A dead code fails here rather than after the gate below, which records
+        // an allowed attempt against the address as if an account followed.
+        if (
+            bonusCode &&
+            !(
+                await checkSignupBonus(this.clients.event, bonusCode, {
+                    ip: clientIp,
+                    fingerprint,
+                })
+            ).valid
+        ) {
+            throw bonusCodeInvalidError();
+        }
 
         // Extension-level validation gate. Abuse-prevention extensions
         // inspect the incoming signup and can:
@@ -966,17 +1007,36 @@ export class AuthController extends PuterController {
         const force_email_confirmation = Boolean(
             validateEvent.requires_email_confirmation,
         );
-        const force_phone_verification =
+        let force_phone_verification =
             Boolean(validateEvent.requires_phone_verification) ||
             // Test/QA switch: force the SMS gate on every signup regardless of
             // reputation (see config.always_require_phone_verification).
             Boolean(this.config.always_require_phone_verification);
-        const force_card_verification = Boolean(
+        let force_card_verification = Boolean(
             validateEvent.requires_card_verification ||
             // Test/QA switch: force the card gate on every signup regardless of
             // reputation (see config.always_require_card_verification).
             this.config.always_require_card_verification,
         );
+
+        if (bonusCode) {
+            const verdict = await validateSignupBonus(
+                this.clients.event,
+                bonusCode,
+                {
+                    email: body.email,
+                    clean_email: cleanEmail(body.email),
+                    ip: clientIp,
+                    fingerprint,
+                    reputation: validateEvent.reputation,
+                    requires_phone_verification: force_phone_verification,
+                    requires_card_verification: force_card_verification,
+                },
+            );
+            if (!verdict.accepted) throw bonusCodeInvalidError();
+            force_phone_verification = verdict.requiresPhoneVerification;
+            force_card_verification = verdict.requiresCardVerification;
+        }
 
         // Prepare shared fields
         const user_uuid = uuidv4();
@@ -1198,6 +1258,7 @@ export class AuthController extends PuterController {
                     // have to agree or per-IP counters are written under one
                     // key and read under another.
                     ip: clientIp,
+                    ...(bonusCode ? { bonus_code: bonusCode } : {}),
                 } as never,
                 {},
             );
@@ -1217,6 +1278,64 @@ export class AuthController extends PuterController {
         }
 
         await this.#completeLogin(req, res, user!);
+    }
+
+    /**
+     * Preview a signup bonus code before the account exists, so the signup form
+     * can say what it grants. Answers only valid/invalid: an extension owns the
+     * codes, and with none installed every code is invalid.
+     */
+    @Post('/signup/bonus-code/check', {
+        rateLimit: [
+            { scope: 'signup-bonus-check', limit: 20, window: 15 * 60_000 },
+            {
+                scope: 'signup-bonus-check-ip',
+                limit: 60,
+                window: 15 * 60_000,
+                key: 'ip',
+            },
+        ],
+    })
+    async handleSignupBonusCheck(req: Request, res: Response): Promise<void> {
+        const raw = req.body?.bonusCode;
+        if (typeof raw !== 'string')
+            throw new HttpError(400, 'bonusCode must be a string.', {
+                legacyCode: 'bad_request',
+            });
+        const code = normalizeBonusCode(raw);
+        if (!code) {
+            res.json({ valid: false });
+            return;
+        }
+
+        const fingerprint =
+            typeof req.body?.fingerprint === 'string' &&
+            req.body.fingerprint.length <= FINGERPRINT_MAX_LENGTH
+                ? req.body.fingerprint
+                : null;
+        const checkEvent = await checkSignupBonus(this.clients.event, code, {
+            ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
+            fingerprint,
+        });
+
+        if (checkEvent.valid !== true || !checkEvent.display) {
+            res.json({
+                valid: false,
+                ...(checkEvent.reason ? { reason: checkEvent.reason } : {}),
+            });
+            return;
+        }
+        res.json({
+            valid: true,
+            display: {
+                title: String(checkEvent.display.title),
+                description: String(checkEvent.display.description),
+            },
+            requirements: {
+                phone: checkEvent.requirements?.phone === true,
+                card: checkEvent.requirements?.card === true,
+            },
+        });
     }
 
     // -- Logout ------------------------------------------------------
@@ -2212,8 +2331,11 @@ export class AuthController extends PuterController {
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
         });
 
+        // Awaited like `user.phone-verified`, so whatever a listener grants on
+        // verification is in place before the client refreshes. emitAndWait
+        // swallows listener errors, so confirm never fails on one.
         try {
-            this.clients.event?.emit(
+            await this.clients.event?.emitAndWait(
                 'user.card-verified' as never,
                 {
                     user_id: user.id,
@@ -2226,7 +2348,7 @@ export class AuthController extends PuterController {
                 {},
             );
         } catch {
-            // ignore — event is a side-channel signal, not load-bearing
+            // ignore — listeners are best-effort
         }
         // Notify other tabs/devices for this user so they refresh + drop the gate.
         try {
@@ -3908,11 +4030,18 @@ export class AuthController extends PuterController {
         if (!app && resolvedFromOrigin) {
             // Hosted-subdomain origins get the site owner stamped as the
             // app's creator at bootstrap; external origins stay unowned.
+            // Canonical origin only, so alternate hosts share one row.
+            const canonicalOrigin =
+                this.services.auth.canonicalizeOrigin(origin);
             const ownerUserId =
-                await this.services.auth.subdomainOwnerIdFromOrigin(origin);
-            app = await this.stores.app.createFromOrigin(app_uid, origin, {
-                ownerUserId,
-            });
+                await this.services.auth.subdomainOwnerIdFromOrigin(
+                    canonicalOrigin,
+                );
+            app = await this.stores.app.createFromOrigin(
+                app_uid,
+                canonicalOrigin,
+                { ownerUserId },
+            );
             // An origin's uid is a deterministic uuidv5, so a deleted app
             // reappears here under the identical uid. Withdraw any cross-app
             // data grants left pointing at it before this new row can inherit
@@ -4116,10 +4245,36 @@ export class AuthController extends PuterController {
         res.json({ token });
     }
 
+    /**
+     * Revokes an access token given as its JWT. Unlike
+     * `/auth/revoke-access-token`, apps may call this; the service limits an
+     * app to tokens it issued and refuses personal API tokens.
+     */
+    @Post('/auth/revoke-own-access-token', {
+        subdomain: 'api',
+        requireAuth: true,
+        rateLimit: ACCESS_TOKEN_REVOKE_LIMIT,
+    })
+    async handleRevokeOwnAccessToken(
+        req: Request,
+        res: Response,
+    ): Promise<void> {
+        const { token } = req.body ?? {};
+        if (!token || typeof token !== 'string') {
+            throw new HttpError(400, 'Missing `token`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        await this.services.auth.revokeOwnAccessToken(req.actor!, token);
+        res.json({ ok: true });
+    }
+
     // Wired imperatively in `registerRoutes` so the cookie-only gate
     // (built from `this.config`) can be composed in. Cookie-only is
-    // mandatory: a leaked access token must not be able to silently
-    // revoke its own siblings.
+    // mandatory: a leaked access token must not be able to revoke a
+    // personal API token, or revoke by raw uuid — those stay web-session-only
+    // here; `/auth/revoke-own-access-token` covers revoking scoped tokens by
+    // JWT and already refuses PATs itself.
     async handleRevokeAccessToken(req: Request, res: Response): Promise<void> {
         let { tokenOrUuid } = req.body ?? {};
         if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {

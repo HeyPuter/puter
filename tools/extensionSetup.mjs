@@ -5,8 +5,8 @@
 // the previous bash version.
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { spawnNpm } from './npmSpawn.mjs';
 
 const EXT_DIR = './extensions';
 
@@ -23,13 +23,11 @@ if (dirs.length === 0) {
     process.exit(0);
 }
 
-const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
 function install(dir) {
     return new Promise((resolve, reject) => {
         const args = existsSync(join(dir, 'package-lock.json')) ? ['ci'] : ['install'];
         console.log(`[${dir}] starting npm ${args.join(' ')}`);
-        const child = spawn(npmCmd, args, { cwd: dir });
+        const child = spawnNpm(args, { cwd: dir });
         let out = '';
         child.stdout.on('data', (d) => (out += d));
         child.stderr.on('data', (d) => (out += d));

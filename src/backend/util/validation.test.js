@@ -24,6 +24,7 @@ import {
     validateJsonObject,
     validateString,
     validateUrl,
+    WEB_AND_EXTENSION_PROTOCOLS,
 } from './validation.js';
 
 /**
@@ -161,6 +162,56 @@ describe('validateUrl', () => {
             () => validateUrl('not a url', { key: 'url' }),
             '`url` must be a valid URL',
         );
+    });
+
+    it.each([
+        'chrome-extension://cafneielldmiliebnkhaeaaibinihgpb',
+        'moz-extension://f4b30177-3e5e-49b4-bb50-32df6ff09033',
+        'safari-extension://f4b30177-3e5e-49b4-bb50-32df6ff09033',
+        'safari-web-extension://f4b30177-3e5e-49b4-bb50-32df6ff09033',
+    ])('accepts the browser extension origin %s when opted in', (value) => {
+        expect(
+            validateUrl(value, {
+                key: 'index_url',
+                protocols: WEB_AND_EXTENSION_PROTOCOLS,
+            }),
+        ).toBe(value);
+    });
+
+    it.each([
+        'chrome-extension:',
+        'moz-extension:',
+        'extension:javascript:alert(1)',
+    ])('rejects the host-less value %s', (value) => {
+        // Only "special" schemes require an authority, so these parse with an
+        // empty host and would slip past every host-based guard downstream.
+        expectBadRequest(
+            () =>
+                validateUrl(value, {
+                    key: 'index_url',
+                    protocols: [...WEB_AND_EXTENSION_PROTOCOLS, 'extension:'],
+                }),
+            '`index_url` must include a host',
+        );
+    });
+
+    it.each([
+        'extension://my-extension-id',
+        'web-extension://my-extension-id',
+        'ms-browser-extension://my-extension-id',
+    ])('keeps rejecting the non-browser scheme %s', (value) => {
+        expectBadRequest(
+            () =>
+                validateUrl(value, {
+                    key: 'index_url',
+                    protocols: WEB_AND_EXTENSION_PROTOCOLS,
+                }),
+            'must use one of the following protocols',
+        );
+    });
+
+    it('exposes the extension allow-list as a frozen value', () => {
+        expect(Object.isFrozen(WEB_AND_EXTENSION_PROTOCOLS)).toBe(true);
     });
 
     it('rejects a missing value when required, passes it through otherwise', () => {

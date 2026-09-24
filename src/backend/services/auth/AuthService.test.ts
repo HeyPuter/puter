@@ -18,7 +18,7 @@
  */
 
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
@@ -1626,19 +1626,132 @@ describe('AuthService (integration)', () => {
             expect(a).toMatch(/^app-/);
         });
 
+        it('resolves every hosting variant of a subdomain to the same uid', async () => {
+            const sub = `canon-${Math.random().toString(36).slice(2, 10)}`;
+            const uids = await Promise.all([
+                authService.appUidFromOrigin(
+                    `https://${sub}.site.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `https://${sub}.host.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `http://${sub}.app.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `https://${sub}.dev.puter.localhost`,
+                ),
+            ]);
+            expect(new Set(uids).size).toBe(1);
+        });
+
+        it('prefers the private app row over an older public stub across hosting variants', async () => {
+            const user = await makeUser();
+            const sub = `pref-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.app.createFromOrigin(
+                `app-${uuidv4()}`,
+                `https://${sub}.host.puter.localhost`,
+                { ownerUserId: user.id },
+            );
+            const realUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+                [
+                    realUid,
+                    `real-${sub}`,
+                    'Real app',
+                    `https://${sub}.app.puter.localhost`,
+                    user.id,
+                    1,
+                ],
+            );
+            await expect(
+                authService.appUidFromOrigin(
+                    `https://${sub}.host.puter.localhost`,
+                ),
+            ).resolves.toBe(realUid);
+        });
+
         it.each([
             'javascript:alert(document.domain)',
             'data:text/html,<script>alert(1)</script>',
             'file:///etc/passwd',
             'vbscript:msgbox(1)',
-        ])('throws 400 for non-http(s) scheme %s', async (origin) => {
-            // These parse fine via `new URL()` but must never become a
-            // bootstrap app `index_url` — that would be a stored XSS /
-            // code-execution vector when launched as `iframe.src`.
-            await expect(
-                authService.appUidFromOrigin(origin),
-            ).rejects.toMatchObject({ statusCode: 400 });
+        ])(
+            'throws 400 for unsafe non-web/non-extension scheme %s',
+            async (origin) => {
+                // These parse fine via `new URL()` but must never become a
+                // bootstrap app `index_url` — that would be a stored XSS /
+                // code-execution vector when launched as `iframe.src`.
+                await expect(
+                    authService.appUidFromOrigin(origin),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        // Mirrors APP_ORIGIN_UUID_NAMESPACE in AuthService: changing it
+        // changes every origin-derived app uid in the fleet.
+        const APP_ORIGIN_UUID_NAMESPACE =
+            '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+        // Unique per run — a real `apps` row carrying the same origin as its
+        // `index_url` resolves ahead of the uuidv5 fallback.
+        const extensionId = uuidv4();
+
+        it.each([
+            `chrome-extension://${extensionId}`,
+            `moz-extension://${extensionId}`,
+            `safari-extension://${extensionId}`,
+            `safari-web-extension://${extensionId}`,
+        ])('derives the app uid for extension origin %s', async (origin) => {
+            const uid = await authService.appUidFromOrigin(origin);
+            expect(uid).toBe(
+                `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`,
+            );
+            expect(await authService.appUidFromOrigin(origin)).toBe(uid);
         });
+
+        it('gives two extensions two different app uids', async () => {
+            const a = await authService.appUidFromOrigin(
+                `chrome-extension://${uuidv4()}`,
+            );
+            const b = await authService.appUidFromOrigin(
+                `chrome-extension://${uuidv4()}`,
+            );
+            expect(a).not.toBe(b);
+        });
+
+        it('resolves an extension id case-insensitively', async () => {
+            // `new URL()` lowercases http(s) hosts but leaves opaque ones
+            // alone, so without normalization one extension would get two
+            // uids, two AppData trees and two permission sets.
+            const id = uuidv4();
+            expect(
+                await authService.appUidFromOrigin(
+                    `chrome-extension://${id.toUpperCase()}`,
+                ),
+            ).toBe(
+                await authService.appUidFromOrigin(`chrome-extension://${id}`),
+            );
+        });
+
+        it.each([
+            // Extension schemes are not "special", so `new URL()` accepts them
+            // with no authority — which would slip past every host-based guard.
+            'chrome-extension:',
+            'moz-extension:',
+            // Near-misses: no browser emits any of these.
+            'extension://my-extension-id',
+            'web-extension://my-extension-id',
+            'ms-browser-extension://my-extension-id',
+            'chrome-extensions://my-extension-id',
+        ])(
+            'throws 400 for host-less or non-browser scheme %s',
+            async (origin) => {
+                await expect(
+                    authService.appUidFromOrigin(origin),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
     });
 
     describe('subdomainOwnerIdFromOrigin', () => {

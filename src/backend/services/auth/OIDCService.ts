@@ -24,6 +24,10 @@ import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
+import {
+    checkSignupBonus,
+    validateSignupBonus,
+} from '../../util/signupBonus.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
 import crypto from 'node:crypto';
@@ -469,11 +473,14 @@ export class OIDCService extends PuterService {
      * `raced` means a concurrent callback got there first and the caller should
      * re-resolve rather than surface an error — see
      * `#resolveOrCreateOIDCUser`.
+     *
+     * `bonusCode` must already be canonical (`normalizeBonusCode`).
      */
     async createUserFromOIDC(
         providerId: string,
         claims: OIDCUserInfo,
         referrer?: string | null,
+        { bonusCode = null }: { bonusCode?: string | null } = {},
     ): Promise<{
         success: boolean;
         user?: UserRow;
@@ -538,7 +545,7 @@ export class OIDCService extends PuterService {
             // IdP already authenticated the user, so captcha listeners
             // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
             source: 'oidc' as const,
-            data: { username, email },
+            data: { username, email, ...(bonusCode ? { bonusCode } : {}) },
             // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
             // would let a client pick its own per-IP abuse bucket.
             ip: clientIp,
@@ -599,6 +606,24 @@ export class OIDCService extends PuterService {
             };
         }
 
+        // Refuse a dead code before the validate hook records the attempt; see
+        // the same check in AuthController.
+        if (
+            bonusCode &&
+            !(
+                await checkSignupBonus(this.clients.event, bonusCode, {
+                    ip: clientIp,
+                    fingerprint: null,
+                })
+            ).valid
+        ) {
+            return {
+                success: false,
+                error: 'This bonus code is invalid or no longer available.',
+                code: 'bonus_code_invalid',
+            };
+        }
+
         try {
             await this.clients.event?.emitAndWait(
                 'puter.signup.validate',
@@ -621,12 +646,37 @@ export class OIDCService extends PuterService {
             always_require_phone_verification?: boolean;
             always_require_card_verification?: boolean;
         };
-        const force_phone_verification =
+        let force_phone_verification =
             Boolean(validateEvent.requires_phone_verification) ||
             Boolean(cfg.always_require_phone_verification);
-        const force_card_verification =
+        let force_card_verification =
             Boolean(validateEvent.requires_card_verification) ||
             Boolean(cfg.always_require_card_verification);
+
+        if (bonusCode) {
+            const verdict = await validateSignupBonus(
+                this.clients.event,
+                bonusCode,
+                {
+                    source: 'oidc',
+                    email,
+                    clean_email: cleanEmail(email),
+                    ip: clientIp,
+                    reputation: validateEvent.reputation,
+                    requires_phone_verification: force_phone_verification,
+                    requires_card_verification: force_card_verification,
+                },
+            );
+            if (!verdict.accepted) {
+                return {
+                    success: false,
+                    error: 'This bonus code is invalid or no longer available.',
+                    code: 'bonus_code_invalid',
+                };
+            }
+            force_phone_verification = verdict.requiresPhoneVerification;
+            force_card_verification = verdict.requiresCardVerification;
+        }
 
         // The caller checked this email was free before we got here, but the
         // validate hook and the blocklist checks above sit in between — long
@@ -778,6 +828,7 @@ export class OIDCService extends PuterService {
                     // have to agree or per-IP counters are written under one
                     // key and read under another.
                     ip: clientIp,
+                    ...(bonusCode ? { bonus_code: bonusCode } : {}),
                 },
                 {},
             );

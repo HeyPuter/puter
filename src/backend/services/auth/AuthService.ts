@@ -19,12 +19,14 @@
 
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import {
+    isAccountContext,
     isAppActor,
     isPlainUserActor,
     makeActor,
     type Actor,
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import {
     ASSET_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
@@ -782,11 +784,11 @@ export class AuthService extends PuterService {
                 legacyCode: 'bad_request',
             });
         }
-        // Aliased hosts collapse to a single canonical representative so the
-        // event listeners and the UUIDv5 fallback resolve to the same value
-        // for every member of an alias group.
+        // Aliased hosts and hosting-domain variants collapse to one canonical
+        // origin, so every spelling of the same app resolves to one uid.
         const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
-        const event = { origin: aliased };
+        const canonical = this.#canonicalizeHostedOrigin(aliased) ?? aliased;
+        const event = { origin: canonical };
         await this.clients.event?.emitAndWait('app.from-origin', event, {});
 
         // Blocked origins can't acquire an app token (or have one minted /
@@ -914,10 +916,46 @@ export class AuthService extends PuterService {
         return this.#normalizedOrigin(parsed);
     }
 
-    /** Scheme + host + explicit port, with no trailing separator. */
+    /** Scheme + lowercased host + explicit port, with no trailing separator. */
     #normalizedOrigin(parsed: URL): string {
         const port = parsed.port ? `:${parsed.port}` : '';
-        return `${parsed.protocol}//${parsed.hostname}${port}`;
+        // `new URL()` lowercases http(s) hosts but leaves opaque ones alone, so
+        // without this an extension id in two spellings hashes to two app uids
+        // (and misses the blocklist, which matches on a lowercased host).
+        return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${port}`;
+    }
+
+    /** Same subdomain on the primary hosting domain; null when not hosted. */
+    #canonicalizeHostedOrigin(origin: string): string | null {
+        let parsed: URL;
+        try {
+            parsed = new URL(origin);
+        } catch {
+            return null;
+        }
+        const hostingDomains = this.#getHostingDomains();
+        const subdomain = this.#hostedSubdomainForHost(
+            parsed.host.toLowerCase(),
+            parsed.hostname.toLowerCase(),
+            hostingDomains,
+        );
+        if (!subdomain) return null;
+        const canonicalDomain = hostingDomains[0];
+        if (!canonicalDomain) return null;
+        const config = this.config as { protocol?: string };
+        const protocol =
+            (typeof config.protocol === 'string'
+                ? config.protocol.trim().replace(/:$/, '')
+                : '') || 'https';
+        return `${protocol}://${subdomain}.${canonicalDomain}`;
+    }
+
+    /** Canonical origin across alias groups and hosting domains. */
+    canonicalizeOrigin(origin: string): string {
+        const parsed = this.#originFromUrl(origin);
+        if (!parsed) return origin;
+        const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
+        return this.#canonicalizeHostedOrigin(aliased) ?? aliased;
     }
 
     /**
@@ -978,8 +1016,8 @@ export class AuthService extends PuterService {
      *
      * Build candidate URLs from the origin's subdomain crossed with every
      * configured hosting domain (static + private, with and without ports).
-     * Prefer the oldest matching app for deterministic tie-breaking across
-     * historically-duplicated rows.
+     * Prefer private rows, then the oldest match, for deterministic
+     * tie-breaking across historically-duplicated rows.
      */
     async #findCanonicalAppUidForOrigin(
         origin: string,
@@ -1040,8 +1078,10 @@ export class AuthService extends PuterService {
         if (uniqueCandidates.length === 0) return null;
 
         const placeholders = uniqueCandidates.map(() => '?').join(', ');
+        // Private rows win over public duplicates; oldest id breaks ties.
         const rows = (await this.clients.db.read(
-            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ORDER BY \`id\` ASC LIMIT 1`,
+            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ` +
+                `ORDER BY CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\` ASC LIMIT 1`,
             uniqueCandidates,
         )) as Array<{ uid?: string }>;
         const uid = rows[0]?.uid;
@@ -1642,20 +1682,83 @@ export class AuthService extends PuterService {
             }
         }
 
-        await this.#dropAccessTokenGrants(tokenUid);
+        await this.#revokeAccessTokenTail(
+            tokenUid,
+            sessionUidFromJwt,
+            sessionRow,
+        );
+    }
 
-        if (sessionUidFromJwt) {
-            await this.stores.session.removeByUuid(sessionUidFromJwt);
-        } else {
-            // A v1 JWT carries no `session_uid`, so the row still has to be
-            // found by token identity here.
-            const row =
-                sessionRow ??
-                (await this.stores.session.findActiveByAccessTokenUid(
-                    tokenUid,
-                ));
-            if (row) await this.stores.session.removeByUuid(row.uuid);
+    /**
+     * Revoke an access token presented as its JWT. The account may revoke any
+     * of its scoped tokens, an app only those it issued. An expired token
+     * resolves: there is nothing left to revoke.
+     */
+    async revokeOwnAccessToken(actor: Actor, token: string): Promise<void> {
+        if (!actor.user)
+            throw new HttpError(403, 'Actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        if (actor.effectiveApp === undefined) {
+            throw new HttpError(403, 'Actor is unresolved', {
+                legacyCode: 'forbidden',
+            });
         }
+
+        let decoded: AccessTokenPayload;
+        try {
+            decoded = this.services.token.verify<AccessTokenPayload>(
+                'auth',
+                token,
+            );
+        } catch (err) {
+            const name = (err as { name?: string } | null)?.name;
+            if (name === 'TokenExpiredError') return;
+            throw new HttpError(400, 'Invalid access token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+        if (decoded.type !== 'access-token' || !decoded.token_uid) {
+            throw new HttpError(400, 'Invalid access token', {
+                legacyCode: 'token_invalid',
+            });
+        }
+
+        if (decoded.user_uid !== actor.user.uuid) {
+            throw new HttpError(404, 'Access token not found', {
+                legacyCode: 'not_found',
+            });
+        }
+
+        // The account itself may revoke any of its tokens; an app only one it
+        // issued — an account-issued token (no `app_uid`) presented by an app
+        // is a mismatch too, not "no app" passing open.
+        if (!isAccountContext(actor)) {
+            if (
+                !actor.effectiveApp ||
+                decoded.app_uid !== actor.effectiveApp.uid
+            ) {
+                throw new HttpError(404, 'Access token not found', {
+                    legacyCode: 'not_found',
+                });
+            }
+        }
+
+        // Personal API tokens are revoked from account settings only, so a
+        // leaked one holding a sibling's JWT cannot kill it through here.
+        if (decoded.full_access === true) {
+            throw new HttpError(
+                403,
+                'Personal API tokens are revoked from account settings',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        await this.#revokeAccessTokenTail(
+            decoded.token_uid,
+            decoded.session_uid,
+            null,
+        );
     }
 
     /**
@@ -1692,19 +1795,45 @@ export class AuthService extends PuterService {
         await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
     }
 
+    /**
+     * Shared tail of `revokeAccessToken` and `revokeOwnAccessToken`: drop the
+     * grant manifest and remove the session row backing the token.
+     */
+    async #revokeAccessTokenTail(
+        tokenUid: string,
+        sessionUidFromJwt: string | undefined,
+        sessionRow: SessionRow | null,
+    ): Promise<void> {
+        await this.#dropAccessTokenGrants(tokenUid);
+
+        if (sessionUidFromJwt) {
+            await this.stores.session.removeByUuid(sessionUidFromJwt);
+        } else {
+            // A v1 JWT carries no `session_uid`, so the row still has to be
+            // found by token identity here.
+            const row =
+                sessionRow ??
+                (await this.stores.session.findActiveByAccessTokenUid(
+                    tokenUid,
+                ));
+            if (row) await this.stores.session.removeByUuid(row.uuid);
+        }
+    }
+
     // -- Internals ---------------------------------------------------
 
     #originFromUrl(url: string): string | null {
         try {
             const parsed = new URL(url);
-            // A real web origin is always http(s). `new URL()` happily parses
-            // `javascript:`, `data:`, `file:`, `vbscript:`, etc.; if one of
-            // those slips through it ends up persisted as an app `index_url`
-            // (see AppStore.createFromOrigin) and later loaded as `iframe.src`
-            // — an XSS/code-execution primitive. Reject anything that isn't
-            // http(s) so the bootstrap path matches AppDriver's validateUrl
-            // allow-list.
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            // This gets persisted as an app `index_url` and later loaded as
+            // `iframe.src` (see AppStore.createFromOrigin), so anything outside
+            // the allow-list is a stored code-execution vector.
+            if (!WEB_AND_EXTENSION_PROTOCOLS.includes(parsed.protocol)) {
+                return null;
+            }
+            // Extension schemes aren't "special", so `new URL()` accepts them
+            // with no authority at all (`chrome-extension:`).
+            if (!parsed.hostname) {
                 return null;
             }
             return this.#normalizedOrigin(parsed);

@@ -44,11 +44,13 @@ export class AppsModule extends PuterModule {
 
 /**
  * The public face of the module: derived from the class, with the internal
- * `puter` handle and the legacy `authToken` accessor omitted.
+ * `puter` handle and the legacy `authToken` accessor omitted, plus
+ * `getDeveloperProfile`, which only an account's own session can call.
  *
  * @typedef {import('../../lib/types.js').OmitMembers<
  *     typeof AppsModule,
  *     'puter' | 'authToken'
+ *     | 'getDeveloperProfile'
  * >} AppsConstructor
  */
 
