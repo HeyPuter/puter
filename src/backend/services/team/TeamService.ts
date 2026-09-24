@@ -762,18 +762,16 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map(
-                (row): MemberActivityEntry => ({
-                    action: row.action,
-                    reason: row.reason,
-                    created_at: epochSeconds(row.created_at),
-                    username: name(row.user_id_keep),
-                    actor_username: name(row.actor_user_id),
-                    // Only a sign-in carries these; the shape stays uniform.
-                    ip: null,
-                    user_agent: null,
-                }),
-            ),
+            items: page.items.map((row): MemberActivityEntry => ({
+                action: row.action,
+                reason: row.reason,
+                created_at: epochSeconds(row.created_at),
+                username: name(row.user_id_keep),
+                actor_username: name(row.actor_user_id),
+                // Only a sign-in carries these; the shape stays uniform.
+                ip: null,
+                user_agent: null,
+            })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }

@@ -784,11 +784,11 @@ export class AuthService extends PuterService {
                 legacyCode: 'bad_request',
             });
         }
-        // Aliased hosts collapse to a single canonical representative so the
-        // event listeners and the UUIDv5 fallback resolve to the same value
-        // for every member of an alias group.
+        // Aliased hosts and hosting-domain variants collapse to one canonical
+        // origin, so every spelling of the same app resolves to one uid.
         const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
-        const event = { origin: aliased };
+        const canonical = this.#canonicalizeHostedOrigin(aliased) ?? aliased;
+        const event = { origin: canonical };
         await this.clients.event?.emitAndWait('app.from-origin', event, {});
 
         // Blocked origins can't acquire an app token (or have one minted /
@@ -925,6 +925,39 @@ export class AuthService extends PuterService {
         return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${port}`;
     }
 
+    /** Same subdomain on the primary hosting domain; null when not hosted. */
+    #canonicalizeHostedOrigin(origin: string): string | null {
+        let parsed: URL;
+        try {
+            parsed = new URL(origin);
+        } catch {
+            return null;
+        }
+        const hostingDomains = this.#getHostingDomains();
+        const subdomain = this.#hostedSubdomainForHost(
+            parsed.host.toLowerCase(),
+            parsed.hostname.toLowerCase(),
+            hostingDomains,
+        );
+        if (!subdomain) return null;
+        const canonicalDomain = hostingDomains[0];
+        if (!canonicalDomain) return null;
+        const config = this.config as { protocol?: string };
+        const protocol =
+            (typeof config.protocol === 'string'
+                ? config.protocol.trim().replace(/:$/, '')
+                : '') || 'https';
+        return `${protocol}://${subdomain}.${canonicalDomain}`;
+    }
+
+    /** Canonical origin across alias groups and hosting domains. */
+    canonicalizeOrigin(origin: string): string {
+        const parsed = this.#originFromUrl(origin);
+        if (!parsed) return origin;
+        const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
+        return this.#canonicalizeHostedOrigin(aliased) ?? aliased;
+    }
+
     /**
      * Configured hosting domains (`static_hosting_domain(_alt)` +
      * `private_app_hosting_domain(_alt)`), normalized, each in both raw
@@ -983,8 +1016,8 @@ export class AuthService extends PuterService {
      *
      * Build candidate URLs from the origin's subdomain crossed with every
      * configured hosting domain (static + private, with and without ports).
-     * Prefer the oldest matching app for deterministic tie-breaking across
-     * historically-duplicated rows.
+     * Prefer private rows, then the oldest match, for deterministic
+     * tie-breaking across historically-duplicated rows.
      */
     async #findCanonicalAppUidForOrigin(
         origin: string,
@@ -1045,8 +1078,10 @@ export class AuthService extends PuterService {
         if (uniqueCandidates.length === 0) return null;
 
         const placeholders = uniqueCandidates.map(() => '?').join(', ');
+        // Private rows win over public duplicates; oldest id breaks ties.
         const rows = (await this.clients.db.read(
-            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ORDER BY \`id\` ASC LIMIT 1`,
+            `SELECT \`uid\` FROM \`apps\` WHERE \`index_url\` IN (${placeholders}) ` +
+                `ORDER BY CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\` ASC LIMIT 1`,
             uniqueCandidates,
         )) as Array<{ uid?: string }>;
         const uid = rows[0]?.uid;

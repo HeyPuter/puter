@@ -1610,6 +1610,34 @@ describe('AppDriver hosted-subdomain ownership check', () => {
         expect(stored?.owner_user_id).toBe(userId);
     });
 
+    it('create absorbs a bootstrap stub minted on an alternate hosting domain', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('altstub');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const stubUid = `app-${uuidv4()}`;
+        await server.stores.app.createFromOrigin(
+            stubUid,
+            `https://${sub}.host.puter.localhost`,
+            { ownerUserId: userId },
+        );
+
+        const name = uniqueName('alt-create');
+        const result = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name,
+                    title: 'Alt-host stub',
+                    index_url: hostedUrl(sub),
+                },
+            }),
+        );
+
+        expect(result.uid).toBe(stubUid);
+        expect(result.name).toBe(name);
+        const stored = await server.stores.app.getByUid(stubUid);
+        expect(stored?.index_url).toBe(hostedUrl(sub));
+    });
+
     it('rejects a hosted index_url whose subdomain does not exist anywhere', async () => {
         const { actor } = await makeUser();
         await expect(

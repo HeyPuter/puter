@@ -679,6 +679,27 @@ describe('resolveOwnedAppForHostedSite', () => {
         expect(out).toBeNull();
     });
 
+    it('prefers the private app over an older public bootstrap stub on an alternate host', async () => {
+        const owner = await makeUser();
+        await server.stores.app.createFromOrigin(
+            `app-${uuidv4()}`,
+            'http://beans.host.puter.localhost',
+            { ownerUserId: owner.id },
+        );
+        const app = await createPrivateApp(
+            owner.id,
+            'http://beans.app.puter.localhost/',
+        );
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.app.puter.localhost'),
+            site: { user_id: owner.id },
+            db: server.clients.db,
+            config: baseConfig(),
+        });
+        expect(out?.uid).toBe(app.uid);
+        expect(Boolean(out?.is_private)).toBe(true);
+    });
+
     it('returns null when the site has no owner', async () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
