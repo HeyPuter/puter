@@ -138,7 +138,7 @@ Another app can only reach your data if the user grants it, but the user cannot 
 await puter.kv.set('googleRefreshToken', token, { disableSharing: true });
 ```
 
-A private entry is invisible to every other app: reads return nothing, listings omit it, and writes and deletes are refused — regardless of what the user has granted. Your own app reads and writes it normally, and writing the key again without the flag makes it shareable once more.
+A private entry is invisible to every other app: reads return nothing, listings omit it, writes and deletes are refused, and subscriptions are never told it changed — regardless of what the user has granted. Your own app reads and writes it normally, and writing the key again without the flag makes it shareable once more.
 
 To keep *all* of your app's data out of this feature, set `share_app_data` to `false` in your app's metadata. Requests naming your app are then refused and the user is never prompted.
 

@@ -461,6 +461,8 @@ export type EventMap = {
          * did not have it in hand, as an `expire` does not.
          */
         values?: unknown[];
+        /** Keys among `keys` private to the namespace's app. */
+        noShareKeys?: string[];
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own

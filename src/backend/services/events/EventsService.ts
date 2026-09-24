@@ -609,6 +609,8 @@ export interface KvDispatchInput {
     op: KvOp;
     /** What each key now holds, aligned with `keys`; absent when unknown. */
     values?: readonly unknown[];
+    /** Keys among `keys` private to the namespace's app. */
+    noShareKeys?: readonly string[];
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -3620,6 +3622,7 @@ export class EventsService extends PuterService {
         if (!namespace) return false;
 
         const ts = options.ts ?? Date.now();
+        const noShareKeys = new Set(input.noShareKeys ?? []);
         const contexts: KvEventContext[] = input.keys.map((kvKey) => ({
             key: 'kv.mutated',
             userUuid: namespace.userUuid,
@@ -3630,6 +3633,7 @@ export class EventsService extends PuterService {
             // emitter's own id so both copies match.
             id: options.forwarded && options.id ? options.id : randomUUID(),
             ts,
+            ...(noShareKeys.has(kvKey) ? { noShare: true as const } : {}),
         }));
         const carried: Array<{ value: unknown } | undefined> = [];
         const valueAt = (i: number): { value: unknown } | undefined => {
@@ -3663,6 +3667,7 @@ export class EventsService extends PuterService {
                         kvKey: context.kvKey,
                         op: context.op,
                         ...valueAt(i),
+                        ...(context.noShare ? { noShare: true as const } : {}),
                     },
                 });
             });
@@ -3701,7 +3706,12 @@ export class EventsService extends PuterService {
                 context,
                 forKey,
                 ownerUserId,
-                (matched) => this.#kvStillAuthorized(matched, namespace.appUid),
+                (matched) =>
+                    this.#kvStillAuthorized(
+                        matched,
+                        namespace.appUid,
+                        context.noShare === true,
+                    ),
             );
         }
         return matchedAny;
@@ -3775,6 +3785,9 @@ export class EventsService extends PuterService {
                     op: item.kv.op,
                     ...(item.kv.value !== undefined
                         ? { values: [item.kv.value] }
+                        : {}),
+                    ...(item.kv.noShare === true
+                        ? { noShareKeys: [item.kv.kvKey] }
                         : {}),
                 },
                 {
@@ -4149,16 +4162,23 @@ export class EventsService extends PuterService {
      * permission generation, and an app switching its data sharing off does not
      * move it. Asking each time is what makes that flip stop deliveries at
      * once.
+     *
+     * `privateEntry` drops every cross-app row, share-handle rows included,
+     * before any grant is asked: a private key reaches only rows a `get` would
+     * show it to.
      */
     async #kvStillAuthorized(
         rows: DispatchSubscription[],
         targetAppUid: string,
+        privateEntry = false,
     ): Promise<DispatchSubscription[]> {
         if (rows.length === 0) return rows;
 
         const decisions = new Map<string, Promise<boolean>>();
         const allowed = await Promise.all(
             rows.map((row) => {
+                if (privateEntry && isCrossAppKvRow(row.appUid, targetAppUid))
+                    return Promise.resolve(false);
                 // A row on a shared region is authorized by its grant, not by
                 // whose namespace it names — and that is one question per
                 // subscription, because the handle *is* the granted root.

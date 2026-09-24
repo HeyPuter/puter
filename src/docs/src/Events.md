@@ -106,6 +106,8 @@ A value over **16 KB** serialized is not inlined: the event arrives without `val
 
 Watching **another app's** key-value data takes the same consent as reading it: that app must not have opted out of data sharing, and the user must have granted your app `app-data:<appId>:kv:read`. It is checked when you subscribe and again on every delivery, so deliveries stop the moment either goes away. Where the feature is not enabled, a cross-app subject is refused with `events_cross_app_disabled`.
 
+An entry the other app wrote with `disableSharing` is never delivered to you either, the same as a read would not see it. Marking a key private produces no event of its own, so a value you already have for it may be stale.
+
 ### Sharing a region with another user
 
 A `kv:` subject always means your own namespace. Watching part of *someone else's* takes a [share handle](#share-handle): the owner mints one over a key prefix and gives it out, and whoever holds it subscribes with the handle where an app id would go:

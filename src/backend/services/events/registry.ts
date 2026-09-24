@@ -172,6 +172,8 @@ export interface KvEventContext extends EventContextBase {
     op: KvOp;
     /** The value after the change, once dispatch has decided it may ride. */
     value?: unknown;
+    /** This key was private to the namespace's app when it changed. */
+    noShare?: true;
 }
 
 /**

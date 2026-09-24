@@ -36,7 +36,7 @@ A number containing when the key should expire in timestamp seconds.
 
 #### `disableSharing` (Boolean) (optional)
 
-Pass inside the trailing options object — `set(key, value, { disableSharing: true })` — to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.request('appData', …)`](/Perms/appData/). Use it for anything another app should never see, such as a cached access token: a user approving a request cannot see what your store holds.
+Pass inside the trailing options object — `set(key, value, { disableSharing: true })` — to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.request('appData', …)`](/Perms/appData/). It is also not watched by other apps: their subscriptions get no event, key, or value for it. Use it for anything another app should never see, such as a cached access token: a user approving a request cannot see what your store holds.
 
 The batch form takes it too — `set([...items], { disableSharing: true })` marks every entry in the batch.
 
