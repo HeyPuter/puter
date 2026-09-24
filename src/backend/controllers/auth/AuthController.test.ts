@@ -2970,6 +2970,35 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(typeof body.token).toBe('string');
     });
 
+    // What decides whether a cancelled "Sign in with Puter" still hands over a token.
+    it('check-app reports an app the user never opened as unauthorized, with no token', async () => {
+        const untouched = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `ca-${uuidv4()}`,
+                title: 'Never opened',
+                index_url: 'https://never-opened.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckApp(
+                makeReq({ app_uid: untouched.uid }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({
+            app_uid: untouched.uid,
+            authenticated: false,
+        });
+    });
+
     it('check-app returns the {app_uid, authenticated} envelope shape', async () => {
         // Create a brand-new actor with no app-related history so the
         // permission scan can't cache-hit anything from prior tests, AND
@@ -3032,16 +3061,7 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
             authenticated: boolean;
             token?: string;
         };
-        expect(body.app_uid).toBe(otherApp.uid);
-        expect(typeof body.authenticated).toBe('boolean');
-        // Whether `authenticated` is true depends on the user's full
-        // permission set (default group, owned-app implicits, etc.) — this
-        // test only pins the response *shape*, since the substantive case
-        // (`authenticated: true` after a paired get-user-app-token) is
-        // covered by the test above.
-        if (!body.authenticated) {
-            expect(body.token).toBeUndefined();
-        }
+        expect(body).toEqual({ app_uid: otherApp.uid, authenticated: false });
     });
 
     it('falls back to origin → app_uid resolution and bootstraps a new app row', async () => {
@@ -3098,6 +3118,27 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         const bootstrapped = await server.stores.app.getByUid(body.app_uid);
         expect(bootstrapped).toBeTruthy();
         expect(bootstrapped?.owner_user_id).toBe(owner!.id);
+    });
+
+    it('supports browser extension origins in handleGetUserAppToken', async () => {
+        // Random id: a pre-existing row for this origin would resolve through
+        // the canonical lookup and never exercise the bootstrap path.
+        const origin = `chrome-extension://${uuidv4()}`;
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        expect(body.app_uid).toBe(
+            `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`,
+        );
+        const bootstrapped = await server.stores.app.getByUid(body.app_uid);
+        expect(bootstrapped?.index_url).toBe(origin);
+        // Proves the row came from the bootstrap path, not an earlier test.
+        expect(bootstrapped?.description).toMatch(/^App created from origin /);
     });
 });
 
@@ -5892,6 +5933,152 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         expect(after.body).toEqual({
             permissions: { [granted]: true, [ungranted]: false },
         });
+    });
+
+    // What lets a launch settle a consent prompt it holds no app token for.
+    it('check-permissions: `app_uid` answers for that app, not for the asking user', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cpa-${uuidv4()}`,
+                title: 'TestCheckPermsAppUid',
+                index_url: 'https://check-perms-uid.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const permission = `user:${user.uuid}:email:read`;
+
+        // Held by the user, so asking as the user would answer `true`.
+        const asUser = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor }),
+                asUser,
+            ),
+        );
+        expect(asUser.body).toEqual({ permissions: { [permission]: true } });
+
+        const before = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: app.uid },
+                    { actor },
+                ),
+                before,
+            ),
+        );
+        expect(before.body).toEqual({ permissions: { [permission]: false } });
+
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const after = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: app.uid },
+                    { actor },
+                ),
+                after,
+            ),
+        );
+        expect(after.body).toEqual({ permissions: { [permission]: true } });
+    });
+
+    it('check-permissions: an app cannot ask about another app, and an unknown app 404s', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cpx-${uuidv4()}`,
+                title: 'TestCheckPermsCrossApp',
+                index_url: 'https://check-perms-x.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const appActor = makeActor({
+            user: actor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+
+        await expect(
+            inCtx(appActor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        { permissions: ['service:foo:ii:read'], app_uid: app.uid },
+                        { actor: appActor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        await expect(
+            inCtx(actor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: `app-${uuidv4()}`,
+                        },
+                        { actor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        await expect(
+            inCtx(actor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: { not: 'a string' } as unknown as string,
+                        },
+                        { actor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    // Falling through to the user here would answer `true` for any file they own.
+    it('check-permissions: a present-but-empty `app_uid` is refused, not read as "no app"', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const permission = `user:${user.uuid}:email:read`;
+
+        for (const app_uid of ['', null]) {
+            await expect(
+                inCtx(actor, () =>
+                    controller.handleCheckPermissions(
+                        makeReq(
+                            { permissions: [permission], app_uid },
+                            { actor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        // Omitted entirely still means "what do I hold?".
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({ permissions: { [permission]: true } });
     });
 
     it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {

@@ -15,7 +15,7 @@ const { items } = await puter.events.workers.list();      // [{ appUid, appName,
 await puter.events.workers.destroy(items[0].appUid);      // removes every handler that app published
 ```
 
-Unlike `puter.events.handlers`, this is account-scoped rather than app-scoped: `list()` takes no `appUid` and always answers for every app *you* own, and an app token cannot list or destroy on its owner's behalf — only an account session, or the app itself destroying its own worker, may call these.
+`list()` takes no `appUid`: an account session or API token sees every app *you* own, while an app sees only its own worker (0 or 1 item), and only when the signed-in user owns that app — the same scope `destroy()` already used.
 
 ## `list()`
 
@@ -47,9 +47,9 @@ Both methods reject with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
-| `events_worker_owner_only` | `list()` was called by an app rather than an account session. |
+| `events_worker_owner_only` | `list()` was called with a scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, whichever account or app issued it. |
 | `events_handler_not_found` | `destroy()` named an app with no published handlers. |
-| `events_handler_forbidden` | The caller does not own the app named to `destroy()` — and an app that is not there answers the same way. |
+| `events_handler_forbidden` | The caller does not own the app named to `destroy()`, or is a scoped access token — and an app that is not there answers the same way. |
 | `too_many_requests` | Over the handler publish/remove or listing budget. |
 | `events_disabled` | Events are not enabled on this server. |
 | `events_failed` | The server answered with something the SDK could not make sense of. |

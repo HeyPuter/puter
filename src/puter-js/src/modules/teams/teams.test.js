@@ -132,6 +132,21 @@ describe('list forms', () => {
         expect('uuid' in member).toBe(false);
     });
 
+    it('keeps a false orgOwned for an account caller', async () => {
+        routes({ 'GET /teams/t-1/members': { items: [
+            { username: 'ann', org_owned: false, created_at: 'x', uuid: 'u-1' },
+        ] } });
+        const [member] = await teams.listMembers('t-1');
+        expect(member).toEqual({ username: 'ann', orgOwned: false, createdAt: 'x', uuid: 'u-1' });
+    });
+
+    it('maps an app caller`s username-only row to exactly `{ username }`', async () => {
+        routes({ 'GET /teams/t-1/members': { items: [{ username: 'ann' }] } });
+        const [member] = await teams.listMembers('t-1');
+        expect(member).toEqual({ username: 'ann' });
+        expect(Object.keys(member)).toEqual(['username']);
+    });
+
     it('returns the page envelope when a cursor is passed', async () => {
         paged();
         const result = await teams.listMembers('t-1', { cursor: null });

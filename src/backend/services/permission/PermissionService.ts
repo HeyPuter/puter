@@ -705,19 +705,20 @@ export class PermissionService extends PuterService {
     }): Promise<ReadingNode[]> {
         if (!actor.user?.id) return [];
 
-        const flatPromise = this.#flatValidateUserPerms(actor, permissions);
-        const linkedPromise = this.#linkedValidateUserPerms(
+        const flatReading = await this.#flatValidateUserPerms(
             actor,
             permissions,
-            state ?? { antiCycleActors: [actor] },
         );
-
-        const flatReading = await flatPromise;
         if (flatReading.length > 0) {
             return flatReading[0].deleted ? [] : flatReading;
         }
 
-        const linkedReading = await linkedPromise;
+        // Only on a miss: started beside the flat read, nothing awaits its rejection.
+        const linkedReading = await this.#linkedValidateUserPerms(
+            actor,
+            permissions,
+            state ?? { antiCycleActors: [actor] },
+        );
         const flatOptions = PermissionUtil.readingToOptions(linkedReading);
 
         // Warm flat KV cache for future hits (fire-and-forget, don't block

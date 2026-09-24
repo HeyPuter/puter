@@ -628,6 +628,12 @@ interface IConfigOptional {
      */
     pub_port: number;
     /**
+     * Idle keep-alive timeout for the HTTP server, in ms. Must stay above the
+     * idle timeout of any proxy in front of it, or the proxy reuses connections
+     * this server has already closed. Default 620000.
+     */
+    keep_alive_timeout: number;
+    /**
      * Teams and teams. Off means `/teams` 404s and the schema is inert, so the
      * tables can ship to production before anything can create a team. It is
      * also the backout: turning it off removes the feature without touching

@@ -26,8 +26,8 @@ import { mapListResult, toDirectoryEntry } from './lib/shapes.js';
  */
 /**
  * The colleagues a member may be offered alongside — for suggesting invitees
- * and the like. Unlike every other `puter.teams` method this is callable by an
- * app acting for the member, not only by the member directly.
+ * and the like. Like `list()` and `listMembers()`, an app acting for the
+ * member may call this once the team has opted in.
  *
  * It rejects with `team_not_found` unless the team has turned its
  * directory on, which it has not by default. Suspended accounts and ones that

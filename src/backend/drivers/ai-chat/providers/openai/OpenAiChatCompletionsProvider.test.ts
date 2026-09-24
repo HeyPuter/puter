@@ -171,6 +171,8 @@ describe('OpenAiChatProvider model catalog', () => {
         // gpt-5-nano is a Chat-Completions model, must be present.
         expect(ids).toContain('gpt-5-nano-2025-08-07');
         expect(ids).toContain('gpt-6-astra');
+        expect(ids).toContain('gpt-6-sol');
+        expect(ids).toContain('gpt-6-luna');
     });
 
     it('list() flattens canonical ids and aliases', () => {
@@ -315,25 +317,30 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.safety_identifier).toBe('puter-u42');
     });
 
-    it('resolves the namespaced GPT-6 Astra alias', async () => {
-        const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
+    it.each(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+        'resolves the namespaced %s alias',
+        async (model) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'openai/gpt-6-astra',
-                messages: [{ role: 'user', content: 'hello' }],
-            }),
-        );
+            await withTestActor(() =>
+                provider.complete({
+                    model: `openai/${model}`,
+                    messages: [{ role: 'user', content: 'hello' }],
+                    reasoning_effort: 'low',
+                }),
+            );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('gpt-6-astra');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'openai:gpt-6-astra',
-            expect.any(Object),
-        );
-    });
+            expect(createMock.mock.calls[0]![0].model).toBe(model);
+            expect(createMock.mock.calls[0]![0].reasoning_effort).toBe('low');
+            expect(recordSpy).toHaveBeenCalledWith(
+                expect.any(Object),
+                expect.anything(),
+                `openai:${model}`,
+                expect.any(Object),
+            );
+        },
+    );
 
     it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
         const { provider } = makeProvider();
@@ -512,6 +519,48 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
         expect(
             (overrides as Record<string, number>).cached_tokens,
         ).toBeGreaterThan(0);
+    });
+
+    it('splits cache writes out of prompt_tokens and bills them at 1.25x input', async () => {
+        const luna = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-luna')!;
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 5000,
+                completion_tokens: 12,
+                prompt_tokens_details: {
+                    cached_tokens: 1000,
+                    cache_write_tokens: 3000,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 1000,
+            completion_tokens: 12,
+            cached_tokens: 1000,
+            cache_write_tokens: 3000,
+        });
+        expect(overrides).toEqual({
+            prompt_tokens: 1000 * Number(luna.costs.prompt_tokens),
+            completion_tokens: 12 * Number(luna.costs.completion_tokens),
+            cached_tokens: 1000 * Number(luna.costs.cached_tokens),
+            cache_write_tokens: 3000 * Number(luna.costs.cache_write_tokens),
+        });
     });
 
     it('zeroes cached_tokens when prompt_tokens_details is missing', async () => {

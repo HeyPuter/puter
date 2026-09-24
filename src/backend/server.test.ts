@@ -19,6 +19,7 @@
  */
 
 import http from 'node:http';
+import net from 'node:net';
 import type { Request, RequestHandler, Response } from 'express';
 import {
     afterAll,
@@ -526,6 +527,26 @@ describe('PuterServer HTTP alarm gate', () => {
                     throw new Error('kaboom');
                 }) as unknown as RequestHandler,
             },
+            {
+                method: 'get',
+                path: '/credits-exhausted',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(503, 'AI provider out of credits', {
+                        legacyCode: 'upstream_credits_exhausted',
+                        fields: {
+                            attempts: [
+                                {
+                                    model: 'm',
+                                    provider: 'a',
+                                    status: 402,
+                                    error: 'Insufficient credits.',
+                                },
+                            ],
+                        },
+                    });
+                }) as unknown as RequestHandler,
+            },
         );
         port = await allocateEphemeralPort();
         server = await setupTestServer(
@@ -547,19 +568,20 @@ describe('PuterServer HTTP alarm gate', () => {
         vi.restoreAllMocks();
     });
 
-    const raisedFor = async (path: string) => {
+    const raisedFor = async (path: string, status = 500) => {
         const alarm = vi
             .spyOn(server.clients.alarm, 'create')
             .mockImplementation(() => undefined);
         const res = await rawRequest(port, path, { host: 'puter.localhost' });
-        expect(res.status).toBe(500);
+        expect(res.status).toBe(status);
         const raised = alarm.mock.calls.find((c) =>
-            String(c[0]).startsWith(`http_500:GET:${path}:`),
+            String(c[0]).startsWith(`http_${status}:GET:${path}:`),
         );
         expect(raised).toBeTruthy();
         return {
             id: raised![0] as string,
             fields: raised![2] as Record<string, unknown>,
+            severity: raised![3] as string,
         };
     };
 
@@ -583,5 +605,74 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields.status).toBe(500);
         expect(fields.error).toBeInstanceOf(Error);
         expect(fields).not.toHaveProperty('details');
+    });
+
+    it('raises a warning when an upstream account is out of credits', async () => {
+        const { id, fields, severity } = await raisedFor(
+            '/credits-exhausted',
+            503,
+        );
+        expect(id).toBe(
+            'http_503:GET:/credits-exhausted:upstream_credits_exhausted:AI provider out of credits',
+        );
+        expect(severity).toBe('warning');
+        expect(fields.details).toEqual({
+            attempts: [
+                {
+                    model: 'm',
+                    provider: 'a',
+                    status: 402,
+                    error: 'Insufficient credits.',
+                },
+            ],
+        });
+    });
+});
+
+/**
+ * A proxy in front pools upstream connections, so this server closing an idle
+ * one first surfaces as a 502 to its clients. Run with a short timeout so the
+ * close is observable; what matters is that the configured value reaches the
+ * socket at all.
+ */
+describe('PuterServer keep-alive timeout', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            { port, keep_alive_timeout: 300 } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('closes an idle keep-alive connection at the configured timeout', async () => {
+        const socket = net.connect(port, '127.0.0.1');
+        await new Promise<void>((resolve, reject) => {
+            socket.once('connect', resolve);
+            socket.once('error', reject);
+        });
+        socket.write(
+            'GET /healthcheck HTTP/1.1\r\nHost: puter.localhost\r\n\r\n',
+        );
+        await new Promise<void>((resolve) => socket.once('data', resolve));
+
+        let timer: NodeJS.Timeout;
+        const closed = await Promise.race([
+            new Promise<boolean>((resolve) =>
+                socket.once('close', () => resolve(true)),
+            ),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), 3000);
+            }),
+        ]);
+        clearTimeout(timer!);
+        socket.destroy();
+        expect(closed).toBe(true);
     });
 });

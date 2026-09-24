@@ -102,7 +102,6 @@ These authentication features are supported out of the box when using Puter.js:
 - **[`puter.auth.isSignedIn()`](/Auth/isSignedIn/)** - Check if a user is signed in
 - **[`puter.auth.getUser()`](/Auth/getUser/)** - Get information about the current user
 - **[`puter.auth.getProfile()`](/Auth/getProfile/)** - Get a user's profile, when available
-- **[`puter.auth.updateProfile()`](/Auth/updateProfile/)** - Update the signed-in user's profile
 - **[`puter.auth.getProfilePicture()`](/Auth/getProfilePicture/)** - Get a user's profile picture, when available
 - **[`puter.auth.getMonthlyUsage()`](/Auth/getMonthlyUsage/)** - Get the user's current monthly resource usage
 - **[`puter.auth.getDetailedAppUsage()`](/Auth/getDetailedAppUsage/)** - Get detailed usage statistics for an application

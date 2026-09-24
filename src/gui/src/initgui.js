@@ -59,6 +59,7 @@ import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
+import { readSignupBonusCode } from './helpers/signupBonusCode.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -1025,6 +1026,9 @@ function authErrorDisplayMessage() {
     if (code === 'account_suspended') {
         return i18n('account_suspended_message', [], false);
     }
+    if (code === 'bonus_code_invalid') {
+        return i18n('signup_bonus_code_invalid_retry', [], false);
+    }
     return i18n('auth_error_generic', [], false);
 }
 
@@ -1200,6 +1204,7 @@ window.initgui = async function (options) {
 
     // GET query params provided
     window.url_query_params = new URLSearchParams(window.location.search);
+    window.signup_bonus_code = readSignupBonusCode(window.url_query_params);
 
     // Install device signal helpers; collection is lazy. The fingerprint is
     // on by default (gui_params.thumbmarkEnabled = false kills it); the Prelude
@@ -1679,7 +1684,7 @@ window.initgui = async function (options) {
         let response = await window.checkUserSiteRelationship(
             window.openerOrigin,
         );
-        window.userAppToken = response.token;
+        window.userAppToken = response?.token;
 
         if (
             !picked_a_user_for_sdk_login &&
