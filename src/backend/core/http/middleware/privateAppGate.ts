@@ -249,8 +249,10 @@ export async function resolveOwnedAppForHostedSite(opts: {
         ? `AND \`is_private\` = ${opts.db.booleanLiteral(true)} `
         : '';
     const placeholders = uniqueCandidates.map(() => '?').join(', ');
+    // Ambiguity fails closed: a private row wins; `id` keeps it deterministic.
+    const orderClause = `ORDER BY CASE WHEN \`is_private\` = ${opts.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\``;
     const rows = await opts.db.read(
-        `SELECT * FROM apps WHERE owner_user_id = ? ${privateFilter}AND index_url IN (${placeholders}) LIMIT 2`,
+        `SELECT * FROM apps WHERE owner_user_id = ? ${privateFilter}AND index_url IN (${placeholders}) ${orderClause} LIMIT 2`,
         [opts.site.user_id, ...uniqueCandidates],
     );
     if (rows.length === 0) return null;
