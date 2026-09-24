@@ -869,7 +869,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1315,7 +1317,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1932,22 +1935,43 @@ export class LegacyFSController extends PuterController {
      * access to a subject FS entry.
      */
     checkAppAcl = async (req: Request, res: Response): Promise<void> => {
-        this.#requireActor(req);
+        const actor = this.#requireActor(req);
         const body = asRecord(req.body);
 
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
             });
 
-        const subject = await resolveV1Selector(
-            this.stores.fsEntry,
-            subjectRef,
-        );
+        // A missing subject and one the caller can't see get the same 404,
+        // so this can't be used to probe for other users' entries.
+        let subject: import('../../stores/fs/FSEntry.js').FSEntry | null = null;
+        try {
+            subject = await resolveV1Selector(this.stores.fsEntry, subjectRef);
+        } catch (err) {
+            if (!(err instanceof HttpError && err.statusCode === 404))
+                throw err;
+        }
+        let ancestors: Promise<Array<{ uid: string; path: string }>> | null =
+            null;
+        const descriptor = subject && {
+            path: subject.path,
+            resolveAncestors: () =>
+                (ancestors ??= this.services.fs.getAncestorChain(subject.path)),
+        };
+        const acl = this.services.acl as ACLService;
+        if (!descriptor || !(await acl.check(actor, descriptor, 'see')))
+            throw new HttpError(404, 'Subject does not exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+
         let app: { uid: string } | null = null;
         if (typeof appRef === 'string') {
             app =
@@ -1961,19 +1985,10 @@ export class LegacyFSController extends PuterController {
 
         // Build an actor-under-user shape for the check.
         const actorForApp = makeActor({
-            user: req.actor!.user,
+            user: actor.user,
             app: { uid: (app as { uid: string }).uid },
         });
-        const descriptor = {
-            path: subject.path,
-            resolveAncestors: () =>
-                this.services.fs.getAncestorChain(subject.path),
-        };
-        const allowed = await (this.services.acl as ACLService).check(
-            actorForApp,
-            descriptor,
-            mode,
-        );
+        const allowed = await acl.check(actorForApp, descriptor, mode);
         res.json({ allowed });
     };
 
