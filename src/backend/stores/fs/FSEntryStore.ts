@@ -3291,15 +3291,24 @@ export class FSEntryStore extends PuterStore {
         return Number(rows[0]?.totalUsage ?? 0);
     }
 
+    /**
+     * `consistentRead` reads both queries from the primary instead of a replica
+     * — used for the exact re-check when a replica-backed read would reject a
+     * write, so `curr` and `max` come from the same, uncontestable snapshot.
+     */
     async getUserStorageAllowance(
         userId: number,
+        opts: { consistentRead?: boolean } = {},
     ): Promise<{ curr: number; max: number }> {
+        const read = opts.consistentRead
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
         const [usageRows, userRows] = await Promise.all([
-            this.clients.db.read(
+            read(
                 `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
                 [userId],
             ) as Promise<{ totalUsage: number }[]>,
-            this.clients.db.read(
+            read(
                 `SELECT free_storage AS ${this.clients.db.quoteIdentifier('freeStorage')} FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
                 [userId],
             ) as Promise<{ freeStorage: number | null }[]>,

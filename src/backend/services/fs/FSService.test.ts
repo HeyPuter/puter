@@ -169,6 +169,26 @@ const entryAt = (user: TestUser, path: string) =>
         skipCache: true,
     });
 
+/**
+ * Every `setupTestServer()` shares one cache mock and sqlite reuses numeric
+ * user ids across fresh in-memory databases, so a prior describe block's
+ * leftover leases for "user 5" can bleed into a later one's own user 5. Quota
+ * tests that mint a fresh owner call this to start it with a clean reservation
+ * state.
+ */
+const clearUploadReservations = async (
+    testServer: PuterServer,
+    ownerId: number,
+): Promise<void> => {
+    const redis = testServer.clients.redis as unknown as {
+        del: (...keys: string[]) => Promise<number>;
+    };
+    await redis.del(
+        `prodfsv2:upload-reservations:{${ownerId}}`,
+        `prodfsv2:upload-reservation-totals:{${ownerId}}`,
+    );
+};
+
 describe('FSService write input validation', () => {
     let user: TestUser;
     beforeAll(async () => {
@@ -194,8 +214,14 @@ describe('FSService write input validation', () => {
         expect(error.legacyCode).toBe('cannot_write_to_root');
     });
 
-    it('rejects a negative or unparseable size', async () => {
-        for (const size of [-1, Number.NaN, 'abc']) {
+    it('rejects a negative, non-finite, or unparseable size', async () => {
+        for (const size of [
+            -1,
+            Number.NaN,
+            'abc',
+            Number.POSITIVE_INFINITY,
+            Number.NEGATIVE_INFINITY,
+        ]) {
             const error = await caught(() =>
                 fs.write(user.userId, {
                     fileMetadata: {
@@ -208,6 +234,22 @@ describe('FSService write input validation', () => {
             expect(error.statusCode).toBe(400);
             expect(error.message).toBe('Invalid file size');
         }
+    });
+
+    // A declared size of Infinity would otherwise become an unbounded lease
+    // (clamped, but still a hole worth closing at the door): reject it before
+    // any reservation is ever taken.
+    it('rejects a non-finite declared size on a signed upload before reserving anything', async () => {
+        const error = await caught(() =>
+            fs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/infinite.bin`,
+                    size: Number.POSITIVE_INFINITY,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(error.message).toBe('Invalid file size');
     });
 
     it('normalizes a trailing slash and a missing leading slash', async () => {
@@ -602,6 +644,7 @@ describe('FSService storage allowance', () => {
             limitedServer.stores.user,
             created,
         );
+        await clearUploadReservations(limitedServer, created.id);
         const home = `/${username}`;
         return {
             userId: created.id,
@@ -931,6 +974,401 @@ describe('FSService storage allowance', () => {
             ]),
         );
         expect(error.statusCode).toBe(413);
+    });
+
+    // -- Pending signed uploads count against the allowance ------------
+
+    it('counts a still-pending signed upload against the next start', async () => {
+        const user = await quotaUser(64);
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/pending-1.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/pending-2.txt`,
+                    size: 40,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+    });
+
+    it('rejects the excess of a parallel burst of starts instead of admitting all of it', async () => {
+        const user = await quotaUser(100);
+        const results = await Promise.allSettled(
+            Array.from({ length: 10 }, (_, i) =>
+                limitedFs.startUrlWrite(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/burst-${i}.txt`,
+                        size: 30,
+                    },
+                }),
+            ),
+        );
+        const fulfilled = results.filter(
+            (result) => result.status === 'fulfilled',
+        );
+        const rejected = results.filter(
+            (result): result is PromiseRejectedResult =>
+                result.status === 'rejected',
+        );
+        expect(fulfilled).toHaveLength(3);
+        for (const result of rejected) {
+            expect(result.reason).toMatchObject({
+                statusCode: 413,
+                legacyCode: 'storage_limit_reached',
+            });
+        }
+    });
+
+    it('judges a parallel burst of batch starts together', async () => {
+        const user = await quotaUser(100);
+        const results = await Promise.allSettled(
+            Array.from({ length: 4 }, (_, i) =>
+                limitedFs.batchStartUrlWrites(user.userId, [
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/pbatch-${i}-a.txt`,
+                            size: 20,
+                        },
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/pbatch-${i}-b.txt`,
+                            size: 20,
+                        },
+                    },
+                ]),
+            ),
+        );
+        expect(
+            results.filter((result) => result.status === 'fulfilled'),
+        ).toHaveLength(2);
+    });
+
+    it('reserves a multipart start’s declared size and rejects a second that no longer fits', async () => {
+        const maxSingle = limitedFs.getMaxSingleUploadSize();
+        const user = await quotaUser(maxSingle * 3);
+        const first = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/mp-1.bin`,
+                size: maxSingle * 2,
+            },
+            uploadMode: 'multipart',
+        });
+        expect(first.uploadMode).toBe('multipart');
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/mp-2.bin`,
+                    size: maxSingle * 2,
+                },
+                uploadMode: 'multipart',
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        await limitedFs.abortUrlWrite(user.userId, first.sessionId);
+    });
+
+    it('settles on completion so the next start sees exact committed usage', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/settle.txt`,
+                size: 40,
+            },
+        });
+        await fetch(started.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        await limitedFs.completeUrlWrite(user.userId, {
+            uploadId: started.sessionId,
+        });
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/after-1.txt`,
+                    size: 20,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/after-2.txt`,
+                    size: 10,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+    });
+
+    it('settles a batch completion the same way', async () => {
+        const user = await quotaUser(64);
+        const [started] = await limitedFs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bsettle.txt`,
+                    size: 40,
+                },
+            },
+        ]);
+        await fetch(started!.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        await limitedFs.batchCompleteUrlWrite(user.userId, [
+            { uploadId: started!.sessionId },
+        ]);
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bafter-1.txt`,
+                    size: 20,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bafter-2.txt`,
+                    size: 10,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+    });
+
+    it('a start that only fits once settled bytes are excluded still passes', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/exact-1.txt`,
+                size: 40,
+            },
+        });
+        await fetch(started.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        await limitedFs.completeUrlWrite(user.userId, {
+            uploadId: started.sessionId,
+        });
+
+        // Fast path double-counts here: curr(40) + settled(40) + 24 > 64.
+        // Only the primary re-check — which excludes settled bytes already
+        // reflected in curr — lets this through.
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/exact-2.txt`,
+                    size: 24,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('abort releases the reservation for reuse', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/abort-1.txt`,
+                size: 40,
+            },
+        });
+        await limitedFs.abortUrlWrite(user.userId, started.sessionId);
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/abort-2.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('a failed pending-row write releases its reservation', async () => {
+        const user = await quotaUser(64);
+        const createPendingEntry = vi
+            .spyOn(limitedServer.stores.fsEntry, 'createPendingEntry')
+            .mockRejectedValueOnce(new Error('pending row write failed'));
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/reserve-fail-1.txt`,
+                    size: 40,
+                },
+            }),
+        ).rejects.toThrow('pending row write failed');
+        createPendingEntry.mockRestore();
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/reserve-fail-2.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('a pending signed upload counts against a direct write too', async () => {
+        const user = await quotaUser(64);
+        await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/write-block.txt`,
+                size: 40,
+            },
+        });
+
+        const error = await caught(() =>
+            limitedFs.write(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/direct.txt`,
+                    size: 40,
+                },
+                fileContent: 'x'.repeat(40),
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+    });
+
+    it('an overwrite only reserves the size it adds beyond what it replaces', async () => {
+        const user = await quotaUser(64);
+        const path = `${user.home}/Documents/overwrite-target.txt`;
+        await limitedFs.write(user.userId, {
+            fileMetadata: { path, size: 40 },
+            fileContent: 'x'.repeat(40),
+        });
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: { path, size: 50, overwrite: true },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/overwrite-new-20.txt`,
+                    size: 20,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/overwrite-new-14.txt`,
+                    size: 14,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('an unlimited override reserves nothing', async () => {
+        const user = await quotaUser(64);
+        await limitedFs.startUrlWrite(
+            user.userId,
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/unlimited.txt`,
+                    size: 100,
+                },
+            },
+            UNLIMITED_STORAGE_ALLOWANCE,
+        );
+
+        expect(
+            await limitedServer.stores.uploadReservation.outstanding(
+                user.userId,
+            ),
+        ).toEqual({ activeBytes: 0, settledBytes: 0 });
+    });
+
+    // Filling 10,000 real leases through the cache mock is slow — well past
+    // the default test timeout.
+    it('maps a refused reservation to the existing too-many-requests shape', async () => {
+        const service = limitedFs.constructor as typeof FSService;
+        const cap = service.MAX_PENDING_UPLOADS_PER_OWNER;
+        service.MAX_PENDING_UPLOADS_PER_OWNER = 5;
+        try {
+            const user = await quotaUser(64);
+            const leases = Array.from({ length: 5 }, () => ({
+                sessionId: uuidv4(),
+                bytes: 1,
+                deadline: Date.now() + 60_000,
+            }));
+            const filled = await limitedServer.stores.uploadReservation.take(
+                user.userId,
+                leases,
+                5,
+            );
+            expect(filled).toMatchObject({ added: true });
+
+            const error = await caught(() =>
+                limitedFs.startUrlWrite(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/capped.txt`,
+                        size: 1,
+                    },
+                }),
+            );
+            expect(error.statusCode).toBe(429);
+            expect(error.legacyCode).toBe('too_many_requests');
+        } finally {
+            service.MAX_PENDING_UPLOADS_PER_OWNER = cap;
+        }
+    });
+
+    it('fails open when the cache errors: usage alone still gates a 413', async () => {
+        const user = await quotaUser(64);
+        // Trigger lazy script registration before spying on the command.
+        const warm = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/warmup.txt`,
+                size: 1,
+            },
+        });
+        await limitedFs.abortUrlWrite(user.userId, warm.sessionId);
+
+        const redis = limitedServer.clients.redis as unknown as {
+            uploadReservationTake: () => Promise<unknown>;
+        };
+        const spy = vi
+            .spyOn(redis, 'uploadReservationTake')
+            .mockRejectedValue(new Error('cache down'));
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/fail-open-ok.txt`,
+                    size: 30,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/fail-open-over.txt`,
+                    size: 80,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        spy.mockRestore();
     });
 });
 
@@ -3657,6 +4095,7 @@ describe('FSService storage allowance in a shared tree', () => {
         const refreshed = (await limitedServer.stores.user.getById(
             created.id,
         ))!;
+        await clearUploadReservations(limitedServer, refreshed.id);
         return {
             userId: refreshed.id,
             home: `/${username}`,
@@ -3714,6 +4153,55 @@ describe('FSService storage allowance in a shared tree', () => {
                 fileContent: body,
             }),
         );
+    });
+
+    it('counts a collaborator’s pending signed upload against the folder owner', async () => {
+        const owner = await quotaUser(64);
+        const holder = await quotaUser(10 * 1024 * 1024);
+        const shared = await limitedFs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/TightSigned`,
+        });
+        await limitedServer.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () => limitedFs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        await runWithContext({ actor: holder.actor }, () =>
+            limitedFs.startUrlWrite(holder.userId, {
+                fileMetadata: { path: `${shared.path}/big.bin`, size: 40 },
+            }),
+        );
+
+        const error = await caught(() =>
+            runWithContext({ actor: owner.actor }, () =>
+                limitedFs.startUrlWrite(owner.userId, {
+                    fileMetadata: {
+                        path: `${owner.home}/Documents/own.bin`,
+                        size: 40,
+                    },
+                }),
+            ),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+
+        // Unaffected: it was the owner's limit that stopped the write above,
+        // not a blanket refusal of the holder.
+        await expect(
+            runWithContext({ actor: holder.actor }, () =>
+                limitedFs.startUrlWrite(holder.userId, {
+                    fileMetadata: {
+                        path: `${holder.home}/Documents/own.bin`,
+                        size: 40,
+                    },
+                }),
+            ),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
     });
 });
 

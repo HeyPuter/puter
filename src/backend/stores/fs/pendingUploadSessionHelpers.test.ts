@@ -101,6 +101,21 @@ describe('toPendingUploadSession', () => {
             completedAt: null,
         });
     });
+
+    it('defaults the reservation fields to null when none was taken', () => {
+        const built = toPendingUploadSession(createInput, 1_699_999_000_000);
+        expect(built.reservationOwnerId).toBeNull();
+        expect(built.reservedBytes).toBeNull();
+    });
+
+    it('carries the reservation fields through when a lease was taken', () => {
+        const built = toPendingUploadSession(
+            { ...createInput, reservationOwnerId: 42, reservedBytes: 11 },
+            1_699_999_000_000,
+        );
+        expect(built.reservationOwnerId).toBe(42);
+        expect(built.reservedBytes).toBe(11);
+    });
 });
 
 describe('isPendingUploadSession', () => {
@@ -194,6 +209,23 @@ describe('normalizePendingUploadSession', () => {
             completedAt: 400,
             failureReason: 'boom',
         });
+    });
+
+    it('defaults missing or non-numeric reservation fields to null', () => {
+        const stored: Record<string, unknown> = { ...session() };
+        delete stored.reservationOwnerId;
+        stored.reservedBytes = 'nope';
+
+        const normalized = normalizePendingUploadSession(stored, 'session-1');
+        expect(normalized?.reservationOwnerId).toBeNull();
+        expect(normalized?.reservedBytes).toBeNull();
+    });
+
+    it('preserves numeric reservation fields — a pre-lease session has neither', () => {
+        const stored = session({ reservationOwnerId: 7, reservedBytes: 42 });
+        const normalized = normalizePendingUploadSession(stored, 'session-1');
+        expect(normalized?.reservationOwnerId).toBe(7);
+        expect(normalized?.reservedBytes).toBe(42);
     });
 });
 

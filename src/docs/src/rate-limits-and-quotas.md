@@ -112,6 +112,8 @@ All per minute unless stated:
 | `write`     | 15   | 6    | 3         |
 | Search      | 5    | 2    | 2         |
 
+Signed uploads in progress are capped at **10,000 per account**: uploads started with `startWrite`/`startBatchWrite` (which `puter.fs.upload()` and `puter.fs.write()` use) that have not yet completed, been cancelled, or expired, across every app and every collaborator writing into that account's folders. Starting more fails with `429` `too_many_requests` until some finish. A single `startBatchWrite` request for more than 10,000 files is always refused, even against an otherwise-empty account.
+
 Signed-URL routes have no session to key on, so they are bounded per network rather than per account: 3,000 reads/min, 600 writes/min, 60 concurrent.
 
 `getReadURL()` and `revokeReadURL()` are not tiered by plan like the table above:
@@ -372,11 +374,13 @@ Every driver call also passes one shared per-account budget of **8,000 calls/min
 
 Every account has a byte quota for the filesystem (100 MiB free; paid plans add more). Storage is what the user is _keeping_, not what they transferred — deleting files frees it immediately. At the limit, writes fail with `413` `storage_limit_reached`; reads keep working. `puter.fs.space()` returns `{ capacity, used }` live.
 
+An upload counts against the quota from the moment it starts. Its declared size, less the size of any file it replaces, is held until it completes (then the file's real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). Uploads started together are judged together, so a `startBatchWrite` that doesn't fit fails as a whole up front with `413` `storage_limit_reached`, not file by file. An upload abandoned without being cancelled holds its space until it expires. `space()` reports stored bytes only.
+
 ## What happens when you hit a limit
 
 | Status | `code`                  | Meaning                               | What to do                                                                        |
 | ------ | ----------------------- | ------------------------------------- | --------------------------------------------------------------------------------- |
-| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry; the window is at most 60s (or 1h for the sustained FS budget) |
+| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry; the window is at most 60s (or 1h for the sustained FS budget). The in-progress-uploads cap is the exception — it lasts until some of the account's pending uploads complete, are cancelled, or expire, not a fixed window |
 | `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; resets next month                               |
 | `402`  | `subscription_required` | The endpoint is limited to paid plans | The user upgrades — retrying or waiting changes nothing                           |
 | `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades                                                |

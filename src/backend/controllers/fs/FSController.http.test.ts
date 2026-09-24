@@ -354,3 +354,82 @@ describe('GET /fs/readdir over HTTP', () => {
         });
     });
 });
+
+describe('POST /fs/startWrite storage quota over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv({
+            is_storage_limited: true,
+            storage_capacity: 10 * 1024,
+        } as never);
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    it('rejects the excess of a parallel burst of startWrite calls', async () => {
+        const { username, token } = env.users.user;
+        const user = await env.server.stores.user.getByUsername(username);
+        const fs = env.server.services.fs as unknown as {
+            getUsersStorageAllowance: (
+                userId: number,
+            ) => Promise<{ curr: number; max: number }>;
+        };
+        const { curr, max } = await fs.getUsersStorageAllowance(user!.id);
+        const size = Math.floor((max - curr) / 3) + 1;
+
+        const responses = await Promise.all(
+            Array.from({ length: 8 }, (_, i) =>
+                fetch(new URL('/fs/startWrite', env.apiOrigin), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        fileMetadata: {
+                            path: `/${username}/Documents/http-quota-burst-${i}.bin`,
+                            size,
+                        },
+                    }),
+                }),
+            ),
+        );
+
+        const ok = responses.filter((response) => response.status === 200);
+        const rejected = responses.filter(
+            (response) => response.status === 413,
+        );
+        expect(ok).toHaveLength(2);
+        expect(rejected).toHaveLength(6);
+
+        for (const response of rejected) {
+            const body = (await response.json()) as { code?: string };
+            expect(body.code).toBe('storage_limit_reached');
+        }
+    });
+
+    // A raw JSON body carries `1e400` as a numeral, not a computed value, so
+    // `JSON.stringify` can't produce it (it turns `Infinity` into `null`) —
+    // the wire text is built by hand to exercise what the server's own
+    // `JSON.parse` does with it.
+    it('rejects a declared size of 1e400 (parses to Infinity) with 400', async () => {
+        const { username, token } = env.users.user;
+        const body = `{"fileMetadata":{"path":"/${username}/Documents/http-huge.bin","size":1e400}}`;
+
+        const response = await fetch(new URL('/fs/startWrite', env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body,
+        });
+
+        expect(response.status).toBe(400);
+        const responseBody = (await response.json()) as { code?: string };
+        expect(responseBody.code).toBe('bad_request');
+    });
+});

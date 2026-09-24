@@ -49,6 +49,16 @@ import { Span } from '../../util/span.js';
 import { PuterStore } from '../types.js';
 
 /**
+ * Clamp a requested presign lifetime to 1 minute–1 hour; a bad value gets the
+ * max.
+ */
+export function clampSignedUploadExpirySeconds(requested: unknown): number {
+    const seconds = Number(requested);
+    if (!Number.isFinite(seconds)) return 60 * 60;
+    return Math.max(60, Math.min(60 * 60, seconds));
+}
+
+/**
  * Store that owns S3 object I/O for fsentries: signed-URL minting, multipart
  * lifecycle, server-driven uploads, and object reads/copies/deletes. Wraps the
  * regional `S3Client` pool exposed by `clients.s3`.
@@ -124,9 +134,8 @@ export class S3ObjectStore extends PuterStore {
         const now = Date.now();
         const settledResults = await Promise.allSettled(
             filesMetadata.map(async (fileMetadata) => {
-                const expiresInSeconds = Math.max(
-                    60,
-                    Math.min(60 * 60, fileMetadata.expiresInSeconds),
+                const expiresInSeconds = clampSignedUploadExpirySeconds(
+                    fileMetadata.expiresInSeconds,
                 );
                 const expiresAt = now + expiresInSeconds * 1000;
                 const maxSingleUploadSize = this.getMaxSingleUploadSize();
@@ -278,9 +287,8 @@ export class S3ObjectStore extends PuterStore {
         region: string,
     ): Promise<SignedUploadPart[]> {
         const presignClient = this.#getPresignClientForRegion(region);
-        const expiresInSeconds = Math.max(
-            60,
-            Math.min(60 * 60, input.expiresInSeconds),
+        const expiresInSeconds = clampSignedUploadExpirySeconds(
+            input.expiresInSeconds,
         );
 
         // One upload request per part, made by the client against the URLs
