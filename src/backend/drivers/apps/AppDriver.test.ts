@@ -515,6 +515,40 @@ describe('AppDriver.delete', () => {
         ).toBeNull();
     });
 
+    it('deletes the subdomain rows the app owns and leaves the rest', async () => {
+        const { actor, userId } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('own'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const app = (await server.stores.app.getByUid(created.uid as string))!;
+        const prefix = `appdel-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId,
+            subdomain: `${prefix}-owned`,
+            appOwner: app.id,
+        });
+        await server.stores.subdomain.create({
+            userId,
+            subdomain: `${prefix}-unowned`,
+        });
+
+        await withActor(actor, () => driver.delete({ uid: created.uid }));
+
+        const remaining = await server.stores.subdomain.listByUserIdAndPrefix(
+            userId,
+            prefix,
+        );
+        expect(remaining.map((r) => r.subdomain)).toEqual([
+            `${prefix}-unowned`,
+        ]);
+    });
+
     it("refuses to delete another user's app with 403", async () => {
         const a = await makeUser();
         const b = await makeUser();
@@ -1319,6 +1353,7 @@ describe('AppDriver.isNameAvailable additional branches', () => {
 describe('AppDriver alias-group index_url merge', () => {
     const aliasHostA = `alias-a-${Math.random().toString(36).slice(2, 10)}.test`;
     const aliasHostB = `alias-b-${Math.random().toString(36).slice(2, 10)}.test`;
+    const aliasHostC = `alias-c-${Math.random().toString(36).slice(2, 10)}.test`;
 
     // `config` is protected on PuterDriver; reach in to toggle the alias
     // groups for this block only. `#getOriginAliasGroups` reads config at
@@ -1327,7 +1362,11 @@ describe('AppDriver alias-group index_url merge', () => {
         (driver as unknown as { config: Record<string, unknown> }).config;
 
     beforeAll(() => {
-        driverConfig().app_origin_aliases = [[aliasHostA], [aliasHostB]];
+        driverConfig().app_origin_aliases = [
+            [aliasHostA],
+            [aliasHostB],
+            [aliasHostC],
+        ];
     });
 
     afterAll(() => {
@@ -1411,6 +1450,47 @@ describe('AppDriver alias-group index_url merge', () => {
             driver.read({ uid: created.uid }),
         );
         expect(viaOldUid.uid).toBe(stubUid);
+    });
+
+    it("update merge hands the source app's owned subdomain rows to the joined app", async () => {
+        const { actor, userId } = await makeUser();
+        const stubUid = await makeBootstrapStub(aliasHostC);
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('alias-own'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const sourceApp = (await server.stores.app.getByUid(
+            created.uid as string,
+        ))!;
+        const subdomain = `merge-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId,
+            subdomain,
+            appOwner: sourceApp.id,
+        });
+
+        const updated = await withActor(actor, () =>
+            driver.update({
+                uid: created.uid,
+                object: { index_url: `https://${aliasHostC}/` },
+            }),
+        );
+        expect(updated.uid).toBe(stubUid);
+
+        // The source row is gone; its subdomain row survives under the joined
+        // app rather than cascading away with the source.
+        const stub = (await server.stores.app.getByUid(stubUid))!;
+        const [row] = await server.stores.subdomain.listByUserIdAndPrefix(
+            userId,
+            subdomain,
+        );
+        expect(row).toBeTruthy();
+        expect(Number(row!.app_owner)).toBe(stub.id);
     });
 
     it('leaves unrelated custom domains untouched (no alias group, no conflict check)', async () => {

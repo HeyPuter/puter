@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 81;
+const CURRENT_SCHEMA_VERSION = 82;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -273,6 +273,68 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
                 group_id_keep: group.id,
                 action: 'reset_member_password',
             },
+        ]);
+    });
+
+    it('deletes the subdomain rows an app owns when the app is deleted', async () => {
+        const [user] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `user`',
+        )) as { id: number }[];
+        await client.write(
+            'INSERT INTO `apps` (`uid`, `owner_user_id`, `name`, `title`, `index_url`) ' +
+                'VALUES (?, ?, ?, ?, ?)',
+            [
+                'app-cascade-test',
+                user.id,
+                'cascade-test',
+                'cascade-test',
+                'https://cascade.test/',
+            ],
+        );
+        const [app] = (await client.read(
+            'SELECT `id` FROM `apps` WHERE `uid` = ?',
+            ['app-cascade-test'],
+        )) as { id: number }[];
+        const insertSubdomain = (
+            uuid: string,
+            name: string,
+            appOwner: number | null,
+        ) =>
+            client.write(
+                'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`, `app_owner`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [uuid, name, user.id, appOwner],
+            );
+        await insertSubdomain('sd-cascade-owned', 'cascade-owned', app.id);
+        await insertSubdomain('sd-cascade-unowned', 'cascade-unowned', null);
+
+        await client.write('DELETE FROM `apps` WHERE `id` = ?', [app.id]);
+
+        await expect(
+            client.read(
+                'SELECT `subdomain` FROM `subdomains` WHERE `subdomain` LIKE ? ORDER BY `id`',
+                ['cascade-%'],
+            ),
+        ).resolves.toEqual([{ subdomain: 'cascade-unowned' }]);
+    });
+
+    it('keeps every subdomains column through the 0086 rebuild', async () => {
+        const columns = (await client.read(
+            "SELECT `name` FROM pragma_table_info('subdomains') ORDER BY `cid`",
+        )) as { name: string }[];
+        expect(columns.map((c) => c.name)).toEqual([
+            'id',
+            'uuid',
+            'subdomain',
+            'user_id',
+            'root_dir_id',
+            'associated_app_id',
+            'ts',
+            'app_owner',
+            'protected',
+            'domain',
+            'database_id',
+            'preamble_version',
         ]);
     });
 
