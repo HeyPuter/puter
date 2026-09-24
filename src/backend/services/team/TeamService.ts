@@ -804,9 +804,16 @@ export class TeamService extends PuterService {
         for (let n = 1; n <= 40 && found.length < count; n++) {
             const candidate = `${base}${n}`;
             if (this.#usernameRejection(candidate)) continue;
-            if (!(await this.stores.user.getByUsername(candidate))) {
-                found.push(candidate);
-            }
+            if (await this.stores.user.getByUsername(candidate)) continue;
+            if (
+                await this.stores.fsEntry.findHomePathConflict(
+                    candidate,
+                    undefined,
+                    { includeDescendants: true },
+                )
+            )
+                continue;
+            found.push(candidate);
         }
         return found;
     }
@@ -857,8 +864,17 @@ export class TeamService extends PuterService {
             });
         }
 
-        // Before any write, so a taken name fails cleanly.
-        if (await this.stores.user.getByUsername(input.username)) {
+        // Before any write, so a taken name fails cleanly. Also taken if free
+        // in the users table, but another account's rows still sit at or
+        // under its home path.
+        if (
+            (await this.stores.user.getByUsername(input.username)) ||
+            (await this.stores.fsEntry.findHomePathConflict(
+                input.username,
+                undefined,
+                { includeDescendants: true },
+            ))
+        ) {
             throw new HttpError(409, 'That username is taken', {
                 legacyCode: 'username_already_in_use',
                 fields: {

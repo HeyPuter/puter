@@ -3080,25 +3080,47 @@ export class FSEntryStore extends PuterStore {
      * Two rows at one home path make each account's tree answer for the
      * other's, so every point that claims a username checks this first. Reads
      * the primary: a racing signup has to see the row just written.
+     *
+     * `includeDescendants` also reports a foreign row under `/{username}/…`
+     * (ACL grants by path prefix). Claim sites only — the heal and the
+     * provisioning backstop stay exact-path.
      */
     async findHomePathConflict(
         username: string,
         ownerUserId?: number,
+        options?: { includeDescendants?: boolean },
     ): Promise<FSEntry | null> {
         const path = this.#normalizePath(`/${username}`);
+
+        if (!options?.includeDescendants) {
+            const rows = (await this.clients.db.pread(
+                `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+                 WHERE path = ? ORDER BY id ASC`,
+                [path],
+            )) as unknown as FSEntryRow[];
+            for (const row of rows) {
+                const entry = this.#mapFSEntryRow(row);
+                if (ownerUserId !== undefined && entry.userId === ownerUserId) {
+                    continue;
+                }
+                return entry;
+            }
+            return null;
+        }
+
+        // One read for both; callers only test truthiness. No ORDER BY, so the
+        // planner stays on the path index.
+        const likePattern = `${this.#escapeLikePattern(path)}/%`;
+        const params: unknown[] = [path, likePattern];
+        if (ownerUserId !== undefined) params.push(ownerUserId);
         const rows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-             WHERE path = ? ORDER BY id ASC`,
-            [path],
+             WHERE (path = ? OR path LIKE ? ESCAPE '!')${ownerUserId !== undefined ? ' AND user_id <> ?' : ''}
+             LIMIT 1`,
+            params,
         )) as unknown as FSEntryRow[];
-        for (const row of rows) {
-            const entry = this.#mapFSEntryRow(row);
-            if (ownerUserId !== undefined && entry.userId === ownerUserId) {
-                continue;
-            }
-            return entry;
-        }
-        return null;
+        const row = rows[0];
+        return row ? this.#mapFSEntryRow(row) : null;
     }
 
     // Heal a user's home tree to `/{username}`: if the root entry's path/name

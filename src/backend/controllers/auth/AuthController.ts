@@ -867,9 +867,16 @@ export class AuthController extends PuterController {
         }
 
         // ...and the same against the filesystem: a free username whose home
-        // path is occupied would provision a second root there, and the two
-        // trees then resolve interchangeably.
-        if (await this.stores.fsEntry.findHomePathConflict(body.username)) {
+        // path is occupied (exactly or by leftover rows underneath it) would
+        // provision a second root there, and the two trees then resolve
+        // interchangeably.
+        if (
+            await this.stores.fsEntry.findHomePathConflict(
+                body.username,
+                undefined,
+                { includeDescendants: true },
+            )
+        ) {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'bad_request',
             });
@@ -2728,6 +2735,7 @@ export class AuthController extends PuterController {
             await this.stores.fsEntry.findHomePathConflict(
                 new_username,
                 req.actor!.user.id!,
+                { includeDescendants: true },
             )
         ) {
             throw new HttpError(400, 'This username is not available.', {
@@ -3058,7 +3066,11 @@ export class AuthController extends PuterController {
                 legacyCode: 'username_already_in_use',
             });
         }
-        if (await this.stores.fsEntry.findHomePathConflict(username, user.id)) {
+        if (
+            await this.stores.fsEntry.findHomePathConflict(username, user.id, {
+                includeDescendants: true,
+            })
+        ) {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'username_already_in_use',
             });
