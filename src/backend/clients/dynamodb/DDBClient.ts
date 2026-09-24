@@ -56,6 +56,8 @@ const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
 const MAX_BATCH_WRITE_ITEMS = 25;
 const MAX_BATCH_WRITE_RETRIES = 8;
 const BATCH_WRITE_RETRY_BASE_MS = 25;
+const MAX_BATCH_GET_RETRIES = 8;
+const BATCH_GET_RETRY_BASE_MS = 25;
 
 // In-memory mode gives each DDBClient its own unique key, which keys
 // into a fresh dynalite server. This is what test parallelism needs:
@@ -234,6 +236,9 @@ export class DDBClient extends PuterClient {
         );
     }
 
+    // UnprocessedKeys retried with capped exponential backoff, same posture as
+    // #batchWrite's UnprocessedItems: a batch this size can be throttled or
+    // partially served, and the caller shouldn't have to know that.
     @Span('ddb.batchGet', (params: unknown[]) => ({
         'db.batch_size': params.length,
     }))
@@ -250,25 +255,84 @@ export class DDBClient extends PuterClient {
             {} as Record<string, Record<string, unknown>[]>,
         );
 
-        const requestItems: BatchGetCommandInput['RequestItems'] =
-            Object.entries(allRequestItemsPerTable).reduce(
-                (acc, [table, keyList]) => {
-                    acc[table] = {
-                        Keys: keyList,
-                        ConsistentRead: consistentRead,
-                    };
-                    return acc;
-                },
-                {} as NonNullable<BatchGetCommandInput['RequestItems']>,
-            );
-
-        const command = new BatchGetCommand({
-            RequestItems: requestItems,
-            ReturnConsumedCapacity: 'TOTAL',
-        });
+        let requestItems: BatchGetCommandInput['RequestItems'] = Object.entries(
+            allRequestItemsPerTable,
+        ).reduce(
+            (acc, [table, keyList]) => {
+                acc[table] = {
+                    Keys: keyList,
+                    ConsistentRead: consistentRead,
+                };
+                return acc;
+            },
+            {} as NonNullable<BatchGetCommandInput['RequestItems']>,
+        );
 
         const client = await this.#getDocumentClient();
-        return client.send(command);
+        const responsesByTable = new Map<string, Record<string, unknown>[]>();
+        const consumedCapacityByTable = new Map<string, number>();
+
+        for (let attempt = 0; attempt <= MAX_BATCH_GET_RETRIES; attempt++) {
+            if (Object.keys(requestItems).length === 0) break;
+
+            const response = await client.send(
+                new BatchGetCommand({
+                    RequestItems: requestItems,
+                    ReturnConsumedCapacity: 'TOTAL',
+                }),
+            );
+
+            for (const [table, items] of Object.entries(
+                response.Responses ?? {},
+            )) {
+                const existing = responsesByTable.get(table) ?? [];
+                existing.push(...items);
+                responsesByTable.set(table, existing);
+            }
+            for (const entry of response.ConsumedCapacity ?? []) {
+                if (!entry.TableName) continue;
+                consumedCapacityByTable.set(
+                    entry.TableName,
+                    (consumedCapacityByTable.get(entry.TableName) ?? 0) +
+                        Number(entry.CapacityUnits ?? 0),
+                );
+            }
+
+            const unprocessedKeys = response.UnprocessedKeys ?? {};
+            if (Object.keys(unprocessedKeys).length === 0) {
+                requestItems = {};
+                break;
+            }
+
+            requestItems = unprocessedKeys as NonNullable<
+                BatchGetCommandInput['RequestItems']
+            >;
+            if (attempt < MAX_BATCH_GET_RETRIES) {
+                const delayMs = Math.min(
+                    1000,
+                    BATCH_GET_RETRY_BASE_MS * 2 ** attempt,
+                );
+                await sleep(delayMs);
+            }
+        }
+
+        if (Object.keys(requestItems).length > 0) {
+            throw new HttpError(
+                400,
+                'Failed to batch get all items from DynamoDB',
+                { legacyCode: 'bad_request' },
+            );
+        }
+
+        return {
+            Responses: Object.fromEntries(responsesByTable),
+            ConsumedCapacity: Array.from(consumedCapacityByTable.entries()).map(
+                ([TableName, CapacityUnits]) => ({
+                    TableName,
+                    CapacityUnits,
+                }),
+            ),
+        };
     }
 
     @Span('ddb.batchPut', (params: unknown[]) => ({

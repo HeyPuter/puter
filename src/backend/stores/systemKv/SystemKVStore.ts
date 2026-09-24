@@ -151,7 +151,11 @@ const MAX_VALUE_BYTES = 399 * 1024;
 // bound as the write is encoded. Enforced there rather than here because
 // finding one means walking every value of every write: the whole payload's
 // cost again, on the hot path, for something almost nothing sends.
-const BATCH_GET_CHUNK = 100;
+/**
+ * DynamoDB's own per-request item cap for BatchGetItem; also the chunk size
+ * here.
+ */
+export const KV_BATCH_GET_LIMIT = 100;
 const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // Offset emulation re-scans everything before the requested position, so it
 // is bounded; cursors are the recommended way to page.
@@ -2176,8 +2180,8 @@ export class SystemKVStore extends PuterStore {
         usage: KVUsage;
     }> {
         const batches: string[][] = [];
-        for (let i = 0; i < allKeys.length; i += BATCH_GET_CHUNK) {
-            batches.push(allKeys.slice(i, i + BATCH_GET_CHUNK));
+        for (let i = 0; i < allKeys.length; i += KV_BATCH_GET_LIMIT) {
+            batches.push(allKeys.slice(i, i + KV_BATCH_GET_LIMIT));
         }
 
         const results = await Promise.all(
@@ -2188,7 +2192,7 @@ export class SystemKVStore extends PuterStore {
                 }));
                 const response = await this.clients.dynamo.batchGet(requests);
                 const entries = (response.Responses?.[this.tableName] ??
-                    []) as KvCachedItem[];
+                    []) as unknown as KvCachedItem[];
                 const units =
                     response.ConsumedCapacity?.reduce(
                         (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),

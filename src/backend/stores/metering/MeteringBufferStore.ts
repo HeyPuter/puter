@@ -25,6 +25,10 @@ import {
     type RecursiveRecord,
 } from '../systemKv/SystemKVStore';
 import { PuterStore } from '../types';
+import {
+    meteringRecordExpiresAt,
+    resolveMeteringRetentionMonths,
+} from './retention';
 
 // -- Metrics ----------------------------------------------------------
 
@@ -122,11 +126,23 @@ const CYCLES_PER_COMPRESSION_REPORT = 12;
 const CYCLES_PER_RECONCILE = 12;
 
 /**
- * How many path names this deployment remembers as unwritable. Bounded because
- * the names come from usage types, and a caller can invent those; forgetting
- * one costs the handful of writes that identify it again.
+ * How many (counter, path) pairs this deployment remembers as unwritable.
+ * Bounded because the names come from usage types, and a caller can invent
+ * those; forgetting one costs the handful of writes that identify it again.
  */
 const UNWRITABLE_PATH_MEMO_LIMIT = 1000;
+
+/**
+ * How many keys' last exact-read time this deployment remembers; see
+ * `readExact`.
+ */
+const EXACT_READ_MEMO_LIMIT = 10_000;
+
+/** Write units past which settling a counter raises the large-item alarm. */
+const LARGE_SETTLE_WRITE_UNITS = 100;
+
+/** How many `getSummed` cache slots' generation this deployment remembers. */
+const SUMMED_GENERATION_MEMO_LIMIT = 10_000;
 
 // -- Keys -------------------------------------------------------------
 
@@ -175,6 +191,10 @@ const inflightKey = (tag: string): string => `meter:inflight:{${tag}}`;
  * rather than by a pointer that may not have survived.
  */
 const trackedKey = (tag: string): string => `meter:tracked:{${tag}}`;
+
+/** Cache slot for `getSummed`'s cached sum of a set of keys. */
+const summedCacheKey = (cacheKey: string): string =>
+    `meter:sum:{${bucketTag(cacheKey)}}:${cacheKey}`;
 
 /**
  * Bookkeeping field kept on a claim for as long as the claim exists.
@@ -249,6 +269,25 @@ const addAmounts = (a: FlatAmounts, b: FlatAmounts): FlatAmounts => {
         out[path] = (out[path] ?? 0) + amount;
     }
     return out;
+};
+
+/** `addAmounts` then reshape, or `null` for a counter neither side has seen. */
+const mergedOrNull = (
+    a: FlatAmounts,
+    b: FlatAmounts,
+): RecursiveRecord<number> | null => {
+    const merged = addAmounts(a, b);
+    return Object.keys(merged).length === 0 ? null : unflattenAmounts(merged);
+};
+
+/** Sums several counters (`get`'s array result) path by path. */
+const sumResults = (
+    values: (unknown | null)[],
+): RecursiveRecord<number> | null => {
+    let merged: FlatAmounts = {};
+    for (const value of values)
+        merged = addAmounts(merged, flattenAmounts(value));
+    return Object.keys(merged).length === 0 ? null : unflattenAmounts(merged);
 };
 
 const toScriptArgs = (amounts: Record<string, number>): string[] => {
@@ -561,8 +600,30 @@ export class MeteringBufferStore extends PuterStore {
     #cyclesSinceReport = 0;
     #cyclesSinceReconcile = 0;
 
-    /** Path names the KV store has refused on their own; see `#settle`. */
+    /**
+     * `${key}\n${path}` pairs the KV store has refused on their own; see
+     * `#settle`. Scoped to the counter as well as the path name — a write
+     * refused for one counter (an oversized item, say) says nothing about
+     * whether the same path name is writable on a different one.
+     */
     #unwritablePaths = new Set<string>();
+
+    /** Key → when this node last ran a real exact read for it; see `readExact`. */
+    #lastExactReadAt = new Map<string, number>();
+
+    /**
+     * Cache key → the `getSummed`/`getCached` compute filling it, so concurrent
+     * callers share one.
+     */
+    #summedInFlight = new Map<string, Promise<unknown>>();
+
+    /**
+     * Cache key → how many times `forgetSummed` has dropped it. A compute that
+     * started before a drop must not cache its (now stale) answer after the
+     * drop — it checks this against the value it started with before writing
+     * the cache.
+     */
+    #summedGeneration = new Map<string, number>();
 
     // -- Lifecycle ----------------------------------------------------
 
@@ -640,35 +701,103 @@ export class MeteringBufferStore extends PuterStore {
      * Read counters, including increments buffered but not yet written onward.
      * Mirrors `stores.kv.get`: one key in, one value out; an array in, an array
      * out.
+     *
+     * An array read batches the keys this deployment has no cached base for (or
+     * couldn't answer from the cache) into a single `stores.kv.get` rather than
+     * one per key.
      */
     async get({
         key,
     }: {
         key: string | string[];
     }): Promise<{ res: unknown | null | (unknown | null)[] }> {
-        const keys = Array.isArray(key) ? key : [key];
-        const values = await Promise.all(
-            keys.map((k) =>
-                this.#readThrough(k).catch((e: Error) => {
-                    console.warn(
-                        `[metering] buffered read failed, reading through: ${e.message}`,
-                    );
-                    return this.stores.kv
-                        .get({ key: k })
-                        .then(({ res }) => res ?? null);
-                }),
-            ),
+        if (!Array.isArray(key)) {
+            const value = await this.#readThrough(key).catch((e: Error) => {
+                console.warn(
+                    `[metering] buffered read failed, reading through: ${e.message}`,
+                );
+                return this.stores.kv
+                    .get({ key })
+                    .then(({ res }) => res ?? null);
+            });
+            return { res: value };
+        }
+
+        const keys = key;
+        const results: (unknown | null)[] = new Array(keys.length).fill(null);
+        const deltas: FlatAmounts[] = new Array(keys.length).fill(
+            {} as FlatAmounts,
         );
-        return { res: Array.isArray(key) ? values : values[0]! };
+        const misses: number[] = [];
+
+        await Promise.all(
+            keys.map(async (k, i) => {
+                try {
+                    const { delta, base } = await this.#readBuffered(k);
+                    if (Object.keys(base).length > 0) {
+                        results[i] = mergedOrNull(base, delta);
+                        return;
+                    }
+                    // No cached base yet — the store is the only place left to
+                    // ask, and it's cheaper to ask once for every key like it.
+                    deltas[i] = delta;
+                    misses.push(i);
+                } catch (e) {
+                    console.warn(
+                        `[metering] buffered read failed, reading through: ${(e as Error).message}`,
+                    );
+                    misses.push(i);
+                }
+            }),
+        );
+
+        if (misses.length > 0) {
+            // Unlike the per-key fallbacks above, a failure here is not
+            // absorbed: a caller deciding on a balance must know its answer
+            // is incomplete rather than silently read a buffered-only view.
+            const { res: fetched } = await this.stores.kv.get({
+                key: misses.map((i) => keys[i]!),
+            });
+            const fetchedValues = fetched as (unknown | null)[];
+            misses.forEach((i, idx) => {
+                const persisted = flattenAmounts(fetchedValues[idx]);
+                results[i] = mergedOrNull(persisted, deltas[i]!);
+            });
+        }
+
+        return { res: results };
     }
 
     /**
      * Read a counter with everything this deployment has buffered for it
-     * written onward first, then read back strongly consistently. This is the
-     * only read that costs extra; it exists for decisions taken close enough to
-     * a limit that an approximate total would be the wrong answer.
+     * written onward first, then read back strongly consistently — the only
+     * read that costs extra. `minIntervalMs`, when given, answers from the
+     * ordinary buffered view instead if this node read exact for `key` more
+     * recently than that.
      */
-    async readExact({ key }: { key: string }): Promise<{ res: unknown }> {
+    async readExact({
+        key,
+        minIntervalMs,
+    }: {
+        key: string;
+        minIntervalMs?: number;
+    }): Promise<{ res: unknown }> {
+        if (minIntervalMs) {
+            const now = Date.now();
+            const last = this.#lastExactReadAt.get(key);
+            if (last !== undefined && now - last < minIntervalMs) {
+                try {
+                    return { res: await this.#readThrough(key) };
+                } catch (e) {
+                    console.warn(
+                        `[metering] throttled exact read fell back for ${key}: ${(e as Error).message}`,
+                    );
+                }
+            } else {
+                this.#rememberExactRead(key, now);
+            }
+        }
+
         try {
             await this.#flushOne(bucketTag(key), key);
         } catch (e) {
@@ -677,6 +806,17 @@ export class MeteringBufferStore extends PuterStore {
             );
         }
         return this.stores.kv.get({ key, consistentRead: true });
+    }
+
+    #rememberExactRead(key: string, now: number): void {
+        if (
+            this.#lastExactReadAt.size >= EXACT_READ_MEMO_LIMIT &&
+            !this.#lastExactReadAt.has(key)
+        ) {
+            const oldest = this.#lastExactReadAt.keys().next().value;
+            if (oldest !== undefined) this.#lastExactReadAt.delete(oldest);
+        }
+        this.#lastExactReadAt.set(key, now);
     }
 
     /**
@@ -706,6 +846,169 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] cached base not dropped for ${key}: ${(e as Error).message}`,
             );
         }
+    }
+
+    /** When a counter's key should expire, per `meteringRetentionMonths`. */
+    expiryFor(key: string): number | undefined {
+        return meteringRecordExpiresAt(
+            key,
+            resolveMeteringRetentionMonths(this.config),
+        );
+    }
+
+    /**
+     * Sum of `keys` (one `get` per call, itself batched into one store read for
+     * whatever isn't cached), cached under `cacheKey` for `maxAgeMs`. For a
+     * read spread across many small items — a detail breakdown's 100 shards —
+     * where the exact millisecond it catches up to the latest write matters far
+     * less than not paying for a batch read on every call.
+     *
+     * `maxAgeMs <= 0` disables caching outright — every call sums fresh. See
+     * `#cached` for the caching behavior itself.
+     */
+    async getSummed({
+        keys,
+        cacheKey,
+        maxAgeMs,
+    }: {
+        keys: string[];
+        cacheKey: string;
+        maxAgeMs: number;
+    }): Promise<unknown> {
+        return this.#cached({
+            cacheKey,
+            maxAgeMs,
+            compute: async () => {
+                const { res } = await this.get({ key: keys });
+                return sumResults(res as (unknown | null)[]);
+            },
+        });
+    }
+
+    /**
+     * Cache an arbitrary read under `cacheKey`, same slot family and
+     * invalidation as `getSummed` — `forgetSummed(cacheKey)` drops either kind.
+     * For an assembled read too shaped to fit `getSummed`'s "sum these keys" —
+     * a prefix listing folded into a map, say — but still worth sharing its
+     * caching discipline.
+     */
+    async getCached<T>({
+        cacheKey,
+        maxAgeMs,
+        compute,
+    }: {
+        cacheKey: string;
+        maxAgeMs: number;
+        compute: () => Promise<T>;
+    }): Promise<T> {
+        return this.#cached({ cacheKey, maxAgeMs, compute });
+    }
+
+    /**
+     * The cache/invalidation machinery behind `getSummed` and `getCached`: a
+     * redis slot per `cacheKey`, single-flighted so concurrent callers share
+     * one compute, generation-checked so a `forgetSummed` mid-compute doesn't
+     * let its (now stale) answer land in the cache after it.
+     *
+     * A cache miss is a normal outcome and degrades to an uncached compute,
+     * never to an error: a cache that can't be reached is this deployment's
+     * problem, not a reason to fail the read it exists to speed up. A failure
+     * in `compute` itself is the caller's to see, and nothing is cached for
+     * it.
+     *
+     * `maxAgeMs <= 0` disables caching outright — every call computes fresh.
+     */
+    async #cached<T>({
+        cacheKey,
+        maxAgeMs,
+        compute,
+    }: {
+        cacheKey: string;
+        maxAgeMs: number;
+        compute: () => Promise<T>;
+    }): Promise<T> {
+        if (!(maxAgeMs > 0)) return compute();
+
+        const cacheSlot = summedCacheKey(cacheKey);
+        try {
+            const cached = await this.clients.redis.get(cacheSlot);
+            if (cached !== null) return JSON.parse(cached);
+        } catch (e) {
+            console.warn(
+                `[metering] cached read failed for ${cacheKey}: ${(e as Error).message}`,
+            );
+        }
+
+        const inFlight = this.#summedInFlight.get(cacheSlot);
+        if (inFlight) return inFlight as Promise<T>;
+
+        const startGeneration = this.#summedGeneration.get(cacheSlot) ?? 0;
+        const computed = compute()
+            .then(async (value) => {
+                // A `forgetSummed` that landed while this was running means
+                // the answer here is already stale — caching it would put
+                // the old view right back for another `maxAgeMs`.
+                if (
+                    (this.#summedGeneration.get(cacheSlot) ?? 0) ===
+                    startGeneration
+                ) {
+                    try {
+                        await this.clients.redis.set(
+                            cacheSlot,
+                            JSON.stringify(value),
+                            'PX',
+                            maxAgeMs,
+                        );
+                    } catch (e) {
+                        console.warn(
+                            `[metering] cached write failed for ${cacheKey}: ${(e as Error).message}`,
+                        );
+                    }
+                }
+                return value;
+            })
+            .finally(() => {
+                if (this.#summedInFlight.get(cacheSlot) === computed) {
+                    this.#summedInFlight.delete(cacheSlot);
+                }
+            });
+        this.#summedInFlight.set(cacheSlot, computed);
+        return computed;
+    }
+
+    /**
+     * Drop a `getSummed`/`getCached` cache entry, so the next call computes
+     * fresh instead of answering with a value an intervening write has made
+     * stale. Never throws: the write that made the cache stale already landed,
+     * and failing the call that made it over a cache entry that will expire on
+     * its own anyway would be the worse outcome.
+     */
+    async forgetSummed(cacheKey: string): Promise<void> {
+        const cacheSlot = summedCacheKey(cacheKey);
+        this.#bumpSummedGeneration(cacheSlot);
+        // A compute already running read the old state; don't let callers join it.
+        this.#summedInFlight.delete(cacheSlot);
+        try {
+            await this.clients.redis.del(cacheSlot);
+        } catch (e) {
+            console.warn(
+                `[metering] summed cache not dropped for ${cacheKey}: ${(e as Error).message}`,
+            );
+        }
+    }
+
+    #bumpSummedGeneration(cacheSlot: string): void {
+        if (
+            this.#summedGeneration.size >= SUMMED_GENERATION_MEMO_LIMIT &&
+            !this.#summedGeneration.has(cacheSlot)
+        ) {
+            const oldest = this.#summedGeneration.keys().next().value;
+            if (oldest !== undefined) this.#summedGeneration.delete(oldest);
+        }
+        this.#summedGeneration.set(
+            cacheSlot,
+            (this.#summedGeneration.get(cacheSlot) ?? 0) + 1,
+        );
     }
 
     // -- Internals: client & scripts ----------------------------------
@@ -760,7 +1063,10 @@ export class MeteringBufferStore extends PuterStore {
     // -- Internals: writes --------------------------------------------
 
     #writeThrough(input: IncrInput): Promise<{ res: RecursiveRecord<number> }> {
-        return this.stores.kv.incr(input) as Promise<{
+        return this.stores.kv.incr({
+            ...input,
+            expireAt: this.expiryFor(input.key),
+        }) as Promise<{
             res: RecursiveRecord<number>;
         }>;
     }
@@ -806,22 +1112,29 @@ export class MeteringBufferStore extends PuterStore {
 
     // -- Internals: reads ---------------------------------------------
 
-    async #readThrough(key: string): Promise<unknown | null> {
+    /**
+     * This deployment's cached delta and base for a counter, straight from
+     * redis.
+     */
+    async #readBuffered(
+        key: string,
+    ): Promise<{ delta: FlatAmounts; base: FlatAmounts }> {
         const tag = bucketTag(key);
         const [delta, base] = await this.#redis.meterRead(
             deltaKey(tag, key),
             baseKey(tag, key),
         );
-        const deltaAmounts = pairsToAmounts(delta);
-        const baseAmounts = pairsToAmounts(base);
+        return { delta: pairsToAmounts(delta), base: pairsToAmounts(base) };
+    }
+
+    async #readThrough(key: string): Promise<unknown | null> {
+        const { delta, base } = await this.#readBuffered(key);
         const resolved =
-            Object.keys(baseAmounts).length > 0
-                ? baseAmounts
+            Object.keys(base).length > 0
+                ? base
                 : flattenAmounts((await this.stores.kv.get({ key })).res);
 
-        const merged = addAmounts(resolved, deltaAmounts);
-        if (Object.keys(merged).length === 0) return null;
-        return unflattenAmounts(merged);
+        return mergedOrNull(resolved, delta);
     }
 
     // -- Internals: flush ---------------------------------------------
@@ -1099,11 +1412,12 @@ export class MeteringBufferStore extends PuterStore {
             return;
         }
 
-        // Paths already known to be unwritable are dropped without spending a
-        // write to rediscover it, which is what keeps one bad usage type from
-        // costing a round of narrowing on every cycle for as long as it arrives.
+        // Paths already known to be unwritable for this counter are dropped
+        // without spending a write to rediscover it, which is what keeps one
+        // bad usage type from costing a round of narrowing on every cycle for
+        // as long as it arrives.
         const known = Object.keys(amounts).filter((path) =>
-            this.#unwritablePaths.has(path),
+            this.#isUnwritable(key, path),
         );
         if (known.length > 0) {
             this.#recordDrop(
@@ -1118,7 +1432,7 @@ export class MeteringBufferStore extends PuterStore {
             pickAmounts(
                 amounts,
                 Object.keys(amounts).filter(
-                    (path) => !this.#unwritablePaths.has(path),
+                    (path) => !this.#isUnwritable(key, path),
                 ),
             ),
         );
@@ -1132,10 +1446,12 @@ export class MeteringBufferStore extends PuterStore {
         while (pending.length > 0) {
             const batch = pending.shift()!;
             const paths = Object.keys(batch);
+            let usage: { write: number };
             try {
-                ({ res: settled } = await this.stores.kv.incr({
+                ({ res: settled, usage } = await this.stores.kv.incr({
                     key,
                     pathAndAmountMap: batch,
+                    expireAt: this.expiryFor(key),
                 }));
             } catch (e) {
                 const err = e as Error;
@@ -1150,7 +1466,7 @@ export class MeteringBufferStore extends PuterStore {
                     continue;
                 }
 
-                this.#rememberUnwritable(paths[0]!);
+                this.#rememberUnwritable(key, paths[0]!);
                 this.#recordDrop(key, batch, err.message);
                 await this.#dropFromClaim(tag, nonce, paths);
                 continue;
@@ -1160,8 +1476,12 @@ export class MeteringBufferStore extends PuterStore {
             // This batch is applied for good now, so take it off the claim
             // before anything else can fail: a re-drive then picks up only what
             // is still outstanding instead of adding these amounts a second
-            // time.
+            // time. The alarm below is the "anything else" — it comes after.
             await this.#dropFromClaim(tag, nonce, paths);
+
+            if (usage.write >= LARGE_SETTLE_WRITE_UNITS) {
+                this.#recordLargeSettle(key, usage.write);
+            }
         }
 
         if (written === 0) {
@@ -1202,12 +1522,35 @@ export class MeteringBufferStore extends PuterStore {
         await this.clients.redis.hdel(pendingKey(tag, nonce), ...paths);
     }
 
-    #rememberUnwritable(path: string): void {
-        if (this.#unwritablePaths.size >= UNWRITABLE_PATH_MEMO_LIMIT) {
+    #isUnwritable(key: string, path: string): boolean {
+        return this.#unwritablePaths.has(`${key}\n${path}`);
+    }
+
+    #rememberUnwritable(key: string, path: string): void {
+        const entry = `${key}\n${path}`;
+        if (
+            this.#unwritablePaths.size >= UNWRITABLE_PATH_MEMO_LIMIT &&
+            !this.#unwritablePaths.has(entry)
+        ) {
             const oldest = this.#unwritablePaths.keys().next().value;
             if (oldest !== undefined) this.#unwritablePaths.delete(oldest);
         }
-        this.#unwritablePaths.add(path);
+        this.#unwritablePaths.add(entry);
+    }
+
+    /**
+     * Note that settling this counter cost an unusually large write, which
+     * tends to mean the item itself is getting large — worth a look before it
+     * grows into paths the store starts refusing outright.
+     */
+    #recordLargeSettle(key: string, writeUnits: number): void {
+        this.clients.alarm.create(
+            'metering_counter_large',
+            `Settling ${key} cost ${writeUnits} write unit(s) in one update — the item is getting large`,
+            { key, writeUnits },
+            'warning',
+            { dedup: true },
+        );
     }
 
     /**

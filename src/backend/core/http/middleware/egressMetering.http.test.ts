@@ -20,6 +20,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Actor } from '../../actor';
 import { PERIOD_ESCAPE } from '../../../services/metering/consts.js';
+import type { MeteringService } from '../../../services/metering/MeteringService.js';
 import type { UsageByType } from '../../../services/metering/types';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../../testUtil.js';
 
@@ -31,12 +32,24 @@ import { setupPuterTestEnv, type PuterTestEnv } from '../../../testUtil.js';
  */
 describe('egress metering over HTTP', () => {
     let env: PuterTestEnv;
+    let originalCacheMs: number;
 
     beforeAll(async () => {
         env = await setupPuterTestEnv();
+        // A sharded month caches getActorCurrentMonthUsageDetails's detail
+        // read for USAGE_DETAIL_CACHE_MS — these tests read before and after
+        // one request a moment apart, well inside that window, so the cache
+        // would mask the very update they're checking for.
+        const ctor = env.server.services.metering
+            .constructor as typeof MeteringService;
+        originalCacheMs = ctor.USAGE_DETAIL_CACHE_MS;
+        ctor.USAGE_DETAIL_CACHE_MS = 0;
     }, 120_000);
 
     afterAll(async () => {
+        (
+            env.server.services.metering.constructor as typeof MeteringService
+        ).USAGE_DETAIL_CACHE_MS = originalCacheMs;
         await env?.shutdown();
     });
 

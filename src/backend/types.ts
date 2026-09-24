@@ -1065,6 +1065,12 @@ interface IConfigOptional {
      */
     meteringUsageBufferFlushMs?: number;
     /**
+     * How many full months past its own a monthly metering record is kept
+     * before it expires, on top of the month it belongs to. Unset defaults to
+     * 3; `0` keeps records forever.
+     */
+    meteringRetentionMonths?: number;
+    /**
      * Whether recorded usage is also enforced: an account with nothing left of
      * its budget is turned away from the operations that spend it (file
      * transfers, KV calls) with a 402. Metadata reads and deletions stay open,

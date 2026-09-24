@@ -395,3 +395,8 @@ The SDK turns the money-shaped failures into prompts without any code on your pa
 
 - `puter.fs.space()` → `{ capacity, used }` — bytes, live.
 - `puter.auth.getMonthlyUsage()` → month-to-date spend and the remaining allowance, per API.
+
+Total spend and the remaining allowance are always current. The per-API
+breakdown and the per-app breakdown can each lag up to about a minute behind
+it, and past 5,000 distinct APIs used in a month, the rest are grouped under
+an `other` entry.
