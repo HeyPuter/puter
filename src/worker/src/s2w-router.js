@@ -119,6 +119,10 @@ function initS2w () {
                         event.request.headers.get('puter-auth'),
                         globalThis.puter_endpoint || 'https://api.puter.com',
                         'userPuter',
+                        // A caller's client only makes API calls on their
+                        // behalf, and nothing closes a per-request socket once
+                        // the response is sent.
+                        { socket: false },
                     ),
                 };
                 event.user = event.requestor;
