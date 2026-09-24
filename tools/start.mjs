@@ -23,7 +23,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { npmCommand, npmSpawnOptions } from './npmSpawn.mjs';
+import { npmSpawnArgs } from './npmSpawn.mjs';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -53,7 +53,6 @@ const run = (cmd, args, opts = {}) => new Promise((resolve, reject) => {
     });
 });
 
-const npm = npmCommand();
 const server = getFlag('server');
 const extensions = getFlag('extensions');
 
@@ -68,8 +67,8 @@ try {
         if ( extensions ) {
             console.warn('--extensions only applies to --server (GUI-only) mode; ignoring.');
         }
-        await run(npm, ['run', 'setupExtensions'], npmSpawnOptions());
-        await run(npm, ['run', 'build:ts'], npmSpawnOptions());
+        await run(...npmSpawnArgs(['run', 'setupExtensions']));
+        await run(...npmSpawnArgs(['run', 'build:ts']));
         await run(process.execPath, [
             '--enable-source-maps',
             '-r', './dist/src/backend/telemetry.js',

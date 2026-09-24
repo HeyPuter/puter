@@ -1,56 +1,34 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { npmSpawnArgs, spawnNpm } from './npmSpawn.mjs';
 
-vi.mock('node:child_process', () => ({
-    spawn: vi.fn(() => ({})),
-}));
-
-import { spawn } from 'node:child_process';
-import { npmCommand, npmSpawnOptions, spawnNpm } from './npmSpawn.mjs';
-
-describe('npmCommand', () => {
-    it('uses npm.cmd on Windows', () => {
-        expect(npmCommand('win32')).toBe('npm.cmd');
-    });
-
-    it('uses npm on POSIX platforms', () => {
-        expect(npmCommand('linux')).toBe('npm');
-        expect(npmCommand('darwin')).toBe('npm');
-    });
-});
-
-describe('npmSpawnOptions', () => {
-    it('enables a shell on Windows so npm.cmd does not throw EINVAL', () => {
+describe('npmSpawnArgs', () => {
+    it('runs npm.cmd through a shell on Windows, with no separate args', () => {
         expect(
-            npmSpawnOptions({ cwd: '.', stdio: 'inherit' }, 'win32'),
-        ).toEqual({
-            cwd: '.',
-            stdio: 'inherit',
-            shell: true,
-        });
+            npmSpawnArgs(['run', 'build:ts'], { cwd: '.' }, 'win32'),
+        ).toEqual(['npm.cmd run build:ts', [], { cwd: '.', shell: true }]);
     });
 
-    it('spawns npm directly without a shell on POSIX', () => {
-        expect(npmSpawnOptions({ cwd: '.' }, 'linux')).toEqual({ cwd: '.' });
+    it('spawns npm directly without a shell elsewhere', () => {
+        for (const platform of ['linux', 'darwin']) {
+            expect(npmSpawnArgs(['ci'], { cwd: '.' }, platform)).toEqual([
+                'npm',
+                ['ci'],
+                { cwd: '.' },
+            ]);
+        }
     });
 });
 
 describe('spawnNpm', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
-
-    it('spawns npm.cmd through a shell when running on Windows', () => {
-        vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
-        spawnNpm(['ci'], { cwd: '.' });
-        expect(spawn).toHaveBeenCalledWith('npm.cmd', ['ci'], {
-            cwd: '.',
-            shell: true,
+    it('runs npm on the current platform', async () => {
+        const child = spawnNpm(['--version']);
+        let out = '';
+        child.stdout.on('data', (d) => (out += d));
+        const code = await new Promise((resolve, reject) => {
+            child.on('error', reject);
+            child.on('close', resolve);
         });
-    });
-
-    it('spawns npm directly when not running on Windows', () => {
-        vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
-        spawnNpm(['install'], { cwd: '.' });
-        expect(spawn).toHaveBeenCalledWith('npm', ['install'], { cwd: '.' });
-    });
+        expect(code).toBe(0);
+        expect(out.trim()).toMatch(/^\d+\.\d+\.\d+/);
+    }, 20_000);
 });
