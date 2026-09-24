@@ -26,6 +26,7 @@ import {
     type Actor,
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import {
     ASSET_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
@@ -915,10 +916,13 @@ export class AuthService extends PuterService {
         return this.#normalizedOrigin(parsed);
     }
 
-    /** Scheme + host + explicit port, with no trailing separator. */
+    /** Scheme + lowercased host + explicit port, with no trailing separator. */
     #normalizedOrigin(parsed: URL): string {
         const port = parsed.port ? `:${parsed.port}` : '';
-        return `${parsed.protocol}//${parsed.hostname}${port}`;
+        // `new URL()` lowercases http(s) hosts but leaves opaque ones alone, so
+        // without this an extension id in two spellings hashes to two app uids
+        // (and misses the blocklist, which matches on a lowercased host).
+        return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${port}`;
     }
 
     /**
@@ -1786,14 +1790,15 @@ export class AuthService extends PuterService {
     #originFromUrl(url: string): string | null {
         try {
             const parsed = new URL(url);
-            // A real web origin is always http(s). `new URL()` happily parses
-            // `javascript:`, `data:`, `file:`, `vbscript:`, etc.; if one of
-            // those slips through it ends up persisted as an app `index_url`
-            // (see AppStore.createFromOrigin) and later loaded as `iframe.src`
-            // — an XSS/code-execution primitive. Reject anything that isn't
-            // http(s) so the bootstrap path matches AppDriver's validateUrl
-            // allow-list.
-            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            // This gets persisted as an app `index_url` and later loaded as
+            // `iframe.src` (see AppStore.createFromOrigin), so anything outside
+            // the allow-list is a stored code-execution vector.
+            if (!WEB_AND_EXTENSION_PROTOCOLS.includes(parsed.protocol)) {
+                return null;
+            }
+            // Extension schemes aren't "special", so `new URL()` accepts them
+            // with no authority at all (`chrome-extension:`).
+            if (!parsed.hostname) {
                 return null;
             }
             return this.#normalizedOrigin(parsed);
