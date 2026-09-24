@@ -678,6 +678,21 @@ export class TeamStore extends PuterStore {
         return Number(rows[0]?.n ?? 0);
     }
 
+    /**
+     * Teams this user owns that still hold provisioned accounts, soft-deleted
+     * ones included: a deleted team's seats are suspended, not gone.
+     */
+    async countOwnedTeamsWithAccounts(ownerUserId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(DISTINCT g.`id`) AS n FROM `group` g ' +
+                'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                'WHERE g.`owner_user_id` = ? AND g.`kind` = ? ' +
+                'AND ug.`org_owned` = 1',
+            [ownerUserId, TEAM_KIND],
+        )) as { n: number }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
     /** How many members pay for themselves; the owner should be the only one. */
     async countPayers(teamId: number): Promise<number> {
         const rows = (await this.clients.db.read(

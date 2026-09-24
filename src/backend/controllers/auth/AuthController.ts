@@ -4619,6 +4619,25 @@ export class AuthController extends PuterController {
                 { legacyCode: 'forbidden' },
             );
         }
+        // The other direction: deleting an owner sets `owner_user_id` NULL and
+        // cascades their membership, leaving a team no one can administer —
+        // not even an admin, since every team route resolves by membership.
+        if (await this.stores.team.countOwned(userId)) {
+            throw new HttpError(
+                403,
+                'Delete the teams you own before closing this account.',
+                { legacyCode: 'forbidden' },
+            );
+        }
+        // A deleted team's seats are suspended, not gone, and only its owner
+        // can retire them.
+        if (await this.stores.team.countOwnedTeamsWithAccounts(userId)) {
+            throw new HttpError(
+                403,
+                'Close the accounts your teams created before closing this one.',
+                { legacyCode: 'forbidden' },
+            );
+        }
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
         res.clearCookie('puter_revalidation');
