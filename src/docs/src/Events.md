@@ -228,7 +228,7 @@ Nothing is registered and no position is kept for you: you hold the cursor. Only
 
 `onLocal()` subscriptions are **session-scoped**: nothing is stored, nothing runs while the page is closed, and the server drops them when the connection goes away. Every subscription this client makes rides one connection, which opens on the first `onLocal()` and closes when the last subscription ends. A Puter worker invocation is short-lived, so `onLocal()` there is only useful for the lifetime of that one invocation — a worker that wants to react to changes over time should use [`onPersistent()`](/Events/onPersistent/) with a `worker` target and a published handler instead.
 
-When the connection drops and comes back — a reconnect, a sign-in, an API origin change — the SDK subscribes again for you. The handler and the subscription object stay the same; only `subId` changes, which is why nothing should be stored against it. If re-subscribing fails (the access is gone, the account signed out), or the server closes the connection outright (a revoked session, too many connections), the subscription ends and your `onError` callback is told:
+When the connection drops and comes back — a network blip, a sign-in, an API origin change, or the server closing it because another of the account's sessions signed out — the SDK reconnects and subscribes again for you, backing off when the server was the one that closed it. The handler and the subscription object stay the same; only `subId` changes, which is why nothing should be stored against it. The subscription lapses and your `onError` callback is told only if re-subscribing fails, the reconnect is refused (`reauth_required` when the session was signed out), or the server keeps closing the connection (`events_connection_failed`):
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', handler, {
@@ -236,7 +236,7 @@ const sub = await puter.events.onLocal('fs:~/Documents', handler, {
 });
 ```
 
-[`onPersistent()`](/Events/onPersistent/) subscriptions are **stored against the account**. They keep matching with nothing open, survive every reconnect, and end only when you call [`unsubscribe()`](/Events/unsubscribe/) or their `expiresAt` passes. What runs is a *handler* your app deployed by name:
+[`onPersistent()`](/Events/onPersistent/) subscriptions are **stored against the account**. They keep matching with nothing open, survive every reconnect, and end only when you call [`unsubscribe()`](/Events/unsubscribe/) or their `expiresAt` passes. What runs is a *handler* your app deployed by name. A handler running here rides the same connection and survives the same reconnects; if the connection is lost for good it stops running here and its own `onError` is told, but the subscription itself carries on — the handler runs here again once this client connects again (signing in again, or a new subscription).
 
 ```js
 // Once, at deploy time

@@ -29,6 +29,7 @@ puter.events.onPersistent(options)
 - `context` (Object): Values the handler needs, delivered to it as a frozen `ctx`. **Capped at 4 KB serialized** — see below.
 - `expiresAt` (Number | String): When the subscription ends by itself — unix seconds or an ISO-8601 string, and it has to be in the future.
 - `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject.
+- `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its events connection could not be restored (`reauth_required` when this session was signed out, `events_connection_failed` otherwise). The subscription itself is not ended — it keeps running in the events worker if it targets `worker` — and the handler runs here again once this client connects again (signing in again, or a new subscription). Only used with a function `handler`; without it, the stop is reported on the console.
 
 ## Background delivery takes the user's consent
 
@@ -54,7 +55,7 @@ The handler runs **in this client while it is connected**, and in the app's even
 | `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, the environment's `fetch` otherwise. |
 | `ack` | On a `single` subscription only — see below. |
 
-Passing `handler` as a **function** is what registers it to run here; a source string or `{ file }` is sent as a hash only, and nothing runs client-side. Either way the hash must match what is published under `handlerName`.
+Passing `handler` as a **function** is what registers it to run here; a source string or `{ file }` is sent as a hash only, and nothing runs client-side. Either way the hash must match what is published under `handlerName`. The connection is re-established on its own when it drops, including when the server closes it, so the handler keeps running here — see `onError` above for when it cannot.
 
 Those five bindings are the whole environment. The events worker has no ambient `puter` and no identity of your own to act as — a handler that names `puter` or `me` is refused when you publish it, rather than failing on its first delivery. `user` is that identity instead: it carries your app's own reach for that account — its KV, its AppData, whatever else the user has granted it — the same as any session your app runs while they have a tab open.
 

@@ -160,8 +160,9 @@
  *
  * @typedef {Object} OnLocalOptions
  * @property {(error: Error & { code?: string }) => void} [onError] Called if
- *   the subscription lapses — the connection was lost and re-subscribing
- *   failed. The subscription is gone by then and the handler will not be
+ *   the subscription lapses — the connection could not be restored:
+ *   re-subscribing failed, the reconnect was refused, or the server kept
+ *   closing it. The subscription is gone by then and the handler will not be
  *   called again; subscribe again to resume. Without this, a lapse is reported
  *   on the console.
  * @property {number} [timeout] How long to wait for the server to answer
@@ -196,6 +197,13 @@
  *   future.
  * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
  *   value on each event as `event.value`.
+ * @property {(error: Error & { code?: string }) => void} [onError] Called if
+ *   this client stops running `handler` because its events connection could
+ *   not be restored (`reauth_required` when this session was signed out). The
+ *   subscription itself is not ended; the handler runs here again once the
+ *   connection is back — signing in again, or a new subscription. Only used
+ *   with a function `handler`; without it, the stop is reported on the
+ *   console.
  */
 
 /**
