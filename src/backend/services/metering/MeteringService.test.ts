@@ -3352,23 +3352,23 @@ describe('MeteringService', () => {
 
         it('a user with 150 apps still returns every one of them', async () => {
             const bufActor: Actor = { user: makeUser() };
+            const month = currentMonthString();
+            // Seeded directly: 150 full increments flush ~600 keys and time
+            // out under coverage.
             await Promise.all(
                 Array.from({ length: 150 }, (_, i) =>
-                    target.incrementUsage(
-                        resolveActor({ ...bufActor, app: { uid: `app-${i}` } }),
-                        'kv:read',
-                        1,
-                        1,
-                    ),
+                    server.stores.kv.incr({
+                        key: `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:app:app-${i}:${month}`,
+                        pathAndAmountMap: { total: 1, count: 1 },
+                    }),
                 ),
             );
-            await server.stores.meteringBuffer.flushCycle();
 
             const { appTotals } =
                 await target.getActorCurrentMonthUsageDetails(bufActor);
             expect(Object.keys(appTotals)).toHaveLength(150);
             expect(appTotals['app-77']).toEqual({ total: 1, count: 1 });
-        });
+        }, 30_000);
     });
 
     // ── The removed `:apps:` item ────────────────────────────────────────
