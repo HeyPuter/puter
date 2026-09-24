@@ -2,6 +2,7 @@
 title: puter.auth.updateProfile()
 description: Update the signed-in user's profile picture, display name, or bio.
 platforms: [websites, apps, nodejs, workers]
+draft: true
 ---
 
 Changes fields on the signed-in user's profile and returns the updated profile. Fields left out of the patch are left as they are; `null` clears a field.

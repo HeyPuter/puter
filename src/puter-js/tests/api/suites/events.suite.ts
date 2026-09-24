@@ -909,13 +909,22 @@ export default suite('events', {
         t.assert.equal(codeOf(error), 'events_handler_not_found');
     },
 
-    'refuses an app token trying to list events workers': async (t) => {
-        const appUid = await makeApp(t);
-        await t.puter.events.handlers.publish('ingestUpload', HANDLER, { appUid });
+    'scopes an app token to its own worker, not every app the user owns': async (t) => {
+        const appA = await makeApp(t);
+        const appB = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', HANDLER, {
+            appUid: appA,
+        });
+        await t.puter.events.handlers.publish('indexDocument', OTHER_HANDLER, {
+            appUid: appB,
+        });
 
-        await asApp(t, appUid, async () => {
-            const error = await t.assert.rejects(() => t.puter.events.workers.list());
-            t.assert.equal(codeOf(error), 'events_worker_owner_only');
+        await asApp(t, appA, async () => {
+            const page = await t.puter.events.workers.list();
+            t.assert.deepEqual(
+                page.items.map((row) => row.appUid),
+                [appA],
+            );
         });
     },
 

@@ -49,6 +49,7 @@ import {
     validateJsonObject,
     validateString,
     validateUrl,
+    WEB_AND_EXTENSION_PROTOCOLS,
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
 
@@ -633,6 +634,7 @@ export class AppDriver extends PuterDriver {
                 key: 'index_url',
                 maxLen: 3000,
                 required: isCreate,
+                protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
             // Only enforce on new/changed values so rows that already
             // carry a reserved host (migration-seeded builtins) can still
@@ -1461,6 +1463,12 @@ export class AppDriver extends PuterDriver {
             });
             const sourceApp = await this.appStore.getByUid(sourceAppUid);
             if (sourceApp) {
+                // The source app's sites and workers follow it into the
+                // joined row; `app_owner` cascades on delete otherwise.
+                await this.stores.subdomain.reassignAppOwner(
+                    sourceApp.id,
+                    appToJoin.id,
+                );
                 await this.appStore.delete(sourceApp.id);
                 this.#emitAppChanged({
                     app: null,

@@ -4,7 +4,7 @@ description: Generate a temporary URL that lets anyone read one file from the us
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Generates a URL that can be used to read a file.
+Generates a URL that can be used to read a file. To stop it from working before it expires, revoke it with [`revokeReadURL()`](/FS/revokeReadURL/).
 
 ## Syntax
 

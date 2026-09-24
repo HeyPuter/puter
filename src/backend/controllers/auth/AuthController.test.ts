@@ -3152,6 +3152,27 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         );
         expect((res2.body as { app_uid: string }).app_uid).toBe(body.app_uid);
     });
+
+    it('supports browser extension origins in handleGetUserAppToken', async () => {
+        // Random id: a pre-existing row for this origin would resolve through
+        // the canonical lookup and never exercise the bootstrap path.
+        const origin = `chrome-extension://${uuidv4()}`;
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        expect(body.app_uid).toBe(
+            `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`,
+        );
+        const bootstrapped = await server.stores.app.getByUid(body.app_uid);
+        expect(bootstrapped?.index_url).toBe(origin);
+        // Proves the row came from the bootstrap path, not an earlier test.
+        expect(bootstrapped?.description).toMatch(/^App created from origin /);
+    });
 });
 
 // ── Access tokens: create + revoke ─────────────────────────────────

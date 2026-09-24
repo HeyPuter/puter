@@ -134,7 +134,7 @@ All four methods reject with `{ message, code }`:
 | `events_handler_name_invalid` | The name is empty, too long, or not an addressable identifier. |
 | `events_handler_conflict` | Different source is published under this name and the caller did not name it as the base. Pass `replace: true` to take it. |
 | `events_handler_app_required` | An account session did not name an app. |
-| `events_handler_forbidden` | The caller does not own the app — and an app that is not there answers the same way. |
+| `events_handler_forbidden` | The caller does not own the app, or is a scoped access token — and an app that is not there answers the same way. |
 | `events_handler_too_large` | The serialized handler is over 64 KB. |
 | `events_worker_too_large` | The app's handlers would exceed 5 MB of source combined. |
 | `events_handler_source_invalid` | The handler source is empty. |

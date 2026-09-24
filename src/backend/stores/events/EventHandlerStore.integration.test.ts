@@ -544,6 +544,30 @@ describe('listing an owner`s events workers', () => {
         expect(page.items).toEqual([]);
     });
 
+    it('narrows to one app with the `appUid` option', async () => {
+        const uidA = await makeApp(ownerUserId);
+        const uidB = await makeApp(ownerUserId);
+        await handlers().publish({ appUid: uidA, name: 'a', source: SOURCE });
+        await handlers().publish({ appUid: uidB, name: 'b', source: OTHER_SOURCE });
+
+        const page = await handlers().listEventsWorkersForOwner(ownerUserId, {
+            appUid: uidA,
+        });
+        expect(page.items).toEqual([expect.objectContaining({ appUid: uidA })]);
+    });
+
+    it('finds nothing for an `appUid` this owner does not hold', async () => {
+        const uid = await makeApp(ownerUserId);
+        await handlers().publish({ appUid: uid, name: 'a', source: SOURCE });
+        const theirs = await makeApp(otherOwnerUserId);
+        await handlers().publish({ appUid: theirs, name: 'a', source: SOURCE });
+
+        const page = await handlers().listEventsWorkersForOwner(ownerUserId, {
+            appUid: theirs,
+        });
+        expect(page.items).toEqual([]);
+    });
+
     it('paginates with a cursor, keyset on app_uid', async () => {
         const uids: string[] = [];
         for (let i = 0; i < 3; i++) {

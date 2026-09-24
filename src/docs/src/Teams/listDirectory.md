@@ -1,16 +1,17 @@
 ---
 title: puter.teams.listDirectory()
 description: Look up the user's colleagues, where the team has opened its directory to apps.
-platforms: [websites, apps]
+platforms: [websites, apps, nodejs, workers]
 ---
 
 <div class="info">The Teams API is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
 Returns the team's member directory — the colleagues of the user your app is
-running for. This is the one team route an app may call, and it is
-consent-gated: the team's owner has to open the directory to apps, and until
-they do it answers `team_not_found`, indistinguishable from the team not
-existing.
+running for, active accounts only. It is consent-gated: the team's owner has to
+open the directory to apps, and until they do it rejects with `team_not_found`
+for every caller, indistinguishable from the team not existing. The same
+consent decides whether an app sees the team in [`list()`](/Teams/list/) and
+may call [`listMembers()`](/Teams/listMembers/).
 
 The membership is always the signed-in user's, never the app's: an app can only
 see the directory of a team its user belongs to.
@@ -62,7 +63,9 @@ A rejection carries an `Error` with a stable `code`:
 | Code | Meaning |
 | -- | -- |
 | `invalid_request` | Refused before reaching the server — a blank `uid`, or an `offset` on a keyset list. |
-| `unauthorized` | Not signed in. |
+| `token_missing` | No authentication token was presented. |
+| `token_auth_failed` | The token presented did not authenticate. |
+| `forbidden` | Called with a scoped access token. |
 | `account_is_not_verified` | The caller's email has not been confirmed. |
 | `not_found` | Teams are turned off on this deployment. |
 | `team_not_found` | No such team, the caller is not a member of it, or the owner has not opened the directory to apps. |

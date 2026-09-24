@@ -114,6 +114,13 @@ All per minute unless stated:
 
 Signed-URL routes have no session to key on, so they are bounded per network rather than per account: 3,000 reads/min, 600 writes/min, 60 concurrent.
 
+`getReadURL()` and `revokeReadURL()` are not tiered by plan like the table above:
+
+| Limit | Value |
+| ----- | ----- |
+| Create (`getReadURL`, shared with any other access-token creation) | 20/hour |
+| Revoke (`revokeReadURL`) | 60/min |
+
 The Puter desktop generates PDF upload thumbnails locally with these best-effort budgets. Exceeding them skips the preview and does not reject the original file upload:
 
 | PDF thumbnail preparation | Limit |
@@ -175,7 +182,7 @@ Mounting with a `-token` username and an API token as the password skips the per
 | Limit                      | Value               |
 | -------------------------- | ------------------- |
 | `getProfile` reads         | 120/min per network |
-| `updateProfile` writes     | 30/min per account  |
+| Profile writes             | 30/min per account  |
 | Profile picture (data URL) | 512 KiB             |
 | Display name               | 64 characters       |
 | Bio                        | 280 characters      |
@@ -210,7 +217,7 @@ Recipients are emailed by default and opt out with the unsubscribe link the mail
 
 Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 5-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
-### Teams and teams
+### Teams
 
 Available only where a deployment has turned teams on. Every team route is bounded on calls, and the team itself is bounded on how much it can create.
 
@@ -302,7 +309,7 @@ A durable subscription may carry a `context`: JSON that is stored with it and ha
 
 A durable subscription runs a **handler** its app published by name. An app may publish **100** of them, each up to **64 KB** of source, and a name is unique inside one app. All of an app's handlers combined may not exceed **5 MB** of source; a publish that would push the total over that is refused with `events_worker_too_large`. Publishing is a developer operation: the account has to own the app. Publishing the same source again is a no-op; publishing different source under a name whose current source the caller did not name as its base is refused with `events_handler_conflict`, so two racing build steps never silently pick a winner — `replace: true` is how a caller says it means to take the name. Handler source is never returned by any listing.
 
-The first published handler brings up an **events worker** for that app; the last one removed, or `puter.events.workers.destroy()`, takes it down. An app's events worker may (re)deploy at most **30 times an hour**; past that, delivery stays retriable until the hour rolls over. `puter.events.workers.list()` shows every app you own that currently has one — see [`puter.events.workers`](/Events/workers/) for details, including how a hosted deployment may bill it.
+The first published handler brings up an **events worker** for that app; the last one removed, or `puter.events.workers.destroy()`, takes it down. An app's events worker may (re)deploy at most **30 times an hour**; past that, delivery stays retriable until the hour rolls over. `puter.events.workers.list()` shows every app you own that currently has one from an account session or API token, or just its own from an app — see [`puter.events.workers`](/Events/workers/) for details, including how a hosted deployment may bill it.
 
 **A subscription can end or stop without you unsubscribing.** Access is re-checked against the stored permission on every delivery, so a share that is taken back stops delivering immediately; the subscription is then *suspended*, with `suspendedAt` and `suspendedReason` in `list`. There are four reasons:
 

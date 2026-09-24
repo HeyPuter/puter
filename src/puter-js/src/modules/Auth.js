@@ -382,10 +382,11 @@ export class AuthModule extends PuterModule {
     }
 
     /**
-     * Update the signed-in user's profile and return the result. Rejects with
-     * the backend's `{ code, message }` when a field is unknown, malformed, or
-     * too large (`profile_field_not_allowed`, `profile_picture_invalid`,
-     * `profile_picture_too_large`, `profile_field_too_long`).
+     * Update the signed-in user's profile and return the result. Requires the
+     * account's own session. Rejects with the backend's `{ code, message }` when a field is unknown,
+     * malformed, or too large (`profile_field_not_allowed`,
+     * `profile_picture_invalid`, `profile_picture_too_large`,
+     * `profile_field_too_long`).
      *
      * @param {UserProfilePatch} patch
      * @returns {Promise<UserProfile>}
@@ -508,11 +509,14 @@ export class AuthModule extends PuterModule {
 
 /**
  * The public face of the module: derived from the class, with the internal
- * `puter` handle and the legacy `authToken` accessor omitted.
+ * `puter` handle and the legacy `authToken` accessor omitted, plus methods
+ * apps cannot call: `updateProfile` needs the account's own session and
+ * `getGlobalUsage` an admin.
  *
  * @typedef {import('../lib/types.js').OmitMembers<
  *     typeof AuthModule,
  *     'puter' | 'authToken'
+ *     | 'updateProfile' | 'getGlobalUsage'
  * >} AuthConstructor
  */
 

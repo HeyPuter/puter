@@ -58,6 +58,10 @@ let router: PuterRouter;
 // override in and out (same pattern as AuthController.test.ts).
 type SignupValidateOverride = (data: Record<string, unknown>) => void;
 let signupValidateOverride: SignupValidateOverride | null = null;
+// Stand-in for the extension that honors signup bonus codes.
+let bonusValidateOverride: SignupValidateOverride | null = null;
+let bonusCheckOverride: SignupValidateOverride | null = null;
+const heardSignupSuccess: Array<Record<string, unknown>> = [];
 
 beforeAll(async () => {
     server = await setupTestServer({
@@ -90,6 +94,24 @@ beforeAll(async () => {
             }
         },
     );
+    server.clients.event.on(
+        'puter.signup-bonus.check',
+        (_k: unknown, data: unknown) => {
+            bonusCheckOverride?.(data as Record<string, unknown>);
+        },
+    );
+    server.clients.event.on(
+        'puter.signup-bonus.validate',
+        (_k: unknown, data: unknown) => {
+            bonusValidateOverride?.(data as Record<string, unknown>);
+        },
+    );
+    server.clients.event.on(
+        'puter.signup.success',
+        (_k: unknown, data: unknown) => {
+            heardSignupSuccess.push(data as Record<string, unknown>);
+        },
+    );
 });
 
 afterAll(async () => {
@@ -99,6 +121,8 @@ afterAll(async () => {
 afterEach(() => {
     vi.restoreAllMocks();
     signupValidateOverride = null;
+    bonusValidateOverride = null;
+    bonusCheckOverride = null;
 });
 
 interface CapturedResponse {
@@ -1963,5 +1987,145 @@ describe('OIDCController rate limits', () => {
         // surface, so it stays bounded well below the ceilings given to
         // static reads like icons or version info.
         expect(rateLimitOf('get', '/auth/oidc/providers').limit).toBe(1_200);
+    });
+});
+
+// -- Signup bonus codes ----------------------------------------------
+
+describe('OIDC signup bonus codes', () => {
+    const rand = () => Math.random().toString(36).slice(2, 8);
+
+    const startState = async (query: Record<string, unknown>) => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/:provider/start',
+            makeReq({ params: { provider: 'custom' }, query }),
+            res,
+        );
+        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+            'state',
+        );
+        return oidc().verifyState(state!) as Record<string, unknown>;
+    };
+
+    const stubIdp = (sub: string, email: string) => {
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email,
+            email_verified: true,
+        } as never);
+    };
+
+    const openCheck = (data: Record<string, unknown>) => {
+        data.valid = true;
+        data.display = { title: 'T', description: 'D' };
+    };
+
+    const signupCallback = async (bonusCode: string) => {
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: TEST_ORIGIN + '/',
+            bonus_code: bonusCode,
+        });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/signup',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        return captured;
+    };
+
+    it('carries a canonical code in the signed state', async () => {
+        const decoded = await startState({
+            flow: 'signup',
+            bonusCode: 'Startup3M-ABCD1234',
+        });
+        expect(decoded.bonus_code).toBe('startup3mabcd1234');
+    });
+
+    it('drops a malformed code at start', async () => {
+        const decoded = await startState({ flow: 'signup', bonusCode: 'a:b' });
+        expect(decoded).not.toHaveProperty('bonus_code');
+    });
+
+    it('creates the account with the requirements an accepted code raises', async () => {
+        const email = `bonus-${rand()}@test.local`;
+        stubIdp(`sub-${rand()}`, email);
+        bonusCheckOverride = openCheck;
+        let seen: Record<string, unknown> | null = null;
+        bonusValidateOverride = (data) => {
+            seen = { ...data };
+            data.accepted = true;
+            data.requires_phone_verification = true;
+        };
+
+        const captured = await signupCallback('startup3mabcd1234');
+
+        expect(captured.cookies).toHaveLength(1);
+        expect(seen).toMatchObject({
+            code: 'startup3mabcd1234',
+            source: 'oidc',
+            email,
+        });
+        const user = await server.stores.user.findEmailOwner(email, {
+            force: true,
+        });
+        expect(Boolean(user!.requires_phone_verification)).toBe(true);
+        const deadline = Date.now() + 2000;
+        let success: Record<string, unknown> | undefined;
+        while (!success && Date.now() < deadline) {
+            success = heardSignupSuccess.find((e) => e.email === email);
+            if (!success) await new Promise((r) => setTimeout(r, 10));
+        }
+        expect(success?.bonus_code).toBe('startup3mabcd1234');
+    });
+
+    it('refuses a dead code before the validate hook runs', async () => {
+        const email = `bonus-${rand()}@test.local`;
+        stubIdp(`sub-${rand()}`, email);
+        let validated = false;
+        signupValidateOverride = (data) => {
+            if (data.email === email) validated = true;
+        };
+
+        const captured = await signupCallback('startup3mabcd1234');
+
+        expect(captured.redirectUrl).toContain('message=bonus_code_invalid');
+        expect(validated).toBe(false);
+    });
+
+    it('refuses the account when nothing accepts the code, without echoing it', async () => {
+        const email = `bonus-${rand()}@test.local`;
+        stubIdp(`sub-${rand()}`, email);
+
+        const captured = await signupCallback('startup3mabcd1234');
+
+        expect(captured.redirectUrl).toContain('message=bonus_code_invalid');
+        expect(captured.redirectUrl).not.toContain('bonusCode=');
+        expect(captured.cookies).toHaveLength(0);
+        expect(
+            await server.stores.user.findEmailOwner(email, { force: true }),
+        ).toBeFalsy();
+    });
+
+    it('keeps the code on the retry redirect when something else failed', async () => {
+        const email = `bonus-${rand()}@test.local`;
+        stubIdp(`sub-${rand()}`, email);
+        bonusCheckOverride = openCheck;
+        signupValidateOverride = (data) => {
+            if (data.email === email) data.allow = false;
+        };
+
+        const captured = await signupCallback('startup3mabcd1234');
+
+        expect(captured.redirectUrl).toContain('message=signup_blocked');
+        expect(captured.redirectUrl).toContain('bonusCode=startup3mabcd1234');
     });
 });

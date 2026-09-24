@@ -28,7 +28,10 @@ const METHODS = [
 ];
 
 /**
- * The `puter.teams` module — team administration.
+ * The `puter.teams` module. The public surface (`list`, `listMembers`,
+ * `listDirectory`) is read-only; team administration — creating teams,
+ * provisioning and suspending accounts — only an account's own session can
+ * call, so those methods are omitted from the public types below.
  *
  * Every method takes a team `uid`, never a handle: a handle is a mutable
  * label that deleting the team releases, so a stored one can later resolve
@@ -76,11 +79,17 @@ export class TeamsModule extends PuterModule {
 
 /**
  * The public face of the module: derived from the class, with the internal
- * `puter` handle and the legacy `authToken` accessor omitted.
+ * `puter` handle, the legacy `authToken` accessor, and every administration
+ * method omitted — those need the account's own session. `list`,
+ * `listMembers`, and `listDirectory` are what remains.
  *
  * @typedef {import('../../lib/types.js').OmitMembers<
  *     typeof TeamsModule,
  *     'puter' | 'authToken'
+ *     | 'create' | 'get' | 'update' | 'delete'
+ *     | 'createMember' | 'resendActivation'
+ *     | 'disableMember' | 'enableMember' | 'resetPassword' | 'deleteMemberAccount'
+ *     | 'listAudit' | 'listOwnAudit'
  * >} TeamsConstructor
  */
 

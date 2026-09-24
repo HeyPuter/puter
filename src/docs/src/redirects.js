@@ -20,6 +20,10 @@ const redirects = {
     '/Perms/requestWriteDocuments': '/Perms/request',
     '/Perms/requestWritePictures': '/Perms/request',
     '/Perms/requestWriteVideos': '/Perms/request',
+
+    // Only the account's own session can call `updateProfile()`, so it is
+    // not documented for apps.
+    '/Auth/updateProfile': '/Auth/getProfile',
 };
 
 module.exports = redirects;
