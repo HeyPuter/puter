@@ -593,6 +593,37 @@ export class SubdomainStore extends PuterStore {
         }
     }
 
+    /**
+     * Hand every row `fromAppId` owns to `toAppId`. For merging one app row
+     * into another: `app_owner` cascades on app delete, so the rows have to
+     * change hands before the source app row goes. Returns the moved rows.
+     */
+    async reassignAppOwner(
+        fromAppId: number,
+        toAppId: number,
+    ): Promise<SubdomainRow[]> {
+        const rows = (await this.listAll({
+            appOwner: fromAppId,
+        })) as unknown as SubdomainRow[];
+        if (rows.length === 0) return rows;
+
+        await this.clients.db.write(
+            'UPDATE `subdomains` SET `app_owner` = ? WHERE `app_owner` = ?',
+            [toAppId, fromAppId],
+        );
+
+        const userIds = new Set<number>();
+        for (const row of rows) {
+            row.app_owner = toAppId;
+            await this.#refreshCache(row);
+            if (row.user_id != null) userIds.add(Number(row.user_id));
+        }
+        for (const userId of userIds) {
+            await this.#invalidatePrefixListsForUser(userId);
+        }
+        return rows;
+    }
+
     // -- Internals ----------------------------------------------------
 
     #cacheKey(subdomain: string) {

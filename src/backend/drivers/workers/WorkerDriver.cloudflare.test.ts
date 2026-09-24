@@ -748,4 +748,60 @@ describe('WorkerDriver hot reload', () => {
         await new Promise((r) => setTimeout(r, 120));
         expect(fetchSpy).not.toHaveBeenCalled();
     });
+
+    // Deleting the app a worker is bound to deletes the worker row with it.
+    // Were the row to survive unbound, the next source write would redeploy
+    // it with an account-scoped token — a child app is enough to set that up.
+    it('does not redeploy a worker whose app was deleted, and never falls back to an account-scoped token', async () => {
+        const { user, actor } = await makeUser();
+        const builder = await server.stores.app.create(
+            {
+                name: `builder-${user.username}`,
+                title: 'builder',
+                index_url: `https://builder-${user.username}.example.com/`,
+            },
+            { ownerUserId: user.id },
+        );
+        const child = await server.stores.app.create(
+            {
+                name: `child-${user.username}`,
+                title: 'child',
+                index_url: `https://child-${user.username}.example.com/`,
+            },
+            { ownerUserId: user.id, appOwner: builder.id },
+        );
+        const path = `/${user.username}/bound.js`;
+        await writeSource(actor, user.id, path, 'v1');
+        const name = `bound-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({
+                appId: child.uid,
+                workerName: name,
+                filePath: path,
+            }),
+        );
+
+        // Uncached listing: the by-name cache would still serve the row.
+        const rowsFor = () =>
+            server.stores.subdomain.listByUserIdAndPrefix(
+                user.id,
+                `workers.puter.${name}`,
+            );
+        const [row] = await rowsFor();
+        expect(Number(row!.app_owner)).toBe(child.id);
+
+        await server.stores.app.delete(child.id);
+        expect(await rowsFor()).toEqual([]);
+
+        fetchSpy.mockClear();
+        const sessionMint = vi.spyOn(
+            server.services.auth,
+            'createWorkerSessionToken',
+        );
+        await writeSource(actor, user.id, path, 'v2');
+
+        await new Promise((r) => setTimeout(r, 120));
+        expect(putCalls()).toHaveLength(0);
+        expect(sessionMint).not.toHaveBeenCalled();
+    });
 });

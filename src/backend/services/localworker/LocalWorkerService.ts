@@ -227,6 +227,8 @@ export class LocalWorkerService extends PuterService {
         }
     }
     async reconstructDeployArgs(workerName: string, row: SubdomainRow) {
+        // A null `app_owner` means the worker was never bound to an app: a
+        // deleted app takes its rows with it.
         const appOwnerId = row.app_owner as number | null;
         let authorization: string;
         const ownerUser = await this.stores.user.getById(row.user_id);

@@ -1451,6 +1451,12 @@ export class AppDriver extends PuterDriver {
             });
             const sourceApp = await this.appStore.getByUid(sourceAppUid);
             if (sourceApp) {
+                // The source app's sites and workers follow it into the
+                // joined row; `app_owner` cascades on delete otherwise.
+                await this.stores.subdomain.reassignAppOwner(
+                    sourceApp.id,
+                    appToJoin.id,
+                );
                 await this.appStore.delete(sourceApp.id);
                 this.#emitAppChanged({
                     app: null,
