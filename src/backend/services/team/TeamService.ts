@@ -68,10 +68,9 @@ import { PuterService } from '../types';
 export const DISABLED_BY_TEAM = 'disabled_by_team';
 
 /**
- * Cap-lock bounds. The lock is held for a count plus an insert -- single-digit
- * milliseconds -- so 200ms of waiting is already far past the contended case,
- * and past it the request proceeds unserialized rather than holding a
- * connection or refusing.
+ * Cap-lock bounds. The lock is held for a count plus an insert, so 200ms of
+ * waiting is already far past the contended case; past it the request is
+ * refused, because running unserialized would leave the cap unenforced.
  */
 const CAP_LOCK_ATTEMPTS = 8;
 const CAP_LOCK_RETRY_MS = 25;
@@ -225,6 +224,24 @@ export class TeamService extends PuterService {
         return (await this.stores.team.listGroupIdsForUser(userId)).length > 0;
     }
 
+    /**
+     * An account a team provisioned does not take on accounts of its own; that
+     * is the console's job, not a seat's (PUT-1890). Keyed on `org_owned = 1` —
+     * the owner is `org_owned = 0` in their own team, and a joined member is an
+     * ordinary self-paying account.
+     */
+    async #refuseIfOrgSeat(userId: number): Promise<void> {
+        const seat = await this.stores.team.getOrgSeat(userId);
+        if (!seat) return;
+        throw new HttpError(
+            403,
+            seat.team_name
+                ? `${seat.team_name} owns this account, so it cannot create a team of its own.`
+                : 'A team owns this account, so it cannot create a team of its own.',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
     /** 404 to a non-member so the endpoint is not an existence oracle. */
     async requireMembership(
         teamUid: string,
@@ -350,7 +367,11 @@ export class TeamService extends PuterService {
         }
     }
 
-    /** Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`. */
+    /**
+     * Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`.
+     * Refuses rather than running unserialized, or the cap is unenforced under
+     * concurrency. A lone create never contends.
+     */
     async #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
         const key = `team:cap:${suffix}`;
         const token = `${process.pid}:${Date.now()}:${Math.random()}`;
@@ -373,12 +394,16 @@ export class TeamService extends PuterService {
                     setTimeout(resolve, CAP_LOCK_RETRY_MS),
                 );
             }
-            // Waiting out the budget is not a refusal: the cap is a bound, and
-            // a spurious 409 on a lone create is worse than a rare overshoot.
-            if (!held) return run();
-        } catch {
-            // Redis unreachable — same reasoning, proceed unserialized.
-            return run();
+        } catch (e) {
+            // Same answer as contention below — the caller retries either way.
+            // Logged, because unlike contention the cause is ours.
+            console.warn('[team] cap lock unavailable:', e);
+            held = false;
+        }
+        if (!held) {
+            throw new HttpError(409, 'Busy — try that again in a moment', {
+                legacyCode: 'conflict',
+            });
         }
 
         try {
@@ -488,6 +513,7 @@ export class TeamService extends PuterService {
         ownerUserId: number,
         input: { name: string; handle?: string | null },
     ): Promise<TeamRow> {
+        await this.#refuseIfOrgSeat(ownerUserId);
         // First: a capped user should hear that, not that the name was taken.
         const cap = this.#teamCap();
         if ((await this.stores.team.countOwned(ownerUserId)) >= cap) {
@@ -735,16 +761,18 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map((row): MemberActivityEntry => ({
-                action: row.action,
-                reason: row.reason,
-                created_at: epochSeconds(row.created_at),
-                username: name(row.user_id_keep),
-                actor_username: name(row.actor_user_id),
-                // Only a sign-in carries these; the shape stays uniform.
-                ip: null,
-                user_agent: null,
-            })),
+            items: page.items.map(
+                (row): MemberActivityEntry => ({
+                    action: row.action,
+                    reason: row.reason,
+                    created_at: epochSeconds(row.created_at),
+                    username: name(row.user_id_keep),
+                    actor_username: name(row.actor_user_id),
+                    // Only a sign-in carries these; the shape stays uniform.
+                    ip: null,
+                    user_agent: null,
+                }),
+            ),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }
@@ -808,6 +836,9 @@ export class TeamService extends PuterService {
         temporaryPassword: string;
     }> {
         const team = await this.requireOwner(teamUid, actorUserId);
+        // Unreachable while `createTeam` refuses a seat, since provisioning
+        // needs ownership; kept so the rule does not rest on that alone.
+        await this.#refuseIfOrgSeat(actorUserId);
 
         // Counted, never derived from a stored total: seats come and go.
         const cap = await this.#seatCap(team.owner_user_id);

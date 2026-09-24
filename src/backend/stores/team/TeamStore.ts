@@ -148,7 +148,10 @@ const RESERVED_HANDLES = new Set([
 ]);
 
 export type HandleRejection =
-    'too_short' | 'too_long' | 'malformed' | 'reserved';
+    | 'too_short'
+    | 'too_long'
+    | 'malformed'
+    | 'reserved';
 
 /** Trimmed and capped, so the same name is accepted on every engine. */
 export const normalizeTeamName = (name: string): string => {
@@ -670,6 +673,21 @@ export class TeamStore extends PuterStore {
         const rows = (await this.clients.db.read(
             'SELECT COUNT(*) AS n FROM `group` ' +
                 `WHERE \`owner_user_id\` = ? AND ${this.#live()}`,
+            [ownerUserId, TEAM_KIND],
+        )) as { n: number }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
+    /**
+     * Teams this user owns that still hold provisioned accounts, soft-deleted
+     * ones included: a deleted team's seats are suspended, not gone.
+     */
+    async countOwnedTeamsWithAccounts(ownerUserId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(DISTINCT g.`id`) AS n FROM `group` g ' +
+                'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                'WHERE g.`owner_user_id` = ? AND g.`kind` = ? ' +
+                'AND ug.`org_owned` = 1',
             [ownerUserId, TEAM_KIND],
         )) as { n: number }[];
         return Number(rows[0]?.n ?? 0);

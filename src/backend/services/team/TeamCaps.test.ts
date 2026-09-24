@@ -189,6 +189,40 @@ describe('team and seat caps', () => {
         );
     });
 
+    it('refuses rather than overshooting when the cap lock is contended', async () => {
+        const owner = await makeUser();
+        const team = await makeTeam(owner.id);
+        // Never claimed: the lock must refuse rather than run unserialized.
+        const set = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockResolvedValue(null as never);
+        try {
+            await expect(provision(team.uid, owner.id)).rejects.toMatchObject({
+                statusCode: 409,
+            });
+        } finally {
+            set.mockRestore();
+        }
+        const after = await server.stores.team.countSeats(team.id);
+        expect(after).toBe(0);
+    });
+
+    it('refuses when the cap lock backend is unreachable', async () => {
+        const owner = await makeUser();
+        const team = await makeTeam(owner.id);
+        const set = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockRejectedValue(new Error('redis down'));
+        try {
+            await expect(provision(team.uid, owner.id)).rejects.toMatchObject({
+                statusCode: 409,
+            });
+        } finally {
+            set.mockRestore();
+        }
+        expect(await server.stores.team.countSeats(team.id)).toBe(0);
+    });
+
     it('does not count the team owner against the seat cap', async () => {
         const owner = await makeUser();
         const team = await makeTeam(owner.id);

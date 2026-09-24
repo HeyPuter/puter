@@ -245,6 +245,15 @@ export class TeamController extends PuterController {
     async listDirectory(req: Request, res: Response): Promise<void> {
         // The membership is the person's, never the app's.
         const userId = this.#requireUserId(req);
+        // A scoped token holds only what it was minted for; a roster is not that.
+        const token = req.actor?.accessToken;
+        if (token && token.fullAccess !== true) {
+            throw new HttpError(
+                403,
+                'This endpoint is not available to scoped access tokens',
+                { legacyCode: 'forbidden' },
+            );
+        }
         const page = await this.services.team.listDirectory(
             this.#param(req, 'uid'),
             userId,
