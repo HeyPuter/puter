@@ -140,7 +140,10 @@ services:
 
   s3-init:
     # One-shot container that creates the `puter-local` bucket on first
-    # boot. Exits 0 once the bucket exists; stays exited 0 thereafter.
+    # boot and provisions CORS on it, so a browser can upload/download
+    # files directly (e.g. the Dev Center "use files" step). Runs on
+    # every boot and is idempotent, so it also repairs buckets created
+    # before this step existed. Exits 0 afterwards; stays exited 0.
     image: amazon/aws-cli:latest
     container_name: puter-s3-init
     depends_on:
@@ -150,6 +153,11 @@ services:
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-puter}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
       AWS_DEFAULT_REGION: us-east-1
+      # Comma-separated origins the bucket's CORS allows. Must be explicit
+      # origins (scheme + host), never a bare `*`. Defaults to the
+      # documented puter.localhost trial set; set to your real domain's
+      # origins in production.
+      S3_CORS_ORIGINS: ${S3_CORS_ORIGINS:-https://puter.localhost,https://api.puter.localhost,https://site.puter.localhost,https://host.puter.localhost,https://app.puter.localhost,https://dev.puter.localhost}
     entrypoint:
       - /bin/sh
       - -c
@@ -163,6 +171,11 @@ services:
           echo "creating bucket $$bucket"
           aws --endpoint-url "$$endpoint" s3 mb "s3://$$bucket"
         fi
+        cors_config='{"CORSRules":[{"AllowedOrigins":["'"$(printf '%s' "$$S3_CORS_ORIGINS" | sed 's/,/","/g')"'"],"AllowedMethods":["GET","HEAD","PUT","POST","DELETE"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag","x-amz-request-id"],"MaxAgeSeconds":3600}]}'
+        echo "configuring bucket CORS for $$bucket"
+        aws --endpoint-url "$$endpoint" s3api put-bucket-cors \
+          --bucket "$$bucket" \
+          --cors-configuration "$$cors_config"
     restart: "no"
 
   # ── Optional: local LLM ───────────────────────────────────────────

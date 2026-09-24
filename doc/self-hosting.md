@@ -62,6 +62,12 @@ MARIADB_PASSWORD=$MARIADB_PASSWORD
 S3_ACCESS_KEY=puter
 S3_SECRET_KEY=$S3_SECRET_KEY
 S3_BUCKET=puter-local
+# Comma-separated origins the `puter-local` bucket serves over CORS, so a
+# browser can upload/download files straight to `s3.<domain>` (e.g. the
+# Dev Center's "use files" step). Defaults to the puter.localhost set if
+# unset. Must be explicit origins (scheme + host), never a bare `*`;
+# cover your real domain's origins here (root + api./site./host./app./dev.).
+S3_CORS_ORIGINS=https://puter.localhost,https://api.puter.localhost,https://site.puter.localhost,https://host.puter.localhost,https://app.puter.localhost,https://dev.puter.localhost
 EOF
 
 mkdir -p puter/config puter/data puter/data/caddy puter/tls
