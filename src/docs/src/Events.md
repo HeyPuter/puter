@@ -96,15 +96,21 @@ await puter.events.onLocal(`kv:${puter.appID}:orders:pending`, handler);
 
 The `subject` and [anchor](#anchor) on the subscription you get back are always fully qualified, whichever form you subscribed with.
 
-A delivery names the key and not what it now holds, so a handler that needs the value reads it back. Ask for it instead with `includeValue`, and every `set` carries the new value while every `del` carries `null`:
+A delivery names the key and not what it now holds, so a handler that needs the value reads it back. Ask for it instead with `includeValue`, and eligible `set` deliveries carry the new value while `del` deliveries carry `null`:
 
 ```js
 await puter.events.onLocal('kv:cart', ({ event }) => render(event.value), { includeValue: true });
 ```
 
-A value over **16 KB** serialized is not inlined: the event arrives without `value`, and you read the key as you would have anyway. An `expire` never carries one, since the value did not change. `includeValue` is accepted on `kv:` subjects only — anything else is refused with `invalid_include_value`. It works through a [share handle](#share-handle) too, which is how a holder sees what was written in a region it cannot otherwise read.
+A value over **16 KB** serialized is not inlined: the event arrives without `value`, and you read the key as you would have anyway.
+
+Values are also omitted from every delivery when the event matches more than **128 subscriptions in that region**, or the filter-evaluation ceiling prevents completing that count, even with `includeValue: true`. The count includes subscriptions that did not request values and is taken before delivery-time permission checks and delivery truncation. The key and other event metadata are still delivered.
+
+An `expire` never carries one, since the value did not change. `includeValue` is accepted on `kv:` subjects only — anything else is refused with `invalid_include_value`. It works through a [share handle](#share-handle) too, which is how a holder sees what was written in a region it cannot otherwise read.
 
 Watching **another app's** key-value data takes the same consent as reading it: that app must not have opted out of data sharing, and the user must have granted your app `app-data:<appId>:kv:read`. It is checked when you subscribe and again on every delivery, so deliveries stop the moment either goes away. Where the feature is not enabled, a cross-app subject is refused with `events_cross_app_disabled`.
+
+An entry the other app wrote with `disableSharing` is never delivered to you either, the same as a read would not see it. Marking a key private produces no event of its own, so a value you already have for it may be stale.
 
 ### Sharing a region with another user
 
@@ -135,7 +141,7 @@ const { handle } = await res.json();
 await puter.events.onLocal(`kv:${handle}:*`, ({ event }) => render(event.key));
 ```
 
-The handle is the whole of what the holder learns: not whose data it is, not where in the namespace it sits, and not anything above the prefix it was granted on. Events name it too: `subject` and `key` on every delivery are relative to the handle, in the same grammar the subscription was written in. `kv:<handle>:messages:*` narrows to part of the shared region, and one handle per channel gives one subscription covering every key written in that channel. Subscribe with `includeValue` and each delivery carries the new value as well — the holder has no other way to read the region, so this is how shared data reaches them, and it stops the moment the handle is revoked.
+The handle is the whole of what the holder learns: not whose data it is, not where in the namespace it sits, and not anything above the prefix it was granted on. Events name it too: `subject` and `key` on every delivery are relative to the handle, in the same grammar the subscription was written in. `kv:<handle>:messages:*` narrows to part of the shared region, and one handle per channel gives one subscription covering every key written in that channel. Subscribe with `includeValue` to receive eligible values, subject to the 16 KB size limit and the threshold of 128 matching subscriptions. A share handle grants event access, not KV read access: when values are omitted, the app needs a separate authorized way to fetch the shared data. Revoking the handle stops event delivery.
 
 **Key layout is the access boundary.** A handle pins the prefix it was granted on, and nothing rewrites it afterwards: rename `workspace:<uuid>:` to `project:<uuid>:` and every handle already given out points at keys nothing writes any more. Grant on a **stable synthetic segment** — `workspace:<uuid>:`, `thread:<uuid>:` — rather than a semantic one like `acme-corp:` or `q3-planning:`, which is more likely to get renamed later.
 
@@ -190,7 +196,7 @@ A key-value change carries `key` where a filesystem change carries `uid` and `pa
 | `subject` | String | `kv:<appId>:<key>`, naming the key that changed. |
 | `op` | String | `set` for a write, `del` for a removal, `expire` when only the key's lifetime changed. |
 | `key` | String | The key that changed. |
-| `value` | Any | What the key holds after the change — the written value on a `set`, `null` on a `del`. Only on a subscription made with `includeValue`, only up to 16 KB serialized, and never on an `expire`. |
+| `value` | Any | What the key holds after the change — the written value on a `set`, `null` on a `del`. Only on a subscription made with `includeValue`, only up to 16 KB serialized, only when the complete match count is at most 128 subscriptions in the region, and never on an `expire`. |
 | `self` | Boolean | As above. |
 | `ts` | Number | As above. |
 | `seq` | Number | As above. |
@@ -226,7 +232,7 @@ Nothing is registered and no position is kept for you: you hold the cursor. Only
 
 `onLocal()` subscriptions are **session-scoped**: nothing is stored, nothing runs while the page is closed, and the server drops them when the connection goes away. Every subscription this client makes rides one connection, which opens on the first `onLocal()` and closes when the last subscription ends. A Puter worker invocation is short-lived, so `onLocal()` there is only useful for the lifetime of that one invocation — a worker that wants to react to changes over time should use [`onPersistent()`](/Events/onPersistent/) with a `worker` target and a published handler instead.
 
-When the connection drops and comes back — a reconnect, a sign-in, an API origin change — the SDK subscribes again for you. The handler and the subscription object stay the same; only `subId` changes, which is why nothing should be stored against it. If re-subscribing fails (the access is gone, the account signed out), or the server closes the connection outright (a revoked session, too many connections), the subscription ends and your `onError` callback is told:
+When the connection drops and comes back — a network blip, a sign-in, an API origin change, or the server closing it because another of the account's sessions signed out — the SDK reconnects and subscribes again for you, backing off when the server was the one that closed it. The handler and the subscription object stay the same; only `subId` changes, which is why nothing should be stored against it. The subscription lapses and your `onError` callback is told only if re-subscribing fails, the reconnect is refused (`reauth_required` when the session was signed out), or the server keeps closing the connection (`events_connection_failed`):
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', handler, {
@@ -234,7 +240,7 @@ const sub = await puter.events.onLocal('fs:~/Documents', handler, {
 });
 ```
 
-[`onPersistent()`](/Events/onPersistent/) subscriptions are **stored against the account**. They keep matching with nothing open, survive every reconnect, and end only when you call [`unsubscribe()`](/Events/unsubscribe/) or their `expiresAt` passes. What runs is a *handler* your app deployed by name:
+[`onPersistent()`](/Events/onPersistent/) subscriptions are **stored against the account**. They keep matching with nothing open, survive every reconnect, and end only when you call [`unsubscribe()`](/Events/unsubscribe/) or their `expiresAt` passes. What runs is a *handler* your app deployed by name. A handler running here rides the same connection and survives the same reconnects; if the connection is lost for good it stops running here and its own `onError` is told, but the subscription itself carries on — the handler runs here again once this client connects again (signing in again, or a new subscription).
 
 ```js
 // Once, at deploy time
@@ -276,7 +282,7 @@ Ordering follows the same shape: a subscription's own deliveries stay in order w
 
 ## Limits
 
-Subscriptions per connection, persistent subscriptions per account, published handlers per app, subscribe calls per minute, and how much one event may fan out are all capped — see [Rate Limits and Quotas](/rate-limits-and-quotas/). Deliveries are coalesced over 250 ms per subject, so a multipart upload or a save loop arrives as one event rather than one per write.
+Subscriptions per connection, persistent subscriptions per account, published handlers per app, subscribe calls per minute, and how much one event may fan out are all capped — see [Rate Limits and Quotas](/rate-limits-and-quotas/). A KV change delivers to at most **128 matching subscriptions for a free or anonymous key owner** or **512 for a paid key owner**, per region; these count subscriptions, not people. Other event families retain their 50-subscription cap. Deliveries are coalesced over 250 ms per subject, so a multipart upload or a save loop arrives as one event rather than one per write.
 
 ## Functions
 

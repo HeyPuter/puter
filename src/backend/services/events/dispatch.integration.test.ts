@@ -26,6 +26,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import type { DeliveryEnvelope } from './EventsService.js';
@@ -79,6 +80,53 @@ const subscribeTo = async (subject: string) => {
 };
 
 describe('the write path reaches subscribers', () => {
+    it('omits values after the temporary KV fan-out threshold', async () => {
+        const key = `fanout-value-${Date.now()}`;
+        const socketIds = Array.from({ length: 129 }, (_, i) =>
+            `kv-fanout-${i}`,
+        );
+        try {
+            for (const socketId of socketIds) {
+                await events().subscribe(actor, socketId, {
+                    subject: `kv:os-global:${key}`,
+                    includeValue: true,
+                });
+                await env.server.clients.redis.del(
+                    `rate:events:subscribe:${userId}`,
+                );
+            }
+            delivered.length = 0;
+
+            await runWithContext({ actor }, () =>
+                env.server.drivers.kvStore.set({ key, value: 're-read' }),
+            );
+            await vi.waitFor(
+                () =>
+                    expect(
+                        delivered.filter(
+                            (envelope) =>
+                                envelope.event.op === 'set' &&
+                                (envelope.event as { key?: string }).key === key,
+                        ),
+                    ).toHaveLength(128),
+                { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
+            );
+
+            const sent = delivered.filter(
+                (envelope) =>
+                    envelope.event.op === 'set' &&
+                    (envelope.event as { key?: string }).key === key,
+            );
+            expect(sent.every((envelope) => !('value' in envelope.event))).toBe(
+                true,
+            );
+        } finally {
+            await Promise.all(
+                socketIds.map((socketId) => events().reapSocket(userId, socketId)),
+            );
+        }
+    });
+
     it('delivers a create under a watched folder', async () => {
         const folder = `/${username}/watch-create`;
         await fs().mkdir(userId, { path: folder, createMissingParents: true });

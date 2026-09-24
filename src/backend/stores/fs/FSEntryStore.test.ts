@@ -1487,6 +1487,82 @@ describe('FSEntryStore home and prefix rewrites', () => {
         ).resolves.toBeNull();
     });
 
+    it('reports a descendant conflict only when opted in, and escapes LIKE wildcards', async () => {
+        const owner = await makeUser();
+        const freeName = `free_${Math.random().toString(36).slice(2, 8)}`;
+        // A row left dangling under a name nobody owns — the shape a partial
+        // cascade or a user-scoped cleanup leaves behind.
+        const docs = (await store.getEntryByPath(`${owner.home}/Documents`))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${freeName}/Documents`, docs.id],
+        );
+        await store.invalidateEntryCacheByUuid(docs.uuid);
+
+        const foreign = await store.findHomePathConflict(freeName, undefined, {
+            includeDescendants: true,
+        });
+        expect(foreign?.userId).toBe(owner.userId);
+
+        // The name's own owner is excluded, same as the exact-path check.
+        await expect(
+            store.findHomePathConflict(freeName, owner.userId, {
+                includeDescendants: true,
+            }),
+        ).resolves.toBeNull();
+
+        // Without the flag, a descendant-only conflict is invisible — the
+        // exact-path check this call used to be stays unchanged.
+        await expect(
+            store.findHomePathConflict(freeName),
+        ).resolves.toBeNull();
+
+        // `_` in a username is a LIKE wildcard; an unescaped pattern for
+        // `free_abc` would also match `/freexabc/...`.
+        const decoy = await makeUser();
+        const decoyDocs = (await store.getEntryByPath(
+            `${decoy.home}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            ['/freexabc/Documents', decoyDocs.id],
+        );
+        await store.invalidateEntryCacheByUuid(decoyDocs.uuid);
+        await expect(
+            store.findHomePathConflict('free_abc', undefined, {
+                includeDescendants: true,
+            }),
+        ).resolves.toBeNull();
+    });
+
+    it('heals a home onto its own username even when a foreign row sits underneath', async () => {
+        const mover = await makeUser();
+        const root = (await store.getRootEntryForUser(mover.userId))!;
+        const drifted = `${mover.username}-drift`;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [`/${drifted}`, drifted, root.id],
+        );
+        await store.invalidateEntryCacheByUuid(root.uuid);
+
+        // A stranger's row left dangling right where the heal needs to land —
+        // renameUserHome's own check must stay exact-path, or the healed
+        // account could never reclaim its own name.
+        const stranger = await makeUser();
+        const leftover = await createFile(
+            stranger,
+            `${stranger.home}/Documents/leftover.txt`,
+        );
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${mover.username}/Documents/leftover.txt`, leftover.id],
+        );
+        await store.invalidateEntryCacheByUuid(leftover.uuid);
+
+        const healed = await store.renameUserHome(mover.userId, mover.username);
+        expect(healed?.path).toBe(`/${mover.username}`);
+    });
+
     it('rewrites a path prefix and reports how many rows moved', async () => {
         const user = await makeUser();
         await store.ensureDirectoriesForUser(user.userId, [

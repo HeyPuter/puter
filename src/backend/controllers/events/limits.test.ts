@@ -36,6 +36,8 @@ import {
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
     EVENTS_KV_HANDLES_PER_APP,
     EVENTS_KV_HANDLES_PER_USER,
+    EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
+    EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
     limitFor,
@@ -119,6 +121,34 @@ describe('the tiered subscription quotas', () => {
 });
 
 describe('the delivery budgets', () => {
+    it('sets KV fan-out and filter work by the namespace owner tier', () => {
+        for (const [plan, matched, evaluated] of [
+            [null, 512, 2048],
+            [DEFAULT_FREE_SUBSCRIPTION, 128, 512],
+            [DEFAULT_TEMP_SUBSCRIPTION, 128, 512],
+            [ORG_SEAT_FREE_SUBSCRIPTION, 128, 512],
+        ] as const) {
+            expect(
+                limitFor(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT, plan),
+            ).toBe(matched);
+            expect(
+                limitFor(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT, plan),
+            ).toBe(evaluated);
+            expect(evaluated).toBeGreaterThanOrEqual(matched);
+        }
+    });
+
+    it('pins the share-handle quotas by plan', () => {
+        expect(EVENTS_KV_HANDLES_PER_USER.limit).toBe(512);
+        expect(EVENTS_KV_HANDLES_PER_APP.limit).toBe(512);
+        expect(
+            limitFor(EVENTS_KV_HANDLES_PER_USER, DEFAULT_FREE_SUBSCRIPTION),
+        ).toBe(200);
+        expect(
+            limitFor(EVENTS_KV_HANDLES_PER_APP, DEFAULT_FREE_SUBSCRIPTION),
+        ).toBe(128);
+    });
+
     it('keeps `single` well under broadcast — each one costs far more', () => {
         expect(EVENTS_SINGLE_DELIVERY_LIMIT.limit).toBeLessThan(
             EVENTS_BROADCAST_DELIVERY_LIMIT.limit,

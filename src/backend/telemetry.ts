@@ -35,6 +35,7 @@ import {
     ATTR_SERVICE_NAME,
     ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
+import { registerTelemetryShutdown } from './util/telemetryShutdown.js';
 
 const endpoint =
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4317';
@@ -96,10 +97,6 @@ const sdk = new NodeSDK({
 
 sdk.start();
 
-const shutdown = () => {
-    sdk.shutdown()
-        .catch((err) => console.error('[telemetry] shutdown error', err))
-        .finally(() => process.exit(0));
-};
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+// No signal handlers here: the entry point flushes telemetry as the last step
+// of its own shutdown. Any other entry point keeps Node's default signal exit.
+registerTelemetryShutdown(() => sdk.shutdown());

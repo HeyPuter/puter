@@ -45,6 +45,7 @@ let userId: number;
 let ownAppUid: string;
 let ownAppToken: string;
 let otherAppUid: string;
+let otherAppToken: string;
 let delivered: DeliveryEnvelope[];
 
 const events = () => env.server.services.events;
@@ -147,6 +148,42 @@ const kvDel = async (token: string, key: string): Promise<void> => {
     );
 };
 
+/** `kv.incr` as a caller makes it: through the driver, as this app. */
+const kvIncr = async (
+    token: string,
+    key: string,
+    pathAndAmountMap: Record<string, number>,
+): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.incr({ key, pathAndAmountMap }),
+    );
+};
+
+/** `kv.update` as a caller makes it: through the driver, as this app. */
+const kvUpdate = async (
+    token: string,
+    key: string,
+    pathAndValueMap: Record<string, unknown>,
+): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.update({ key, pathAndValueMap }),
+    );
+};
+
+/** `kv.expire` as a caller makes it: through the driver, as this app. */
+const kvExpire = async (
+    token: string,
+    key: string,
+    ttl: number,
+): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.expire({ key, ttl }),
+    );
+};
+
 const clearRows = async () => {
     await env.server.clients.db.write(`DELETE FROM \`${TABLE}\``, []);
     events().invalidateUser(userId);
@@ -172,6 +209,10 @@ beforeAll(async () => {
     ownAppToken = await env.server.services.auth.getUserAppToken(
         userActor,
         ownAppUid,
+    );
+    otherAppToken = await env.server.services.auth.getUserAppToken(
+        userActor,
+        otherAppUid,
     );
     // Durable rows target the app's worker by default, which takes its own
     // consent.
@@ -432,6 +473,102 @@ describe('the cross-app gate against real grants', () => {
             subscribe(`kv:${closedAppUid}:orders`, ownAppToken),
         ).rejects.toMatchObject({ legacyCode: 'forbidden' });
         await revokeRead(closedAppUid);
+    });
+
+    it('withholds a private key from a granted cross-app row, but not from its owner', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const owner = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            otherAppToken,
+            { includeValue: true },
+        );
+        const cross = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            ownAppToken,
+            { includeValue: true },
+        );
+        delivered.length = 0;
+
+        await kvSet(otherAppToken, 'secret:token', 's', {
+            disableSharing: true,
+        });
+        await eventFor(owner.subId);
+        await quiet();
+        expect(delivered.some((d) => d.subId === cross.subId)).toBe(false);
+
+        // A shared key under the same subscription still reaches it.
+        delivered.length = 0;
+        await kvSet(otherAppToken, 'secret:shared', 'v');
+        expect(await eventFor(cross.subId)).toMatchObject({ value: 'v' });
+
+        await revokeRead(otherAppUid);
+    });
+
+    it('keeps withholding every further mutation on the private key', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const owner = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            otherAppToken,
+        );
+        const cross = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            ownAppToken,
+        );
+        await kvSet(
+            otherAppToken,
+            'secret:live',
+            { count: 0 },
+            { disableSharing: true },
+        );
+        await eventFor(owner.subId);
+
+        for (const mutate of [
+            () => kvIncr(otherAppToken, 'secret:live', { count: 1 }),
+            () => kvUpdate(otherAppToken, 'secret:live', { count: 2 }),
+            () => kvExpire(otherAppToken, 'secret:live', 60),
+            () => kvDel(otherAppToken, 'secret:live'),
+        ]) {
+            delivered.length = 0;
+            await mutate();
+            await eventFor(owner.subId);
+            await quiet();
+            expect(delivered.some((d) => d.subId === cross.subId)).toBe(false);
+        }
+
+        await revokeRead(otherAppUid);
+    });
+
+    it('withholds a private key from a durable cross-app row', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const owner = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            otherAppToken,
+        );
+        const cross = await subscribeDurable(
+            `kv:${otherAppUid}:secret:*`,
+            ownAppToken,
+            { includeValue: true },
+        );
+        delivered.length = 0;
+
+        await kvSet(otherAppToken, 'secret:durable', 'x', {
+            disableSharing: true,
+        });
+        await eventFor(owner.subId);
+        await quiet();
+
+        expect(delivered.some((d) => d.subId === cross.subId)).toBe(false);
+
+        // A positive control: the durable row is genuinely live and reaches
+        // a shared key, so the withholding above isn't just a slow delivery.
+        delivered.length = 0;
+        await kvSet(otherAppToken, 'secret:durable-shared', 'v');
+        expect(await eventFor(cross.subId)).toMatchObject({ value: 'v' });
+
+        await revokeRead(otherAppUid);
     });
 });
 

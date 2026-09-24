@@ -77,7 +77,7 @@ export async function onPersistent (options = {}) {
     // Durable ids are the server's and survive every reconnect, so routing is
     // registered once and never re-subscribed.
     if ( typeof handler === 'function' && typeof sub?.subId === 'string' ) {
-        this.channel.registerDurable(sub.subId, handler, options.context);
+        this.channel.registerDurable(sub.subId, handler, options.context, options.onError);
     }
 
     // `unsubscribe()` deregisters routing here too, so `off()` is just that.

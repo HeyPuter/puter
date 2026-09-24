@@ -1322,6 +1322,15 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
+    /** Uncached primary read, for decisions a stale row must not make. */
+    async getEntryByUuidFromPrimary(uuid: string): Promise<FSEntry | null> {
+        const rows = (await this.clients.db.pread(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
+            [uuid],
+        )) as unknown as FSEntryRow[];
+        return rows[0] ? this.#mapFSEntryRow(rows[0]) : null;
+    }
+
     async getEntryById(id: number): Promise<FSEntry | null> {
         const cacheKey = `prodfsv2:fsentry:id:${id}`;
         const cached = await this.#readEntryFromCache(cacheKey);
@@ -3080,25 +3089,47 @@ export class FSEntryStore extends PuterStore {
      * Two rows at one home path make each account's tree answer for the
      * other's, so every point that claims a username checks this first. Reads
      * the primary: a racing signup has to see the row just written.
+     *
+     * `includeDescendants` also reports a foreign row under `/{username}/…`
+     * (ACL grants by path prefix). Claim sites only — the heal and the
+     * provisioning backstop stay exact-path.
      */
     async findHomePathConflict(
         username: string,
         ownerUserId?: number,
+        options?: { includeDescendants?: boolean },
     ): Promise<FSEntry | null> {
         const path = this.#normalizePath(`/${username}`);
+
+        if (!options?.includeDescendants) {
+            const rows = (await this.clients.db.pread(
+                `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+                 WHERE path = ? ORDER BY id ASC`,
+                [path],
+            )) as unknown as FSEntryRow[];
+            for (const row of rows) {
+                const entry = this.#mapFSEntryRow(row);
+                if (ownerUserId !== undefined && entry.userId === ownerUserId) {
+                    continue;
+                }
+                return entry;
+            }
+            return null;
+        }
+
+        // One read for both; callers only test truthiness. No ORDER BY, so the
+        // planner stays on the path index.
+        const likePattern = `${this.#escapeLikePattern(path)}/%`;
+        const params: unknown[] = [path, likePattern];
+        if (ownerUserId !== undefined) params.push(ownerUserId);
         const rows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
-             WHERE path = ? ORDER BY id ASC`,
-            [path],
+             WHERE (path = ? OR path LIKE ? ESCAPE '!')${ownerUserId !== undefined ? ' AND user_id <> ?' : ''}
+             LIMIT 1`,
+            params,
         )) as unknown as FSEntryRow[];
-        for (const row of rows) {
-            const entry = this.#mapFSEntryRow(row);
-            if (ownerUserId !== undefined && entry.userId === ownerUserId) {
-                continue;
-            }
-            return entry;
-        }
-        return null;
+        const row = rows[0];
+        return row ? this.#mapFSEntryRow(row) : null;
     }
 
     // Heal a user's home tree to `/{username}`: if the root entry's path/name
@@ -3269,15 +3300,24 @@ export class FSEntryStore extends PuterStore {
         return Number(rows[0]?.totalUsage ?? 0);
     }
 
+    /**
+     * `consistentRead` reads both queries from the primary instead of a replica
+     * — used for the exact re-check when a replica-backed read would reject a
+     * write, so `curr` and `max` come from the same, uncontestable snapshot.
+     */
     async getUserStorageAllowance(
         userId: number,
+        opts: { consistentRead?: boolean } = {},
     ): Promise<{ curr: number; max: number }> {
+        const read = opts.consistentRead
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
         const [usageRows, userRows] = await Promise.all([
-            this.clients.db.read(
+            read(
                 `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
                 [userId],
             ) as Promise<{ totalUsage: number }[]>,
-            this.clients.db.read(
+            read(
                 `SELECT free_storage AS ${this.clients.db.quoteIdentifier('freeStorage')} FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
                 [userId],
             ) as Promise<{ freeStorage: number | null }[]>,

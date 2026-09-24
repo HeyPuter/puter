@@ -516,7 +516,14 @@ export class OIDCService extends PuterService {
                     success: false,
                     error: 'Failed to generate unique username.',
                 };
-        } while (await this.stores.user.getByUsername(username));
+        } while (
+            (await this.stores.user.getByUsername(username)) ||
+            (await this.stores.fsEntry.findHomePathConflict(
+                username,
+                undefined,
+                { includeDescendants: true },
+            ))
+        );
 
         // Create user — no password, email assumed confirmed by provider
         const { v4: uuidv4 } = await import('uuid');

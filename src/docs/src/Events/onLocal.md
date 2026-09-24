@@ -30,9 +30,9 @@ Called with a single `{ event }` object per delivery. `event.op === 'gap'` means
 
 #### `options` (Object) (optional)
 
-- `onError` (Function): Called with `{ message, code }` if the subscription lapses — the connection was lost and re-subscribing failed. The subscription is over at that point; call `onLocal()` again to resume. Without it, a lapse is reported on the console.
+- `onError` (Function): Called with `{ message, code }` if the subscription lapses — re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A connection the server closes once is reconnected without calling it. The subscription is over at that point; call `onLocal()` again to resume. Without it, a lapse is reported on the console.
 - `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
-- `includeValue` (Boolean): For a `kv:` subject, deliver the key's new value on every event as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Refused on a non-`kv:` subject.
+- `includeValue` (Boolean): For a `kv:` subject, request the key's new value as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Values are also omitted from every delivery when the event matches more than 128 subscriptions in that region or its filter-evaluation ceiling is reached before counting finishes, even with `includeValue: true`; the key and other event metadata are still delivered. Refused on a non-`kv:` subject.
 
 ## Return value
 
@@ -64,7 +64,7 @@ The promise rejects with `{ message, code }`:
 | `too_many_requests` | Over the subscribe/unsubscribe call budget. |
 | `events_disabled` | Events are not enabled on this server. |
 | `reauth_required` | The session backing this connection is no longer valid. |
-| `events_connection_failed` | The events connection could not be established, the server did not answer in time, or the server closed the connection. |
+| `events_connection_failed` | The events connection could not be established, the server did not answer in time, or the server kept closing the connection. |
 | `events_failed` | The server answered with something the SDK could not make sense of. |
 
 ## Examples
