@@ -29,6 +29,7 @@ import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import {
     clampSignedUploadExpirySeconds,
+    isMissingObjectError,
     S3ObjectStore,
 } from './S3ObjectStore.js';
 
@@ -139,6 +140,47 @@ describe('clampSignedUploadExpirySeconds', () => {
         );
         expect(clampSignedUploadExpirySeconds(undefined)).toBe(3600);
         expect(clampSignedUploadExpirySeconds('nope')).toBe(3600);
+    });
+});
+
+describe('isMissingObjectError', () => {
+    it('rejects a HEAD of a never-uploaded key with a bare NotFound', async () => {
+        const error = await store()
+            .headObjectSize(bucket, uuidv4(), region)
+            .then(
+                () => null,
+                (e: unknown) => e,
+            );
+        expect((error as { name?: string })?.name).toBe('NotFound');
+        expect(isMissingObjectError(error)).toBe(true);
+    });
+
+    it('reads a missing key off name or Code', () => {
+        expect(isMissingObjectError({ name: 'NotFound' })).toBe(true);
+        expect(isMissingObjectError({ name: 'NoSuchKey' })).toBe(true);
+        expect(isMissingObjectError({ Code: 'NoSuchKey' })).toBe(true);
+    });
+
+    it('never reads throttling, network, access or server errors as missing', () => {
+        expect(
+            isMissingObjectError({
+                name: 'Unknown',
+                $metadata: { httpStatusCode: 403 },
+            }),
+        ).toBe(false);
+        expect(
+            isMissingObjectError({
+                name: 'Unknown',
+                $metadata: { httpStatusCode: 503 },
+            }),
+        ).toBe(false);
+        expect(isMissingObjectError({ name: 'SlowDown' })).toBe(false);
+        expect(isMissingObjectError({ name: 'TimeoutError' })).toBe(false);
+        expect(isMissingObjectError(new Error('socket hang up'))).toBe(false);
+        // A missing bucket is not a missing object — must not read as "gone".
+        expect(isMissingObjectError({ name: 'NoSuchBucket' })).toBe(false);
+        expect(isMissingObjectError(null)).toBe(false);
+        expect(isMissingObjectError('NotFound')).toBe(false);
     });
 });
 

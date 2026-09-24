@@ -1322,6 +1322,15 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
+    /** Uncached primary read, for decisions a stale row must not make. */
+    async getEntryByUuidFromPrimary(uuid: string): Promise<FSEntry | null> {
+        const rows = (await this.clients.db.pread(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
+            [uuid],
+        )) as unknown as FSEntryRow[];
+        return rows[0] ? this.#mapFSEntryRow(rows[0]) : null;
+    }
+
     async getEntryById(id: number): Promise<FSEntry | null> {
         const cacheKey = `prodfsv2:fsentry:id:${id}`;
         const cached = await this.#readEntryFromCache(cacheKey);

@@ -355,6 +355,58 @@ describe('GET /fs/readdir over HTTP', () => {
     });
 });
 
+describe('POST /fs/completeWrite over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv();
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    it('refuses completion of a session whose object never arrived', async () => {
+        const { username, token } = env.users.user;
+        const started = await fetch(new URL('/fs/startWrite', env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                fileMetadata: {
+                    path: `/${username}/Documents/http-nobytes-${Date.now()}.bin`,
+                    size: 4,
+                },
+            }),
+        });
+        expect(started.status).toBe(200);
+        const { sessionId } = (await started.json()) as { sessionId: string };
+
+        // No PUT to the presigned URL.
+        const response = await fetch(
+            new URL('/fs/completeWrite', env.apiOrigin),
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ uploadId: sessionId }),
+            },
+        );
+
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as {
+            code?: string;
+            message?: string;
+        };
+        expect(body.code).toBe('bad_request');
+        expect(body.message).toBe('Upload content was not received');
+    });
+});
+
 describe('POST /fs/startWrite storage quota over HTTP', () => {
     let env: PuterTestEnv;
 

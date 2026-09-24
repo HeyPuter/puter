@@ -1194,6 +1194,24 @@ describe('FSService storage allowance', () => {
         ).resolves.toMatchObject({ uploadMode: 'single' });
     });
 
+    it('abort of an overwrite session also releases its reservation', async () => {
+        const user = await quotaUser(64);
+        await user.write('overwrite-abort.txt', 'kept');
+
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/overwrite-abort.txt`,
+                size: 40,
+                overwrite: true,
+            },
+        });
+        await limitedFs.abortUrlWrite(user.userId, started.sessionId);
+
+        await expect(
+            limitedServer.stores.uploadReservation.outstanding(user.userId),
+        ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+    });
+
     it('a failed pending-row write releases its reservation', async () => {
         const user = await quotaUser(64);
         const createPendingEntry = vi
@@ -1218,6 +1236,96 @@ describe('FSService storage allowance', () => {
                 },
             }),
         ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('a refused completion releases its reservation', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/refuse-release.txt`,
+                size: 40,
+            },
+        });
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        await expect(
+            limitedFs.completeUrlWrite(user.userId, {
+                uploadId: started.sessionId,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        await expect(
+            limitedServer.stores.uploadReservation.outstanding(user.userId),
+        ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/refuse-release-2.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        consoleWarn.mockRestore();
+    });
+
+    it('a refused batch item releases only its own lease', async () => {
+        const user = await quotaUser(64);
+        const responses = await limitedFs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-a.txt`,
+                    size: 30,
+                },
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-b.txt`,
+                    size: 30,
+                },
+            },
+        ]);
+        await fetch(responses[0]!.url!, {
+            method: 'PUT',
+            body: 'x'.repeat(30),
+        });
+        // No PUT for responses[1] — refused, its lease is released.
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        await expect(
+            limitedFs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: responses[0]!.sessionId },
+                { uploadId: responses[1]!.sessionId },
+            ]),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // a's 30-byte lease is still held (nothing committed): 30 + 40 > 64.
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-c.txt`,
+                    size: 40,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        // Only b's 30-byte lease was released: 30 + 30 still fits in 64.
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-d.txt`,
+                    size: 30,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        consoleWarn.mockRestore();
     });
 
     it('a pending signed upload counts against a direct write too', async () => {
@@ -1658,12 +1766,210 @@ describe('FSService signed (direct-to-S3) writes', () => {
         expect(await readBack(completed.fsEntry)).toBe('hello world');
     });
 
-    it('keeps the declared size when the object was never uploaded', async () => {
+    it('refuses to complete a single upload whose object never arrived', async () => {
         const response = await start(`${user.home}/Documents/nobytes.txt`);
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(error.legacyCode).toBe('bad_request');
+        expect(error.message).toBe('Upload content was not received');
+
+        const session = await server.stores.fsEntry.getPendingEntryBySessionId(
+            response.sessionId,
+        );
+        expect(session?.status).toBe('failed');
+        expect(session?.failureReason).toBe('Upload content was not received');
+        expect(await entryAt(user, '/Documents/nobytes.txt')).toBeNull();
+
+        // Replaying the completion keeps answering the same way.
+        const replayed = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(replayed.statusCode).toBe(400);
+        expect(replayed.legacyCode).toBe('bad_request');
+
+        consoleWarn.mockRestore();
+    });
+
+    it('keeps the declared size when the size check itself fails', async () => {
+        const response = await start(`${user.home}/Documents/head-fails.txt`);
+        // The object actually landed (11 bytes) but the confirming HEAD is
+        // about to fail transiently — the declared 5 must survive, not 11.
+        await fetch(response.url!, { method: 'PUT', body: 'hello world' });
+        const headObjectSize = vi
+            .spyOn(server.stores.s3Object, 'headObjectSize')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('service unavailable'), {
+                    name: 'Unknown',
+                    $metadata: { httpStatusCode: 503 },
+                }),
+            );
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
         const completed = await fs.completeUrlWrite(user.userId, {
             uploadId: response.sessionId,
         });
         expect(completed.fsEntry.size).toBe(5);
+
+        headObjectSize.mockRestore();
+        consoleWarn.mockRestore();
+    });
+
+    it('completes a zero-byte upload that actually PUT empty content', async () => {
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/zero.txt`,
+                size: 0,
+                contentType: 'text/plain',
+            },
+        });
+        await fetch(response.url!, { method: 'PUT', body: '' });
+
+        const completed = await fs.completeUrlWrite(user.userId, {
+            uploadId: response.sessionId,
+        });
+        expect(completed.fsEntry.size).toBe(0);
+        expect(await readBack(completed.fsEntry)).toBe('');
+    });
+
+    it('refuses a zero-byte upload with no PUT at all', async () => {
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/zero-missing.txt`,
+                size: 0,
+                contentType: 'text/plain',
+            },
+        });
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(error.statusCode).toBe(400);
+
+        consoleWarn.mockRestore();
+    });
+
+    it('completes an overwrite with no new PUT by keeping the existing bytes', async () => {
+        const path = `${user.home}/Documents/overwrite-lenient.txt`;
+        await writeFile(user, path, 'original');
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 999, overwrite: true },
+        });
+        // No PUT — the overwrite session reuses the existing entry's object
+        // key, so the confirming HEAD finds the old bytes still there.
+        const completed = await fs.completeUrlWrite(user.userId, {
+            uploadId: response.sessionId,
+        });
+        expect(completed.wasOverwrite).toBe(true);
+        expect(completed.fsEntry.size).toBe(Buffer.byteLength('original'));
+        expect(await readBack(completed.fsEntry)).toBe('original');
+    });
+
+    it('abort of an overwrite session leaves the live file readable', async () => {
+        const path = `${user.home}/Documents/abort-overwrite.txt`;
+        await writeFile(user, path, 'kept');
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 40, overwrite: true },
+        });
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+
+        expect(deleteObject).not.toHaveBeenCalled();
+        const stillThere = await entryAt(
+            user,
+            '/Documents/abort-overwrite.txt',
+        );
+        expect(stillThere).not.toBeNull();
+        expect(await readBack(stillThere!)).toBe('kept');
+        const session = await server.stores.fsEntry.getPendingEntryBySessionId(
+            response.sessionId,
+        );
+        expect(session?.status).toBe('aborted');
+
+        deleteObject.mockRestore();
+    });
+
+    it('abort of an overwrite leaves the object under a touch-created target', async () => {
+        const path = `${user.home}/Documents/touch-overwrite-abort.txt`;
+        const touched = await fs.touch(user.userId, { path });
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 40, overwrite: true },
+        });
+        // The entry still exists, so its key is left alone even though it
+        // had no object of its own; a later overwrite reuses the key.
+        expect(response.objectKey).toBe(touched.uuid);
+        await fetch(response.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+
+        expect(deleteObject).not.toHaveBeenCalled();
+        const stillThere = await entryAt(
+            user,
+            '/Documents/touch-overwrite-abort.txt',
+        );
+        expect(stillThere).not.toBeNull();
+        expect(await readBack(stillThere!)).toBe('');
+
+        deleteObject.mockRestore();
+    });
+
+    it('abort of an overwrite deletes the object once the target has been removed', async () => {
+        const path = `${user.home}/Documents/overwrite-target-gone.txt`;
+        const original = await writeFile(user, path, 'original');
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 40, overwrite: true },
+        });
+        // The target is removed out from under the pending session.
+        await fs.remove(user.userId, { entry: original });
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+
+        expect(deleteObject).toHaveBeenCalledWith(
+            response.bucket,
+            response.objectKey,
+            response.bucketRegion,
+        );
+
+        deleteObject.mockRestore();
+    });
+
+    it('abort after completion leaves the committed file readable and the session completed', async () => {
+        const response = await start(
+            `${user.home}/Documents/abort-after-complete.txt`,
+        );
+        await fetch(response.url!, { method: 'PUT', body: 'hello' });
+        const completed = await fs.completeUrlWrite(user.userId, {
+            uploadId: response.sessionId,
+        });
+
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+        expect(deleteObject).not.toHaveBeenCalled();
+
+        expect(await readBack(completed.fsEntry)).toBe('hello');
+        const session = await server.stores.fsEntry.getPendingEntryBySessionId(
+            response.sessionId,
+        );
+        expect(session?.status).toBe('completed');
+
+        deleteObject.mockRestore();
     });
 
     it('creates a directory entry instead of an upload session', async () => {
@@ -1765,6 +2071,7 @@ describe('FSService signed (direct-to-S3) writes', () => {
         expect(foreign.statusCode).toBe(403);
         expect(foreign.legacyCode).toBe('forbidden');
 
+        await fetch(response.url!, { method: 'PUT', body: '12345' });
         await fs.completeUrlWrite(user.userId, {
             uploadId: response.sessionId,
         });
@@ -2180,6 +2487,7 @@ describe('FSService batch signed writes', () => {
         );
         expect(foreign.statusCode).toBe(403);
 
+        await fetch(response.url!, { method: 'PUT', body: 'x' });
         await fs.batchCompleteUrlWrite(user.userId, [
             { uploadId: response.sessionId },
         ]);
@@ -2255,6 +2563,137 @@ describe('FSService batch signed writes', () => {
                 responses[0]!.objectKey,
             )
             .catch(() => undefined);
+    });
+
+    it('refuses a batch with an unreceived item, failing only that item', async () => {
+        const responses = await fs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-recv-a.txt`,
+                    size: 2,
+                },
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-recv-b.txt`,
+                    size: 2,
+                },
+            },
+        ]);
+        await fetch(responses[0]!.url!, { method: 'PUT', body: 'ab' });
+        // No PUT for responses[1] — its object never arrives.
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: responses[0]!.sessionId },
+                { uploadId: responses[1]!.sessionId },
+            ]),
+        );
+        expect(error.statusCode).toBe(400);
+
+        const sessionA = await server.stores.fsEntry.getPendingEntryBySessionId(
+            responses[0]!.sessionId,
+        );
+        const sessionB = await server.stores.fsEntry.getPendingEntryBySessionId(
+            responses[1]!.sessionId,
+        );
+        expect(sessionA?.status).toBe('pending');
+        expect(sessionB?.status).toBe('failed');
+        expect(sessionB?.failureReason).toBe('Upload content was not received');
+        expect(await entryAt(user, '/Documents/bc-recv-a.txt')).toBeNull();
+        expect(await entryAt(user, '/Documents/bc-recv-b.txt')).toBeNull();
+
+        // The untouched sibling can still be completed on its own.
+        const completedA = await fs.completeUrlWrite(user.userId, {
+            uploadId: responses[0]!.sessionId,
+        });
+        expect(completedA.fsEntry.size).toBe(2);
+
+        const stillRefusedB = await caught(() =>
+            fs.completeUrlWrite(user.userId, {
+                uploadId: responses[1]!.sessionId,
+            }),
+        );
+        expect(stillRefusedB.statusCode).toBe(400);
+
+        consoleWarn.mockRestore();
+    });
+
+    it('checks single-part objects before completing any multipart upload', async () => {
+        const totalSize = fs.getMaxSingleUploadSize() * 2;
+        const responses = await fs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-order-mp.bin`,
+                    size: totalSize,
+                },
+                uploadMode: 'multipart',
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-order-single.txt`,
+                    size: 5,
+                },
+            },
+        ]);
+        const multipart = responses[0]!;
+        const partSize = multipart.multipartPartSize!;
+        // Really PUT every part and carry real ETags — a fake/omitted parts
+        // array would already 400 before completeMultipartUpload is ever
+        // reached, which wouldn't prove anything about ordering. This way,
+        // completeMultipartUpload would actually succeed if it ran, so
+        // it not being called only holds if the single-item probe below
+        // genuinely runs first.
+        const uploadedParts: { partNumber: number; etag: string }[] = [];
+        for (const { partNumber, url } of multipart.multipartPartUrls!) {
+            const offset = (partNumber - 1) * partSize;
+            const bodySize = Math.min(partSize, totalSize - offset);
+            const uploaded = await fetch(url, {
+                method: 'PUT',
+                body: 'x'.repeat(bodySize),
+            });
+            uploadedParts.push({
+                partNumber,
+                etag: uploaded.headers.get('etag')!,
+            });
+        }
+        // No PUT for the single item — it's what must be caught before the
+        // (otherwise-successful) multipart completion is ever attempted.
+        const completeMultipartUpload = vi.spyOn(
+            server.stores.s3Object,
+            'completeMultipartUpload',
+        );
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: multipart.sessionId, parts: uploadedParts },
+                { uploadId: responses[1]!.sessionId },
+            ]),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(completeMultipartUpload).not.toHaveBeenCalled();
+        expect(
+            (
+                await server.stores.fsEntry.getPendingEntryBySessionId(
+                    multipart.sessionId,
+                )
+            )?.status,
+        ).toBe('pending');
+
+        completeMultipartUpload.mockRestore();
+        consoleWarn.mockRestore();
+        await server.stores.s3Object.abortMutipartUpload(
+            multipart.multipartUploadId!,
+            multipart.bucketRegion,
+            multipart.bucket,
+            multipart.objectKey,
+        );
     });
 });
 
@@ -2358,6 +2797,111 @@ describe('FSService reads', () => {
         expect(await entryAt(user, '/Documents/broken.txt')).not.toBeNull();
 
         getObjectStream.mockRestore();
+    });
+
+    it('keeps the row when a second look finds the object', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/flaky-read.txt`,
+            'still here',
+        );
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('no such key'), { name: 'NoSuchKey' }),
+            );
+        const consoleError = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() => fs.readContent(entry));
+        expect(error.statusCode).toBe(404);
+
+        // The confirming HEAD found the object still there, so the row and
+        // its bytes survive the spurious first miss.
+        expect(await entryAt(user, '/Documents/flaky-read.txt')).not.toBeNull();
+        expect(await readBack(entry)).toBe('still here');
+
+        getObjectStream.mockRestore();
+        consoleError.mockRestore();
+    });
+
+    it('keeps the row when the entry has no recorded region', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/no-region.txt`,
+            'x',
+        );
+        // Actually delete the backing object first: if the missing-region
+        // guard didn't short-circuit, a confirming HEAD would genuinely find
+        // it gone and delete the row.
+        await server.stores.s3Object.deleteObject(
+            entry.bucket!,
+            entry.uuid,
+            entry.bucketRegion!,
+        );
+        await server.clients.db.write(
+            'UPDATE fsentries SET bucket_region = NULL WHERE uuid = ?',
+            [entry.uuid],
+        );
+        const noRegionEntry = (await entryAt(
+            user,
+            '/Documents/no-region.txt',
+        ))!;
+
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('no such key'), { name: 'NoSuchKey' }),
+            );
+        const headObjectSize = vi.spyOn(
+            server.stores.s3Object,
+            'headObjectSize',
+        );
+        const consoleError = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() => fs.readContent(noRegionEntry));
+        expect(error.statusCode).toBe(404);
+        // With no recorded region there is nowhere safe to confirm from, so
+        // the guard short-circuits before ever probing — the row survives
+        // even though the object is genuinely gone.
+        expect(headObjectSize).not.toHaveBeenCalled();
+        expect(await entryAt(user, '/Documents/no-region.txt')).not.toBeNull();
+
+        getObjectStream.mockRestore();
+        headObjectSize.mockRestore();
+        consoleError.mockRestore();
+    });
+
+    it('keeps the row when the confirming look fails', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/confirm-fails.txt`,
+            'x',
+        );
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('no such key'), { name: 'NoSuchKey' }),
+            );
+        const headObjectSize = vi
+            .spyOn(server.stores.s3Object, 'headObjectSize')
+            .mockRejectedValueOnce(new Error('connection reset'));
+        const consoleError = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() => fs.readContent(entry));
+        expect(error.statusCode).toBe(404);
+        expect(
+            await entryAt(user, '/Documents/confirm-fails.txt'),
+        ).not.toBeNull();
+
+        getObjectStream.mockRestore();
+        headObjectSize.mockRestore();
+        consoleError.mockRestore();
     });
 
     it('lists, counts and searches a directory tree', async () => {

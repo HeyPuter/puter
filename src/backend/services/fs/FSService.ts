@@ -46,7 +46,10 @@ import {
     PendingUploadCreateInput,
     PendingUploadSession,
 } from '../../stores/fs/FSEntry.js';
-import { clampSignedUploadExpirySeconds } from '../../stores/fs/S3ObjectStore.js';
+import {
+    clampSignedUploadExpirySeconds,
+    isMissingObjectError,
+} from '../../stores/fs/S3ObjectStore.js';
 import { toUploadReservationBytes } from '../../stores/fs/UploadReservationStore.js';
 import type {
     MultipartCompletePart,
@@ -131,6 +134,27 @@ const isNoSuchKeyError = (err: unknown): boolean => {
     return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
 };
 
+/** Also recorded as the failure reason on a session refused for it. */
+const UPLOAD_NOT_RECEIVED = 'Upload content was not received';
+const uploadNotReceivedError = (): HttpError =>
+    new HttpError(400, UPLOAD_NOT_RECEIVED, { legacyCode: 'bad_request' });
+
+/** A session refused for a missing object keeps giving that answer. */
+const assertSessionCompletable = (session: PendingUploadSession): void => {
+    if (session.status === 'pending') return;
+    if (
+        session.status === 'failed' &&
+        session.failureReason === UPLOAD_NOT_RECEIVED
+    ) {
+        throw uploadNotReceivedError();
+    }
+    throw new HttpError(
+        409,
+        `Upload session is not pending (status=${session.status})`,
+        { legacyCode: 'conflict' },
+    );
+};
+
 /**
  * Active/settled bytes an owner has pending in signed uploads not yet
  * committed.
@@ -145,6 +169,12 @@ type HeldUploadReservation = {
     ownerId: number;
     sessionId: string;
     bytes: number;
+};
+
+/** Minimal shape `#probeBatchUploads` needs from a batch completion item. */
+type BatchCompletionProbeItem = {
+    session: PendingUploadSession;
+    finalData: FSEntryCreateInput;
 };
 
 type UploadReservationClaim = {
@@ -2753,6 +2783,90 @@ export class FSService extends PuterService {
         };
     }
 
+    // Object size once landed, 'missing' when the store says it isn't there,
+    // null when the check failed or gave no length.
+    async #probeSignedUpload(
+        bucket: string,
+        objectKey: string,
+        region: string,
+    ): Promise<number | 'missing' | null> {
+        try {
+            return await this.stores.s3Object.headObjectSize(
+                bucket,
+                objectKey,
+                region,
+            );
+        } catch (error) {
+            if (isMissingObjectError(error)) return 'missing';
+            console.warn(
+                `[fs] signed upload size check failed for ${objectKey}: ${this.#toErrorMessage(error)}`,
+            );
+            return null;
+        }
+    }
+
+    #logUnreceivedUploads(sessions: PendingUploadSession[]): void {
+        for (const session of sessions) {
+            console.warn('[fs] signed upload refused: object not received', {
+                sessionId: session.sessionId,
+                userId: session.userId,
+                appId: session.appId,
+                uploadMode: session.uploadMode,
+                overwrite: Boolean(session.overwriteTargetUid),
+            });
+        }
+    }
+
+    // Marks the sessions failed, releases their leases, and refuses the batch.
+    async #refuseUnreceivedUploads(
+        sessions: PendingUploadSession[],
+    ): Promise<never> {
+        this.#logUnreceivedUploads(sessions);
+        try {
+            await this.stores.fsEntry.markPendingEntriesFailed(
+                sessions.map((session) => session.sessionId),
+                UPLOAD_NOT_RECEIVED,
+            );
+        } finally {
+            await this.#releaseSessionUploadReservations(sessions);
+        }
+        throw uploadNotReceivedError();
+    }
+
+    // Probes each item's size into `sizes`; refuses the batch if any object never arrived.
+    async #probeBatchUploads(
+        items: BatchCompletionProbeItem[],
+        sizes: Map<string, number | null>,
+    ): Promise<void> {
+        if (items.length === 0) return;
+        const missing: PendingUploadSession[] = [];
+        await Promise.all(
+            items.map(async (item) => {
+                const bucket =
+                    item.session.bucket ??
+                    item.finalData.bucket ??
+                    this.#resolveBucket();
+                const region =
+                    item.session.bucketRegion ??
+                    item.finalData.bucketRegion ??
+                    this.#resolveBucketRegion();
+                const uploaded = await this.#probeSignedUpload(
+                    bucket,
+                    item.session.objectKey,
+                    region,
+                );
+                if (uploaded === 'missing') {
+                    missing.push(item.session);
+                    return;
+                }
+                sizes.set(item.session.sessionId, uploaded);
+            }),
+        );
+        if (missing.length > 0) {
+            await this.#refuseUnreceivedUploads(missing);
+        }
+    }
+
     async completeUrlWrite(
         userId: number,
         completeWriteRequest: CompleteWriteRequest,
@@ -2770,13 +2884,7 @@ export class FSService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
-        if (session.status !== 'pending') {
-            throw new HttpError(
-                409,
-                `Upload session is not pending (status=${session.status})`,
-                { legacyCode: 'conflict' },
-            );
-        }
+        assertSessionCompletable(session);
         if (session.expiresAt < Date.now()) {
             try {
                 await this.stores.fsEntry.markPendingEntryFailed(
@@ -2845,28 +2953,25 @@ export class FSService extends PuterService {
                 session.bucketRegion ??
                 createInput.bucketRegion ??
                 this.#resolveBucketRegion();
-            let trueSize: number | null = null;
-            try {
-                trueSize = await this.stores.s3Object.headObjectSize(
-                    reconcileBucket,
-                    session.objectKey,
-                    reconcileRegion,
-                );
-            } catch {
-                // HEAD failed (e.g. object never uploaded) — leave the
-                // declared size; don't block completion on a metadata read.
-                trueSize = null;
+            const uploaded = await this.#probeSignedUpload(
+                reconcileBucket,
+                session.objectKey,
+                reconcileRegion,
+            );
+            if (uploaded === 'missing') {
+                this.#logUnreceivedUploads([session]);
+                throw uploadNotReceivedError();
             }
-            if (typeof trueSize === 'number' && trueSize >= 0) {
+            if (typeof uploaded === 'number' && uploaded >= 0) {
                 // Record the true size only — do not re-assert the quota
-                // here. The bytes are already in S3, so a completion-time
-                // reject can't reclaim them; it only false-rejects (the
-                // start-check may have used a higher storageAllowanceMax
-                // override that isn't persisted in the session) and deletes
-                // within-quota uploads. Over-declaration is closed at
-                // signing time now, so what's left is the bounded
-                // check-then-act window the start-check already has.
-                createInput.size = trueSize;
+                // here. The bytes are already in the object store, so a
+                // completion-time reject can't reclaim them; it only
+                // false-rejects (the start-check may have used a higher
+                // storageAllowanceMax override that isn't persisted in the
+                // session) and deletes within-quota uploads. Over-declaration
+                // is closed at signing time now, so what's left is the
+                // bounded check-then-act window the start-check already has.
+                createInput.size = uploaded;
             }
 
             const fsEntry = await this.stores.fsEntry.completePendingEntry(
@@ -2943,13 +3048,7 @@ export class FSService extends PuterService {
                     legacyCode: 'forbidden',
                 });
             }
-            if (session.status !== 'pending') {
-                throw new HttpError(
-                    409,
-                    `Upload session is not pending (status=${session.status})`,
-                    { legacyCode: 'conflict' },
-                );
-            }
+            assertSessionCompletable(session);
             if (session.expiresAt < Date.now()) {
                 expiredSessions.push(session);
                 continue;
@@ -2981,6 +3080,14 @@ export class FSService extends PuterService {
                 legacyCode: 'session_required',
             });
         }
+
+        const uploadedSizes = new Map<string, number | null>();
+        const singleItems = completionItems.filter(
+            (item) => item.session.uploadMode !== 'multipart',
+        );
+        // Probe the single-mode items before any multipart completion runs —
+        // a multipart completion can't be undone if a sibling is refused.
+        await this.#probeBatchUploads(singleItems, uploadedSizes);
 
         const multipartItems = completionItems.filter(
             (item) => item.session.uploadMode === 'multipart',
@@ -3066,47 +3173,20 @@ export class FSService extends PuterService {
             throw new Error('Failed to complete multipart upload');
         }
 
-        // Reconcile client-declared sizes against the true uploaded object
-        // sizes before persisting — see completeUrlWrite for the rationale.
-        // Without this the batch endpoint is a parallel bypass of the same
-        // storage-quota check.
-        const reconcileBucketRegion = (
-            item: (typeof completionItems)[number],
-        ) => ({
-            bucket:
-                item.session.bucket ??
-                item.finalData.bucket ??
-                this.#resolveBucket(),
-            region:
-                item.session.bucketRegion ??
-                item.finalData.bucketRegion ??
-                this.#resolveBucketRegion(),
-        });
-        const headSizes = await Promise.all(
-            completionItems.map(async (item) => {
-                const { bucket, region } = reconcileBucketRegion(item);
-                try {
-                    return await this.stores.s3Object.headObjectSize(
-                        bucket,
-                        item.session.objectKey,
-                        region,
-                    );
-                } catch {
-                    return null;
-                }
-            }),
-        );
+        // Also records the multipart sizes.
+        await this.#probeBatchUploads(multipartItems, uploadedSizes);
+
         // Record the true sizes only — do not re-assert the quota here. See
-        // completeUrlWrite: the bytes are already in S3 so a completion-time
-        // reject can't reclaim them, and per-item deletes would destroy the
-        // bytes of correctly-declared, within-quota siblings in the batch.
-        // Recording real sizes keeps SUM(size) accurate so the next
-        // signed-write start-check blocks an over-quota user.
-        for (let index = 0; index < completionItems.length; index++) {
-            const item = completionItems[index];
-            const trueSize = headSizes[index];
-            if (typeof trueSize !== 'number' || trueSize < 0) continue;
-            item.finalData.size = trueSize;
+        // completeUrlWrite: the bytes are already in the object store so a
+        // completion-time reject can't reclaim them, and per-item deletes
+        // would destroy the bytes of correctly-declared, within-quota
+        // siblings in the batch. Recording real sizes keeps SUM(size)
+        // accurate so the next signed-write start-check blocks an
+        // over-quota user.
+        for (const item of completionItems) {
+            const uploaded = uploadedSizes.get(item.session.sessionId);
+            if (typeof uploaded !== 'number' || uploaded < 0) continue;
+            item.finalData.size = uploaded;
         }
 
         const completedEntries =
@@ -3170,6 +3250,9 @@ export class FSService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
+        // A completed session's object now backs a live entry, and its
+        // reservation is already settled — nothing left for abort to undo.
+        if (session.status === 'completed') return;
 
         try {
             const bucket = session.bucket;
@@ -3185,6 +3268,20 @@ export class FSService extends PuterService {
                         bucket,
                         session.objectKey,
                     );
+                } else if (session.overwriteTargetUid) {
+                    // An overwrite shares the live entry's object key, so only
+                    // delete once the primary confirms that entry is gone.
+                    const target =
+                        await this.stores.fsEntry.getEntryByUuidFromPrimary(
+                            session.overwriteTargetUid,
+                        );
+                    if (target === null) {
+                        await this.stores.s3Object.deleteObject(
+                            bucket,
+                            session.objectKey,
+                            bucketRegion,
+                        );
+                    }
                 } else {
                     await this.stores.s3Object.deleteObject(
                         bucket,
@@ -3587,11 +3684,34 @@ export class FSService extends PuterService {
         }
     }
 
-    // S3 returned NoSuchKey for an entry the DB still has — orphan. Delete
-    // the row (and emit fs.remove.node) so subsequent reads 404 cleanly via
-    // resolveNode instead of bubbling another S3 error. Best-effort: read
-    // path must not fail because cleanup failed.
+    // Only a second, definitive not-found from the entry's own recorded
+    // location removes it — a spurious miss elsewhere must not destroy data.
+    async #isObjectConfirmedMissing(
+        entry: FSEntry,
+        objectKey: string,
+    ): Promise<boolean> {
+        if (!entry.bucket || !entry.bucketRegion) return false;
+        try {
+            await this.stores.s3Object.headObjectSize(
+                entry.bucket,
+                objectKey,
+                entry.bucketRegion,
+            );
+            return false;
+        } catch (error) {
+            return isMissingObjectError(error);
+        }
+    }
+
+    // Called after NoSuchKey against an entry the DB still has. Confirm at
+    // the entry's own recorded location before deleting the row (and
+    // emitting fs.remove.node) — best-effort: the caller must not fail
+    // because cleanup failed.
     async #handleGhostFile(entry: FSEntry, objectKey: string): Promise<void> {
+        const confirmed = await this.#isObjectConfirmedMissing(
+            entry,
+            objectKey,
+        );
         console.error('prodfsv2 ghost fsentry — backing S3 object missing', {
             userId: entry.userId,
             uuid: entry.uuid,
@@ -3599,7 +3719,9 @@ export class FSService extends PuterService {
             bucket: entry.bucket,
             bucketRegion: entry.bucketRegion,
             objectKey,
+            removed: confirmed,
         });
+        if (!confirmed) return;
         try {
             await this.remove(entry.userId, { entry, systemInitiated: true });
         } catch (cleanupErr) {

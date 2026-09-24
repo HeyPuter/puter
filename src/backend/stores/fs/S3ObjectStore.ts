@@ -59,6 +59,21 @@ export function clampSignedUploadExpirySeconds(requested: unknown): number {
 }
 
 /**
+ * True when an object request failed because the store says the key isn't
+ * there. A HEAD has no error body, so a missing key arrives as a bare
+ * `NotFound`; throttling, network, access and server errors return false.
+ */
+export function isMissingObjectError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { name?: unknown; Code?: unknown };
+    return (
+        e.name === 'NotFound' ||
+        e.name === 'NoSuchKey' ||
+        e.Code === 'NoSuchKey'
+    );
+}
+
+/**
  * Store that owns S3 object I/O for fsentries: signed-URL minting, multipart
  * lifecycle, server-driven uploads, and object reads/copies/deletes. Wraps the
  * regional `S3Client` pool exposed by `clients.s3`.

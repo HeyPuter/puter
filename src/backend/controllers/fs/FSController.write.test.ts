@@ -1024,6 +1024,7 @@ describe('FSController.completeWrite', () => {
         const { actor, username } = await makeUser();
         const target = `/${username}/Documents/complete-single.txt`;
         const started = await startSignedWrite(actor, target, 4);
+        await fetch(started.url!, { method: 'PUT', body: 'wxyz' });
 
         const { res, captured } = makeRes();
         await withActor(actor, () =>
@@ -1073,6 +1074,7 @@ describe('FSController.completeWrite', () => {
             `/${username}/Documents/complete-thumb.txt`,
             2,
         );
+        await fetch(started.url!, { method: 'PUT', body: 'yz' });
         const { res } = makeRes();
         await withActor(actor, () =>
             controller.completeWrite(
@@ -2089,6 +2091,7 @@ describe('FSController upload session access re-checks', () => {
 
         const target = `${folder}/kept-complete.bin`;
         const single = await startUpload(recipient.actor, target);
+        await fetch(single.url!, { method: 'PUT', body: '12345678' });
         await withActor(recipient.actor, () =>
             controller.completeWrite(
                 makeReq<CompleteWriteRequest>({
@@ -2113,6 +2116,9 @@ describe('FSController upload session access re-checks', () => {
             await startUpload(recipient.actor, targets[0]!),
             await startUpload(recipient.actor, targets[1]!),
         ];
+        for (const s of started) {
+            await fetch(s.url!, { method: 'PUT', body: '12345678' });
+        }
         await withActor(recipient.actor, () =>
             controller.completeBatchWrites(
                 makeReq<CompleteWriteRequest[]>({
