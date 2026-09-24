@@ -1626,6 +1626,52 @@ describe('AuthService (integration)', () => {
             expect(a).toMatch(/^app-/);
         });
 
+        it('resolves every hosting variant of a subdomain to the same uid', async () => {
+            const sub = `canon-${Math.random().toString(36).slice(2, 10)}`;
+            const uids = await Promise.all([
+                authService.appUidFromOrigin(
+                    `https://${sub}.site.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `https://${sub}.host.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `http://${sub}.app.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `https://${sub}.dev.puter.localhost`,
+                ),
+            ]);
+            expect(new Set(uids).size).toBe(1);
+        });
+
+        it('prefers the private app row over an older public stub across hosting variants', async () => {
+            const user = await makeUser();
+            const sub = `pref-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.app.createFromOrigin(
+                `app-${uuidv4()}`,
+                `https://${sub}.host.puter.localhost`,
+                { ownerUserId: user.id },
+            );
+            const realUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+                [
+                    realUid,
+                    `real-${sub}`,
+                    'Real app',
+                    `https://${sub}.app.puter.localhost`,
+                    user.id,
+                    1,
+                ],
+            );
+            await expect(
+                authService.appUidFromOrigin(
+                    `https://${sub}.host.puter.localhost`,
+                ),
+            ).resolves.toBe(realUid);
+        });
+
         it.each([
             'javascript:alert(document.domain)',
             'data:text/html,<script>alert(1)</script>',

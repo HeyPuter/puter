@@ -148,10 +148,7 @@ const RESERVED_HANDLES = new Set([
 ]);
 
 export type HandleRejection =
-    | 'too_short'
-    | 'too_long'
-    | 'malformed'
-    | 'reserved';
+    'too_short' | 'too_long' | 'malformed' | 'reserved';
 
 /** Trimmed and capped, so the same name is accepted on every engine. */
 export const normalizeTeamName = (name: string): string => {

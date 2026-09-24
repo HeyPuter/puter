@@ -4030,11 +4030,18 @@ export class AuthController extends PuterController {
         if (!app && resolvedFromOrigin) {
             // Hosted-subdomain origins get the site owner stamped as the
             // app's creator at bootstrap; external origins stay unowned.
+            // Canonical origin only, so alternate hosts share one row.
+            const canonicalOrigin =
+                this.services.auth.canonicalizeOrigin(origin);
             const ownerUserId =
-                await this.services.auth.subdomainOwnerIdFromOrigin(origin);
-            app = await this.stores.app.createFromOrigin(app_uid, origin, {
-                ownerUserId,
-            });
+                await this.services.auth.subdomainOwnerIdFromOrigin(
+                    canonicalOrigin,
+                );
+            app = await this.stores.app.createFromOrigin(
+                app_uid,
+                canonicalOrigin,
+                { ownerUserId },
+            );
             // An origin's uid is a deterministic uuidv5, so a deleted app
             // reappears here under the identical uid. Withdraw any cross-app
             // data grants left pointing at it before this new row can inherit

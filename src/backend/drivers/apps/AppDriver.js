@@ -32,6 +32,7 @@ import {
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     buildHostedBackingDenial,
+    buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
     hostedIndexUrlBackingIsUnavailable,
 } from '../../util/hostedAppBacking.js';
@@ -1170,6 +1171,17 @@ export class AppDriver extends PuterDriver {
         const candidates = new Set(
             this.#buildEquivalentIndexUrlCandidates(indexUrl),
         );
+
+        // The same subdomain on any other hosting domain is the same site.
+        const hostedSubdomain = this.#extractPuterHostedSubdomain(indexUrl);
+        if (hostedSubdomain) {
+            for (const candidate of buildHostedSubdomainIndexUrlCandidates(
+                hostedSubdomain,
+                this.config,
+            )) {
+                candidates.add(candidate);
+            }
+        }
 
         // For alias-group hosts, treat the group as a host-level reservation:
         // any row whose index_url is the root URL of any group member counts
