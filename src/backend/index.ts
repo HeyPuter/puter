@@ -27,12 +27,13 @@ import { PuterServer } from './server';
 import { puterServices } from './services';
 import { puterStores } from './stores';
 import type { IConfig } from './types';
+import { createGracefulShutdown } from './util/gracefulShutdown.js';
 import { installJsonConsole } from './util/jsonConsole.js';
 
 // Config resolution order:
 //   1. `process.env.PUTER_CONFIG_PATH` — absolute path to a config file. Used
-//      by prod (ECS/Docker) where the outer bootstrap writes a merged config
-//      out of Secrets Manager + container env to a known location.
+//      by deployments whose outer bootstrap writes a merged config to a known
+//      location.
 //   2. `<PACKAGE_ROOT>/config.json` — user's runtime override (gitignored),
 //      deep-merged over config.default.json so users can omit keys they
 //      don't care to override (e.g. gui_assets_root, database).
@@ -46,6 +47,10 @@ const PACKAGE_ROOT = path.resolve(__dirname, '../../..');
 // `./extensions` resolve to `dist/extensions` at runtime without the config
 // having to know about the build layout.
 const RUNTIME_ROOT = path.resolve(__dirname, '../..');
+
+// How long a node with a server identity keeps serving in-flight work after
+// it stops accepting connections.
+const GRACEFUL_DRAIN_MS = 90_000;
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
     typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -195,19 +200,18 @@ if (require.main === module) {
         puterDrivers,
     );
     server.start();
-    // listen for shutdown signals to gracefully stop the server
-    const shutDownProcess = async () => {
-        await server.prepareShutdown();
-        setTimeout(
-            async () => {
-                await server.shutdown();
-                process.exit(0);
-            },
-            config.serverId ? 1000 * 90 : 1,
-        );
-    };
-    process.on('SIGINT', shutDownProcess);
-    process.on('SIGTERM', shutDownProcess);
+    // Owns process exit on signals; the telemetry preload installs none and is
+    // flushed as the last shutdown step.
+    const shutDownProcess = createGracefulShutdown(server, {
+        // SIGINT (Ctrl-C) always exits immediately, even with a serverId: a
+        // 90s wait on a local dev interrupt would make it look hung.
+        drainMs: (signal) =>
+            signal === 'SIGTERM' && config.serverId ? GRACEFUL_DRAIN_MS : 0,
+    });
+    // `on`, not `once`: a repeat signal must hit the in-progress guard instead
+    // of falling through to Node's default immediate exit.
+    process.on('SIGINT', () => void shutDownProcess('SIGINT'));
+    process.on('SIGTERM', () => void shutDownProcess('SIGTERM'));
     // Uncaught exceptions and unhandled rejections are reported by the guards
     // `PuterServer.start()` installs — see util/processGuards.ts.
 }

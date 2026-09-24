@@ -58,7 +58,6 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     private dbPrimaryRead!: SQLBatcher;
     private configuration = Configuration.SINGLE;
     private shutdownStarted = false;
-    private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(config: IConfig) {
         super(config);
@@ -101,29 +100,12 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         if (this.shutdownStarted) return;
         this.shutdownStarted = true;
 
-        // Allow in-flight queries to drain before closing pools
-        const drainMs = 60_000;
-        console.log(
-            `[mysql] draining in-flight queries (${drainMs}ms) before closing pools`,
-        );
-
-        this.shutdownTimer = setTimeout(() => {
-            this.shutdownTimer = null;
-            this.closeCurrentPools('drain').catch((e) =>
-                console.error('[mysql] error closing pools after drain', e),
-            );
-        }, drainMs);
-
-        if (typeof this.shutdownTimer.unref === 'function') {
-            this.shutdownTimer.unref();
-        }
+        // Blocks reinitPrimary/reinitReplica from here on. Pools stay open;
+        // onServerShutdown closes them after the layers above have drained.
+        console.log('[mysql] entering drain mode');
     }
 
     override async onServerShutdown(): Promise<void> {
-        if (this.shutdownTimer) {
-            clearTimeout(this.shutdownTimer);
-            this.shutdownTimer = null;
-        }
         await this.closeCurrentPools('shutdown');
     }
 

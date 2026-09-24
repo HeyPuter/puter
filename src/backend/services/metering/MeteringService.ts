@@ -274,12 +274,10 @@ export class MeteringService extends PuterService {
     /**
      * Drain the buffer while the layers it writes through are still up.
      *
-     * This is the hook that has to do the work, not `onServerShutdown`: both
-     * run clients first, then stores, then services, so by the time a service's
-     * shutdown hook is reached the Redis cluster is closed, the metering buffer
-     * store has drained and stopped, and the database pool a subscription
-     * lookup needs is gone — a flush there resolves the buckets against layers
-     * that have already said goodbye and drops them.
+     * Prepare hooks run before any teardown starts, which is the earliest and
+     * safest point regardless of shutdown order — connections are still open,
+     * so this is also the last moment usage arrives at anything like the normal
+     * rate.
      */
     override async onServerPrepareShutdown(): Promise<void> {
         // The timer is deliberately left running: connections are still open at
@@ -298,10 +296,9 @@ export class MeteringService extends PuterService {
             this.usageBufferTimer = null;
         }
 
-        // Whatever landed after the drain above — the responses that were still
-        // in flight when the listener was severed. Worth attempting because the
-        // buffer store falls back to writing straight through when its own
-        // buffer is gone, and worth nothing if that fails too.
+        // Whatever landed after the drain above - responses still in flight
+        // when the listener was severed. Stores and clients are still up;
+        // the buffer store flushes this right after.
         await this.#drainUsageBuffer();
     }
 

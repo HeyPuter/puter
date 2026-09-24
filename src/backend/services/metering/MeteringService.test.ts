@@ -1005,8 +1005,7 @@ describe('MeteringService', () => {
                 },
             ]);
 
-            // Shutdown hooks run clients first, so a drain deferred to
-            // `onServerShutdown` would be writing through a closed stack.
+            // Prepare runs before any teardown, while connections are still open.
             await target.onServerPrepareShutdown();
 
             expect(
