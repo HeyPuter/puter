@@ -336,6 +336,24 @@ export class TeamController extends PuterController {
         res.json({ temporary_password: temporaryPassword });
     }
 
+    // Same budget as a password reset: both are a step toward the account.
+    @Post('/:uid/members/:username/2fa-reset', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: TEAM_RESET_LIMIT,
+    })
+    async resetMemberTwoFactor(req: Request, res: Response): Promise<void> {
+        const userId = this.#requireUserId(req);
+        const uid = this.#param(req, 'uid');
+        // Authority first, or resolving `:username` is an existence oracle.
+        await this.services.team.requireOwner(uid, userId);
+        const target = await this.#requireTargetUserId(req);
+
+        await this.services.team.resetMemberTwoFactor(uid, userId, target);
+        res.json({ success: true });
+    }
+
     @Post('/:uid/members/:username/disable', {
         subdomain: 'api',
         requireUserActor: true,

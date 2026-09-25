@@ -765,6 +765,94 @@ describe('TeamService', () => {
         });
     });
 
+    describe('resetting a seat second factor', () => {
+        const setOtp = (userId, on) =>
+            server.stores.user.update(userId, {
+                otp_enabled: on ? 1 : 0,
+                otp_secret: on ? 'SECRET' : null,
+                otp_recovery_codes: on ? 'a,b,c' : null,
+            });
+
+        const otpRowOf = async (userId) => {
+            const [row] = await server.clients.db.read(
+                'SELECT `otp_enabled`, `otp_secret`, `otp_recovery_codes` ' +
+                    'FROM `user` WHERE `id` = ?',
+                [userId],
+            );
+            return row;
+        };
+
+        it('clears the factor and its codes, and records it', async () => {
+            const { team, member } = await makeTeam();
+            await setOtp(member.id, true);
+            await server.stores.user.invalidateById(member.id);
+
+            await service.resetMemberTwoFactor(team.uid, owner.id, member.id);
+
+            const row = await otpRowOf(member.id);
+            expect(Number(row.otp_enabled)).toBe(0);
+            expect(row.otp_secret).toBeNull();
+            expect(row.otp_recovery_codes).toBeNull();
+
+            const audit = await service.listAudit(team.uid, owner.id);
+            expect(audit.items.map((r) => r.action)).toContain(
+                'reset_member_2fa',
+            );
+        });
+
+        it('refuses when there is no factor to reset', async () => {
+            const { team, member } = await makeTeam();
+            await setOtp(member.id, false);
+            await server.stores.user.invalidateById(member.id);
+
+            await expect(
+                service.resetMemberTwoFactor(team.uid, owner.id, member.id),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        });
+
+        it('leaves the password alone, so a reset alone is still not takeover', async () => {
+            const { team, member } = await makeTeam();
+            await setOtp(member.id, true);
+            await server.stores.user.invalidateById(member.id);
+            const before = await server.stores.user.getById(member.id, {
+                force: true,
+            });
+
+            await service.resetMemberTwoFactor(team.uid, owner.id, member.id);
+
+            const after = await server.stores.user.getById(member.id, {
+                force: true,
+            });
+            expect(after.password).toBe(before.password);
+        });
+
+        it('refuses a member the team did not provision', async () => {
+            const { team } = await makeTeam();
+            const joined = await makeUser();
+            await server.stores.team.addMember(team.uid, joined.id, {
+                orgOwned: false,
+            });
+            await setOtp(joined.id, true);
+            await server.stores.user.invalidateById(joined.id);
+
+            // A joined member's own login is not the team's to reach into.
+            await expect(
+                service.resetMemberTwoFactor(team.uid, owner.id, joined.id),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('refuses anyone who is not the team owner', async () => {
+            const { team, member } = await makeTeam();
+            const other = await makeUser();
+            await setOtp(member.id, true);
+            await server.stores.user.invalidateById(member.id);
+
+            await expect(
+                service.resetMemberTwoFactor(team.uid, other.id, member.id),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
     describe('what a seat of a free team gets', () => {
         const policyFor = async (userId: number, uuid: string) => {
             server.services.metering.invalidateActorSubscription(uuid);

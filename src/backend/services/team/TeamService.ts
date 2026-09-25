@@ -95,6 +95,9 @@ export const AUDIT_DIRECTORY_OFF = 'directory_disabled';
 export const AUDIT_2FA_ON = 'require_2fa_enabled';
 export const AUDIT_2FA_OFF = 'require_2fa_disabled';
 
+/** Its own action, never a side effect of a password reset. */
+export const AUDIT_RESET_2FA = 'reset_member_2fa';
+
 /** Not an audit row: synthesised from `sessions` for the member's own view. */
 export const SIGN_IN_ACTION = 'sign_in';
 
@@ -1054,6 +1057,47 @@ export class TeamService extends PuterService {
         await this.#dropSessions(targetUserId);
         await this.#notifyUser(user, 'team_password_reset', team);
         return { temporaryPassword };
+    }
+
+    /**
+     * Clears a seat's second factor so it can enrol again, for the member who
+     * lost both their authenticator and their recovery codes.
+     *
+     * Deliberately not part of `resetMemberPassword`, which leaves 2FA alone
+     * precisely so a password reset is not takeover. Together the two are, and
+     * for an account the team created and pays for that is the team's to do —
+     * but it has to be chosen, and recorded, rather than arrived at sideways.
+     */
+    async resetMemberTwoFactor(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+
+        if (!user.otp_enabled) {
+            throw new HttpError(409, 'That account has no 2FA to reset', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        // Recorded first, so a failed append cannot leave an unlogged reset.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_2FA,
+        });
+
+        await this.clients.db.write(
+            'UPDATE `user` SET `otp_enabled` = ?, `otp_secret` = NULL, ' +
+                '`otp_recovery_codes` = NULL WHERE `id` = ?',
+            [this.clients.db.booleanValue(false), targetUserId],
+        );
+        await this.stores.user.invalidateById(targetUserId);
+        await this.#dropSessions(targetUserId);
+        await this.#notifyUser(user, 'team_2fa_reset', team);
     }
 
     /**
