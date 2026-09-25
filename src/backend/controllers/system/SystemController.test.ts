@@ -18,6 +18,7 @@
  */
 
 import type { Request, RequestHandler, Response } from 'express';
+import { Readable } from 'node:stream';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
@@ -82,11 +83,12 @@ const makeReq = (init: {
     body?: unknown;
     actor?: Actor;
     query?: Record<string, unknown>;
+    headers?: Record<string, string>;
 }): Request => {
     return {
         body: init.body ?? {},
         query: init.query ?? {},
-        headers: {},
+        headers: init.headers ?? {},
         actor: init.actor,
     } as unknown as Request;
 };
@@ -430,11 +432,253 @@ describe('SystemController POST /contactUs', () => {
 
         // The row landed in the real `feedback` table for the right user.
         const rows = (await server.clients.db.read(
-            'SELECT `user_id`, `message` FROM `feedback` WHERE `user_id` = ? AND `message` = ?',
+            'SELECT `user_id`, `message`, `attachments` FROM `feedback` WHERE `user_id` = ? AND `message` = ?',
             [userId, message],
-        )) as Array<{ user_id: number; message: string }>;
+        )) as Array<{
+            user_id: number;
+            message: string;
+            attachments: string | null;
+        }>;
         expect(rows).toHaveLength(1);
         expect(rows[0]?.message).toBe(message);
+        // No files sent — the column stays null rather than an empty array.
+        expect(rows[0]?.attachments ?? null).toBeNull();
+    });
+});
+
+describe('SystemController POST /contactUs — attachments', () => {
+    // A real PNG signature with a filler body; the sniffer only reads the
+    // first eight bytes, and nothing downstream decodes the image.
+    const pngBytes = (size = 64): Buffer =>
+        Buffer.concat([
+            Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            Buffer.alloc(size - 8, 0x61),
+        ]);
+
+    type Part =
+        | { field: string; value: string }
+        | { field: string; filename: string; data: Buffer };
+
+    const BOUNDARY = '----contact-us-test';
+    const multipart = (parts: Part[]): Buffer =>
+        Buffer.concat([
+            ...parts.flatMap((part) =>
+                'value' in part
+                    ? [
+                          Buffer.from(
+                              `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${part.field}"\r\n\r\n${part.value}\r\n`,
+                          ),
+                      ]
+                    : [
+                          Buffer.from(
+                              `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${part.field}"; filename="${part.filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+                          ),
+                          part.data,
+                          Buffer.from('\r\n'),
+                      ],
+            ),
+            Buffer.from(`--${BOUNDARY}--\r\n`),
+        ]);
+
+    const submitMultipart = async (
+        parts: Part[],
+        headers: Record<string, string> = {},
+    ) => {
+        const { actor, userId } = await makeUser();
+        const { res, captured } = makeRes();
+        const body = multipart(parts);
+        const req = Object.assign(Readable.from([body]), {
+            headers: {
+                'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
+                'content-length': String(body.length),
+                ...headers,
+            },
+            actor,
+            query: {},
+        }) as unknown as Request;
+        const call = callRoute('post', '/contactUs', req, res);
+        return { call, captured, userId };
+    };
+
+    const readAttachments = async (userId: number, message: string) => {
+        const rows = (await server.clients.db.read(
+            'SELECT `attachments` FROM `feedback` WHERE `user_id` = ? AND `message` = ?',
+            [userId, message],
+        )) as Array<{ attachments: string | null }>;
+        return rows[0]?.attachments ?? null;
+    };
+
+    it('stores attachment metadata — names, types and sizes, no payloads', async () => {
+        const message = `attached ${Math.random().toString(36).slice(2)}`;
+        const { call, captured, userId } = await submitMultipart([
+            { field: 'message', value: message },
+            {
+                field: 'attachments',
+                filename: 'repro-step-3.png',
+                data: pngBytes(128),
+            },
+        ]);
+        await call;
+        expect(captured.body).toEqual({});
+
+        const stored = await readAttachments(userId, message);
+        expect(JSON.parse(stored!)).toEqual([
+            { name: 'repro-step-3.png', type: 'image/png', size: 128 },
+        ]);
+    });
+
+    it('emails the files to support with sanitized names and a manifest', async () => {
+        const sendRaw = vi
+            .spyOn(server.clients.email, 'sendRaw')
+            .mockResolvedValue(null);
+        try {
+            const message = `attached ${Math.random().toString(36).slice(2)}`;
+            const { call } = await submitMultipart([
+                { field: 'message', value: message },
+                // Declares .html, but the bytes are a PNG: the stored and
+                // emailed extension must follow the bytes.
+                {
+                    field: 'attachments',
+                    filename: 'payload.html',
+                    data: pngBytes(64),
+                },
+            ]);
+            await call;
+
+            expect(sendRaw).toHaveBeenCalledTimes(1);
+            const sent = sendRaw.mock.calls[0][0] as {
+                text: string;
+                attachments: Array<{
+                    filename: string;
+                    content: Buffer;
+                    contentType: string;
+                    contentDisposition: string;
+                }>;
+            };
+            expect(sent.attachments).toHaveLength(1);
+            expect(sent.attachments[0].filename).toBe('payload.png');
+            expect(sent.attachments[0].contentType).toBe('image/png');
+            expect(sent.attachments[0].contentDisposition).toBe('attachment');
+            expect(sent.attachments[0].content.equals(pngBytes(64))).toBe(true);
+            // The body records what should have arrived, in case a gateway
+            // strips the files on the way.
+            expect(sent.text).toContain(message);
+            expect(sent.text).toContain('payload.png');
+        } finally {
+            sendRaw.mockRestore();
+        }
+    });
+
+    it('accepts a multipart submission with no files', async () => {
+        const sendRaw = vi
+            .spyOn(server.clients.email, 'sendRaw')
+            .mockResolvedValue(null);
+        try {
+            const message = `plain ${Math.random().toString(36).slice(2)}`;
+            const { call, captured } = await submitMultipart([
+                { field: 'message', value: message },
+            ]);
+            await call;
+            expect(captured.body).toEqual({});
+            const sent = sendRaw.mock.calls[0][0] as {
+                text: string;
+                attachments: unknown[];
+            };
+            expect(sent.attachments).toEqual([]);
+            expect(sent.text).toBe(message);
+        } finally {
+            sendRaw.mockRestore();
+        }
+    });
+
+    it('rejects base64 attachments in a JSON body', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            callRoute(
+                'post',
+                '/contactUs',
+                makeReq({
+                    body: {
+                        message: 'hi',
+                        attachments: [{ data: pngBytes().toString('base64') }],
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it.each([
+        [
+            'too many files',
+            [
+                { field: 'message', value: 'hi' },
+                ...Array.from({ length: 6 }, (_, i) => ({
+                    field: 'attachments',
+                    filename: `${i}.png`,
+                    data: pngBytes(),
+                })),
+            ],
+        ],
+        [
+            'an unsupported type',
+            [
+                { field: 'message', value: 'hi' },
+                {
+                    field: 'attachments',
+                    filename: 'a.pdf',
+                    data: Buffer.from('%PDF-1.7 x'),
+                },
+            ],
+        ],
+        [
+            'a script-capable SVG',
+            [
+                { field: 'message', value: 'hi' },
+                {
+                    field: 'attachments',
+                    filename: 'a.svg',
+                    data: Buffer.from('<svg><script/></svg>'),
+                },
+            ],
+        ],
+        [
+            'a missing message',
+            [{ field: 'attachments', filename: 'a.png', data: pngBytes() }],
+        ],
+    ] as [string, Part[]][])('rejects %s with 400', async (_label, parts) => {
+        const { call, captured } = await submitMultipart(parts);
+        await expect(call).rejects.toMatchObject({ statusCode: 400 });
+        expect(captured.body).toBeUndefined();
+    });
+
+    it('refuses a body whose declared length is over budget before reading it', async () => {
+        const { call, captured } = await submitMultipart(
+            [{ field: 'message', value: 'hi' }],
+            { 'content-length': String(64 * 1024 * 1024) },
+        );
+        await expect(call).rejects.toMatchObject({ statusCode: 413 });
+        expect(captured.headers.Connection).toBe('close');
+    });
+
+    it('rejects an upload that breaks a limit mid-stream', async () => {
+        const { call, captured } = await submitMultipart(
+            [
+                { field: 'message', value: 'hi' },
+                {
+                    field: 'attachments',
+                    filename: 'big.png',
+                    data: pngBytes(10 * 1024 * 1024 + 1),
+                },
+            ],
+            // Chunked uploads carry no length to check up front.
+            { 'content-length': '' },
+        );
+        await expect(call).rejects.toMatchObject({ statusCode: 413 });
+        // The rest of the body is drained, so the connection can stay open.
+        expect(captured.headers.Connection).toBeUndefined();
     });
 });
 

@@ -18,6 +18,12 @@
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    MAX_TOTAL_ATTACHMENT_BYTES,
+    attachmentMetadata,
+    attachmentSummary,
+    readContactSubmission,
+} from '../../util/contactAttachments.js';
 import { PuterController } from '../types.js';
 
 /**
@@ -93,6 +99,38 @@ const LSMOD_LIMIT = {
     window: 60_000,
     key: 'user',
 };
+
+/** Longest message the Contact Us form will carry, in characters. */
+const CONTACT_MESSAGE_MAX_LENGTH = 100_000;
+
+/** UTF-8 worst case for {@link CONTACT_MESSAGE_MAX_LENGTH} UTF-16 code units. */
+const CONTACT_MESSAGE_MAX_BYTES = CONTACT_MESSAGE_MAX_LENGTH * 3;
+
+/** Largest valid multipart body: attachments, message, part-header slack. */
+const CONTACT_BODY_MAX_BYTES =
+    MAX_TOTAL_ATTACHMENT_BYTES + CONTACT_MESSAGE_MAX_BYTES + 64 * 1024;
+
+const isMultipart = (req) =>
+    /^multipart\/form-data\b/i.test(req.headers?.['content-type'] ?? '');
+
+/**
+ * Per user, plus a per-IP backstop against one machine cycling fresh accounts.
+ * The IP limit sits well above what a shared office would send.
+ */
+const CONTACT_US_LIMITS = [
+    {
+        scope: 'contact-us',
+        limit: 10,
+        window: 15 * 60_000,
+        key: 'user',
+    },
+    {
+        scope: 'contact-us-ip',
+        limit: 40,
+        window: 24 * 60 * 60_000,
+        key: 'ip',
+    },
+];
 
 export class SystemController extends PuterController {
     constructor(config, clients, stores, services, drivers) {
@@ -180,33 +218,78 @@ export class SystemController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
-                rateLimit: {
-                    scope: 'contact-us',
-                    limit: 10,
-                    window: 15 * 60_000,
-                    key: 'user',
-                },
+                rateLimit: CONTACT_US_LIMITS,
+                // Each in-flight request holds its attachments in memory until
+                // the mail is sent.
+                concurrent: { limit: 2, scope: 'contact-us', key: 'user' },
             },
             async (req, res) => {
-                const { message } = req.body ?? {};
+                let message;
+                let attachments = [];
+                if (isMultipart(req)) {
+                    const declaredLength = Number(
+                        req.headers['content-length'],
+                    );
+                    if (
+                        Number.isFinite(declaredLength) &&
+                        declaredLength > CONTACT_BODY_MAX_BYTES
+                    ) {
+                        // Don't read a body already known to be too large.
+                        res.setHeader('Connection', 'close');
+                        throw new HttpError(413, 'Request body is too large', {
+                            legacyCode: 'bad_request',
+                        });
+                    }
+                    const submission = await readContactSubmission(req, {
+                        maxMessageBytes: CONTACT_MESSAGE_MAX_BYTES,
+                        maxBodyBytes: CONTACT_BODY_MAX_BYTES,
+                    });
+                    if (!submission.ok) {
+                        throw new HttpError(
+                            submission.status,
+                            submission.reason,
+                            { legacyCode: 'bad_request' },
+                        );
+                    }
+                    ({ message, attachments } = submission);
+                } else {
+                    message = req.body?.message;
+                    if (req.body?.attachments !== undefined) {
+                        throw new HttpError(
+                            400,
+                            '`attachments` must be sent as multipart/form-data',
+                            { legacyCode: 'bad_request' },
+                        );
+                    }
+                }
+
                 if (!message || typeof message !== 'string') {
                     throw new HttpError(400, '`message` is required', {
                         legacyCode: 'bad_request',
                     });
                 }
-                if (message.length > 100_000) {
+                if (message.length > CONTACT_MESSAGE_MAX_LENGTH) {
                     throw new HttpError(
                         400,
-                        '`message` is too long (max 100,000 characters)',
+                        `\`message\` is too long (max ${CONTACT_MESSAGE_MAX_LENGTH.toLocaleString('en-US')} characters)`,
                         { legacyCode: 'bad_request' },
                     );
                 }
 
-                // Persist to feedback table for durability
+                // Persist to feedback table for durability. Attachments are
+                // recorded by name and size only; the mail carries the bytes.
                 try {
                     await this.clients.db.write(
-                        'INSERT INTO `feedback` (`user_id`, `message`) VALUES (?, ?)',
-                        [req.actor.user.id, message],
+                        'INSERT INTO `feedback` (`user_id`, `message`, `attachments`) VALUES (?, ?, ?)',
+                        [
+                            req.actor.user.id,
+                            message,
+                            attachments.length
+                                ? JSON.stringify(
+                                      attachmentMetadata(attachments),
+                                  )
+                                : null,
+                        ],
                     );
                 } catch (e) {
                     console.warn('[contactUs] feedback insert failed:', e);
@@ -221,7 +304,16 @@ export class SystemController extends PuterController {
                             to: supportEmail,
                             replyTo: req.actor.user.email,
                             subject: `Contact from ${req.actor.user.username}`,
-                            text: message,
+                            text: attachments.length
+                                ? `${message}\n\n${attachmentSummary(attachments)}`
+                                : message,
+                            // Never rendered inline by the mail client.
+                            attachments: attachments.map((a) => ({
+                                filename: a.filename,
+                                content: a.content,
+                                contentType: a.contentType,
+                                contentDisposition: 'attachment',
+                            })),
                         });
                     } catch (e) {
                         console.warn('[contactUs] email send failed:', e);
