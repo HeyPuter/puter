@@ -693,31 +693,19 @@ describe('MySQLDatabaseClient — pool lifecycle', () => {
         expect(createdPools[1].ended).toBe(true);
     });
 
-    it('closes the pools once the drain window elapses', async () => {
+    it('leaves the pools open through prepare-shutdown; only onServerShutdown closes them', async () => {
         vi.useFakeTimers();
         try {
             const client = await startClient();
             await client.onServerPrepareShutdown();
             expect(createdPools[0].ended).toBe(false);
 
+            // No timer closes the pools on its own — the layers above are
+            // still draining through them for as long as the process drains.
             await vi.advanceTimersByTimeAsync(60_000);
-            expect(createdPools[0].ended).toBe(true);
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it('cancels the drain timer when shutdown arrives first', async () => {
-        vi.useFakeTimers();
-        try {
-            const client = await startClient();
-            await client.onServerPrepareShutdown();
-            // A second prepare is a no-op — only one drain timer may exist.
-            await client.onServerPrepareShutdown();
-            expect(vi.getTimerCount()).toBe(1);
+            expect(createdPools[0].ended).toBe(false);
 
             await client.onServerShutdown();
-            expect(vi.getTimerCount()).toBe(0);
             expect(createdPools[0].ended).toBe(true);
         } finally {
             vi.useRealTimers();

@@ -23,11 +23,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import type { HttpError } from '../../core/http/HttpError.js';
+import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -425,6 +428,40 @@ describe('LegacyFSController.stat', () => {
         await expect(controller.stat(req, res)).rejects.toMatchObject({
             statusCode: 401,
         });
+    });
+
+    it('draws return_shares from the share-listing budget', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/share-budget`;
+        await withActor(actor, () =>
+            controller.mkdir(makeReq({ body: { path }, actor }), makeRes().res),
+        );
+
+        // Spend the whole share:list bucket, as /share/shares' gate would.
+        const chargeReq = makeReq({ body: {}, actor });
+        for (let i = 0; i < SHARE_LIST_LIMIT.limit; i++) {
+            await consumeRouteRateLimit(chargeReq, SHARE_LIST_LIMIT);
+        }
+
+        await expect(
+            withActor(actor, () =>
+                controller.stat(
+                    makeReq({ body: { path, return_shares: true }, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+
+        // A plain stat spends only its own budget, so it still admits.
+        const plain = makeRes();
+        await withActor(actor, () =>
+            controller.stat(makeReq({ body: { path }, actor }), plain.res),
+        );
+        expect(plain.captured.body).toMatchObject({ name: 'share-budget' });
     });
 });
 
@@ -2311,6 +2348,72 @@ describe('LegacyFSController.checkAppAcl', () => {
         );
         const body = captured.body as { allowed: boolean };
         expect(typeof body.allowed).toBe('boolean');
+    });
+
+    it("answers another user's entry the same as a missing one", async () => {
+        const { actor: victim } = await makeUser();
+        const victimPath = `/${victim.user!.username!}/Documents/secret.txt`;
+        await withActor(victim, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: victimPath, set_modified_to_now: true },
+                    actor: victim,
+                }),
+                makeRes().res,
+            ),
+        );
+        const victimEntry =
+            await server.stores.fsEntry.getEntryByPath(victimPath);
+
+        const { actor } = await makeUser();
+        const app = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string }>
+        )(
+            {
+                name: `cacl-${uuidv4()}`,
+                title: 'ACL test app',
+                index_url: 'https://example.test/cacl.html',
+            },
+            { ownerUserId: actor.user!.id! },
+        );
+
+        const errorFor = async (subject: unknown) => {
+            try {
+                await withActor(actor, () =>
+                    controller.checkAppAcl(
+                        makeReq({
+                            body: { subject, app: app.uid, mode: 'read' },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                );
+                return null;
+            } catch (e) {
+                const err = e as HttpError;
+                return {
+                    statusCode: err.statusCode,
+                    message: err.message,
+                    legacyCode: err.legacyCode,
+                };
+            }
+        };
+
+        const missing = await errorFor({
+            path: `/${victim.user!.username!}/Documents/nope.txt`,
+        });
+        expect(missing).toEqual({
+            statusCode: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(await errorFor({ path: victimPath })).toEqual(missing);
+        expect(await errorFor({ uid: victimEntry!.uuid })).toEqual(missing);
+        expect(await errorFor({ id: victimEntry!.id })).toEqual(missing);
+        expect(await errorFor({ uid: uuidv4() })).toEqual(missing);
     });
 });
 

@@ -32,6 +32,7 @@ import {
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     buildHostedBackingDenial,
+    buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
     hostedIndexUrlBackingIsUnavailable,
 } from '../../util/hostedAppBacking.js';
@@ -48,6 +49,7 @@ import {
     validateJsonObject,
     validateString,
     validateUrl,
+    WEB_AND_EXTENSION_PROTOCOLS,
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
 
@@ -265,7 +267,7 @@ export class AppDriver extends PuterDriver {
         try {
             app = await this.appStore.create(fields, {
                 ownerUserId: actor.user.id,
-                appOwner: actor.app?.id ?? null,
+                appOwner: actor.effectiveApp?.id ?? null,
             });
         } catch (err) {
             if (!isUniqueViolation(err)) throw err;
@@ -369,7 +371,7 @@ export class AppDriver extends PuterDriver {
         for (const app of apps) {
             if (
                 !app.protected ||
-                actor.app?.uid === app.uid ||
+                actor.effectiveApp?.uid === app.uid ||
                 actor.user?.id === app.owner_user_id
             ) {
                 localVisible.add(app);
@@ -632,6 +634,7 @@ export class AppDriver extends PuterDriver {
                 key: 'index_url',
                 maxLen: 3000,
                 required: isCreate,
+                protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
             // Only enforce on new/changed values so rows that already
             // carry a reserved host (migration-seeded builtins) can still
@@ -836,7 +839,7 @@ export class AppDriver extends PuterDriver {
     async #canReadApp(app, actor) {
         if (!app.protected) return true;
         // Self-app access
-        if (actor.app?.uid === app.uid) return true;
+        if (actor.effectiveApp?.uid === app.uid) return true;
         // Owner access
         if (actor.user?.id === app.owner_user_id) return true;
         // Permission check
@@ -857,10 +860,11 @@ export class AppDriver extends PuterDriver {
 
     async #checkWriteAccess(app, actor) {
         // App actor matching app_owner
+        const ownApp = actor.effectiveApp;
         let hasAccess = false;
-        if (!actor.app?.id) {
+        if (!ownApp?.id) {
             hasAccess = actor.user?.id === app.owner_user_id;
-        } else if (actor.app.id === app.app_owner) {
+        } else if (ownApp.id === app.app_owner) {
             hasAccess = actor.user?.id === app.owner_user_id;
         }
         // System-wide write
@@ -1168,6 +1172,17 @@ export class AppDriver extends PuterDriver {
             this.#buildEquivalentIndexUrlCandidates(indexUrl),
         );
 
+        // The same subdomain on any other hosting domain is the same site.
+        const hostedSubdomain = this.#extractPuterHostedSubdomain(indexUrl);
+        if (hostedSubdomain) {
+            for (const candidate of buildHostedSubdomainIndexUrlCandidates(
+                hostedSubdomain,
+                this.config,
+            )) {
+                candidates.add(candidate);
+            }
+        }
+
         // For alias-group hosts, treat the group as a host-level reservation:
         // any row whose index_url is the root URL of any group member counts
         // as a conflict, so a single app owns the whole group.
@@ -1448,6 +1463,12 @@ export class AppDriver extends PuterDriver {
             });
             const sourceApp = await this.appStore.getByUid(sourceAppUid);
             if (sourceApp) {
+                // The source app's sites and workers follow it into the
+                // joined row; `app_owner` cascades on delete otherwise.
+                await this.stores.subdomain.reassignAppOwner(
+                    sourceApp.id,
+                    appToJoin.id,
+                );
                 await this.appStore.delete(sourceApp.id);
                 this.#emitAppChanged({
                     app: null,

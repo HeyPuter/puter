@@ -45,9 +45,11 @@
 /**
  * @typedef {Object} TeamMember
  * @property {string} username The member's Puter username.
- * @property {boolean} orgOwned Whether the team provisioned and pays for this account, as opposed
- * to a pre-existing account that joined it.
- * @property {string} createdAt When the account joined the team, in `YYYY-MM-DDTHH:MM:SSZ` format.
+ * @property {boolean} [orgOwned] Whether the team provisioned and pays for this account, as opposed
+ * to a pre-existing account that joined it. Absent when an app calls: it gets `username` only.
+ * @property {string} [createdAt] When the account joined the team. Absent when an app calls.
+ * @property {string} [uuid] Present only when the team owner calls with their own session or
+ * API token; billing keys a seat's plan on it.
  */
 
 /**
@@ -55,7 +57,9 @@
  *
  * @typedef {Object} CreateMemberOptions
  * @property {string} username The username for the new account. Must be free across all of Puter.
- * @property {string} email The address the member is reachable at. It must not already own an account.
+ * @property {string} [email] Optional. These accounts sign in by username, so an
+ *   address is not needed; supply one only to have the team's notices delivered.
+ *   If given it must not already own an account.
  */
 
 /**

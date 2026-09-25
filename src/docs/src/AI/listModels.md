@@ -43,6 +43,18 @@ Example model entry:
 ]
 ```
 
+## Model variants
+
+Some models have variants. A variant is the same model with a different price, rate limit, or speed. The variant is a suffix on the model ID, separated by a colon.
+
+| Suffix | Meaning |
+| --- | --- |
+| `:free` | Free. The provider sets rate limits and daily quotas, and may remove the variant at any time. |
+| `:flex` | Cheaper than the base model. Requests may be slower and may be rejected when the provider is under load. |
+| `:priority` | Faster than the base model. Costs more. |
+
+The model ID without a suffix is the standard variant. Not every model has variants. `:flex` and `:priority` are the provider's service tiers. To use a variant, pass its full ID as the `model` option. Options and response shape are the same as the base model. Price, context window, and max output length can differ. The model's page lists its variants and their limits.
+
 ## Examples
 
 ```html;ai-list-models

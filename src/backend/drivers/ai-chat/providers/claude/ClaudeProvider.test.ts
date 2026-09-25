@@ -790,42 +790,69 @@ describe('ClaudeProvider.complete request shape', () => {
         });
     });
 
-    it('omits temperature for fable 5.1 (rejects non-default sampling)', async () => {
+    it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5'])(
+        'omits temperature for %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    temperature: 0.5,
+                }),
+            );
+
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect('temperature' in args).toBe(false);
+        },
+    );
+
+    it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5'])(
+        'uses adaptive thinking and output effort on %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning_effort: 'high',
+                } as never),
+            );
+
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect(args.thinking).toEqual({
+                type: 'adaptive',
+                display: 'summarized',
+            });
+            expect(args.output_config).toEqual({ effort: 'high' });
+            expect('temperature' in args).toBe(false);
+        },
+    );
+
+    it('forwards reasoning_effort as adaptive thinking + output_config effort on opus 5.5', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
 
         await withTestActor(() =>
             provider.complete({
-                model: 'claude-fable-5-1',
+                model: 'claude-opus-5-5',
                 messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'low',
                 temperature: 0.5,
-            }),
-        );
-
-        const [args] = messagesCreateMock.mock.calls[0]!;
-        expect('temperature' in args).toBe(false);
-    });
-
-    it('forwards reasoning_effort as adaptive thinking + output_config effort on fable 5.1', async () => {
-        const { provider } = makeProvider();
-        messagesCreateMock.mockResolvedValueOnce(baseResponse);
-
-        await withTestActor(() =>
-            provider.complete({
-                model: 'claude-fable-5-1',
-                messages: [{ role: 'user', content: 'hi' }],
-                reasoning_effort: 'high',
             } as never),
         );
 
         const [args] = messagesCreateMock.mock.calls[0]!;
-        // Fable 5.1 rejects `budget_tokens` and thinking is always on, so the
-        // only accepted config is adaptive; effort rides in output_config.
+        // Opus 5.5 rejects disabled thinking, `budget_tokens`, and sampling params.
         expect(args.thinking).toEqual({
             type: 'adaptive',
             display: 'summarized',
         });
-        expect(args.output_config).toEqual({ effort: 'high' });
+        expect(args.output_config).toEqual({ effort: 'low' });
         expect('temperature' in args).toBe(false);
     });
 
@@ -898,6 +925,22 @@ describe('ClaudeProvider model resolution', () => {
         );
     });
 
+    it('routes the bare claude-opus alias to opus 5.5 rather than opus 5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+            'claude-opus-5-5',
+        );
+    });
+
     it('falls back to the default model when given an unknown id', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -918,6 +961,60 @@ describe('ClaudeProvider model resolution', () => {
 // ── Non-stream completion ───────────────────────────────────────────
 
 describe('ClaudeProvider.complete non-stream output', () => {
+    it.each([
+        ['claude-opus-5-5', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
+        [
+            'anthropic/claude-opus-5-5',
+            'claude-opus-5-5',
+            400,
+            500,
+            800,
+            20,
+            2000,
+        ],
+        ['claude-opus', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
+        ['claude-opus-latest', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
+        ['claude-opus-5-latest', 'claude-opus-5', 500, 625, 1000, 50, 2500],
+        ['claude-sonnet-5', 'claude-sonnet-5', 200, 250, 400, 20, 1000],
+    ])(
+        'resolves and meters %s at its current rates',
+        async (model, canonicalId, input, write5m, write1h, cached, output) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'ok' }],
+                usage: {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cache_creation_input_tokens: 30,
+                    cache_creation: {
+                        ephemeral_5m_input_tokens: 10,
+                        ephemeral_1h_input_tokens: 20,
+                    },
+                    cache_read_input_tokens: 1000,
+                },
+            });
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+            expect(await provider.list()).toContain(model);
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect(args.model).toBe(canonicalId);
+            expect(args.max_tokens).toBe(128_000);
+            const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe(`claude:${canonicalId}`);
+            expect(overrides).toMatchObject({
+                input_tokens: 100 * Number(input),
+                output_tokens: 50 * Number(output),
+                ephemeral_5m_input_tokens: 10 * Number(write5m),
+                ephemeral_1h_input_tokens: 20 * Number(write1h),
+                cache_read_input_tokens: 1000 * Number(cached),
+            });
+        },
+    );
+
     it('returns the message verbatim and meters input/output/cache token costs', async () => {
         const { provider } = makeProvider();
         const msg = {

@@ -41,6 +41,8 @@ You can use AI models from various providers to perform tasks such as chat, text
 
 #### Generate an image of a cat using AI
 
+Choose a model and compare provider rates in the [AI model directory](https://developer.puter.com/ai/models/).
+
 ```html;ai-txt2img
 <html>
 <body>

@@ -33,6 +33,10 @@ import {
     EVENTS_KV_HANDLE_LIMIT,
     EVENTS_KV_HANDLES_PER_APP,
     EVENTS_KV_HANDLES_PER_USER,
+    EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
+    EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+    EVENTS_KV_VALUE_MAX_BYTES,
+    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -45,6 +49,7 @@ import {
 import {
     assertResolvedActor,
     isAccessTokenActor,
+    isAccountContext,
     makeActor,
     userRelatedActor,
     type Actor,
@@ -101,6 +106,7 @@ import {
 } from '../../util/pagination.js';
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
+import { maskUnderAnchor } from '../fs/sharePathMask.js';
 import { assertActorHasCredits } from '../metering/enforcement.js';
 import {
     canViewNotification,
@@ -113,6 +119,7 @@ import {
     type SocketSpecifier,
 } from '../socket/SocketService.js';
 import { PuterService } from '../types.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import {
     resolveFsAnchor,
     resolveKvAnchor,
@@ -175,6 +182,7 @@ import {
     type MatchSpec,
     type NotifEventContext,
     type ProjectedEvent,
+    type ProjectedFsEvent,
     type ProjectedKvEvent,
     type ProjectedNotifEvent,
     type SubjectSpec,
@@ -197,14 +205,20 @@ import {
     KV_MATCH_SEPARATOR,
     NOTIF_MATCH_SEPARATOR,
     fsAnchorToken,
+    isFsToken,
     isKvToken,
+    isNotifToken,
     kvHandleFromSubject,
     parseSubject,
     type FsOp,
     type ParsedSubject,
     type SubjectOp,
 } from './subjects.js';
-import { backlogPolicyFor, isResumable } from './suspension.js';
+import {
+    backlogPolicyFor,
+    isResumable,
+    RESUMABLE_REASONS,
+} from './suspension.js';
 import { singleAttempt } from './metrics.js';
 import type {
     EventsInvokeTransport,
@@ -252,6 +266,8 @@ import {
 export interface SubscribeRequest {
     subject?: unknown;
     targets?: unknown;
+    /** KV subjects only: deliver the key's new value alongside the key. */
+    includeValue?: unknown;
 }
 
 export interface UnsubscribeRequest {
@@ -328,7 +344,10 @@ export interface RemovedHandlerView {
     suspended: number;
 }
 
-/** Query for `GET /events/workers`. Always the caller's own account. */
+/**
+ * Query for `GET /events/workers`. Scoped to the caller — the account's own
+ * apps, or one app's own worker.
+ */
 export interface ListEventsWorkersRequest {
     limit?: number;
     cursor?: string;
@@ -377,6 +396,8 @@ export interface SubscriptionView {
     match: string | null;
     op: FsOp | null;
     targets: SubscriptionTarget[];
+    /** Whether KV deliveries on this row carry the key's new value. */
+    includeValue: boolean;
 }
 
 /**
@@ -590,6 +611,16 @@ export interface KvDispatchInput {
     namespace: string;
     keys: readonly string[];
     op: KvOp;
+    /** What each key now holds, aligned with `keys`; absent when unknown. */
+    values?: readonly unknown[];
+    /** Keys among `keys` private to the namespace's app. */
+    noShareKeys?: readonly string[];
+}
+
+interface RouteLimits {
+    matchedSubscriptions: number;
+    filterEvaluations: number;
+    omitKvValueAbove?: number;
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -773,15 +804,13 @@ const handleOwnerOnly = (): HttpError =>
         { legacyCode: 'events_kv_handle_owner_only' },
     );
 
-/**
- * Events workers are billed to the owning account, so listing them is that
- * account's own view of what it is paying for — an app has no surface of its
- * own here, unlike a share handle, where an app may manage what it minted.
- */
+/** A scoped token, whoever issued it: neither the account nor the app. */
 const eventsWorkerOwnerOnly = (): HttpError =>
-    new HttpError(403, 'Only an account session may list its events workers', {
-        legacyCode: 'events_worker_owner_only',
-    });
+    new HttpError(
+        403,
+        'Listing events workers requires an account, or an app acting for one',
+        { legacyCode: 'events_worker_owner_only' },
+    );
 
 /**
  * An app minting is delegation, and the `manage:` grant on the region is the
@@ -866,20 +895,33 @@ const errorAck = (err: unknown): VerbAck<never> => {
 /**
  * A share-handle row's real anchor is the owner's namespace and the absolute
  * granted prefix — neither of which its holder was ever told. The handle is the
- * only anchor its holder may see, mirroring `#asRowAddressesIt`.
+ * only anchor its holder may see, mirroring `#asRowAddressesIt`, and the stored
+ * `match` is re-based on it for the same reason: it is composed onto the
+ * granted prefix, so returning it verbatim hands back the owner's key layout.
+ *
+ * A row on someone else's node is addressed by uid alone. The anchor's real
+ * path names every directory above it, which is exactly what the FS surfaces
+ * mask out of a recipient's view.
  */
 const toView = (sub: DispatchSubscription): SubscriptionView => {
     const handle = kvHandleFromSubject(sub.subject);
+    const foreign = sub.ownerUserId !== sub.holderUserId;
     return {
         subId: sub.subId,
         subject: sub.subject,
         anchor:
             handle !== null
                 ? { uid: handle, path: '' }
-                : { uid: sub.anchorUid, path: sub.anchorPath },
-        match: sub.match,
+                : { uid: sub.anchorUid, path: foreign ? '' : sub.anchorPath },
+        // `null` where the pattern does not sit under the grant: no filter is
+        // the wrong answer to show, but it is not the owner's prefix.
+        match:
+            handle !== null && sub.match !== null
+                ? relativeToKvShareRoot(sub.permission, sub.match)
+                : sub.match,
         op: sub.op,
         targets: sub.targets ?? SESSION_TARGETS,
+        includeValue: sub.includeValue === true,
     };
 };
 
@@ -1090,6 +1132,68 @@ const isCrossAppKvRow = (
 ): boolean => rowAppUid !== null && rowAppUid !== targetAppUid;
 
 // -- Durable request parsing ------------------------------------------
+
+/** A flag: `true` to opt in, anything falsy for the default. */
+const parseIncludeValue = (value: unknown): true | undefined => {
+    if (value === undefined || value === null || value === false)
+        return undefined;
+    if (value === true) return true;
+    throw badRequest('includeValue must be a boolean', 'invalid_include_value');
+};
+
+/**
+ * A value rides only on a key-value row — the other families have no value to
+ * name. Decided on the raw subject, before anything is resolved, so the refusal
+ * names this and not whatever resolution would have said.
+ */
+const assertValueDeliverable = (rawSubject: string): void => {
+    if (parseSubject(rawSubject).family !== 'kv')
+        throw badRequest(
+            'includeValue applies to kv: subjects only',
+            'invalid_include_value',
+        );
+};
+
+/**
+ * The value as a delivery may carry it: the value itself under the cap, nothing
+ * over it. `undefined` never rides — it is what "no value in hand" looks like.
+ */
+const inlineKvValue = (value: unknown): { value: unknown } | undefined => {
+    if (value === undefined) return undefined;
+    const bytes = Buffer.byteLength(JSON.stringify(value) ?? 'null', 'utf8');
+    return bytes > EVENTS_KV_VALUE_MAX_BYTES ? undefined : { value };
+};
+
+/**
+ * The value rides only where the row asked for it. A share-handle row is no
+ * exception: the owner minted the handle over that region, and the delivery
+ * re-check that stops a revoked handle stops its values with it.
+ */
+const valueAsRowAskedFor = (
+    row: DispatchSubscription,
+    event: ProjectedKvEvent,
+): ProjectedKvEvent => {
+    if (event.value === undefined || row.includeValue === true) return event;
+    const { value: _value, ...withoutValue } = event;
+    return withoutValue;
+};
+
+/** Omit inline values without changing the event's key metadata. */
+const withoutKvValue = <C extends EventContextBase>(context: C): C => {
+    const { value: _value, ...withoutValue } = context as C & {
+        value?: unknown;
+    };
+    return withoutValue as C;
+};
+
+/** Candidate counts at or below this can't reach any KV fan-out cap. */
+const KV_ROUTE_LIMITS_NEVER_BIND = Math.min(
+    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+    EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+    ...Object.values(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription),
+    EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.limit,
+    ...Object.values(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription),
+);
 
 const parseDelivery = (value: unknown): DeliveryClass => {
     if (value === undefined || value === null || value === 'broadcast')
@@ -1543,7 +1647,9 @@ export class EventsService extends PuterService {
         await this.#spendCallBudget(holderUserId);
 
         const targets = parseSessionTargets(request?.targets);
+        const includeValue = parseIncludeValue(request?.includeValue);
         const rawSubject = String(request?.subject ?? '');
+        if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
         const sub: SessionSubscription = {
@@ -1560,6 +1666,7 @@ export class EventsService extends PuterService {
             appUid: actor.effectiveApp?.uid ?? null,
             permission: anchor.permission,
             targets,
+            ...(includeValue ? { includeValue } : {}),
         };
 
         const bump = await this.stores.eventSubscription.add(sub);
@@ -1627,6 +1734,9 @@ export class EventsService extends PuterService {
         if (!this.enabled) throw disabled();
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
+        // As the session verb does: an unresolved `effectiveApp` would land an
+        // app's row in the account's scope.
+        assertResolvedActor(actor);
 
         await this.#spendCallBudget(holderUserId);
 
@@ -1638,6 +1748,7 @@ export class EventsService extends PuterService {
         const handlerHash = parseHandlerHash(request?.handlerHash);
         const context = parseContext(request?.context);
         const expiresAt = parseExpiresAt(request?.expiresAt);
+        const includeValue = parseIncludeValue(request?.includeValue);
 
         // A `single` is owed to exactly one consumer, and the handler is the
         // only one that is always there to take it.
@@ -1655,6 +1766,7 @@ export class EventsService extends PuterService {
             await this.#assertHandlerBinding(appUid, handlerName, handlerHash);
 
         const rawSubject = String(request?.subject ?? '');
+        if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
         const { row, bump } = await this.stores.durableSubscription.create({
@@ -1674,6 +1786,7 @@ export class EventsService extends PuterService {
             permission: anchor.permission,
             expiresAt,
             limits,
+            ...(includeValue ? { includeValue } : {}),
         });
         this.#publishGeneration(bump, true);
 
@@ -1774,6 +1887,25 @@ export class EventsService extends PuterService {
             appUid: actor.effectiveApp?.uid ?? null,
         });
 
+        // The same audience gate the subscribe path applies, asked before the
+        // query rather than over its rows. Filtering afterwards empties `items`
+        // but still cuts the cursor from the unfiltered page, so walking it
+        // counts and names rows this actor may not see. Answered as an empty
+        // page, not a refusal: which notifications exist is not this surface's
+        // to say.
+        if (scope.appUid !== undefined) {
+            const ownsApp =
+                scope.appUid !== null && scope.audience === 'developer'
+                    ? await this.#recipientOwnsApp(user.id, scope.appUid)
+                    : false;
+            const visible = canViewNotification(
+                { audience: scope.audience, appUid: scope.appUid },
+                actor,
+                { recipientOwnsApp: ownsApp },
+            );
+            if (!visible) return { items: [] };
+        }
+
         const asked = Math.floor(Number(request.limit));
         const limit = Math.min(
             Number.isFinite(asked) && asked > 0
@@ -1796,7 +1928,7 @@ export class EventsService extends PuterService {
         const last = page[page.length - 1];
 
         return {
-            items: visible.map((row, i) => projectNotifRow(row, user.uuid, i)),
+            items: visible.map((row, i) => projectNotifRow(row, user.uuid!, i)),
             ...(rows.length > limit && last
                 ? { cursor: encodeCursor({ id: Number(last.id) }) }
                 : {}),
@@ -2020,14 +2152,14 @@ export class EventsService extends PuterService {
     // -- Events workers ------------------------------------------------
     //
     // The billable artifact a published handler set implies, not the handlers
-    // themselves. Listing is account-scoped like kv handle listing — this is
-    // the owner's own view of what it is paying for, so it takes no `appUid`
-    // and, unlike the handler routes, an app cannot act on its owner's behalf
-    // here. Destroying one is scoped to an app, the same way publishing is.
+    // themselves. An account session or full-access token sees every app it
+    // owns; an app sees only its own, the same scope `#handlerApp` gives
+    // publish and destroy. A scoped token is refused outright.
 
     /**
      * The events workers billed to this account — one per app it owns with at
-     * least one published handler.
+     * least one published handler. Narrowed to a single app when the actor is
+     * one.
      */
     async listEventsWorkers(
         actor: Actor,
@@ -2038,13 +2170,26 @@ export class EventsService extends PuterService {
         deployable: boolean;
     }> {
         if (!this.enabled) throw disabled();
-        if (actor.effectiveApp !== null) throw eventsWorkerOwnerOnly();
+
+        const acting = actor.effectiveApp;
+        // Unresolved is not "no app": reading it that way would show a token
+        // that skipped `makeActor` every app's worker instead of refusing it.
+        if (acting === undefined) throw eventsWorkerOwnerOnly();
+        // A scoped token is neither the account nor the app, including one an
+        // app issued (a read URL): its effectiveApp is that app.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            throw eventsWorkerOwnerOnly();
+
         const ownerUserId = actor.user?.id;
         if (ownerUserId === undefined) throw disabled();
 
         const page = await this.stores.eventHandler.listEventsWorkersForOwner(
             ownerUserId,
-            { limit: request.limit, cursor: request.cursor },
+            {
+                limit: request.limit,
+                cursor: request.cursor,
+                ...(acting ? { appUid: acting.uid } : {}),
+            },
         );
         const items: EventsWorkerView[] = [];
         for (const worker of page.items) {
@@ -2143,6 +2288,10 @@ export class EventsService extends PuterService {
         // surface bounded on the app it is acting as.
         const app = actor.effectiveApp;
         if (app === undefined) throw handleOwnerOnly();
+        // An account's surface is the account's, and a token scoped to less
+        // than its issuer holds is not the account. A token an app issued is
+        // refused by the delegation check below, which has its own answer.
+        if (app === null && !isAccountContext(actor)) throw handleOwnerOnly();
 
         // The budget is the user's, so an app spends its user's slots rather
         // than a machine-rate allowance of its own.
@@ -2278,9 +2427,10 @@ export class EventsService extends PuterService {
         const app = actor.effectiveApp;
         if (app === undefined) throw handleOwnerOnly();
         // A delegation is the app's to hold, not to pass on, so a token an app
-        // issued is refused here as it is on the mint path. A user's own token
-        // carries no app and acts for the user.
-        if (app !== null && isAccessTokenActor(actor)) throw handleOwnerOnly();
+        // issued is refused here as it is on the mint path — and a user's own
+        // token acts for the user only when it carries the user's whole reach.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            throw handleOwnerOnly();
 
         await this.#spendHandleBudget(owner.id);
 
@@ -2362,7 +2512,8 @@ export class EventsService extends PuterService {
         if (owner?.id === undefined) throw disabled();
         const app = actor.effectiveApp;
         if (app === undefined) throw handleOwnerOnly();
-        if (app !== null && isAccessTokenActor(actor)) throw handleOwnerOnly();
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            throw handleOwnerOnly();
 
         // An app sees its own namespace and nothing else; an account session
         // sees across apps, which is what makes the account the surface for a
@@ -2496,11 +2647,12 @@ export class EventsService extends PuterService {
     async #suspend(
         rows: readonly DurableSubscription[],
         reason: SuspendedReason,
+        opts: { override?: readonly SuspendedReason[] } = {},
     ): Promise<DurableSubscription[]> {
         if (rows.length === 0) return [];
 
         const { suspended, bumps } =
-            await this.stores.durableSubscription.suspend(rows, reason);
+            await this.stores.durableSubscription.suspend(rows, reason, opts);
         const policy = backlogPolicyFor(reason);
         for (const row of suspended) {
             try {
@@ -2809,6 +2961,12 @@ export class EventsService extends PuterService {
         // Unresolved is not "no app": reading it that way is what would let an
         // app token publish into a namespace it never named.
         if (acting === undefined) throw handlerAppForbidden();
+        // A scoped token acts as neither the account nor the app, including
+        // one an app issued (a read URL): without this, a token minted for one
+        // narrow purpose replaces handler code that then runs holding each
+        // subscriber's own credential.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            throw handlerAppForbidden();
 
         const named = parseAppUid(requested);
         if (acting && named !== null && named !== acting.uid)
@@ -3197,7 +3355,7 @@ export class EventsService extends PuterService {
             );
 
         const anchor = resolveKvAnchor(parsed, {
-            userUuid: user.uuid,
+            userUuid: user.uuid!,
             appUid: actor.effectiveApp?.uid ?? null,
         });
 
@@ -3219,7 +3377,7 @@ export class EventsService extends PuterService {
             path: anchor.prefix,
             match: anchor.match,
             op: null,
-            ownerUserId: user.id,
+            ownerUserId: user.id!,
             // The column wants a mode; a KV row's re-check is the cross-app
             // gate rather than an ACL reading, so nothing reads this back.
             permission: SUBSCRIBE_MODE,
@@ -3469,7 +3627,8 @@ export class EventsService extends PuterService {
      * reaching another app's namespace still reaches it under its own user.
      *
      * A batch is one bus event over many keys, so the watched-set check is one
-     * command for the whole batch rather than one per key.
+     * command for the whole batch rather than one per key. A value is measured
+     * once per key, and only once something is listening for it.
      */
     async dispatchKv(
         input: KvDispatchInput,
@@ -3490,6 +3649,7 @@ export class EventsService extends PuterService {
         if (!namespace) return false;
 
         const ts = options.ts ?? Date.now();
+        const noShareKeys = new Set(input.noShareKeys ?? []);
         const contexts: KvEventContext[] = input.keys.map((kvKey) => ({
             key: 'kv.mutated',
             userUuid: namespace.userUuid,
@@ -3500,7 +3660,13 @@ export class EventsService extends PuterService {
             // emitter's own id so both copies match.
             id: options.forwarded && options.id ? options.id : randomUUID(),
             ts,
+            ...(noShareKeys.has(kvKey) ? { noShare: true as const } : {}),
         }));
+        const carried: Array<{ value: unknown } | undefined> = [];
+        const valueAt = (i: number): { value: unknown } | undefined => {
+            if (!(i in carried)) carried[i] = inlineKvValue(input.values?.[i]);
+            return carried[i];
+        };
 
         const tokensPerKey = contexts.map((context) => subject.tokens(context));
         const { local, remote } =
@@ -3527,6 +3693,8 @@ export class EventsService extends PuterService {
                         appUid: namespace.appUid,
                         kvKey: context.kvKey,
                         op: context.op,
+                        ...valueAt(i),
+                        ...(context.noShare ? { noShare: true as const } : {}),
                     },
                 });
             });
@@ -3540,6 +3708,17 @@ export class EventsService extends PuterService {
         if (options.forwarded)
             rows = rows.filter((row) => row.socketId !== undefined);
         if (rows.length === 0) return false;
+
+        const limits = await this.#kvRouteLimits(
+            ownerUserId,
+            namespace.userUuid,
+            rows.length,
+        );
+
+        if (rows.some((row) => row.includeValue === true))
+            contexts.forEach((context, i) =>
+                Object.assign(context, valueAt(i)),
+            );
 
         // Indexed once: a row holds one token, so a key's candidates are the
         // rows under the tokens it enumerated.
@@ -3560,10 +3739,61 @@ export class EventsService extends PuterService {
                 context,
                 forKey,
                 ownerUserId,
-                (matched) => this.#kvStillAuthorized(matched, namespace.appUid),
+                (matched) =>
+                    this.#kvStillAuthorized(
+                        matched,
+                        namespace.appUid,
+                        context.noShare === true,
+                    ),
+                limits,
             );
         }
         return matchedAny;
+    }
+
+    /**
+     * The namespace owner's plan bounds a mutation's delivery work. Below the
+     * smallest cap nothing can bind, so the owner lookup is skipped.
+     */
+    async #kvRouteLimits(
+        ownerUserId: number,
+        ownerUserUuid: string,
+        candidates: number,
+    ): Promise<RouteLimits> {
+        const plan =
+            candidates <= KV_ROUTE_LIMITS_NEVER_BIND
+                ? DEFAULT_FREE_SUBSCRIPTION
+                : await this.#kvOwnerPlan(ownerUserId, ownerUserUuid);
+        return {
+            matchedSubscriptions: limitFor(
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+                plan,
+            ),
+            filterEvaluations: limitFor(
+                EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
+                plan,
+            ),
+            omitKvValueAbove: EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+        };
+    }
+
+    /** The key owner's plan; the free one when it can't be resolved. */
+    async #kvOwnerPlan(
+        ownerUserId: number,
+        ownerUserUuid: string,
+    ): Promise<string | null> {
+        if (!this.services.metering) return null;
+        try {
+            const owner = await this.stores.user.getById(ownerUserId);
+            if (owner?.uuid !== ownerUserUuid) return DEFAULT_FREE_SUBSCRIPTION;
+            return (
+                (await this.#planId(makeActor({ user: owner }))) ??
+                DEFAULT_FREE_SUBSCRIPTION
+            );
+        } catch (err) {
+            console.warn("[events] could not resolve a key owner's plan", err);
+            return DEFAULT_FREE_SUBSCRIPTION;
+        }
     }
 
     /**
@@ -3632,6 +3862,12 @@ export class EventsService extends PuterService {
                     namespace: `v1:${item.kv.userUuid}:${item.kv.appUid}`,
                     keys: [item.kv.kvKey],
                     op: item.kv.op,
+                    ...(item.kv.value !== undefined
+                        ? { values: [item.kv.value] }
+                        : {}),
+                    ...(item.kv.noShare === true
+                        ? { noShareKeys: [item.kv.kvKey] }
+                        : {}),
                 },
                 {
                     actingUserId: item.actingUserId,
@@ -3708,7 +3944,7 @@ export class EventsService extends PuterService {
      */
     async #notifStillAuthorized(
         rows: DispatchSubscription[],
-        context: NotifEventContext,
+        context: Pick<NotifEventContext, 'audience' | 'appUid' | 'userId'>,
     ): Promise<DispatchSubscription[]> {
         if (rows.length === 0) return rows;
 
@@ -3741,6 +3977,10 @@ export class EventsService extends PuterService {
         authorize: (
             rows: DispatchSubscription[],
         ) => Promise<DispatchSubscription[]>,
+        limits: RouteLimits = {
+            matchedSubscriptions: EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+            filterEvaluations: FILTER_EVALUATIONS_PER_EVENT,
+        },
     ): Promise<void> {
         const rows = candidates.filter(deliverable);
         if (rows.length === 0) return;
@@ -3758,11 +3998,18 @@ export class EventsService extends PuterService {
         const evaluated = evaluateWithCap(
             rows,
             (row) => this.#passes(row, subject, op, matchOn, context),
-            FILTER_EVALUATIONS_PER_EVENT,
+            limits.filterEvaluations,
         );
 
+        const deliveryContext =
+            limits.omitKvValueAbove !== undefined &&
+            (evaluated.stoppedEarly ||
+                evaluated.matched.length > limits.omitKvValueAbove)
+                ? withoutKvValue(context)
+                : context;
+
         const matched = await authorize(
-            evaluated.matched.slice(0, EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT),
+            evaluated.matched.slice(0, limits.matchedSubscriptions),
         );
 
         let seq = 0;
@@ -3770,7 +4017,7 @@ export class EventsService extends PuterService {
             const event = this.#asRowAddressesIt(
                 row,
                 subject.project({
-                    ...context,
+                    ...deliveryContext,
                     // A row watching only where the node landed was never
                     // shown where it came from, so it is not handed that path.
                     ...(sawItLeave(row, context)
@@ -3805,7 +4052,7 @@ export class EventsService extends PuterService {
                 // A session row is addressed at one connection, which is the
                 // one that made it and is therefore here.
                 remote: row.socketId === undefined,
-                worker: this.#workerInvocation(row, event),
+                worker: this.#workerInvocation(row, event)!,
                 meter: meterFor(row),
                 // `broadcast` is one send per delivery — no retry to dedup.
                 bill: true,
@@ -3818,9 +4065,9 @@ export class EventsService extends PuterService {
         // over-reporting is the only safe direction when we cannot know. It is
         // itself capped, or a fan-out ceiling would be a fan-out of markers.
         const missed = [
-            ...evaluated.matched.slice(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT),
+            ...evaluated.matched.slice(limits.matchedSubscriptions),
             ...rows.slice(evaluated.evaluated),
-        ].slice(0, EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
+        ].slice(0, limits.matchedSubscriptions);
         if (missed.length === 0) return;
 
         // Same re-check the delivery path applies: a row a revoked grant
@@ -3851,16 +4098,48 @@ export class EventsService extends PuterService {
     ): P | null {
         // Asked of every delivery, so the families that can never answer are
         // turned away on a token comparison rather than a subject parse.
-        if (!isKvToken(row.token)) return event;
+        if (!isKvToken(row.token)) {
+            if (row.ownerUserId === row.holderUserId) return event;
+            if (!isFsToken(row.token)) return event;
+            return this.#asRecipientAddressesIt(row, event);
+        }
+        const kv = valueAsRowAskedFor(row, event as ProjectedKvEvent);
         const handle = kvHandleFromSubject(row.subject);
-        if (handle === null) return event;
+        if (handle === null) return kv as P;
 
-        const key = relativeToKvShareRoot(
-            row.permission,
-            (event as ProjectedKvEvent).key,
-        );
+        const key = relativeToKvShareRoot(row.permission, kv.key);
         if (key === null) return null;
-        return { ...event, subject: `kv:${handle}:${key}`, key };
+        return { ...kv, subject: `kv:${handle}:${key}`, key } as P;
+    }
+
+    /**
+     * A delivery on someone else's node, addressed the way every FS surface
+     * addresses one: the anchor stands in for everything above it, so the
+     * folders the owner keeps it in — and what sits beside it — stay theirs.
+     *
+     * `from` on a move is masked the same way. A row anchored on the node
+     * itself is told where it went, and that can be somewhere the holder was
+     * never granted anything at all.
+     */
+    #asRecipientAddressesIt<P extends ProjectedEvent>(
+        row: DispatchSubscription,
+        event: P,
+    ): P {
+        const fs = event as unknown as ProjectedFsEvent;
+        if (typeof fs.path !== 'string') return event;
+        const anchor = { uid: row.anchorUid, path: row.anchorPath };
+        return {
+            ...event,
+            path: maskUnderAnchor(anchor, { path: fs.path, uid: fs.uid }),
+            ...(typeof fs.from === 'string'
+                ? {
+                      from: maskUnderAnchor(anchor, {
+                          path: fs.from,
+                          uid: fs.uid,
+                      }),
+                  }
+                : {}),
+        };
     }
 
     /** Op filter first — a comparison, where the glob is not. */
@@ -3973,16 +4252,23 @@ export class EventsService extends PuterService {
      * permission generation, and an app switching its data sharing off does not
      * move it. Asking each time is what makes that flip stop deliveries at
      * once.
+     *
+     * `privateEntry` drops every cross-app row, share-handle rows included,
+     * before any grant is asked: a private key reaches only rows a `get` would
+     * show it to.
      */
     async #kvStillAuthorized(
         rows: DispatchSubscription[],
         targetAppUid: string,
+        privateEntry = false,
     ): Promise<DispatchSubscription[]> {
         if (rows.length === 0) return rows;
 
         const decisions = new Map<string, Promise<boolean>>();
         const allowed = await Promise.all(
             rows.map((row) => {
+                if (privateEntry && isCrossAppKvRow(row.appUid, targetAppUid))
+                    return Promise.resolve(false);
                 // A row on a shared region is authorized by its grant, not by
                 // whose namespace it names — and that is one question per
                 // subscription, because the handle *is* the granted root.
@@ -4158,9 +4444,13 @@ export class EventsService extends PuterService {
             );
         }
 
+        // Suspended rows included: the three resumable reasons hold a backlog,
+        // and one skipped here comes back in service on the next resume and
+        // hands over everything queued after the revocation.
         const held = await this.stores.durableSubscription.listActiveForHolder(
             revocation.holderUserId,
             revocation.appUid,
+            { includeSuspended: true },
         );
         const settling = await this.#leftSettling(held, revocation.permission);
         if (settling.length === 0) return 0;
@@ -4169,7 +4459,9 @@ export class EventsService extends PuterService {
         // at once: it holds the paths of a resource its holder has just lost
         // the right to see, and keeping it for a resume that by design never
         // comes turns a revocation into a delayed disclosure.
-        const suspended = await this.#suspend(settling, 'permission_revoked');
+        const suspended = await this.#suspend(settling, 'permission_revoked', {
+            override: RESUMABLE_REASONS,
+        });
         await this.#notifyEnded(suspended, 'permission_revoked');
         return suspended.length;
     }
@@ -4332,6 +4624,26 @@ export class EventsService extends PuterService {
 
     /** Whether a row's holder can still reach its anchor, asked fresh. */
     async #anchorStillReachable(row: DurableSubscription): Promise<boolean> {
+        // On the token, like the families below it: the stored subject parses
+        // only because a subscribe validated it, and a settle must not start
+        // throwing on a row it cannot read.
+        if (isNotifToken(row.token)) {
+            const actor = await resolveGrantActor(row, this.#aclDeps());
+            if (!actor?.user.uuid) return false;
+            const anchor = resolveNotifAnchor(parseSubject(row.subject), {
+                userUuid: actor.user.uuid,
+                appUid: row.appUid,
+            });
+            return (
+                (
+                    await this.#notifStillAuthorized([row], {
+                        audience: anchor.audience,
+                        appUid: anchor.appScoped ? anchor.ref : null,
+                        userId: row.holderUserId,
+                    })
+                ).length > 0
+            );
+        }
         if (kvHandleFromSubject(row.subject) !== null)
             return this.#kvShareHolds(row);
         if (isKvToken(row.token)) {
@@ -4622,7 +4934,7 @@ export class EventsService extends PuterService {
                 event,
             );
             this.#reportShed(shed);
-            await this.#drain(row);
+            await this.#drain(row, { justAuthorized: true });
         } catch (err) {
             this.#enqueueFailed(row, err);
         }
@@ -4637,8 +4949,10 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         // Only the sweeper defers: it alone reads the pending index in score
         // order, so only it may rewrite a score without starving what is behind.
-        opts?: { deferWhenBusy?: boolean },
+        opts?: { deferWhenBusy?: boolean; justAuthorized?: boolean },
     ): Promise<number> {
+        if (!opts?.justAuthorized && !(await this.#stillOwed(row))) return 0;
+
         let handed = 0;
         for (let pass = 0; pass < PENDING_DRAIN_BATCH; pass++) {
             const claimed = await this.stores.pendingDelivery.claim(row.subId);
@@ -4650,12 +4964,52 @@ export class EventsService extends PuterService {
                     await this.stores.pendingDelivery.defer(row.subId);
                 return handed;
             }
+            // A generic mailbox slice can contain several apps; ownership
+            // must still hold for each queued developer notification.
+            if (
+                'audience' in claimed.event &&
+                (
+                    await this.#notifStillAuthorized([row], {
+                        audience: claimed.event.audience,
+                        appUid: claimed.event.appUid,
+                        userId: row.holderUserId,
+                    })
+                ).length === 0
+            ) {
+                await this.stores.pendingDelivery.settle(
+                    row.subId,
+                    claimed.entryId,
+                );
+                continue;
+            }
             handed++;
             // Anything still holding the lease is the next consumer's answer to
             // give, so this pass is over.
             if (!(await this.#handOut(row, claimed))) return handed;
         }
         return handed;
+    }
+
+    /**
+     * Whether a queued backlog may still be handed over.
+     *
+     * Nothing between the claim and the socket asks this — and the revoke
+     * settle deliberately leaves a grant withdrawn on an _ancestor_ of an
+     * anchor to the delivery re-check, which this path is. Without it the queue
+     * keeps draining for the whole backlog TTL after an unshare.
+     *
+     * Asked once per drain rather than per delivery: the whole backlog stands
+     * on the one grant. A row that has lost it is settled the way the revoke
+     * settle would have — permanently, and taking the backlog with it.
+     */
+    async #stillOwed(row: DispatchSubscription): Promise<boolean> {
+        if (row.durable !== true) return true;
+        const durable = row as DurableSubscription;
+        if (await this.#anchorStillReachable(durable)) return true;
+
+        const suspended = await this.#suspend([durable], 'permission_revoked');
+        await this.#notifyEnded(suspended, 'permission_revoked');
+        return false;
     }
 
     /**

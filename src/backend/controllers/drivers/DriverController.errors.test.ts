@@ -179,6 +179,28 @@ const throwing = (payload: unknown) => () => {
 // -- Upstream status extraction --------------------------------------
 
 describe('DriverController upstream error translation', () => {
+    it('maps an upstream 402 to sanitized credit exhaustion', async () => {
+        const { err } = await callWith(
+            throwing(
+                Object.assign(
+                    new Error(
+                        '<html>Insufficient credits. Add more using https://openrouter.ai/settings/credits (request id: req-secret)</html>',
+                    ),
+                    { status: 402 },
+                ),
+            ),
+        );
+
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+            message: 'AI provider out of credits',
+            fields: { upstreamStatus: 402 },
+        });
+        expect(JSON.stringify(err)).not.toContain('http');
+        expect(JSON.stringify(err)).not.toMatch(/request id|<html>/i);
+    });
+
     it('maps an upstream 429 to a Puter 429 with upstream_rate_limited', async () => {
         const { err } = await callWith(
             throwing(

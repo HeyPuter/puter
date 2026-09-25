@@ -40,6 +40,7 @@ import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
 import launch_app from '../helpers/launchApp.js';
+import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
@@ -1365,16 +1366,16 @@ async function UIDesktop (options) {
             if ( window.app_query_params && window.app_query_params.posargs ) {
                 posargs = JSON.parse(window.app_query_params.posargs);
             }
-            // `?file=<path>` opens that file with the app, the same as
-            // double-clicking it would.
-            const file_path = window.url_query_params.get('file');
+            // `?file=<path or uid>` opens that file with the app, the same as
+            // double-clicking it would — but the link picked both, so the user
+            // is asked before the app is given the file.
             launch_app({
                 app: window.app_launched_from_url.name,
                 app_obj: window.app_launched_from_url,
                 readURL: window.url_query_params.get('readURL'),
                 maximized: window.url_query_params.get('maximized'),
                 params: window.app_query_params ?? [],
-                ...(file_path ? { file_path } : {}),
+                ...urlFileLaunchOptions(window.url_query_params.get('file')),
                 ...(posargs ? {
                     args: {
                         command_line: { args: posargs },
@@ -1862,15 +1863,22 @@ async function UIDesktop (options) {
     }
 
     /**
-     * Act on a share link. A share only ever reaches a real account, so a
-     * temporary session is never the recipient: signing out of the way first
-     * beats resolving the link as somebody who can't see it and burning it on
-     * a "not found". The link stays in the address bar across the prompt
-     * because login reloads on success, which brings it back for the account
-     * that can actually open it.
+     * Act on a share link. A share to a person only ever reaches a real
+     * account, so for a temporary session the item is tried first — an item
+     * open to anyone with the link resolves for it — and only a miss asks
+     * for a sign-in, rather than burning the link on a "not found" as
+     * somebody who can't see it. The link stays in the address bar across
+     * the prompt because login reloads on success, which brings it back for
+     * the account that can actually open it.
      */
     async function handle_shared_link (shared_path) {
         if ( window.user?.is_temp ) {
+            const stat = await resolve_shared_item(puter.fs, shared_path);
+            if ( stat ) {
+                clear_shared_param();
+                await open_path_target(stat.path ?? shared_path, stat);
+                return;
+            }
             await UIWindowLogin({
                 reload_on_success: true,
                 window_options: { cover_page: true, has_head: false },

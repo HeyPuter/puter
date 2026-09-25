@@ -184,7 +184,7 @@ const SHARE_LIST_ROW = `
                                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
                                         {{#each shares}}
                                         <tr>
-                                            <td class="ink rule" style="padding: 12px 0;{{#unless @first}} border-top: 1px solid ${RULE};{{/unless}} font-family: ${FONT}; font-size: 16px; line-height: 24px; color: ${INK};"><strong style="font-weight: 600;">{{this.sender}}</strong> shared ${SHARE_ITEM_LIST}</td>
+                                            <td class="ink rule" style="padding: 12px 0;{{#unless @first}} border-top: 1px solid ${RULE};{{/unless}} font-family: ${FONT}; font-size: 16px; line-height: 24px; color: ${INK};"><strong style="font-weight: 600;">{{this.sender}}</strong> shared ${SHARE_ITEM_LIST}{{#if this.via}} via {{this.via}}{{/if}}</td>
                                         </tr>
                                         {{/each}}
                                     </table>
@@ -351,9 +351,11 @@ support@puter.com immediately.
         subject: 'Your {{team_name}} account on Puter',
         html: `
 <p>Hi there,</p>
-<p>{{team_name}} has created a Puter account for you: <b>{{username}}</b>.
-They will send you a temporary password separately; you will be asked to
-choose your own the first time you sign in.</p>
+<p>{{team_name}} has created a Puter account for you.</p>
+<p>Username: <b>{{username}}</b><br>
+Temporary password: <b>{{temporary_password}}</b></p>
+<p>You will be asked to choose your own password the first time you sign in.
+This temporary one stops working then, and it expires on its own if unused.</p>
 <p>What this means:</p>
 <ul>
 <li>This account belongs to {{team_name}}. They pay for it and can close it.</li>
@@ -456,7 +458,7 @@ immediately</p>
 
             Shared with you on Puter:
             {{#each shares}}
-            - {{this.sender}} shared {{this.what}}
+            - {{this.sender}} shared {{this.what}}{{#if this.via}} via {{this.via}}{{/if}}
             {{#each this.items}}{{#if this.link}}  {{this.name}}: {{this.link}}
             {{/if}}{{/each}}{{/each}}
 
@@ -494,7 +496,7 @@ immediately</p>
 
             Shared with you on Puter:
             {{#each shares}}
-            - {{this.sender}} shared {{this.what}}
+            - {{this.sender}} shared {{this.what}}{{#if this.via}} via {{this.via}}{{/if}}
             {{/each}}
 
             There's no Puter account for {{email}} yet. Create one with this

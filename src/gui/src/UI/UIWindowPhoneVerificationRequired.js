@@ -46,6 +46,11 @@ import {
 // limit before the handler runs, so only whoami can still report the offer —
 // which matters because it stays valid for 24 hours, well past the send window.
 //
+// `options.card_alternative` is the other reason to show the link: the caller
+// (a route asking for a verified phone OR card) accepts a card in its own
+// right, so it is offered from the start and the card dialog is told that a
+// card alone satisfies it — see UIWindowCardVerificationRequired.
+//
 // The number field combines a searchable country-code picker with the national
 // number. Everything the user types is normalized to E.164 with libphonenumber
 // before it's sent, so country selection and on-screen formatting are purely a
@@ -133,6 +138,7 @@ function UIWindowPhoneVerificationRequired(options) {
             code_sent_to: i18n('phone_code_sent_to'),
             code_sent_whatsapp: i18n('phone_code_sent_whatsapp'),
             card_fallback_prompt: i18n('phone_card_fallback_prompt'),
+            card_alternative_prompt: i18n('phone_card_alternative_prompt'),
             card_fallback_link: i18n('phone_card_fallback_link'),
             card_fallback_note: i18n('phone_card_fallback_note'),
             card_fallback_unavailable: i18n('phone_card_fallback_unavailable'),
@@ -218,11 +224,15 @@ function UIWindowPhoneVerificationRequired(options) {
             .map((c) => renderOption(c, 'cc-opt-', 'all'))
             .join('');
 
-        // Card escape hatch, rendered into both steps and revealed only when a
-        // send response says the backend opened it.
+        // Card path, rendered into both steps. Hidden until a send response
+        // says the backend opened the escape hatch, or shown from the start
+        // when the caller accepts a card as an alternative.
+        const card_prompt = options.card_alternative
+            ? T.card_alternative_prompt
+            : T.card_fallback_prompt;
         const card_fallback_html =
             '<div class="phone-card-fallback" hidden>' +
-            `<p class="phone-card-fallback-prompt">${T.card_fallback_prompt}</p>` +
+            `<p class="phone-card-fallback-prompt">${card_prompt}</p>` +
             `<a class="phone-use-card" role="button" tabindex="0">${T.card_fallback_link}</a>` +
             `<p class="phone-card-fallback-note">${T.card_fallback_note}</p>` +
             '</div>';
@@ -536,7 +546,9 @@ function UIWindowPhoneVerificationRequired(options) {
         // before the handler runs — so a send response can no longer advertise
         // it. On a reload the offer therefore has to come from whoami, which the
         // gate's caller passes in.
-        if (options.card_fallback_available) revealCardFallback();
+        if (options.card_fallback_available || options.card_alternative) {
+            revealCardFallback();
+        }
 
         // Hand off to the card dialog. This window stays alive behind it (just
         // hidden) so a user who backs out — or whose card path turns out to be
@@ -557,6 +569,7 @@ function UIWindowPhoneVerificationRequired(options) {
             try {
                 verified = await UIWindowCardVerificationRequired({
                     phone_fallback: true,
+                    card_alternative: Boolean(options.card_alternative),
                     on_unavailable: () => {
                         unavailable = true;
                     },

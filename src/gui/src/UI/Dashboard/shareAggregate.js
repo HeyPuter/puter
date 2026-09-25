@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { team_label } from '../../helpers/shareTeams.js';
+
 // Folds the per-item share listings behind the share dialog into one row per
 // person, so a selection of many items reads as a single access list. Pure, so
 // the rules that decide what a row may change are testable without a DOM.
@@ -32,8 +34,9 @@
  * have entries.
  *
  * @typedef {Object} ShareGroup
- * @property {string} key - Row identity: `user:<username>` or `invite:<email>`
- * @property {string} name - Username, or the invited email address
+ * @property {string} key - Row identity: `user:<username>`, `invite:<email>` or `team:<uid>`
+ * @property {string} name - Username, invited email address, or team name
+ * @property {string|null} teamUid - Set when the holder is a team, not a person
  * @property {boolean} pending - Invitation with no account behind it yet
  * @property {string[]} directPaths - Items whose grant this dialog can change
  * @property {string[]} pendingPaths - Items the invitation covers
@@ -72,6 +75,46 @@ const bucket_of = (share) => {
 };
 
 /**
+ * Row identity and label. A team share names no holder, so it is keyed on the
+ * team's uid — a renamed team stays the same row.
+ *
+ * @param {Object} share
+ * @param {'pending'|'inherited'|'direct'} bucket
+ * @returns {{ key: string, name: string, teamUid: string|null }|null}
+ */
+const identify = (share, bucket) => {
+    // A link share on the item itself is the "general access" control's
+    // business, not a row; one inherited from a folder above is shown, since
+    // it can only be changed there.
+    if ( share.anyone ) {
+        if ( bucket !== 'inherited' ) return null;
+        return { key: 'anyone', name: i18n('share_row_anyone'), teamUid: null };
+    }
+    const team = share.holderTeam;
+    if ( team?.uid ) {
+        return { key: `team:${team.uid}`, name: team_label(team), teamUid: team.uid };
+    }
+    const name = bucket === 'pending'
+        ? (share.recipientEmail ?? '')
+        : (share.holder ?? '');
+    // Withheld address: still reaches someone, and has no name to group on.
+    if ( name === '' && bucket === 'pending' ) {
+        return {
+            key: `invite:${share.uid}`,
+            name: i18n('share_invited_someone'),
+            teamUid: null,
+            anonymous: true,
+        };
+    }
+    if ( name === '' ) return null;
+    return {
+        key: `${bucket === 'pending' ? 'invite' : 'user'}:${name}`,
+        name,
+        teamUid: null,
+    };
+};
+
+/**
  * Collapses per-item share listings into one {@link ShareGroup} per person.
  *
  * Groups come back in the order the listings first mention each person, which
@@ -93,12 +136,10 @@ export const aggregateShares = (paths, sharesByPath) => {
 
         for ( const share of sharesByPath.get(item_path) ?? [] ) {
             const bucket = bucket_of(share);
-            const name = bucket === 'pending'
-                ? (share.recipientEmail ?? '')
-                : (share.holder ?? '');
-            if ( name === '' ) continue;
+            const identity = identify(share, bucket);
+            if ( ! identity ) continue;
+            const { key, name, teamUid, anonymous } = identity;
 
-            const key = `${bucket === 'pending' ? 'invite' : 'user'}:${name}`;
             if ( counted.has(`${key}|${bucket}`) ) continue;
             counted.add(`${key}|${bucket}`);
 
@@ -106,6 +147,8 @@ export const aggregateShares = (paths, sharesByPath) => {
                 groups.set(key, {
                     key,
                     name,
+                    teamUid,
+                    anonymous: anonymous === true,
                     pending: bucket === 'pending',
                     directPaths: [],
                     pendingPaths: [],
@@ -141,6 +184,8 @@ export const aggregateShares = (paths, sharesByPath) => {
         return {
             key: group.key,
             name: group.name,
+            teamUid: group.teamUid,
+            anonymous: group.anonymous,
             pending: group.pending,
             directPaths: group.directPaths,
             pendingPaths: group.pendingPaths,
@@ -187,4 +232,29 @@ export const aggregateOwners = (owners) => {
         seen.set(owner, entry);
     }
     return [...seen.values()];
+};
+
+/**
+ * Where the selection stands on "anyone with the link": `restricted` when no
+ * item is open, `anyone` (with the one mode, or null when they disagree) when
+ * every item is, `mixed` in between. Only a link share on the item itself
+ * counts — one inherited from a folder above is that folder's.
+ *
+ * @param {string[]} paths - The items the dialog covers
+ * @param {Map<string, Object[]>} sharesByPath - Each item's `getShares` result
+ * @returns {{ access: 'restricted'|'anyone'|'mixed', mode: string|null }}
+ */
+export const linkShareState = (paths, sharesByPath) => {
+    const modes = paths.map((item_path) =>
+        (sharesByPath.get(item_path) ?? []).find(
+            (share) => share?.anyone && ! share.inheritedFrom,
+        )?.mode ?? null,
+    );
+    if ( modes.length === 0 || modes.every((mode) => mode === null) ) {
+        return { access: 'restricted', mode: null };
+    }
+    if ( modes.every((mode) => mode !== null) ) {
+        return { access: 'anyone', mode: uniform(modes) };
+    }
+    return { access: 'mixed', mode: null };
 };

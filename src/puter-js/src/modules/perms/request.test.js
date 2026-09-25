@@ -325,6 +325,32 @@ describe('perms request(resource, details)', () => {
         ).rejects.toMatchObject({ code: 'invalid_argument' });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
     });
+
+    it('forwards an explicit `create: false` rather than dropping it as falsy', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, 'permission', {
+            permission: 'fs:/alice/.mail:write',
+            create: false,
+        });
+
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'fs:/alice/.mail:write',
+            create: false,
+        });
+    });
+
+    it('sends no `create` when none was given, leaving the default to the GUI', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, 'permission', {
+            permission: 'fs:/alice/.mail:write',
+        });
+
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'fs:/alice/.mail:write',
+        });
+    });
 });
 
 describe('perms request([...]) batching', () => {
@@ -467,6 +493,28 @@ describe('perms request([...]) batching', () => {
             ]),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    // `false` is a value, not an absence: it must reach the prompt, and it
+    // conflicts with `true` the same way `'file'` does.
+    it('carries a shared `create: false` across a batch and treats it as conflicting with `true`', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, [
+            { resource: 'permission', permission: 'a:read', create: false },
+            { resource: 'permission', permission: 'b:read' },
+        ]);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permissions: ['a:read', 'b:read'],
+            create: false,
+        });
+
+        await expect(
+            request.call(mod, [
+                { resource: 'permission', permission: 'a:read', create: false },
+                { resource: 'permission', permission: 'b:read', create: true },
+            ]),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
 
     // `create` only means something on `'permission'` entries; a stray one

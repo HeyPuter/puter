@@ -165,6 +165,50 @@ const asApp = async <T>(
     }
 };
 
+/** A second session on the same account, independent of the shared instance's own. */
+const signIn = async (t: TestContext): Promise<string> => {
+    const res = await fetch(`${t.env.origin}/login`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Origin: t.env.origin,
+        },
+        body: JSON.stringify({
+            username: t.env.users.user.username,
+            password: t.env.users.user.password,
+        }),
+    });
+    const body = (await res.json()) as { token: string };
+    if (!res.ok || !body.token) {
+        throw new Error(`login failed: ${res.status}`);
+    }
+    return body.token;
+};
+
+/**
+ * Ends a session by its own token — `/logout` evicts every socket on the
+ * account. Both routes are root-origin only, like `/login`.
+ */
+const signOut = async (t: TestContext, token: string): Promise<void> => {
+    const csrfRes = await fetch(`${t.env.origin}/get-anticsrf-token`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const { token: anti_csrf } = (await csrfRes.json()) as { token: string };
+    if (!csrfRes.ok || !anti_csrf) {
+        throw new Error(`get-anticsrf-token failed: ${csrfRes.status}`);
+    }
+    const logoutRes = await fetch(`${t.env.origin}/logout`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ anti_csrf }),
+    });
+    if (!logoutRes.ok) {
+        throw new Error(`logout failed: ${logoutRes.status}`);
+    }
+};
 
 /** One notification in this account's own mailbox, written through the driver. */
 const postNotification = async (t: TestContext, title: string): Promise<void> => {
@@ -380,6 +424,73 @@ export default suite('events', {
             );
         } finally {
             await sub.off();
+        }
+    },
+
+    'resubscribes after another session on the account signs out': async (t) => {
+        const dir = await makeDir(t, 'events-server-evict');
+        const seen: Delivered[] = [];
+        const lapses: unknown[] = [];
+
+        const sub = await t.puter.events.onLocal(`fs:${dir}`, ({ event }) => seen.push(event as Delivered), {
+            timeout: SUBSCRIBE_TIMEOUT_MS,
+            onError: (error) => lapses.push(error),
+        });
+        if (!sub) return;
+
+        try {
+            const before = sub.subId;
+
+            // Signing another session on this account out evicts every socket
+            // on the account, this one included.
+            const otherToken = await signIn(t);
+            await signOut(t, otherToken);
+
+            const back = await waitFor(
+                () => sub.subId !== null && sub.subId !== before,
+                DELIVERY_TIMEOUT_MS,
+            );
+            t.assert.ok(back, 'the subscription reconnected after the server dropped it');
+            t.assert.deepEqual(lapses, [], 'a server hang-up that reconnects does not lapse');
+
+            const file = `${dir}/after-evict.txt`;
+            await t.puter.fs.write(file, 'still listening');
+            await waitFor(
+                () => seen.some((event) => event.path === file),
+                DELIVERY_TIMEOUT_MS,
+            );
+            t.assert.ok(
+                seen.some((event) => event.path === file),
+                'the same handler keeps receiving events after the server-side eviction',
+            );
+        } finally {
+            await sub.off();
+            // The eviction leaves the shared instance's other sockets (e.g.
+            // the filesystem one) dead too; this rebuilds them.
+            t.puter.setAuthToken(t.env.users.user.token);
+        }
+    },
+
+    'ends a subscription with reauth_required once its own session is signed out': async (t) => {
+        const dir = await makeDir(t, 'events-self-revoke');
+        const token = await signIn(t);
+        const lapses: unknown[] = [];
+
+        t.puter.setAuthToken(token);
+        try {
+            const sub = await t.puter.events.onLocal(`fs:${dir}`, () => {}, {
+                timeout: SUBSCRIBE_TIMEOUT_MS,
+                onError: (error) => lapses.push(error),
+            });
+
+            await signOut(t, token);
+
+            const failed = await waitFor(() => lapses.length > 0, DELIVERY_TIMEOUT_MS);
+            t.assert.ok(failed, 'signing this session out ends its own subscription');
+            t.assert.equal(codeOf(lapses[0]), 'reauth_required');
+            t.assert.equal(sub.subId, null);
+        } finally {
+            t.puter.setAuthToken(t.env.users.user.token);
         }
     },
 
@@ -637,6 +748,54 @@ export default suite('events', {
                 t.assert.ok(
                     settled,
                     'the first delivery was acknowledged, so the next was handed over',
+                );
+            } finally {
+                await sub.off!();
+                await live.off();
+            }
+        });
+    },
+
+    'keeps running a persistent handler here after the server drops the connection': async (t) => {
+        const dir = await makeDir(t, 'events-durable-evict');
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestEvict', RECORDING_HANDLER, {
+            appUid,
+        });
+        await t.puter.perms.grantApp(appUid, `fs:${dir}:write`);
+        await t.puter.perms.grantApp(appUid, 'events:background');
+
+        const before = recorded().length;
+        await asApp(t, appUid, async () => {
+            // A session subscription first, as proof the connection is up —
+            // and its own reconnect is what shows the server-side drop
+            // happened and was recovered from.
+            const live = await open(t, `fs:${dir}`, () => {});
+            if (! live) return;
+
+            const sub = await t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                targets: ['socket'],
+                handlerName: 'ingestEvict',
+                handler: RECORDING_HANDLER,
+                context: { label: 'ingest' },
+            });
+            try {
+                const beforeSubId = live.subId;
+                const otherToken = await signIn(t);
+                await signOut(t, otherToken);
+
+                const reconnected = await waitFor(
+                    () => live.subId !== null && live.subId !== beforeSubId,
+                    DELIVERY_TIMEOUT_MS,
+                );
+                t.assert.ok(reconnected, 'the session subscription shows the connection came back');
+
+                await t.puter.fs.write(`${dir}/after-evict.txt`, 'still here');
+                await waitFor(() => recorded().length > before, DELIVERY_TIMEOUT_MS);
+                t.assert.ok(
+                    recorded().length > before,
+                    'the persistent handler kept running in this client across the eviction',
                 );
             } finally {
                 await sub.off!();
@@ -909,13 +1068,22 @@ export default suite('events', {
         t.assert.equal(codeOf(error), 'events_handler_not_found');
     },
 
-    'refuses an app token trying to list events workers': async (t) => {
-        const appUid = await makeApp(t);
-        await t.puter.events.handlers.publish('ingestUpload', HANDLER, { appUid });
+    'scopes an app token to its own worker, not every app the user owns': async (t) => {
+        const appA = await makeApp(t);
+        const appB = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', HANDLER, {
+            appUid: appA,
+        });
+        await t.puter.events.handlers.publish('indexDocument', OTHER_HANDLER, {
+            appUid: appB,
+        });
 
-        await asApp(t, appUid, async () => {
-            const error = await t.assert.rejects(() => t.puter.events.workers.list());
-            t.assert.equal(codeOf(error), 'events_worker_owner_only');
+        await asApp(t, appA, async () => {
+            const page = await t.puter.events.workers.list();
+            t.assert.deepEqual(
+                page.items.map((row) => row.appUid),
+                [appA],
+            );
         });
     },
 

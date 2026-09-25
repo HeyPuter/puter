@@ -48,7 +48,12 @@ import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
@@ -193,6 +198,38 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
         expect(ids).not.toContain('gpt-5-nano-2025-08-07');
     });
 
+    it.each([
+        ['gpt-6-sol', '2026-04-20', 200, 20, 1000],
+        ['gpt-6-luna', '2026-05-18', 10, 1, 50],
+    ])(
+        'exposes %s with current pricing and limits',
+        (id, knowledge, input, cached, output) => {
+            const { provider } = makeProvider();
+            expect(
+                provider.models().find((model) => model.id === id),
+            ).toMatchObject({
+                puterId: `openai:openai/${id}`,
+                aliases: [`openai/${id}`],
+                knowledge,
+                release_date: '2026-09-22',
+                modalities: { input: ['text', 'image'], output: ['text'] },
+                costs_currency: 'usd-cents',
+                costs: {
+                    tokens: 1_000_000,
+                    prompt_tokens: input,
+                    cached_tokens: cached,
+                    completion_tokens: output,
+                },
+                context: 1_050_000,
+                max_tokens: 128_000,
+                responses_api: true,
+            });
+            expect(provider.list()).toEqual(
+                expect.arrayContaining([id, `openai/${id}`]),
+            );
+        },
+    );
+
     it('models({ no_restrictions: true }) returns the entire catalog (used by complete())', () => {
         const { provider } = makeProvider();
         const ids = provider
@@ -259,6 +296,27 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(args.input).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_output_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
+    });
+
+    it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValue(baseResponse);
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'o3-pro',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(
+            sentIdentifierFields(responsesCreateMock.mock.calls, fields),
+        ).toEqual(expectedIdentifierFields(fields));
     });
 
     it('unravels function tools into the flat Responses API shape', async () => {
@@ -359,6 +417,58 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         const [o3Args] = responsesCreateMock.mock.calls[1]!;
         expect(o3Args.reasoning_effort).toBe('medium');
         expect(o3Args.verbosity).toBe('low');
+    });
+
+    it.each(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+        'maps flat controls to Responses options for %s aliases',
+        async (model) => {
+            const { provider } = makeProvider();
+            responsesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() =>
+                provider.complete({
+                    model: `openai/${model}`,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning_effort: 'high',
+                    verbosity: 'low',
+                }),
+            );
+            const [args] = responsesCreateMock.mock.calls[0]!;
+            expect(args.model).toBe(model);
+            expect(args.reasoning).toEqual({ effort: 'high' });
+            expect(args.text).toEqual({ verbosity: 'low' });
+            expect(args).not.toHaveProperty('reasoning_effort');
+            expect(args).not.toHaveProperty('verbosity');
+            expect(recordSpy.mock.calls[0]![2]).toBe(`openai:${model}`);
+        },
+    );
+
+    it('preserves nested GPT-6 controls and gives flat options precedence', async () => {
+        const { provider } = makeProvider();
+        const reasoning = { effort: 'medium', summary: 'auto' };
+        const text = { verbosity: 'high', format: { type: 'text' } };
+        for (const flat of [false, true]) {
+            responsesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-6-sol',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning,
+                    text,
+                    ...(flat
+                        ? { reasoning_effort: 'low', verbosity: 'low' }
+                        : {}),
+                } as never),
+            );
+            const [args] = responsesCreateMock.mock.lastCall!;
+            expect(args.reasoning).toEqual({
+                ...reasoning,
+                effort: flat ? 'low' : 'medium',
+            });
+            expect(args.text).toEqual({
+                ...text,
+                verbosity: flat ? 'low' : 'high',
+            });
+        }
     });
 });
 
@@ -490,6 +600,89 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
             completion_tokens: 50 * Number(o3pro.costs.completion_tokens),
             cached_tokens: 10 * Number(o3pro.costs.cached_tokens ?? 0),
         });
+    });
+
+    it('splits cache writes out of input and bills them at 1.25x input', async () => {
+        const luna = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-luna')!;
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [{ role: 'assistant' }],
+            output_text: 'hi',
+            usage: {
+                input_tokens: 5000,
+                output_tokens: 20,
+                input_tokens_details: {
+                    cached_tokens: 1000,
+                    cache_write_tokens: 3000,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 1000,
+            completion_tokens: 20,
+            cached_tokens: 1000,
+            cache_write_tokens: 3000,
+        });
+        expect(luna.costs.cache_write_tokens).toBe(
+            Number(luna.costs.prompt_tokens) * 1.25,
+        );
+        expect(overrides).toEqual({
+            prompt_tokens: 1000 * Number(luna.costs.prompt_tokens),
+            completion_tokens: 20 * Number(luna.costs.completion_tokens),
+            cached_tokens: 1000 * Number(luna.costs.cached_tokens),
+            cache_write_tokens: 3000 * Number(luna.costs.cache_write_tokens),
+        });
+    });
+
+    it('bills the whole request at long-context rates past 272K input tokens', async () => {
+        const sol = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-sol')!;
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [{ role: 'assistant' }],
+            output_text: 'hi',
+            usage: {
+                input_tokens: 300_000,
+                output_tokens: 10_000,
+                input_tokens_details: {
+                    cached_tokens: 50_000,
+                    cache_write_tokens: 20_000,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-sol',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        // $0.92 + $0.02 + $0.10 + $0.15 = $1.19, against $0.62 at the
+        // standard rates.
+        expect(overrides).toEqual({
+            prompt_tokens: 230_000 * Number(sol.costs.prompt_tokens) * 2,
+            cached_tokens: 50_000 * Number(sol.costs.cached_tokens) * 2,
+            cache_write_tokens:
+                20_000 * Number(sol.costs.cache_write_tokens) * 2,
+            completion_tokens:
+                10_000 * Number(sol.costs.completion_tokens) * 1.5,
+        });
+        const totalCents =
+            Object.values(overrides as Record<string, number>).reduce(
+                (a, b) => a + b,
+                0,
+            ) / 1_000_000;
+        expect(totalCents).toBeCloseTo(119);
     });
 
     it('bills cached tokens at the input rate when the model prices no cache read', async () => {

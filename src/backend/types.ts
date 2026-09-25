@@ -29,24 +29,13 @@ export interface IDynamoConfig {
     aws?: IAWSCredentials;
     endpoint?: string;
     /**
-     * Filesystem path for the local dynalite store. Defaults to
-     * `./volatile/runtime/puter-ddb`. Pass `':memory:'` (or set `inMemory:
-     * true`) to run dynalite without persistence — the recommended setup for
-     * unit/integration tests.
+     * Local dynalite store path. Default `./volatile/runtime/puter-ddb`;
+     * `':memory:'` for tests.
      */
     path?: string;
-    /**
-     * Run dynalite in-memory with no on-disk state. Equivalent to `path:
-     * ':memory:'`. Intended for tests so each suite gets a pristine in-process
-     * DynamoDB.
-     */
+    /** Same as `path: ':memory:'`. */
     inMemory?: boolean;
-    /**
-     * Create required tables on startup if they don't exist. Off by default
-     * because real-AWS deployments provision tables externally (Terraform /
-     * IaC). Set to `true` when pointing at a local DynamoDB emulator so
-     * self-hosters don't have to bootstrap by hand.
-     */
+    /** Create missing tables at startup. Off by default; for local emulators. */
     bootstrapTables?: boolean;
 }
 
@@ -55,60 +44,41 @@ export interface IRedisConfig {
         host: string;
         port: number;
     }>;
-    /**
-     * Use TLS for cluster connections. Defaults to `true` (matches prod
-     * ElastiCache). Set `false` for self-host plain-TCP Valkey/Redis.
-     */
+    /** Default `true`; set `false` for plain-TCP Valkey/Redis. */
     tls?: boolean;
     /**
-     * Use ioredis-mock instead of a real Redis cluster — fully in-process, no
-     * network. Defaults to `true` when `startupNodes` is empty (so tests with
-     * no redis config get a mock for free). Intended for unit/integration
-     * tests.
+     * Use ioredis-mock in-process. Defaults to `true` when `startupNodes` is
+     * empty.
      */
     useMock?: boolean;
 }
 
 /**
- * Redis-backed read cache in front of the KV store's point reads (`get`, and
- * the per-key half of a batch `get`). Off unless `enabled` is set.
- *
- * Only user/app namespaces are cached; internal state under the system
- * namespace is always read through, as are consistent reads.
- *
- * Turning the cache off does not clear what it already holds. Entries stop
- * being read but also stop being invalidated, so a disable followed by a
- * re-enable inside `ttlSeconds` can serve values written in between — wait out
- * `ttlSeconds` before switching back on.
+ * Redis read cache in front of KV point reads for user/app namespaces. Off
+ * unless `enabled`. Disabling does not clear entries, so wait out `ttlSeconds`
+ * before re-enabling or stale values can be served.
  */
 export interface IKvCacheConfig {
-    /** Master switch. Default false. */
+    /** Default false. */
     enabled?: boolean;
     /** Seconds a cached value is served for. Default 60. */
     ttlSeconds?: number;
-    /**
-     * Seconds a cached absence is served for. Shorter than `ttlSeconds` because
-     * a key that doesn't exist yet is the one most likely to appear. Default
-     * 10.
-     */
+    /** Seconds a cached absence is served for. Default 10. */
     missTtlSeconds?: number;
     /**
      * Seconds after a write during which that key's reads bypass the cache.
-     * Must comfortably exceed how long a mutation takes to become visible to
-     * every reader, or a read that raced the write can re-cache the old value.
-     * Default 5.
+     * Must exceed mutation visibility lag or a racing read re-caches the old
+     * value. Default 5.
      */
     blockSeconds?: number;
     /**
-     * Largest cached entry, in bytes of serialized envelope. Bigger values are
-     * read through — they earn the least per byte of cache memory. Default
+     * Largest cached entry in bytes; bigger values are read through. Default
      * 32768.
      */
     maxEntryBytes?: number;
     /**
-     * Milliseconds invalidations accumulate for before one broadcast carries
-     * them all. Local invalidation is always immediate; this only batches the
-     * message to peers. 0 sends one per write. Default 250.
+     * Milliseconds to batch peer invalidation broadcasts; 0 sends per write.
+     * Default 250.
      */
     broadcastCoalesceMs?: number;
 }
@@ -620,60 +590,35 @@ export interface IDevWatcherConfig {
 }
 
 /**
- * Complete shape of Puter's root config. Everything is optional here —
- * mandatory fields (only `port` + `extensions`) are pulled out of the
- * `Partial<...>` below and listed after it.
- *
- * When adding a new config field, declare it here with a doc comment so there's
- * a single discoverable reference for every config-driven switch.
- *
- * One value, one location: each setting lives at exactly one key. There are no
- * legacy aliases or fallback paths — older configs that relied on them need to
- * migrate.
+ * Root config. Only `port` and `extensions` are mandatory; they are added in
+ * `IConfig` below. Every config field is declared here with a doc comment so
+ * this is the one reference. Each setting has exactly one key, no aliases.
  */
 interface IConfigOptional {
     // -- Environment / identity --------------------------------------
 
-    /**
-     * Environment marker. `dev` disables blocked-email checks, opens
-     * auto-browser, etc.
-     */
+    /** `dev` disables blocked-email checks, opens the browser, etc. */
     env: 'dev' | 'prod';
-    /**
-     * Free-form name of the config profile (e.g. `oss-default`). Surfaced in
-     * logs.
-     */
+    /** Config profile name (e.g. `oss-default`), surfaced in logs. */
     config_name: string;
     /**
-     * Console output format. `json` replaces the global console so every call
-     * emits one structured JSON line (`level`, `timestamp`, `msg`, and the
-     * active `traceId`) — one event per call, so a line-oriented log collector
-     * can't split stack traces across events, and level filtering works. `text`
-     * (the default) leaves console output human-readable for local/dev.
+     * `json` emits one structured line per console call (`level`, `timestamp`,
+     * `msg`, `traceId`); `text` (default) stays human-readable.
      */
     log_format: 'json' | 'text';
     /**
-     * Keep serving after an uncaught exception instead of exiting. Uncaught
-     * exceptions are always logged either way; this only decides whether one
-     * ends the process. Default: false, matching Node's own behavior. Set it
-     * where losing the node costs more than running a possibly-degraded one — a
-     * small pool behind a health check that replaces bad nodes anyway.
+     * Keep serving after an uncaught exception instead of exiting. Default
+     * false. For nodes behind a health check that replaces bad ones anyway.
      */
     keep_alive_on_uncaught: boolean;
     /** Server version. Falls back to `npm_package_version`. */
     version: string;
-    /**
-     * Stable identity for this server node. Enables pager alerts + graceful
-     * shutdown delay.
-     */
+    /** Stable node identity. Enables pager alerts and graceful shutdown delay. */
     serverId: string;
 
     // -- Networking / URLs -------------------------------------------
 
-    /**
-     * Protocol used for the externally-visible origin ('http' or 'https').
-     * Default: 'http'.
-     */
+    /** Externally-visible protocol. Default 'http'. */
     protocol: string;
     /** Primary domain for Puter (e.g., `puter.localhost`, `puter.com`). */
     domain: string;
@@ -683,6 +628,12 @@ interface IConfigOptional {
      */
     pub_port: number;
     /**
+     * Idle keep-alive timeout for the HTTP server, in ms. Must stay above the
+     * idle timeout of any proxy in front of it, or the proxy reuses connections
+     * this server has already closed. Default 620000.
+     */
+    keep_alive_timeout: number;
+    /**
      * Teams and teams. Off means `/teams` 404s and the schema is inert, so the
      * tables can ship to production before anything can create a team. It is
      * also the backout: turning it off removes the feature without touching
@@ -691,8 +642,17 @@ interface IConfigOptional {
     teams_enabled: boolean;
     /** Live teams one user may own. Default 1. */
     max_teams_per_user?: number;
-    /** Seats one team may provision. Default 50. */
+    /** Seats a team whose owner pays nothing may provision. Default 4. */
+    max_seats_per_team_free?: number;
+    /** Seats a paying owner's team may provision. Default 40. */
+    max_seats_per_team_paid?: number;
+    /** One flat cap whatever the owner pays; overrides both of the above. */
     max_seats_per_team?: number;
+    /**
+     * Only these email domains may enter the teams surface; members of an
+     * existing team always pass. Unset means everyone.
+     */
+    teams_allowed_email_domains?: string[];
     /**
      * Fully-qualified externally-visible URL (protocol + domain + port).
      * Computed from `protocol`/`domain`/`pub_port` if unset.
@@ -711,6 +671,21 @@ interface IConfigOptional {
     private_app_hosting_domain: string;
     /** Alt private app hosting domain. */
     private_app_hosting_domain_alt: string;
+    /**
+     * Content-Security-Policy applied to active documents served from hosted
+     * sites. Unset means no header at all, which is the default: hosted sites
+     * are arbitrary third-party apps, so an enforcing policy has to be rolled
+     * out with evidence rather than switched on blind.
+     * `RECOMMENDED_HOSTING_CSP` in `middleware/puterSite.ts` is the suggested
+     * value.
+     */
+    hosting_csp?: string;
+    /**
+     * Send `hosting_csp` as `Content-Security-Policy-Report-Only` instead of
+     * enforcing it. Cannot break a page, so it is the safe first step when
+     * introducing a policy.
+     */
+    hosting_csp_report_only?: boolean;
     /**
      * Groups of equivalent app index_url hosts. Each group lists hosts that
      * should resolve to the same canonical app: `appUidFromOrigin` looks up any
@@ -1090,6 +1065,12 @@ interface IConfigOptional {
      */
     meteringUsageBufferFlushMs?: number;
     /**
+     * How many full months past its own a monthly metering record is kept
+     * before it expires, on top of the month it belongs to. Unset defaults to
+     * 3; `0` keeps records forever.
+     */
+    meteringRetentionMonths?: number;
+    /**
      * Whether recorded usage is also enforced: an account with nothing left of
      * its budget is turned away from the operations that spend it (file
      * transfers, KV calls) with a 402. Metadata reads and deletions stay open,
@@ -1132,6 +1113,27 @@ interface IConfigOptional {
     reputationGate?: {
         enabled?: boolean;
         tiers?: Record<string, number>;
+    };
+
+    /**
+     * The verified-factor requirement some routes declare
+     * (`requireAnyVerified`: a verified phone or card). `enabled: false` is the
+     * one switch that stops every declared gate enforcing without unpicking the
+     * declarations — for an SMS provider outage, say. Defaults to on; a
+     * deployment that can verify neither factor gates nothing regardless.
+     */
+    verifiedFactorGate?: {
+        enabled?: boolean;
+    };
+
+    /**
+     * Whether a user profile is public only while its owner is on a paid plan.
+     * `enabled: false` makes every profile public; a deployment with plan gates
+     * switched off (`meteringEnforcement.subscriptions`) already does. Defaults
+     * to on.
+     */
+    profileGate?: {
+        enabled?: boolean;
     };
 
     /**
@@ -1208,25 +1210,10 @@ interface IConfigOptional {
 }
 
 /**
- * Extension-augmentable config surface. Extensions add their own config keys
- * via TypeScript declaration merging:
- *
- *     declare module '@heyputer/backend/types' {
- *         interface IExtensionConfig {
- *             myExtension?: { foo: string };
- *         }
- *     }
- *
- * Augmentations flow into `IConfig`, which is what `this.config` /
- * `extension.config` are typed as everywhere.
+ * Extension-augmentable config keys, declaration-merged from
+ * `@heyputer/backend/types`; see `IExtensionClientInstances` for the pattern.
  */
 export interface IExtensionConfig {
-    /**
-     * Open index signature so config reads of extension-only keys return
-     * `unknown` (not a type error). Extensions that declare-merge concrete keys
-     * (`myExt?: { foo: string }`) override this for the named key — the
-     * concrete property type wins over the index signature.
-     */
     [key: string]: unknown;
 }
 

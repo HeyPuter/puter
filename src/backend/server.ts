@@ -35,11 +35,13 @@ import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
+import type { Actor } from './core/actor';
 import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
     allowedAppIdsGate,
     noUserSessionGate,
+    requireAnyVerifiedGate,
     requireAuthGate,
     requireCardVerifiedGate,
     requirePhoneVerifiedGate,
@@ -54,9 +56,13 @@ import { requireCreditsGate } from './core/http/middleware/credits';
 import { requireReputationGate } from './core/http/middleware/reputation';
 import { requireSubscriptionGate } from './core/http/middleware/subscription';
 import { validateReputationRequirement } from './core/reputation';
-import { validateSubscriptionRequirement } from './services/metering/enforcement';
+import {
+    actorOnPaidPlan,
+    validateSubscriptionRequirement,
+} from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
 import { activeSubdomain, subdomainOffsetForDomain } from './util/subdomains';
 import {
@@ -100,6 +106,9 @@ import type {
     WithControllerRegistration,
     WithLifecycle,
 } from './types';
+
+/** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
 
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
@@ -812,6 +821,8 @@ export class PuterServer {
                         // Our credentials for a provider stopped working —
                         // everything through it fails until someone looks.
                         ['upstream_auth_failed', 'warning'],
+                        // A vendor account is dry — everything through it fails until someone tops up.
+                        ['upstream_credits_exhausted', 'warning'],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
@@ -988,6 +999,7 @@ export class PuterServer {
             opts.noUserSession ||
             opts.requirePhoneVerified ||
             opts.requireCardVerified ||
+            opts.requireAnyVerified ||
             requiresSubscription ||
             requiresReputation,
         );
@@ -1083,8 +1095,29 @@ export class PuterServer {
         if (opts.requirePhoneVerified) {
             mwChain.push(requirePhoneVerifiedGate());
         }
+        // A paying account has a card on file already, so both card-aware
+        // gates take a paid plan as the card factor.
+        const hasPaidPlan = (actor: Actor) =>
+            actorOnPaidPlan(this.services.metering, actor);
         if (opts.requireCardVerified) {
-            mwChain.push(requireCardVerifiedGate());
+            mwChain.push(requireCardVerifiedGate({ hasPaidPlan }));
+        }
+        if (opts.requireAnyVerified) {
+            // Same stance as the subscription requirement: an empty list reads
+            // as gated while admitting everyone, so it fails the boot instead.
+            if (opts.requireAnyVerified.length === 0) {
+                throw new Error(
+                    `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireAnyVerified: expected at least one factor`,
+                );
+            }
+            if (this.#config.verifiedFactorGate?.enabled !== false) {
+                mwChain.push(
+                    requireAnyVerifiedGate(opts.requireAnyVerified, {
+                        ...cardFallbackDepsFrom(this.clients),
+                        hasPaidPlan,
+                    }),
+                );
+            }
         }
 
         // 2a''. Reputation floor. Ahead of the plan gate and everything
@@ -1382,6 +1415,13 @@ export class PuterServer {
         // to hook into the raw server (socket.io upgrades, WebSockets, …) runs
         // its `attachHttpServer(server)` here, pre-listen.
         const httpServer = http.createServer(this.#app);
+        // Keep-alive has to outlive the idle timeout of any proxy in front: if
+        // this server closes a pooled connection first, a request the proxy
+        // dispatches onto it reaches the client as a 502. Node's 5s default is
+        // below every common proxy setting. `headersTimeout` counts from a
+        // request's first byte, so it needs no matching bump.
+        httpServer.keepAliveTimeout =
+            this.#config.keep_alive_timeout ?? DEFAULT_KEEP_ALIVE_TIMEOUT;
         for (const service of Object.values(this.services) as Array<
             WithLifecycle & {
                 attachHttpServer?: (s: http.Server) => void | Promise<void>;
@@ -1573,23 +1613,13 @@ export class PuterServer {
             });
             this.#server.closeAllConnections();
             await closed;
-            for (const client of Object.values(
-                this.clients,
+            // Top-down, so each layer shuts down while the layers it writes
+            // through are still up.
+            for (const driver of Object.values(
+                this.drivers,
             ) as WithLifecycle[]) {
-                if (client.onServerShutdown) {
-                    await client.onServerShutdown();
-                }
-            }
-            for (const store of Object.values(this.stores) as WithLifecycle[]) {
-                if (store.onServerShutdown) {
-                    await store.onServerShutdown();
-                }
-            }
-            for (const service of Object.values(
-                this.services,
-            ) as WithLifecycle[]) {
-                if (service.onServerShutdown) {
-                    await service.onServerShutdown();
+                if (driver.onServerShutdown) {
+                    await driver.onServerShutdown();
                 }
             }
             for (const controller of Object.values(
@@ -1599,11 +1629,23 @@ export class PuterServer {
                     await controller.onServerShutdown();
                 }
             }
-            for (const driver of Object.values(
-                this.drivers,
+            for (const service of Object.values(
+                this.services,
             ) as WithLifecycle[]) {
-                if (driver.onServerShutdown) {
-                    await driver.onServerShutdown();
+                if (service.onServerShutdown) {
+                    await service.onServerShutdown();
+                }
+            }
+            for (const store of Object.values(this.stores) as WithLifecycle[]) {
+                if (store.onServerShutdown) {
+                    await store.onServerShutdown();
+                }
+            }
+            for (const client of Object.values(
+                this.clients,
+            ) as WithLifecycle[]) {
+                if (client.onServerShutdown) {
+                    await client.onServerShutdown();
                 }
             }
         }

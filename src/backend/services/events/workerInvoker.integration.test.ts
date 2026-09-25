@@ -565,6 +565,9 @@ describe('what each answer does to the delivery', () => {
     it('holds one it could not answer, for longer each time', async () => {
         answer = 500;
         const subId = await subscribe();
+        // Freeze the clock so the first hold reads exactly, as later ones do
+        // after `jump`; on real time a slow run reads 2s as 1s.
+        jump(0);
 
         await touch('failing.txt');
         await invoked(1);
@@ -589,9 +592,13 @@ describe('what each answer does to the delivery', () => {
             await invoked(attempt + 1);
         }
 
-        expect(waits.map((wait) => Math.round(wait / 1000))).toEqual([
-            2, 4, 8, 16,
-        ]);
+        // Each hold sits within a second below its backoff step: a loaded run
+        // can spend part of the first one before it is read, and the steps
+        // are far enough apart that the windows never overlap.
+        for (const [i, expected] of [2, 4, 8, 16].entries()) {
+            expect(waits[i]).toBeGreaterThan((expected - 1) * 1000);
+            expect(waits[i]).toBeLessThanOrEqual(expected * 1000);
+        }
 
         // The fifth failure in a row is the one that stops it.
         await vi.waitFor(async () =>

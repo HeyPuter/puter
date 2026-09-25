@@ -525,6 +525,38 @@ describe('PermissionStore', () => {
             ).toEqual(['fs:abc:read', 'fs:abc:write']);
         });
 
+        it('does not let a wildcard or a partial segment widen a prefix', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+
+            await store.upsertUserUserPerm(holder.id, issuer.id, 'fs:abc', {});
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'fs:abcdef:read',
+                {},
+            );
+            await store.upsertUserUserPerm(holder.id, issuer.id, 'fsXy', {});
+
+            // `_` is a LIKE wildcard, so `fs_` unescaped would take `fsXy`.
+            expect(
+                await store.queryIssuerHolderPermsByPrefix(
+                    issuer.id,
+                    holder.id,
+                    'fs_',
+                ),
+            ).toEqual([]);
+
+            // A prefix ends on a segment boundary: `fs:abc` is not `fs:abcdef`.
+            expect(
+                await store.queryIssuerHolderPermsByPrefix(
+                    issuer.id,
+                    holder.id,
+                    'fs:abc',
+                ),
+            ).toEqual(['fs:abc']);
+        });
+
         it('lists the apps an issuer granted under a prefix', async () => {
             const issuer = await makeUser();
             const app = await makeApp(issuer.id);
@@ -1139,8 +1171,13 @@ describe('PermissionStore', () => {
             await record(issuer.id, holder.id, permission, 'grant', { appUid });
             await record(issuer.id, holder.id, permission, 'revoke');
 
-            const page = await store.listUserUserAudit({ permissions: [permission] });
-            expect(page.items.map((r) => r.action)).toEqual(['revoke', 'grant']);
+            const page = await store.listUserUserAudit({
+                permissions: [permission],
+            });
+            expect(page.items.map((r) => r.action)).toEqual([
+                'revoke',
+                'grant',
+            ]);
             expect(page.items[1].extra).toEqual({ appUid });
             expect(page.items[1].issuer_user_id).toBe(issuer.id);
             expect(page.items[1].holder_user_id).toBe(holder.id);
@@ -1186,9 +1223,9 @@ describe('PermissionStore', () => {
             const page = await store.listUserUserAudit({
                 issuerUserId: issuer.id,
             });
-            expect(page.items.every((r) => r.issuer_user_id === issuer.id)).toBe(
-                true,
-            );
+            expect(
+                page.items.every((r) => r.issuer_user_id === issuer.id),
+            ).toBe(true);
             await expect(store.listUserUserAudit({})).rejects.toThrow(
                 /requires a filter/u,
             );

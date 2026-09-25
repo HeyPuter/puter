@@ -42,7 +42,9 @@ export async function listRootEntries(
         if (seenPaths.has(path)) return;
         seenPaths.add(path);
         const entry = await fsEntryStore.getEntryByPath(path);
-        if (entry) entries.push(entry);
+        // Only the actor's own row: if the heal couldn't claim this path,
+        // whoever holds it is someone else.
+        if (entry && entry.userId === actor.user.id) entries.push(entry);
     };
 
     // For the actor's own home, heal first: a user whose home drifted

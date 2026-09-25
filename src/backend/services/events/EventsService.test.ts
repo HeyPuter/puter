@@ -22,6 +22,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
+    EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+    EVENTS_KV_VALUE_MAX_BYTES,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
 } from '../../controllers/events/limits.js';
@@ -36,6 +39,8 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UsageInput } from '../metering/types.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_COSTS } from './costs.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+import type { ForwardEvent } from './forwardQueue.js';
 import {
     EventsService,
     EVENTS_ACK_VERB,
@@ -69,6 +74,7 @@ let service: EventsService;
 let sent: Array<{ socket?: string; envelope: DeliveryEnvelope }>;
 let delivered: DeliveryEnvelope[];
 let metered: MeteredLine[];
+let forwarded: ForwardedCall[];
 let entries: Map<string, FSEntry>;
 let eventBus: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
 
@@ -249,6 +255,15 @@ interface MeteredLine {
 
 /** Whether the account being delivered to still has budget. */
 let hasCredits: boolean;
+let ownerPlan: string;
+let ownerPlanFails: boolean;
+let ownerPlanActors: Actor[];
+
+/** One call the forward-queue stub recorded. */
+interface ForwardedCall {
+    regions: readonly string[];
+    item: Omit<ForwardEvent, 'kind' | 'sessionOnly' | 'hop'>;
+}
 
 /**
  * Each service gets its own outbox. A delivery still in flight when a test
@@ -261,11 +276,13 @@ const buildService = (
     sent: Array<{ socket?: string; envelope: DeliveryEnvelope }>;
     delivered: DeliveryEnvelope[];
     metered: MeteredLine[];
+    forwarded: ForwardedCall[];
     eventBus: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
 } => {
     const outbox: Array<{ socket?: string; envelope: DeliveryEnvelope }> = [];
     const counted: DeliveryEnvelope[] = [];
     const lines: MeteredLine[] = [];
+    const forwardedCalls: ForwardedCall[] = [];
     const bus = { on: vi.fn(), emit: vi.fn() };
     const built = new EventsService(
         config,
@@ -295,7 +312,12 @@ const buildService = (
                 handOff: () => undefined,
                 relayAck: () => undefined,
                 announceWatch: () => undefined,
-                forwardEvent: () => undefined,
+                forwardEvent: (
+                    regions: readonly string[],
+                    item: Omit<ForwardEvent, 'kind' | 'sessionOnly' | 'hop'>,
+                ) => {
+                    forwardedCalls.push({ regions, item });
+                },
                 announceGeneration: () => undefined,
             },
             socket: {
@@ -326,6 +348,11 @@ const buildService = (
                         });
                 },
                 hasAnyUsageCached: async () => hasCredits,
+                getActorSubscription: async (actor: Actor) => {
+                    ownerPlanActors.push(actor);
+                    if (ownerPlanFails) throw new Error('policy unavailable');
+                    return { id: ownerPlan };
+                },
             },
         } as never,
     );
@@ -336,6 +363,7 @@ const buildService = (
         sent: outbox,
         delivered: counted,
         metered: lines,
+        forwarded: forwardedCalls,
         eventBus: bus,
     };
 };
@@ -411,6 +439,33 @@ const seedSubscriptions = async (
         });
 };
 
+const seedKvSubscriptions = async (
+    count: number,
+    options: {
+        includeValue?: boolean;
+        holderUserId?: number;
+        match?: string;
+        tag?: string;
+    } = {},
+): Promise<void> => {
+    for (let i = 0; i < count; i++)
+        await store.add({
+            subId: `kv-seed-${seq}-${options.tag ?? 'default'}-${i}`,
+            socketId: `kv-socket-${seq}-${options.tag ?? 'default'}-${i}`,
+            holderUserId: options.holderUserId ?? userId,
+            ownerUserId: userId,
+            subject: `kv:${OWN_APP}:cart`,
+            token: kvAnchorToken(`user-${userId}`, OWN_APP, 'cart'),
+            anchorUid: OWN_APP,
+            anchorPath: 'cart',
+            match: options.match ?? null,
+            op: null,
+            appUid: OWN_APP,
+            permission: 'list',
+            ...(options.includeValue ? { includeValue: true } : {}),
+        });
+};
+
 /** Dispatch as the FS write path does, with the ancestor walk as a thunk. */
 const dispatch = async (node: FSEntry, key = 'fs.write.file' as const) =>
     service.dispatchFs(key, node, {
@@ -421,7 +476,12 @@ const dispatch = async (node: FSEntry, key = 'fs.write.file' as const) =>
 /** Dispatch as the KV store's bus announcement does. */
 const dispatchKv = async (
     keys: string[],
-    options: { appUid?: string; op?: 'set' | 'del' | 'expire' } = {},
+    options: {
+        appUid?: string;
+        op?: 'set' | 'del' | 'expire';
+        values?: unknown[];
+        noShareKeys?: string[];
+    } = {},
     on: EventsService = service,
 ) =>
     on.dispatchKv({
@@ -429,6 +489,8 @@ const dispatchKv = async (
         namespace: `v1:user-${userId}:${options.appUid ?? OWN_APP}`,
         keys,
         op: options.op ?? 'set',
+        ...(options.values ? { values: options.values } : {}),
+        ...(options.noShareKeys ? { noShareKeys: options.noShareKeys } : {}),
     });
 
 /** The app the KV tests act as, so "own namespace" has something to be. */
@@ -452,13 +514,16 @@ beforeEach(() => {
     permissionChecks = [];
     permissionGeneration = 1;
     hasCredits = true;
+    ownerPlan = DEFAULT_FREE_SUBSCRIPTION;
+    ownerPlanFails = false;
+    ownerPlanActors = [];
     redis = countingRedis(new MockRedis.Cluster(['redis://localhost:7001']));
     store = new EventSubscriptionStore(
         {} as IConfig,
         { redis } as never,
         {} as never,
     );
-    ({ service, sent, delivered, metered, eventBus } = buildService({
+    ({ service, sent, delivered, metered, forwarded, eventBus } = buildService({
         events: { enabled: true },
     } as IConfig));
 });
@@ -1598,6 +1663,44 @@ it('names the delivery channel the clients listen on', () => {
 
 // -- KV subjects -----------------------------------------------------
 
+describe('asking a kv subscription for the value', () => {
+    it('is recorded on the row and reported in the view', async () => {
+        const { sub } = await service.subscribe(appActorFor(OWN_APP), socketId, {
+            subject: `kv:${OWN_APP}:cart`,
+            includeValue: true,
+        });
+        expect(sub.includeValue).toBe(true);
+
+        const plain = await subscribeKv(`kv:${OWN_APP}:cart`);
+        expect(plain.includeValue).toBe(false);
+    });
+
+    it('is refused on anything but a kv subject', async () => {
+        const { documents } = seedTree();
+        await expect(
+            service.subscribe(actorFor(), socketId, {
+                subject: `fs:${documents.path}`,
+                includeValue: true,
+            }),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'invalid_include_value',
+        );
+    });
+
+    it('is a flag, not a string', async () => {
+        await expect(
+            service.subscribe(appActorFor(OWN_APP), socketId, {
+                subject: `kv:${OWN_APP}:cart`,
+                includeValue: 'yes',
+            }),
+        ).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'invalid_include_value',
+        );
+    });
+});
+
 describe('resolving a kv subject', () => {
     it('anchors an exact key on the key itself, with no filter', async () => {
         const sub = await subscribeKv(`kv:${OWN_APP}:cart`);
@@ -1754,6 +1857,236 @@ describe('delivering a kv change', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent[0].envelope.event).toMatchObject({ op: 'del' });
+    });
+
+    const subscribeKvForValue = async (subject: string) =>
+        (
+            await service.subscribe(appActorFor(OWN_APP), socketId, {
+                subject,
+                includeValue: true,
+            })
+        ).sub;
+
+    const eventFor = (subId: string) =>
+        sent.find((one) => one.envelope.subId === subId)?.envelope.event as
+            | Record<string, unknown>
+            | undefined;
+
+    it('hands the value to the row that asked for it and to no other', async () => {
+        vi.useFakeTimers();
+        const asking = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+        const silent = await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], { values: [{ items: [1, 2] }] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(2);
+        expect(eventFor(asking.subId)).toMatchObject({
+            key: 'cart',
+            value: { items: [1, 2] },
+        });
+        expect(eventFor(silent.subId)).not.toHaveProperty('value');
+    });
+
+    it('aligns values with keys across a batch', async () => {
+        vi.useFakeTimers();
+        await subscribeKvForValue(`kv:${OWN_APP}:cart:*`);
+
+        await dispatchKv(['cart:a', 'cart:b'], { values: ['A', 'B'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(
+            sent.map((one) => one.envelope.event as Record<string, unknown>),
+        ).toMatchObject([
+            { key: 'cart:a', value: 'A' },
+            { key: 'cart:b', value: 'B' },
+        ]);
+    });
+
+    it('carries null for a deletion and nothing for an expire', async () => {
+        vi.useFakeTimers();
+        const sub = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], { op: 'del', values: [null] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(eventFor(sub.subId)).toHaveProperty('value', null);
+
+        sent.length = 0;
+        await dispatchKv(['cart'], { op: 'expire' });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        expect(eventFor(sub.subId)).toMatchObject({ op: 'expire' });
+        expect(eventFor(sub.subId)).not.toHaveProperty('value');
+    });
+
+    it('leaves out a value too large to inline', async () => {
+        vi.useFakeTimers();
+        const sub = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], {
+            values: ['x'.repeat(EVENTS_KV_VALUE_MAX_BYTES + 1)],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(eventFor(sub.subId)).toMatchObject({ op: 'set', key: 'cart' });
+        expect(eventFor(sub.subId)).not.toHaveProperty('value');
+    });
+
+    it('carries the value a peer region forwarded', async () => {
+        vi.useFakeTimers();
+        const sub = await subscribeKvForValue(`kv:${OWN_APP}:cart`);
+
+        const item: ForwardEvent = {
+            kind: 'event',
+            family: 'kv',
+            ownerUserId: userId,
+            actingUserId: userId,
+            id: 'ev-remote',
+            ts: 1_700_000_000,
+            sessionOnly: true,
+            hop: 1,
+            kv: {
+                userUuid: `user-${userId}`,
+                appUid: OWN_APP,
+                kvKey: 'cart',
+                op: 'set',
+                value: { from: 'afar' },
+            },
+        };
+        await expect(service.dispatchForwarded(item)).resolves.toMatchObject({
+            matched: true,
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(eventFor(sub.subId)).toMatchObject({
+            id: 'ev-remote',
+            value: { from: 'afar' },
+        });
+    });
+
+    it('delivers 128 free-tier KV listeners with their requested values', async () => {
+        vi.useFakeTimers();
+        await seedKvSubscriptions(128, { includeValue: true });
+
+        await dispatchKv(['cart'], { values: ['kept'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(128);
+        expect(sent.every((one) => one.envelope.event.value === 'kept')).toBe(
+            true,
+        );
+        // No cap can bind at this size, so the owner's plan isn't looked up.
+        expect(ownerPlanActors).toEqual([]);
+    });
+
+    it('omits values and gaps the 129th free-tier KV listener', async () => {
+        vi.useFakeTimers();
+        await seedKvSubscriptions(129, { includeValue: true });
+
+        await dispatchKv(['cart'], { values: ['re-read'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
+        const gaps = sent.filter((one) => one.envelope.event.op === 'gap');
+        expect(deliveries).toHaveLength(128);
+        expect(gaps).toHaveLength(1);
+        expect(deliveries.every((one) => !('value' in one.envelope.event))).toBe(
+            true,
+        );
+        expect(ownerPlanActors).toEqual([
+            expect.objectContaining({
+                user: expect.objectContaining({
+                    id: userId,
+                    uuid: `user-${userId}`,
+                }),
+            }),
+        ]);
+    });
+
+    it('uses the namespace owner tier, rather than listeners, for KV fan-out', async () => {
+        vi.useFakeTimers();
+        ownerPlan = 'paid-plan';
+        await seedKvSubscriptions(
+            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+            { includeValue: true, holderUserId: userId + 500 },
+        );
+
+        await dispatchKv(['cart'], { values: ['paid-owner'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(
+            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+        );
+        expect(sent.every((one) => !('value' in one.envelope.event))).toBe(
+            true,
+        );
+    });
+
+    it('gaps the 513th paid-tier KV listener', async () => {
+        vi.useFakeTimers();
+        ownerPlan = 'paid-plan';
+        await seedKvSubscriptions(
+            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit + 1,
+        );
+
+        await dispatchKv(['cart']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.filter((one) => one.envelope.event.op === 'set')).toHaveLength(
+            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+        );
+        expect(sent.filter((one) => one.envelope.event.op === 'gap')).toHaveLength(
+            1,
+        );
+    });
+
+    it('uses the free KV limit when owner policy lookup fails', async () => {
+        vi.useFakeTimers();
+        ownerPlanFails = true;
+        await seedKvSubscriptions(129);
+
+        await dispatchKv(['cart']);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.filter((one) => one.envelope.event.op === 'set')).toHaveLength(
+            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription[
+                DEFAULT_FREE_SUBSCRIPTION
+            ],
+        );
+    });
+
+    it('omits a forwarded value when the KV filter evaluation stops early', async () => {
+        vi.useFakeTimers();
+        await seedKvSubscriptions(128, { includeValue: true });
+        await seedKvSubscriptions(
+            EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription[
+                DEFAULT_FREE_SUBSCRIPTION
+            ] - 128 + 1,
+            { includeValue: true, match: 'elsewhere', tag: 'filtered-out' },
+        );
+
+        await service.dispatchForwarded({
+            kind: 'event',
+            family: 'kv',
+            ownerUserId: userId,
+            id: 'ev-forwarded-overflow',
+            ts: 1_700_000_000,
+            sessionOnly: true,
+            hop: 1,
+            kv: {
+                userUuid: `user-${userId}`,
+                appUid: OWN_APP,
+                kvKey: 'cart',
+                op: 'set',
+                value: 'forwarded-re-read',
+            },
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
+        expect(deliveries).toHaveLength(128);
+        expect(deliveries.every((one) => !('value' in one.envelope.event))).toBe(
+            true,
+        );
     });
 
     it('leaves another app`s namespace alone', async () => {
@@ -1967,6 +2300,142 @@ describe('the cross-app kv gate', () => {
 
         expect(sent).toEqual([]);
     });
+
+    it('withholds a private key from a granted cross-app row', async () => {
+        ({ service, sent } = crossAppService());
+        grantRead(OTHER_APP);
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OTHER_APP}:cart`);
+        permissionChecks.length = 0;
+
+        await dispatchKv(['cart'], {
+            appUid: OTHER_APP,
+            noShareKeys: ['cart'],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+        expect(permissionChecks).toEqual([]);
+    });
+
+    it('withholds only the private key from a mixed batch', async () => {
+        ({ service, sent } = crossAppService());
+        grantRead(OTHER_APP);
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OTHER_APP}:cart:*`);
+
+        await dispatchKv(['cart:a', 'cart:b'], {
+            appUid: OTHER_APP,
+            noShareKeys: ['cart:a'],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.event).toMatchObject({ key: 'cart:b' });
+    });
+
+    it('still delivers a private key to the app`s own namespace', async () => {
+        ({ service, sent } = crossAppService());
+        vi.useFakeTimers();
+        const asking = (
+            await service.subscribe(appActorFor(OWN_APP), socketId, {
+                subject: `kv:${OWN_APP}:cart`,
+                includeValue: true,
+            })
+        ).sub;
+
+        await dispatchKv(['cart'], {
+            noShareKeys: ['cart'],
+            values: ['secret'],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.subId).toBe(asking.subId);
+        expect(sent[0].envelope.event).toMatchObject({
+            key: 'cart',
+            value: 'secret',
+        });
+    });
+
+    it('still delivers a private key to a user acting on their own data', async () => {
+        ({ service, sent } = crossAppService());
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OTHER_APP}:cart`, actorFor());
+
+        await dispatchKv(['cart'], {
+            appUid: OTHER_APP,
+            noShareKeys: ['cart'],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+    });
+
+    it('leaks no extra field onto the wire for a private key', async () => {
+        ({ service, sent } = crossAppService());
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+
+        await dispatchKv(['cart'], { noShareKeys: ['cart'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(Object.keys(sent[0].envelope.event).sort()).toEqual([
+            'id',
+            'key',
+            'op',
+            'self',
+            'seq',
+            'subject',
+            'ts',
+        ]);
+    });
+
+    it('withholds a private key a peer forwarded from a cross-app session row', async () => {
+        ({ service, sent } = crossAppService());
+        grantRead(OTHER_APP);
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OTHER_APP}:cart`);
+
+        const item: ForwardEvent = {
+            kind: 'event',
+            family: 'kv',
+            ownerUserId: userId,
+            actingUserId: userId,
+            id: 'ev-remote-private',
+            ts: 1_700_000_000,
+            sessionOnly: true,
+            hop: 1,
+            kv: {
+                userUuid: `user-${userId}`,
+                appUid: OTHER_APP,
+                kvKey: 'cart',
+                op: 'set',
+                value: 'secret',
+                noShare: true,
+            },
+        };
+        await service.dispatchForwarded(item);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
+
+    it('marks a private key on the way to a peer region', async () => {
+        vi.useFakeTimers();
+        // A remote watcher is what makes `dispatchKv` forward at all.
+        await store.noteRemoteWatch(
+            userId,
+            kvAnchorToken(`user-${userId}`, OWN_APP, 'cart'),
+            'other-region',
+            'add',
+        );
+
+        await dispatchKv(['cart'], { noShareKeys: ['cart'] });
+
+        expect(forwarded).toHaveLength(1);
+        expect(forwarded[0].item.kv).toMatchObject({ noShare: true });
+    });
 });
 
 describe('cross-user kv handles', () => {
@@ -2061,6 +2530,32 @@ describe('cross-user kv handles', () => {
         expect(wire).not.toContain(`u${userId}`);
     });
 
+    it('hands a guest the value when it asked, keyed relative to the handle', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        const asking = (
+            await service.subscribe(actorFor(guestId), socketId, {
+                subject: `kv:${handle}:*`,
+                includeValue: true,
+            })
+        ).sub;
+        const silent = (await subscribeAsGuest(`kv:${handle}:*`)).sub;
+        expect(asking.includeValue).toBe(true);
+
+        await dispatchKv([`${PREFIX}title`], { values: ['hello'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const byId = new Map(
+            sent.map((one) => [one.envelope.subId, one.envelope.event]),
+        );
+        expect(byId.get(asking.subId)).toMatchObject({
+            subject: `kv:${handle}:title`,
+            key: 'title',
+            value: 'hello',
+        });
+        expect(byId.get(silent.subId)).not.toHaveProperty('value');
+    });
+
     it('delivers every key under the granted region', async () => {
         mintHandle();
         vi.useFakeTimers();
@@ -2075,6 +2570,20 @@ describe('cross-user kv handles', () => {
         ]);
         // The write was the owner's, and the grantee is somebody else.
         expect(sent[0].envelope.event).toMatchObject({ self: false });
+    });
+
+    it('still delivers a private key under the granted region', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        const { sub } = await subscribeAsGuest(`kv:${handle}:*`);
+
+        await dispatchKv([`${PREFIX}title`], {
+            noShareKeys: [`${PREFIX}title`],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.subId).toBe(sub.subId);
     });
 
     it('leaves a key outside the granted region alone', async () => {

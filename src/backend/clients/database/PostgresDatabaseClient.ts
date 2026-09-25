@@ -138,7 +138,6 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
     private replicaPool!: PostgresPool;
     private configuration = Configuration.SINGLE;
     private shutdownStarted = false;
-    private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(
         config: IConfig,
@@ -172,28 +171,12 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         if (this.shutdownStarted) return;
         this.shutdownStarted = true;
 
-        const drainMs = 60_000;
-        console.log(
-            `[postgres] draining in-flight queries (${drainMs}ms) before closing pools`,
-        );
-
-        this.shutdownTimer = setTimeout(() => {
-            this.shutdownTimer = null;
-            this.closeCurrentPools().catch((e) =>
-                console.error('[postgres] error closing pools after drain', e),
-            );
-        }, drainMs);
-
-        if (typeof this.shutdownTimer.unref === 'function') {
-            this.shutdownTimer.unref();
-        }
+        // Pools stay open; onServerShutdown closes them after the layers above
+        // have drained through them.
+        console.log('[postgres] entering drain mode');
     }
 
     override async onServerShutdown(): Promise<void> {
-        if (this.shutdownTimer) {
-            clearTimeout(this.shutdownTimer);
-            this.shutdownTimer = null;
-        }
         await this.closeCurrentPools();
     }
 

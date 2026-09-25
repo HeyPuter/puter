@@ -144,6 +144,10 @@ describe('granted prefixes', () => {
         // a region other than the one asked for.
         ['workspace::abc:', 'an empty key segment'],
         [':workspace:abc:', 'a leading empty segment'],
+        // `escape_permission_component` leaves `\\` alone while escaping `:`,
+        // so the stored prefix and the permission string would disagree and
+        // the share would silently never fire.
+        ['work\\space:abc:', 'a backslash'],
     ])('refuses %s (%s)', (prefix) => {
         let thrown: unknown;
         try {
@@ -361,14 +365,14 @@ describe('the app delegate implicator', () => {
         expect(implicator.matches(`fs:${OWNER}:read`)).toBe(false);
     });
 
-    it('grants when the actor\'s own app matches the namespace app and the user holds the grant', async () => {
+    it("grants when the actor's own app matches the namespace app and the user holds the grant", async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
         const implicator = kvShareAppDelegateImplicator({ userHolds });
         const actor = appActor(OWNER, APP);
 
-        await expect(
-            implicator.check({ actor, permission }),
-        ).resolves.toEqual({});
+        await expect(implicator.check({ actor, permission })).resolves.toEqual(
+            {},
+        );
 
         expect(userHolds).toHaveBeenCalledTimes(1);
         const [calledActor, calledPermission] = userHolds.mock.calls[0];
@@ -387,7 +391,7 @@ describe('the app delegate implicator', () => {
         ).resolves.toBeUndefined();
     });
 
-    it('refuses when the actor\'s app differs from the namespace app', async () => {
+    it("refuses when the actor's app differs from the namespace app", async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
         const implicator = kvShareAppDelegateImplicator({ userHolds });
 

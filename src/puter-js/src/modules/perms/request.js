@@ -349,7 +349,7 @@ async function runEntries (ctx, entries, prompt) {
         entries
             .filter(({ resource }) => resource === 'permission')
             .map(({ details }) => details.create)
-            .filter(Boolean),
+            .filter((value) => value !== undefined),
     )];
     if ( createValues.length > 1 ) {
         throw invalidArgument('conflicting `create` values in one request');

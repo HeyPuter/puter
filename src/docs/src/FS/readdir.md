@@ -29,7 +29,7 @@ An object with the following properties:
 - `uid` (String) (optional) - The UID of the directory to read.
 - `limit` (Number) (optional) - Maximum number of entries to return.
 - `offset` (Number) (optional) - Skips the given number of entries. Prefer `cursor` for paging through large directories.
-- `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`.
+- `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`. With `recursive`, sorting by `name` orders by full path, so each directory's contents stay together; the other fields sort across the whole subtree.
 - `sortOrder` (String) (optional) - `asc` or `desc`. Default is `asc`.
 - `recursive` (Boolean) (optional) - If `true`, the contents of subdirectories are listed too. Defaults to `false`.
 - `depth` (Number) (optional) - How many levels to descend when `recursive` is `true`. Defaults to unlimited.

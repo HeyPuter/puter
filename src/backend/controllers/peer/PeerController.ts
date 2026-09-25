@@ -98,8 +98,9 @@ const base64urlToUuid = (encoded: string): string | null => {
  */
 const actorToTurnIdentifier = (actor: Actor): string => {
     const userPart = uuidToBase64url(actor.user.uuid);
-    if (!actor.app) return userPart;
-    return `${userPart}:${uuidToBase64url(actor.app.uid)}`;
+    const appUid = actor.effectiveApp?.uid;
+    if (!appUid) return userPart;
+    return `${userPart}:${uuidToBase64url(appUid)}`;
 };
 
 /**

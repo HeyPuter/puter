@@ -20,7 +20,7 @@
 import { readdirSync, readFileSync } from 'fs';
 import { isAbsolute, resolve as resolvePath } from 'path';
 import { metrics } from '@opentelemetry/api';
-import { createPool, type Pool } from 'mysql2';
+import { createPool, ExecuteValues, type Pool } from 'mysql2';
 import { Span } from '../../util/span.js';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
@@ -54,9 +54,10 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     private replicaPool!: Pool;
     private db!: SQLBatcher;
     private dbReplica!: SQLBatcher;
+    /** Primary pool, SELECT-only: same rows as `db`, without the transaction. */
+    private dbPrimaryRead!: SQLBatcher;
     private configuration = Configuration.SINGLE;
     private shutdownStarted = false;
-    private shutdownTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(config: IConfig) {
         super(config);
@@ -79,6 +80,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         console.log('[mysql] connected to primary');
 
         this.db = this.createPrimaryBatcher(this.primaryPool);
+        this.dbPrimaryRead = this.createPrimaryReadBatcher(this.primaryPool);
 
         if (dbConf.replica) {
             this.replicaPool = this.createPool(dbConf.replica);
@@ -98,29 +100,12 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         if (this.shutdownStarted) return;
         this.shutdownStarted = true;
 
-        // Allow in-flight queries to drain before closing pools
-        const drainMs = 60_000;
-        console.log(
-            `[mysql] draining in-flight queries (${drainMs}ms) before closing pools`,
-        );
-
-        this.shutdownTimer = setTimeout(() => {
-            this.shutdownTimer = null;
-            this.closeCurrentPools('drain').catch((e) =>
-                console.error('[mysql] error closing pools after drain', e),
-            );
-        }, drainMs);
-
-        if (typeof this.shutdownTimer.unref === 'function') {
-            this.shutdownTimer.unref();
-        }
+        // Blocks reinitPrimary/reinitReplica from here on. Pools stay open;
+        // onServerShutdown closes them after the layers above have drained.
+        console.log('[mysql] entering drain mode');
     }
 
     override async onServerShutdown(): Promise<void> {
-        if (this.shutdownTimer) {
-            clearTimeout(this.shutdownTimer);
-            this.shutdownTimer = null;
-        }
         await this.closeCurrentPools('shutdown');
     }
 
@@ -162,7 +147,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
-        const result = await this.db.execute(query, params);
+        const result = await this.dbPrimaryRead.execute(query, params);
         if (!result) return [];
         return (result[0] as Record<string, unknown>[]) ?? [];
     }
@@ -201,7 +186,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             await conn.beginTransaction();
             try {
                 for (const { statement, values } of entries) {
-                    await conn.execute(statement, values);
+                    await conn.execute(statement, values as ExecuteValues);
                 }
                 await conn.commit();
             } catch (err) {
@@ -224,7 +209,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
         // Run both reads in parallel — prefer replica when it returns rows,
         // otherwise fall back to primary to handle replication lag.
-        const primaryPromise = this.db.execute(query, params);
+        const primaryPromise = this.dbPrimaryRead.execute(query, params);
         try {
             const replicaResult = await this.dbReplica.execute(query, params);
             if (
@@ -354,6 +339,22 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         });
     }
 
+    /**
+     * Reads that must see the primary still only read, so they skip the
+     * batcher's transaction wrapper. Worth a separate batcher because BEGIN and
+     * COMMIT are round trips: against a primary in another region they cost
+     * more than the query.
+     */
+    private createPrimaryReadBatcher(pool: Pool): SQLBatcher {
+        return new SQLBatcher(pool, {
+            maxTimeInQueue: 30,
+            maxBatchSize: 5,
+            poolLabel: 'primary',
+            readOnly: true,
+            acquireTimeoutMs: this.config.database?.acquireTimeoutMs,
+        });
+    }
+
     private createReplicaBatcher(pool: Pool): SQLBatcher {
         return new SQLBatcher(pool, {
             maxTimeInQueue: 10,
@@ -378,6 +379,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             database: dbConf.database ?? 'puter',
         });
         this.db = this.createPrimaryBatcher(this.primaryPool);
+        this.dbPrimaryRead = this.createPrimaryReadBatcher(this.primaryPool);
 
         if (this.configuration === Configuration.SINGLE) {
             this.replicaPool = this.primaryPool;

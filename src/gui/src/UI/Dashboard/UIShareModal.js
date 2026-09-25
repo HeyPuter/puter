@@ -24,13 +24,18 @@ import { invalidate_shared_roots } from '../../helpers/sharedAccess.js';
 import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/shareModes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
-import { avatarHue, avatarInitial } from './shareAvatar.js';
+import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
 import {
     has_direct_share,
     mark_item_shared,
 } from '../../helpers/sharedBadge.js';
 import { share_outcome } from '../../helpers/shareOutcome.js';
-import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
+import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
+import shareRecipientPicker from '../../helpers/shareRecipientPicker.js';
+import { teams_for_sharing } from '../../helpers/shareTeams.js';
+import { share_link_for } from '../../helpers/sharePaths.js';
+import { is_plan_gate_error, open_upgrade_flow } from '../../helpers/planGate.js';
+import { with_verification_gate } from '../../helpers/verification_gates.js';
 
 const { html_encode } = window;
 
@@ -177,6 +182,19 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                             <span class="share-modal-submit-label">${i18n('share')}</span>
                         </button>
                     </form>
+                    ${allow_manage ? `<div class="share-modal-general">
+                        <h3 class="share-modal-heading">${i18n('share_general_access')}</h3>
+                        <div class="share-modal-general-row">
+                            <select class="share-modal-link-access" aria-label="${i18n('share_general_access')}">
+                                <option value="restricted">${i18n('share_link_restricted')}</option>
+                                <option value="anyone">${i18n('share_link_anyone')}</option>
+                                <option value="mixed" disabled hidden>${i18n('share_access_mixed')}</option>
+                            </select>
+                            <select class="share-modal-link-mode" aria-label="${i18n('share_access_level')}" hidden>${options_for('read', { allow_manage: false })}</select>
+                        </div>
+                        <p class="share-modal-general-note">${is_multi ? i18n('share_link_restricted_note_items') : i18n('share_link_restricted_note')}</p>
+                        ${is_multi ? '' : `<button type="button" class="share-modal-copy-link" hidden>${i18n('share_copy_link')}</button>`}
+                    </div>` : ''}
                     <div class="share-modal-status" role="status" aria-live="polite"></div>
                     <h3 class="share-modal-heading">${i18n('share_who_has_access')}</h3>
                     <div class="share-modal-list" aria-busy="true">
@@ -196,6 +214,15 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const $list = $overlay.find('.share-modal-list');
     const $recipient = $overlay.find('.share-modal-recipient');
     const $submit = $overlay.find('.share-modal-submit');
+    const $link_access = $overlay.find('.share-modal-link-access');
+    const $link_mode = $overlay.find('.share-modal-link-mode');
+    const $link_note = $overlay.find('.share-modal-general-note');
+    const $copy_link = $overlay.find('.share-modal-copy-link');
+
+    /** Where the selection stands on "anyone with the link", as last listed. */
+    let link_state = { access: 'restricted', mode: null };
+    /** The one item's uid, which its link is built on. Single item only. */
+    let single_uid = is_multi ? null : (targets[0].fsentry?.uid ?? null);
 
     // Focus returns to wherever the user was (usually the shared row) when
     // the modal closes. While it's up, the recipient input takes it on
@@ -215,6 +242,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         closed = true;
         $overlay.removeClass('share-modal-show');
         $(document).off('keydown.share-modal');
+        // The recipient field listens on the document to know when a click
+        // landed outside its suggestions; that has to come off with the dialog.
+        picker.destroy();
         setTimeout(() => $overlay.remove(), 200);
         if ( el_previous_focus && document.contains(el_previous_focus) ) {
             try {
@@ -296,8 +326,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             : '';
         // Only direct grants live on the items themselves; an inherited one
         // belongs to the ancestor folder and has to be changed there.
-        const can_change = group.directPaths.length > 0;
-        const can_revoke = can_change || group.pendingPaths.length > 0;
+        // Every action addresses a person by name; a withheld invite has none.
+        const can_change = group.directPaths.length > 0 && ! group.anonymous;
+        const can_revoke = ! group.anonymous
+            && (can_change || group.pendingPaths.length > 0);
         // Extending someone needs a mode to extend; a person whose grants
         // disagree levels them with the select first.
         const missing = missingPathsFor(target_paths, group).length;
@@ -411,7 +443,31 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             mark_item_shared(target, has_direct_share(shares));
         }
         render(aggregateShares(target_paths, by_path));
+        link_state = linkShareState(target_paths, by_path);
+        render_link_access();
         if ( failure ) show_error(i18n('share_load_partial_failed'));
+    };
+
+    // -- General access: people only, or anyone with the link --
+
+    /** Put the control where the listings say the selection stands. */
+    const render_link_access = () => {
+        if ( ! allow_manage ) return;
+        const { access, mode } = link_state;
+        $link_access.val(access);
+        $link_mode.prop('hidden', access !== 'anyone');
+        // `null` rests the mode on the "Mixed" placeholder, as the rows do.
+        if ( access === 'anyone' ) $link_mode.html(options_for(mode, { allow_manage: false }));
+        let note;
+        if ( access === 'mixed' ) {
+            note = i18n('share_link_mixed_note');
+        } else if ( access === 'anyone' ) {
+            note = i18n(`share_link_anyone_note_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`);
+        } else {
+            note = i18n(is_multi ? 'share_link_restricted_note_items' : 'share_link_restricted_note');
+        }
+        $link_note.html(note);
+        $copy_link.prop('hidden', ! (access === 'anyone' && single_uid));
     };
 
     // -- Dismissal wiring --
@@ -501,7 +557,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const grant_access = async (recipient, mode, paths) => {
         const created = [];
         for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
-            created.push(...(await puter.fs.share({ paths: run, recipient, mode }) ?? []));
+            created.push(...(await with_verification_gate(
+                () => puter.fs.share({ paths: run, recipient, mode }),
+            ) ?? []));
         }
         return created;
     };
@@ -512,32 +570,121 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }
     };
 
+    /** Open the selection to anyone with the link at `mode`, or close it with null. */
+    const set_link_access = async (mode) => {
+        $link_access.prop('disabled', true);
+        $link_mode.prop('disabled', true);
+        try {
+            if ( mode ) {
+                const created = await grant_access({ anyone: true }, mode, target_paths);
+                if ( ! is_multi ) single_uid ??= created?.[0]?.entryUid ?? null;
+                show_success(i18n(`share_link_on_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`));
+            } else {
+                await revoke_access({ anyone: true }, target_paths);
+                show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
+            }
+        } catch (err) {
+            // A plan gate gets the flow that clears it, where the deployment
+            // has one; a refusal is otherwise reported like any other.
+            if ( is_plan_gate_error(err) ) {
+                if ( ! open_upgrade_flow() ) show_error(i18n('share_link_requires_plan'));
+            } else {
+                show_error(error_html(err));
+            }
+        } finally {
+            $link_access.prop('disabled', false);
+            $link_mode.prop('disabled', false);
+        }
+        // The listings are the truth either way, and they put the control back.
+        invalidate_shared_roots();
+        await refresh();
+        focus_dialog();
+    };
+
+    $overlay.on('change', '.share-modal-link-access', function () {
+        const value = $(this).val();
+        if ( value === 'mixed' ) return;
+        set_link_access(value === 'anyone' ? ($link_mode.val() || 'read') : null);
+    });
+    $overlay.on('change', '.share-modal-link-mode', function () {
+        const mode = $(this).val();
+        if ( mode ) set_link_access(mode);
+    });
+    $overlay.on('click', '.share-modal-copy-link', async function () {
+        if ( ! single_uid ) return;
+        try {
+            await window.copy_to_clipboard(share_link_for(
+                { owner: targets[0].owner, uid: single_uid, name: targets[0].name },
+                window.gui_origin,
+            ));
+            show_success(i18n('share_link_copied'));
+        } catch (err) {
+            show_error(error_html(err));
+        }
+    });
+
+    // The uid the link is built on, when the row did not carry it.
+    if ( allow_manage && ! is_multi && ! single_uid ) {
+        puter.fs.stat(targets[0].path).then((stat) => {
+            if ( closed ) return;
+            single_uid = stat?.uid ?? null;
+            render_link_access();
+        }).catch(() => { /* the button just stays hidden */ });
+    }
+
+    /** A team is named by uid; a person by the name the row already shows. */
+    const recipient_of = (group) => (group.teamUid ? { team: group.teamUid } : group.name);
+
+    // One field for every kind of recipient: a colleague, a whole team, someone
+    // shared with before, or an address typed from scratch.
+    const picker = shareRecipientPicker({
+        $input: $recipient,
+        $row: $overlay.find('.share-modal-add-row'),
+        // Nobody already on the list below: offering them again would only
+        // re-grant what their row already shows.
+        excluded: () => last_groups.map((group) => group.key),
+        onChange: () => {
+            $submit.prop('disabled', ! picker.recipient());
+            // Choosing again retires a stale success/error message.
+            clear_status();
+        },
+    });
+
+    (async () => {
+        const teams = await teams_for_sharing();
+        if ( closed ) return;
+        picker.setTeams(teams);
+        if ( teams.length ) {
+            // Not the encoded form: an attribute set from JS shows entities
+            // literally.
+            const label = i18n('share_add_people_teams', [], false);
+            $recipient.attr('placeholder', label).attr('aria-label', label);
+        }
+    })();
+
     /** "Shared with ann" / "Shared with ann on 4 items". */
     const shared_message = (recipient, count) => (count === 1
         ? i18n('share_shared_with', { recipient })
         : i18n('share_shared_with_items', { recipient, count }));
 
-    $recipient.on('input', function () {
-        $submit.prop('disabled', $(this).val().trim() === '');
-        // Typing again retires a stale success/error message.
-        clear_status();
-    });
-
     $overlay.on('submit', '.share-modal-add', async function (e) {
         e.preventDefault();
-        const recipient = $recipient.val().trim();
-        if ( !recipient ) return;
+        // A team is named by uid; anything typed goes as-is, since a bare
+        // string is what the backend reads as an email or a username.
+        const chosen = picker.recipient();
+        if ( ! chosen ) return;
+        const recipient = chosen.label;
 
         $submit.prop('disabled', true).addClass('share-modal-btn-busy');
         try {
             const created = await grant_access(
-                recipient,
+                chosen.value,
                 $overlay.find('.share-modal-mode').val(),
                 target_paths,
             );
             // Clear only what we sent; a name typed mid-flight shouldn't vanish.
-            if ( $recipient.val().trim() === recipient ) $recipient.val('');
-            $submit.prop('disabled', $recipient.val().trim() === '');
+            if ( $recipient.val().trim() === recipient ) picker.clear();
+            $submit.prop('disabled', ! picker.recipient());
             // A pair the backend refused doesn't fail the others, so say how
             // many items actually landed rather than implying all of them did.
             const granted = created?.length ?? 0;
@@ -561,6 +708,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                     ? i18n('share_invited_items', { recipient, count: total })
                     : shared_message(recipient, total));
             }
+            picker.remember(chosen, created);
             invalidate_shared_roots();
             await refresh();
             $recipient.get(0)?.focus({ preventScroll: true });
@@ -583,7 +731,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( ! group || ! mode ) return;
         $(this).prop('disabled', true);
         try {
-            await grant_access(group.name, mode, group.directPaths);
+            await grant_access(recipient_of(group), mode, group.directPaths);
             show_success(group.directPaths.length > 1
                 ? i18n('share_access_updated_items', { recipient: group.name, count: group.directPaths.length })
                 : i18n('share_access_updated', { recipient: group.name }));
@@ -604,7 +752,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( ! missing.length ) return;
         $(this).prop('disabled', true);
         try {
-            const created = await grant_access(group.name, group.mode, missing);
+            const created = await grant_access(recipient_of(group), group.mode, missing);
             const granted = created?.length ?? 0;
             show_success(granted < missing.length
                 ? i18n('share_shared_with_partial', { recipient: group.name, count: granted, total: missing.length })
@@ -677,7 +825,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const revoke_paths = group.pending ? group.pendingPaths : group.directPaths;
         $(this).closest('.share-modal-row-confirm').find('button').prop('disabled', true);
         try {
-            await revoke_access(group.name, revoke_paths);
+            await revoke_access(recipient_of(group), revoke_paths);
             if ( group.pending ) {
                 show_success(i18n('share_invite_cancelled', { recipient: group.name }));
             } else {

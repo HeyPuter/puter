@@ -105,6 +105,8 @@ export interface EventsWorkerSummary {
 export interface ListEventsWorkersOptions {
     limit?: number;
     cursor?: string;
+    /** Narrows to one app's own worker, for an app-scoped listing. */
+    appUid?: string;
 }
 
 export interface PublishHandlerInput {
@@ -451,6 +453,10 @@ export class EventHandlerStore extends PuterStore {
 
         const where = [`\`${APP_TABLE}\`.\`owner_user_id\` = ?`];
         const params: unknown[] = [ownerUserId];
+        if (typeof opts.appUid === 'string') {
+            where.push(`\`${TABLE}\`.\`app_uid\` = ?`);
+            params.push(opts.appUid);
+        }
         if (typeof after === 'string') {
             where.push(`\`${TABLE}\`.\`app_uid\` > ?`);
             params.push(after);

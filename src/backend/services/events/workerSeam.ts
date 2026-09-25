@@ -42,41 +42,29 @@ export interface WorkerInvocation {
 }
 
 /**
- * What the invoker did with it.
- *
- * - `settled` — the handler took the delivery and its lease may be released.
- * - `terminal` — the handler refused it. Nothing is gained by sending it again.
- * - `retriable` — nobody could answer; the delivery is owed and comes back.
- * - `deferred` — nothing was attempted, so nothing failed either.
- *
- * `terminal` and `retriable` are both failures and both count toward the run
- * that suspends a subscription; they differ only in whether the delivery itself
- * gets another turn.
+ * `settled`: delivered. `terminal`: handler refused, not retried. `retriable`:
+ * nobody answered, comes back. `deferred`: nothing attempted. Both failures
+ * count toward the run that suspends a subscription.
  */
 export type WorkerInvocationOutcome =
-    | 'settled'
-    | 'terminal'
-    | 'retriable'
-    | 'deferred';
+    'settled' | 'terminal' | 'retriable' | 'deferred';
 
 export interface WorkerInvokerSeam {
     invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;
 }
 
 /**
- * Mints the token one invocation carries: the subscriber's own app-under-user
- * identity, the same one the app acts with for this user in a tab. Not a
- * grant-scoped token — the `events:background` consent is what authorizes
- * running the app's code with nobody present, not a narrower credential.
+ * Mints the subscriber's app-under-user token for one invocation. The
+ * `events:background` consent is what authorizes it, not a narrower
+ * credential.
  */
 export type SubscriberTokenMinter = (
     invocation: WorkerInvocation,
 ) => Promise<string | null>;
 
 /**
- * Where an app's handlers currently live: the script its published set deploys
- * as, and the key an invocation of that script carries. Null when the app has
- * no handlers, or the deployment has no events secret to derive a key from.
+ * The script an app's handlers deploy as and its invocation key; null when the
+ * app has no handlers or no events secret is configured.
  */
 export type EventsWorkerAddresser = (
     appUid: string,

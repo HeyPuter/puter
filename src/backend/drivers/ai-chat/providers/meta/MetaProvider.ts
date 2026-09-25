@@ -31,11 +31,9 @@ import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.meta.ai/v1';
-
-// `safety_identifier` is capped at 64 characters by the Model API.
-const SAFETY_IDENTIFIER_MAX_LENGTH = 64;
 
 type MetaConfig = {
     apiBaseUrl?: string;
@@ -50,7 +48,6 @@ type MetaCustomParams = {
     frequency_penalty?: number;
     presence_penalty?: number;
     response_format?: unknown;
-    safety_identifier?: string;
     seed?: number;
 };
 
@@ -167,14 +164,10 @@ export class MetaProvider implements IChatProvider {
                 ? 'in_memory'
                 : prompt_cache_retention;
 
-        const safetyIdentifier =
-            customParams.safety_identifier ??
-            (actor?.user?.id
-                ? `puter-${actor.user.id}${actor.app?.uid ? `-${actor.app.uid}` : ''}`.slice(
-                      0,
-                      SAFETY_IDENTIFIER_MAX_LENGTH,
-                  )
-                : undefined);
+        // The identifier is Puter's abuse attribution, so `custom` can't
+        // override it. Cache key defaults to it; see upstreamUserIdentifier.
+        const userIdentifier = upstreamUserIdentifier(actor);
+        const cacheKey = prompt_cache_key ?? userIdentifier;
 
         const completionParams = {
             messages,
@@ -189,13 +182,11 @@ export class MetaProvider implements IChatProvider {
             ...(temperature !== undefined ? { temperature } : {}),
             ...(top_p !== undefined ? { top_p } : {}),
             ...(effort ? { reasoning_effort: effort } : {}),
-            ...(prompt_cache_key !== undefined ? { prompt_cache_key } : {}),
+            ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
             ...(cacheRetention !== undefined
                 ? { prompt_cache_retention: cacheRetention }
                 : {}),
-            ...(safetyIdentifier
-                ? { safety_identifier: safetyIdentifier }
-                : {}),
+            ...(userIdentifier ? { safety_identifier: userIdentifier } : {}),
             ...(customParams.response_format
                 ? { response_format: customParams.response_format }
                 : {}),

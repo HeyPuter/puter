@@ -82,6 +82,12 @@ const projected = (subId, path) => ({
     },
 });
 
+/** One durable envelope, as the server addresses it at a room. */
+const durable = (subId, path, over = {}) => ({
+    ...projected(subId, path),
+    ...over,
+});
+
 let authStateListeners = [];
 
 const makeModule = () => {
@@ -199,6 +205,36 @@ describe('delivery routing', () => {
 
         expect(calls).toBe(2);
         expect(errors).toHaveBeenCalled();
+    });
+});
+
+describe('includeValue', () => {
+    it('is sent with the subscribe and again on every re-subscribe', async () => {
+        const events = makeModule();
+        const sub = await subscribed(events, 'kv:cart', () => {}, { includeValue: true });
+        expect(sub.includeValue).toBe(true);
+        expect(sockets[0].sent.find(s => s.verb === 'events.subscribe').payload).toEqual({
+            subject: 'kv:cart',
+            includeValue: true,
+        });
+
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+        sockets[0].answer('events.subscribe', okSub('sub-2', 'kv:app-1:cart'));
+        await Promise.resolve();
+
+        const resent = sockets[0].sent.filter(s => s.verb === 'events.subscribe');
+        expect(resent).toHaveLength(2);
+        expect(resent[1].payload).toEqual({ subject: 'kv:cart', includeValue: true });
+    });
+
+    it('is left off the wire unless asked for', async () => {
+        const events = makeModule();
+        const sub = await subscribed(events, 'kv:cart', () => {});
+        expect(sub.includeValue).toBe(false);
+        expect(sockets[0].sent.find(s => s.verb === 'events.subscribe').payload).toEqual({
+            subject: 'kv:cart',
+        });
     });
 });
 
@@ -339,27 +375,6 @@ describe('reconnect', () => {
         expect(survivorSeen[0].path).toBe('/user/a/one.txt');
     });
 
-    it('ends every subscription when the server closes the connection', async () => {
-        const events = makeModule();
-        const lapses = [];
-        const sub = await subscribed(events, 'fs:~/a', () => {}, {
-            onError: error => lapses.push(error),
-        });
-
-        // A server-side disconnect is final: socket.io will not reconnect it.
-        sockets[0].active = false;
-        sockets[0].fire('disconnect', 'io server disconnect');
-
-        expect(lapses).toHaveLength(1);
-        expect(lapses[0].code).toBe('events_connection_failed');
-        expect(sub.subId).toBe(null);
-        expect(sockets[0].disconnected).toBe(true);
-
-        // The next subscribe starts over on a fresh connection.
-        await subscribed(events, 'fs:~/b', () => {}, {}, 'sub-2');
-        expect(sockets).toHaveLength(2);
-    });
-
     it('closes the connection when the last subscription lapses', async () => {
         const events = makeModule();
         await subscribed(events, 'fs:~/a', () => {}, { onError: () => {} });
@@ -411,13 +426,356 @@ describe('reconnect', () => {
     });
 });
 
-describe('persistent delivery routing', () => {
-    /** One durable envelope, as the server addresses it at a room. */
-    const durable = (subId, path, over = {}) => ({
-        ...projected(subId, path),
-        ...over,
+describe('server hang-up', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
     });
 
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    /** The server hanging up: socket.io will not reconnect this on its own. */
+    const hangUp = (socket) => {
+        socket.active = false;
+        socket.connected = false;
+        socket.fire('disconnect', 'io server disconnect');
+    };
+
+    /** A refused handshake: the client's own reconnect attempt was turned away. */
+    const refuse = (socket, code = 'reauth_required') => {
+        socket.active = false;
+        socket.fire('connect_error', Object.assign(new Error(code), { data: { code } }));
+    };
+
+    /** A handshake failure with no code — a transient blip, not a real refusal. */
+    const refuseTransient = (socket) => {
+        socket.active = false;
+        socket.fire('connect_error', new Error('temporarily unavailable'));
+    };
+
+    it('reconnects and re-subscribes the same handle', async () => {
+        const events = makeModule();
+        const seen = [];
+        const lapses = [];
+        const sub = await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event), {
+            onError: error => lapses.push(error),
+        });
+
+        hangUp(sockets[0]);
+        expect(sub.subId).toBe(null);
+        expect(sockets[0].disconnected).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(2);
+
+        sockets[1].fire('connect');
+        sockets[1].answer('events.subscribe', okSub('sub-2', 'fs:~/a'));
+        await Promise.resolve();
+
+        expect(sub.subId).toBe('sub-2');
+        expect(lapses).toEqual([]);
+
+        sockets[1].fire('events.delivery', projected('sub-2', '/user/a/after.txt'));
+        expect(seen).toHaveLength(1);
+    });
+
+    it('keeps running a persistent handler across the hang-up', async () => {
+        const events = makeModule();
+        const seen = [];
+        events.channel.registerDurable('app-1#sub', ({ event }) => seen.push(event));
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(2);
+
+        sockets[1].fire('connect');
+        await Promise.resolve();
+        expect(sockets[1].sent.filter(s => s.verb === 'events.subscribe')).toEqual([]);
+
+        sockets[1].fire('events.delivery', durable('app-1#sub', '/user/a/back.txt'));
+        expect(seen).toHaveLength(1);
+    });
+
+    it('fails for good when the reconnect is refused, but parks durable registrations', async () => {
+        const events = makeModule();
+        const lapses = [];
+        const durableLapses = [];
+        const sub = await subscribed(events, 'fs:~/a', () => {}, {
+            onError: error => lapses.push(error),
+        });
+        events.channel.registerDurable('app-1#sub', () => {}, {}, error => durableLapses.push(error));
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(2);
+
+        refuse(sockets[1]);
+
+        expect(lapses).toHaveLength(1);
+        expect(lapses[0].code).toBe('reauth_required');
+        expect(durableLapses).toHaveLength(1);
+        expect(durableLapses[0].code).toBe('reauth_required');
+        expect(sub.subId).toBe(null);
+        expect(events.channel.socket).toBe(null);
+        // Parked, not dropped: the registration is still held.
+        expect(events.channel.durable.has('app-1#sub')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(120000);
+        expect(sockets).toHaveLength(2);
+    });
+
+    it('does not tell a durable onError twice for the same failure', async () => {
+        const events = makeModule();
+        const durableLapses = [];
+        events.channel.registerDurable('app-1#sub', () => {}, {}, error => durableLapses.push(error));
+        await subscribed(events, 'fs:~/a', () => {});
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        refuse(sockets[1]);
+        expect(durableLapses).toHaveLength(1);
+
+        // A second connect attempt that also fails, with no `connect` in
+        // between to clear the "already told" flag — still the same failure.
+        const pending = events.onLocal('fs:~/b', () => {}).catch(() => {});
+        await Promise.resolve();
+        refuse(sockets[2]);
+
+        expect(durableLapses).toHaveLength(1);
+        await pending;
+    });
+
+    it('starts clean after a permanent failure', async () => {
+        const events = makeModule();
+        const durableLapses = [];
+        const durableSeen = [];
+        events.channel.registerDurable(
+            'app-1#sub',
+            ({ event }) => durableSeen.push(event),
+            {},
+            error => durableLapses.push(error),
+        );
+        await subscribed(events, 'fs:~/a', () => {});
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        refuse(sockets[1]);
+        expect(durableLapses).toHaveLength(1);
+
+        // A new subscribe starts over on a fresh connection.
+        const pending = events.onLocal('fs:~/b', () => {});
+        await Promise.resolve();
+        expect(sockets).toHaveLength(3);
+        sockets[2].fire('connect');
+        sockets[2].answer('events.subscribe', okSub('sub-b', 'fs:~/b'));
+        await pending;
+
+        // The parked handler is routed to again over the new socket.
+        sockets[2].fire('events.delivery', durable('app-1#sub', '/user/a/again.txt'));
+        expect(durableSeen).toHaveLength(1);
+
+        // Attempts reset: the very next hang-up is retried at the base delay.
+        hangUp(sockets[2]);
+        const before = sockets.length;
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(before + 1);
+
+        // A second permanent failure tells the durable onError again — its
+        // flag was cleared when the connection came back up above.
+        refuse(sockets.at(-1));
+        expect(durableLapses).toHaveLength(2);
+        expect(durableLapses[1].code).toBe('reauth_required');
+    });
+
+    it('gives up after repeated hang-ups', async () => {
+        const events = makeModule();
+        const lapses = [];
+        const sub = await subscribed(events, 'fs:~/a', () => {}, {
+            onError: error => lapses.push(error),
+        });
+
+        for ( let i = 0; i < 6; i++ ) {
+            hangUp(sockets[i]);
+            await vi.advanceTimersByTimeAsync(30000); // covers every attempt's upper bound
+            sockets[i + 1].fire('connect');
+        }
+        expect(sockets).toHaveLength(7);
+
+        hangUp(sockets[6]);
+        expect(lapses).toHaveLength(1);
+        expect(lapses[0].code).toBe('events_connection_failed');
+        expect(sub.subId).toBe(null);
+
+        await vi.advanceTimersByTimeAsync(120000);
+        expect(sockets).toHaveLength(7);
+    });
+
+    it('retries a codeless connect_error during backoff and recovers', async () => {
+        const events = makeModule();
+        const seen = [];
+        const lapses = [];
+        const sub = await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event), {
+            onError: error => lapses.push(error),
+        });
+        // Establishes `connectedAt` so the backoff below is not mistaken for
+        // a connection that has been stable for a while.
+        sockets[0].fire('connect');
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(2);
+
+        // A blip during the handshake, not an actual refusal — this must not
+        // end the subscription; it retries like any other hang-up.
+        refuseTransient(sockets[1]);
+        expect(lapses).toEqual([]);
+        expect(events.channel.socket).toBe(null);
+
+        await vi.advanceTimersByTimeAsync(2000); // the next attempt's upper bound
+        expect(sockets).toHaveLength(3);
+
+        sockets[2].fire('connect');
+        sockets[2].answer('events.subscribe', okSub('sub-2', 'fs:~/a'));
+        await Promise.resolve();
+
+        expect(sub.subId).toBe('sub-2');
+        expect(lapses).toEqual([]);
+
+        sockets[2].fire('events.delivery', projected('sub-2', '/user/a/after.txt'));
+        expect(seen).toHaveLength(1);
+    });
+
+    it('a hang-up followed by codeless connect_errors spanning over 120s still caps at one failure', async () => {
+        const events = makeModule();
+        const lapses = [];
+        const sub = await subscribed(events, 'fs:~/a', () => {}, {
+            onError: error => lapses.push(error),
+        });
+        sockets[0].fire('connect');
+
+        hangUp(sockets[0]);
+        // None of the six retries below ever reaches 'connect' (they are all
+        // refused mid-handshake), so `connectedAt` stays at 0 past the very
+        // first hang-up — the cap holds, and the socket count stays bounded,
+        // even though this spans 180s of wall-clock time, well past the 60s
+        // stability window that a stale timestamp used to be measured against.
+        for ( let i = 0; i < 6; i++ ) {
+            await vi.advanceTimersByTimeAsync(30000); // covers every attempt's upper bound
+            refuseTransient(sockets.at(-1));
+        }
+
+        expect(lapses).toHaveLength(1);
+        expect(lapses[0].code).toBe('events_connection_failed');
+        expect(sub.subId).toBe(null);
+        expect(sockets).toHaveLength(7);
+
+        await vi.advanceTimersByTimeAsync(120000);
+        expect(sockets).toHaveLength(7);
+    });
+
+    it('fails at once for a refused session even mid-backoff', async () => {
+        const events = makeModule();
+        const lapses = [];
+        const sub = await subscribed(events, 'fs:~/a', () => {}, {
+            onError: error => lapses.push(error),
+        });
+        sockets[0].fire('connect');
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(2);
+
+        // Unlike a codeless blip, an actual reauth_required refusal ends
+        // things right away, even mid-backoff.
+        refuse(sockets[1]);
+
+        expect(lapses).toHaveLength(1);
+        expect(lapses[0].code).toBe('reauth_required');
+        expect(sub.subId).toBe(null);
+        expect(events.channel.socket).toBe(null);
+
+        await vi.advanceTimersByTimeAsync(120000);
+        expect(sockets).toHaveLength(2);
+    });
+
+    it('off() during the reconnect wait cancels it once nothing else is carried', async () => {
+        const events = makeModule();
+        const sub = await subscribed(events, 'fs:~/a', () => {});
+
+        hangUp(sockets[0]);
+        await sub.off();
+
+        await vi.advanceTimersByTimeAsync(60000);
+        expect(sockets).toHaveLength(1);
+    });
+
+    it('a subscribe during the reconnect wait connects immediately without a duplicate socket', async () => {
+        const events = makeModule();
+        await subscribed(events, 'fs:~/a', () => {});
+
+        hangUp(sockets[0]);
+        const pending = events.onLocal('fs:~/b', () => {});
+        await Promise.resolve();
+        expect(sockets).toHaveLength(2);
+        expect(events.channel.reconnectTimer).toBe(null);
+
+        sockets[1].answer('events.subscribe', okSub('sub-b', 'fs:~/b'));
+        await pending;
+
+        // The reconnect wait it was scheduled for is already filled.
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(2);
+        expect(sockets[1].sent.filter(s => s.verb === 'events.subscribe')).toHaveLength(1);
+    });
+
+    it('resets the backoff after the connection has been stable for a while', async () => {
+        const events = makeModule();
+        await subscribed(events, 'fs:~/a', () => {});
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(2);
+        sockets[1].fire('connect');
+        sockets[1].answer('events.subscribe', okSub('sub-2', 'fs:~/a'));
+        await Promise.resolve();
+
+        // Stays up long enough to count as stable.
+        await vi.advanceTimersByTimeAsync(60000);
+
+        hangUp(sockets[1]);
+        // If attempts had not reset, the next backoff could need up to 2000ms;
+        // advancing only the base delay proves it started over at zero.
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sockets).toHaveLength(3);
+    });
+
+    it('reset() after a permanent failure reconnects and routes to the parked registration', async () => {
+        const events = makeModule();
+        const durableSeen = [];
+        const durableLapses = [];
+        events.channel.registerDurable(
+            'app-1#sub',
+            ({ event }) => durableSeen.push(event),
+            {},
+            error => durableLapses.push(error),
+        );
+
+        hangUp(sockets[0]);
+        await vi.advanceTimersByTimeAsync(1000);
+        refuse(sockets[1]);
+        expect(durableLapses).toHaveLength(1);
+        expect(events.channel.socket).toBe(null);
+
+        events.channel.reset();
+        expect(sockets).toHaveLength(3);
+
+        sockets[2].fire('events.delivery', durable('app-1#sub', '/user/a/back.txt'));
+        expect(durableSeen).toHaveLength(1);
+    });
+});
+
+describe('persistent delivery routing', () => {
     it('runs the handler on a delivery the server sends here', async () => {
         const events = makeModule();
         const seen = [];

@@ -30,8 +30,9 @@ Called with a single `{ event }` object per delivery. `event.op === 'gap'` means
 
 #### `options` (Object) (optional)
 
-- `onError` (Function): Called with `{ message, code }` if the subscription lapses — the connection was lost and re-subscribing failed. The subscription is over at that point; call `onLocal()` again to resume. Without it, a lapse is reported on the console.
+- `onError` (Function): Called with `{ message, code }` if the subscription lapses — re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A connection the server closes once is reconnected without calling it. The subscription is over at that point; call `onLocal()` again to resume. Without it, a lapse is reported on the console.
 - `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
+- `includeValue` (Boolean): For a `kv:` subject, request the key's new value as `event.value` — the written value on a `set`, `null` on a `del`, nothing on an `expire`. A value over 16 KB serialized is left out. Values are also omitted from every delivery when the event matches more than 128 subscriptions in that region or its filter-evaluation ceiling is reached before counting finishes, even with `includeValue: true`; the key and other event metadata are still delivered. Refused on a non-`kv:` subject.
 
 ## Return value
 
@@ -42,6 +43,7 @@ A `Promise` that resolves, once the server has confirmed the subscription, to a 
 - `anchor` (Object): The subscription's [anchor](/Events/#anchor), as `{ uid, path }`. For a `kv:` subject, `uid` is the app whose store is being watched and `path` is the key prefix it is anchored at; for one made through a share handle, `uid` is the handle and `path` is empty. The path is the one the anchor had when you subscribed — a later rename or move does not update it.
 - `match` (String | null): The pattern events under the anchor are matched against, if the subject had one.
 - `op` (String | null): The single operation this subscription is limited to, or `null` for all of them.
+- `includeValue` (Boolean): Whether `kv:` deliveries on this subscription carry the key's new value.
 - `off` (Function): Ends the subscription — see [`subscription.off()`](/Events/off/).
 
 The promise rejects with `{ message, code }`:
@@ -54,6 +56,7 @@ The promise rejects with `{ message, code }`:
 | `invalid_subject_pattern` | The match pattern is past its bounds: 256 characters, 16 segments, one `*` per segment, one `**` in total. |
 | `invalid_kv_pattern` | A `kv:` subject has a `*` somewhere other than the end, or a `?`. |
 | `invalid_kv_handle_key` | A `kv:<handle>:…` subject names no key, or one that tries to leave the handle's granted region. |
+| `invalid_include_value` | `includeValue` is not a boolean, or was asked for on a subject that is not `kv:`. |
 | `events_cross_app_disabled` | The subject names another app's key-value data and that is not enabled here. |
 | `forbidden` | The target app does not share its data, or this app has not been granted `app-data:<appId>:kv:read` on it. |
 | `subject_does_not_exist` | The subject is not there, or this account cannot read it. |
@@ -61,7 +64,7 @@ The promise rejects with `{ message, code }`:
 | `too_many_requests` | Over the subscribe/unsubscribe call budget. |
 | `events_disabled` | Events are not enabled on this server. |
 | `reauth_required` | The session backing this connection is no longer valid. |
-| `events_connection_failed` | The events connection could not be established, the server did not answer in time, or the server closed the connection. |
+| `events_connection_failed` | The events connection could not be established, the server did not answer in time, or the server kept closing the connection. |
 | `events_failed` | The server answered with something the SDK could not make sense of. |
 
 ## Examples

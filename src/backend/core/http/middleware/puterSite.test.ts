@@ -24,6 +24,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
+import type { Actor } from '../../actor';
 import { generateDefaultFsentries } from '../../../util/userProvisioning';
 import { createPuterSiteMiddleware } from './puterSite';
 
@@ -875,6 +876,63 @@ describe('createPuterSiteMiddleware — file serving', () => {
 // FSService so we exercise parsing, path resolution, and the loop-
 // prevention guard together.
 
+describe('createPuterSiteMiddleware — site.access.check', () => {
+    const serveUnder = async (listener?: (data: unknown) => void) => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `gate-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/secret.txt`,
+            Buffer.from('shh'),
+            'text/plain',
+        );
+        const seen: unknown[] = [];
+        server.clients.event.on('site.access.check', (_key, data) => {
+            if (data.subdomain !== sub) return;
+            seen.push(data);
+            listener?.(data);
+        });
+        const { out } = await runMiddleware(
+            buildMiddleware(),
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/secret.txt',
+            }),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return { out, seen, sub };
+    };
+
+    it('asks listeners before streaming and serves when nobody objects', async () => {
+        const { out, seen, sub } = await serveUnder();
+        expect(out.statusCode).toBe(200);
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({
+            subdomain: sub,
+            host: `${sub}.site.puter.localhost`,
+            requestPath: '/secret.txt',
+            entry: { name: 'secret.txt' },
+            result: { allowed: true },
+        });
+    });
+
+    it('returns the plain file 404 when a listener withholds the entry', async () => {
+        const { out } = await serveUnder((data) => {
+            (data as { result: { allowed: boolean } }).result.allowed = false;
+        });
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).toContain('Not Found');
+        expect(out.headers['Content-Type']).toBeUndefined();
+    });
+});
+
 describe('createPuterSiteMiddleware — .puter_site_config', () => {
     const setupSiteWithConfig = async (config: unknown) => {
         const owner = await makeUserWithHome();
@@ -1367,5 +1425,235 @@ describe('createPuterSiteMiddleware — __workers/ is never served', () => {
         const piped = out.body as Buffer | undefined;
         expect(Buffer.isBuffer(piped)).toBe(true);
         expect(piped!.equals(shell)).toBe(true);
+    });
+});
+
+describe('createPuterSiteMiddleware — hosting CSP', () => {
+    const POLICY = "script-src * 'unsafe-inline'; object-src 'none'";
+
+    // Serves one file at the site root and returns the captured response.
+    const serve = async (
+        filename: string,
+        contentType: string,
+        configOverride?: Partial<IConfig>,
+    ) => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `csp-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/${filename}`,
+            Buffer.from('<p>hi</p>'),
+            contentType,
+        );
+
+        const mw = buildMiddleware(configOverride);
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: `/${filename}`,
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return out;
+    };
+
+    it('sends no CSP header when hosting_csp is unset', async () => {
+        // The default. Hosted sites are third-party apps, so an unconfigured
+        // deployment must not start enforcing a policy on them.
+        const out = await serve('index.html', 'text/html');
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy']).toBeUndefined();
+        expect(
+            out.headers['Content-Security-Policy-Report-Only'],
+        ).toBeUndefined();
+    });
+
+    it('enforces hosting_csp on an active document when configured', async () => {
+        const out = await serve('index.html', 'text/html', {
+            hosting_csp: POLICY,
+        });
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy']).toBe(POLICY);
+        expect(
+            out.headers['Content-Security-Policy-Report-Only'],
+        ).toBeUndefined();
+    });
+
+    it('sends the policy as Report-Only when hosting_csp_report_only is set', async () => {
+        const out = await serve('index.html', 'text/html', {
+            hosting_csp: POLICY,
+            hosting_csp_report_only: true,
+        });
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy-Report-Only']).toBe(POLICY);
+        expect(out.headers['Content-Security-Policy']).toBeUndefined();
+    });
+
+    it('leaves non-active documents alone', async () => {
+        // A CSP does nothing for a stylesheet or an image, and every header
+        // set here ships to apps we don't control.
+        const out = await serve('style.css', 'text/css', {
+            hosting_csp: POLICY,
+        });
+        expect(out.statusCode).toBe(200);
+        expect(out.headers['Content-Security-Policy']).toBeUndefined();
+    });
+});
+
+// -- Sites rooted in someone else's directory ------------------------
+//
+// Hosting serves everything under the site root with the ACL bypassed, so a
+// site published from a shared folder rides on the `manage` grant that
+// authorized it. These pin that the grant is re-read on every request, and
+// that the ordinary owner-rooted site pays nothing for it.
+
+const actorFor = (user: {
+    id: number;
+    uuid: string;
+    username: string;
+}): Actor =>
+    ({
+        user: { id: user.id, uuid: user.uuid, username: user.username },
+        effectiveApp: null,
+    }) as Actor;
+
+const descriptorFor = (path: string) => ({
+    path,
+    resolveAncestors: () => server.services.fs.getAncestorChain(path),
+});
+
+const serveSite = async (sub: string) => {
+    const mw = buildMiddleware();
+    const { res, out } = makeRes();
+    await mw(
+        makeReq({
+            hostname: `${sub}.site.puter.localhost`,
+            path: '/index.html',
+        }),
+        res,
+        vi.fn(),
+    );
+    // Allow the piped stream to flush.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    return out;
+};
+
+describe('createPuterSiteMiddleware — delegated site roots', () => {
+    // Owner shares a directory at `manage`; the delegate points a subdomain
+    // at it, which is exactly what `SubdomainDriver` permits.
+    const publishSharedDir = async () => {
+        const owner = await makeUserWithHome();
+        const delegate = await makeUserWithHome();
+        const dirPath = `/${owner.username}/Documents`;
+        const dirEntry = (await server.stores.fsEntry.getEntryByPath(dirPath))!;
+        await writeFile(
+            owner.id,
+            `${dirPath}/index.html`,
+            Buffer.from('<html>shared</html>'),
+            'text/html',
+        );
+        await server.services.acl.setUserUser(
+            actorFor(owner),
+            actorFor(delegate),
+            descriptorFor(dirPath),
+            'manage',
+        );
+        const sub = `shared-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: delegate.id,
+            subdomain: sub,
+            rootDirId: dirEntry.id,
+        });
+        return { owner, delegate, dirEntry, sub };
+    };
+
+    it('serves a site whose publisher still holds `manage` on the root', async () => {
+        const { sub } = await publishSharedDir();
+        const out = await serveSite(sub);
+        expect(out.statusCode).toBe(200);
+        expect((out.body as Buffer).toString()).toBe('<html>shared</html>');
+    });
+
+    it("stops serving once the owner withdraws the publisher's `manage` grant", async () => {
+        const { owner, delegate, dirEntry, sub } = await publishSharedDir();
+        expect((await serveSite(sub)).statusCode).toBe(200);
+
+        await server.services.permission.revokeUserUserPermission(
+            actorFor(owner),
+            delegate.username,
+            `manage:fs:${dirEntry.uuid}`,
+        );
+
+        const out = await serveSite(sub);
+        expect(out.statusCode).toBe(404);
+        expect(out.contentType).toBe('text/html; charset=UTF-8');
+        expect(String(out.body)).toContain('404');
+    });
+
+    it('stops serving once the owner unshares the directory', async () => {
+        const { owner, delegate, dirEntry, sub } = await publishSharedDir();
+        expect((await serveSite(sub)).statusCode).toBe(200);
+
+        await server.services.share.unshare(actorFor(owner), {
+            uid: dirEntry.uuid,
+            recipient: { username: delegate.username },
+        });
+
+        expect((await serveSite(sub)).statusCode).toBe(404);
+    });
+
+    it('stops serving once the owner moves the root into their Trash', async () => {
+        // The grant is keyed on the node, so it survives the move — the
+        // trashed location is what makes the site unservable.
+        const { owner, dirEntry, sub } = await publishSharedDir();
+        expect((await serveSite(sub)).statusCode).toBe(200);
+
+        const trash = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Trash`,
+        ))!;
+        await server.services.fs.move(owner.id, {
+            source: dirEntry,
+            destinationParent: trash,
+        });
+
+        expect((await serveSite(sub)).statusCode).toBe(404);
+    });
+
+    it("never consults the ACL for a site rooted in the publisher's own tree", async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry =
+            (await server.stores.fsEntry.getEntryByPath(homePath))!;
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            Buffer.from('<html>mine</html>'),
+            'text/html',
+        );
+        const sub = `own-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry.id,
+        });
+
+        const aclCheck = vi.spyOn(server.services.acl, 'check');
+        try {
+            const out = await serveSite(sub);
+            expect(out.statusCode).toBe(200);
+            expect(aclCheck).not.toHaveBeenCalled();
+        } finally {
+            aclCheck.mockRestore();
+        }
     });
 });

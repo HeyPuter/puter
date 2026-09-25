@@ -202,8 +202,11 @@ afterAll(async () => {
  * reject is what makes the whole chain observable: the driver records every
  * attempt on the thrown error, and `attempts[0]` is who it chose first.
  */
-const attemptsFor = async (model: string) => {
-    createMock.mockRejectedValue(new Error('upstream down'));
+const attemptsFor = async (
+    model: string,
+    thrown: unknown = new Error('upstream down'),
+) => {
+    createMock.mockRejectedValue(thrown);
     let caught: HttpError | undefined;
     try {
         await withTestActor(() =>
@@ -403,6 +406,74 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         // everything that just failed.
         const next = await attemptsFor('deepseek-v4-pro');
         expect(next[0].provider).not.toBe('deepseek');
+    });
+
+    it('marks a credit-exhausted 402 route unhealthy for the next caller', async () => {
+        const first = await attemptsFor(
+            'deepseek-v4-pro',
+            Object.assign(
+                new Error(
+                    'Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+                ),
+                { status: 402 },
+            ),
+        );
+        const next = await attemptsFor('deepseek-v4-pro');
+
+        expect(next[0]).not.toMatchObject({
+            provider: first[0]!.provider,
+            model: first[0]!.model,
+        });
+    });
+
+    it('classifies differing credit-exhaustion statuses as one exhausted chain', async () => {
+        createMock
+            .mockRejectedValueOnce(
+                Object.assign(
+                    new Error(
+                        'Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+                    ),
+                    { status: 402 },
+                ),
+            )
+            .mockRejectedValueOnce(
+                Object.assign(
+                    new Error(
+                        'Your current credits have been used up and we are unable to process further requests. Please visit https://openrouter.ai/settings/credits to add credits.',
+                    ),
+                    { status: 403 },
+                ),
+            )
+            .mockRejectedValueOnce(
+                Object.assign(
+                    new Error(
+                        'Free model requires Team balance greater than $4.999999. (request id: 20260921210512505339070jYB)',
+                    ),
+                    { status: 429 },
+                ),
+            );
+
+        const err = await withTestActor(() =>
+            driver
+                .complete({
+                    model: 'deepseek-v4-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                })
+                .catch((e: unknown) => e as HttpError),
+        );
+
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
+        const attempts = (
+            err as unknown as {
+                fields: { attempts: Array<{ status?: number }> };
+            }
+        ).fields.attempts;
+        expect(attempts.map((attempt) => attempt.status)).toEqual([
+            402, 403, 429,
+        ]);
     });
 
     it('still serves a marked route when it is the only one left', async () => {

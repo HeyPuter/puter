@@ -52,6 +52,23 @@ Concurrency is counted per interface, so an image generation and a chat completi
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) additionally require a paid plan — a free account calling them gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, under the limits above; the model catalogue endpoints stay open to everyone.
 
+Sharing a file or folder with **anyone with the link** ([`puter.fs.share()`](/FS/share/) with `{ anyone: true }`) is a paid-plan feature too: a free account gets `subscription_required`, and a link stops working while its owner's plan has lapsed. Sharing with named people and teams is open to every account.
+
+### Image generation
+
+`puter.ai.txt2img()` returns one image per call. Image-specific limits apply in addition to the shared AI limits above:
+
+| Provider | Limit |
+|----------|-------|
+| xAI | Up to 5 reference images; larger requests fail with `bad_request`. |
+| Together | Image routes are excluded for required third-party data sharing; generation fails before any upstream call. |
+| Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Schnell: 1–8 steps; Lucid Origin: 1–40; Phoenix and FLUX.2 Dev: 1–50. Klein uses exactly 4 steps; SDXL and Inpainting use 1–20 steps. |
+| Replicate | At most 10 references, subject to a model's lower limit; FLUX 1.1 Pro accepts one reference. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For additional models with explicit width/height controls, pixel dimensions round to multiples of 8 and clamp to schema bounds; omitted bounds default to 64–4096 per side. Predictions expire after 10 minutes; polls are 2 seconds apart. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
+| BytePlus | Pro: 10 references; other Seedream models: 14. |
+| BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Pairs below 921,600 total pixels are interpreted as aspect hints, not explicit output sizes. |
+
+See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
+
 ### Key-value store
 
 | Limit                           | Paid | Free | Anonymous |
@@ -95,7 +112,16 @@ All per minute unless stated:
 | `write`     | 15   | 6    | 3         |
 | Search      | 5    | 2    | 2         |
 
+Signed uploads in progress are capped at **10,000 per account**: uploads started with `startWrite`/`startBatchWrite` (which `puter.fs.upload()` and `puter.fs.write()` use) that have not yet completed, been cancelled, or expired, across every app and every collaborator writing into that account's folders. Starting more fails with `429` `too_many_requests` until some finish. A single `startBatchWrite` request for more than 10,000 files is always refused, even against an otherwise-empty account.
+
 Signed-URL routes have no session to key on, so they are bounded per network rather than per account: 3,000 reads/min, 600 writes/min, 60 concurrent.
+
+`getReadURL()` and `revokeReadURL()` are not tiered by plan like the table above:
+
+| Limit | Value |
+| ----- | ----- |
+| Create (`getReadURL`, shared with any other access-token creation) | 20/hour |
+| Revoke (`revokeReadURL`) | 60/min |
 
 The Puter desktop generates PDF upload thumbnails locally with these best-effort budgets. Exceeding them skips the preview and does not reject the original file upload:
 
@@ -121,7 +147,7 @@ The SDK allows five seconds for each separate signed thumbnail transfer. A faile
 | Filesystem entries a `create` grant may bring into existence per request | 4 |
 | Path depth a `create` grant may provision below the home directory | 16 components |
 
-The last two apply only to [`create`](/Perms/request/#creating-a-path-on-request) on a raw `fs:` permission request. Missing intermediate directories are created along with the requested path.
+The last two apply to a raw `fs:` permission request whose path doesn't exist yet, which is [created on approval](/Perms/request/#creating-a-path-on-request) unless `create: false` is passed. Missing intermediate directories are created along with the requested path.
 
 ### WebDAV
 
@@ -153,6 +179,18 @@ Mounting with a `-token` username and an API token as the password skips the per
 | Concurrent worker calls             | 10   | 5    | 3         |
 | Concurrent deploys                  | 5    | 2    | 2         |
 
+### Profiles
+
+| Limit                      | Value               |
+| -------------------------- | ------------------- |
+| `getProfile` reads         | 120/min per network |
+| Profile writes             | 30/min per account  |
+| Profile picture (data URL) | 512 KiB             |
+| Display name               | 64 characters       |
+| Bio                        | 280 characters      |
+
+Another user's profile is readable only while that user is on a paid plan; the owner can always read and write their own.
+
 ### Sharing
 
 Sharing is bounded twice: on the calls, and on how many people one account can reach in a day.
@@ -166,7 +204,7 @@ Sharing is bounded twice: on the calls, and on how many people one account can r
 | Recipients per request                       | 10           |
 | Items per request                            | 50           |
 
-The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need.
+The read limit is one bucket shared by every share-listing call, so polling one of them spends budget the others need. `stat()` with `returnShares` does the same listing work, so it spends from this bucket too, on top of its own `stat` budget.
 
 A "new share" is one that gives someone access they didn't already have. Changing the mode on an existing share, or re-sharing an item the recipient already has, costs nothing. Over the daily limit, `share` fails with `share_daily_limit_reached`.
 
@@ -179,9 +217,9 @@ Separately, the notification and email that tell a recipient about a share are b
 
 Recipients are emailed by default and opt out with the unsubscribe link the mail carries; a deployment can turn share email off entirely with `share_email_notifications: false`.
 
-Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
+Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 5-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
-### Teams and teams
+### Teams
 
 Available only where a deployment has turned teams on. Every team route is bounded on calls, and the team itself is bounded on how much it can create.
 
@@ -191,10 +229,13 @@ Available only where a deployment has turned teams on. Every team route is bound
 | Team mutations per day              | 500          |
 | Team reads per minute               | 600          |
 | Teams one account may own           | 1            |
-| Seats one team may provision        | 50           |
+| Seats one team may provision, free owner | 4       |
+| Seats one team may provision, paying owner | 40    |
 | Member password resets per day           | 20           |
 
-A seat is a real Puter account on the ordinary tier, created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
+A seat is a real Puter account created by the team and paid for by its owner, so the seat limit is what bounds a team's size. Over it, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both carry the limit in `fields.limit`.
+
+A seat whose team pays for no tier is on the `org_seat_free` plan: **half** the ordinary free allowance, usage and rate caps alike (a free account's `bySubscription` caps apply to every free plan). Without this, provisioning seats would mint full free tiers nobody pays for. A seat on a paid team tier gets that tier's allowance.
 
 A reset returns a temporary password once and never again. It stops working 24 hours after it is issued, so an unused reset expires rather than becoming a standing credential; after that the administrator has to issue a new one. Until the member replaces it, every authenticated request from that account fails with `password_change_required` — signing in works, but nothing else does until they choose their own password.
 
@@ -204,7 +245,9 @@ Removing a seat for good is a separate, explicit request, and it is refused unle
 
 Lowering the seat limit never disables anyone. A team already above a reduced limit keeps every account it has and is simply refused new ones until it is back under.
 
-Both limits are per deployment (`max_teams_per_user`, `max_seats_per_team`) rather than per team, so raising them moves every team at once.
+The seat limit follows the owner's plan: a team whose owner pays nothing stops at `max_seats_per_team_free`, one whose owner is on a paid plan at `max_seats_per_team_paid`. Buying a plan raises it with no other action — the accounts already there are untouched, and the next provision simply succeeds. A deployment that does not sell seats can set `max_seats_per_team` instead, which is one flat cap whatever the owner pays and overrides both.
+
+These are per deployment (`max_teams_per_user` likewise) rather than per team, so raising one moves every team at once.
 
 A team's whole configuration is its name, its handle, and whether its directory is open to apps. In particular there is **no sharing policy**: a team cannot restrict who its members share with, by domain or otherwise, and there is no control over public links. Members share exactly as any other Puter account does.
 
@@ -214,14 +257,18 @@ Both buckets are per account, not per team, so administering several teams spend
 
 One write can reach many subscriptions, so events are bounded on both halves: how much you may register, and how much any one event may turn into.
 
-Durable subscriptions and cross-user share handles outlive the connection that made them, so they are the half that varies by plan:
+Durable subscription quotas, cross-user share-handle quotas, and KV event fan-out vary by plan:
 
-| Limit                                             | Paid | Free | Anonymous |
-| ------------------------------------------------- | ---- | ---- | --------- |
-| Durable subscriptions per account                 | 500  | 100  | —         |
-| Durable subscriptions per app, per account        | 100  | 25   | —         |
-| Live key-value share handles per account          | 500  | 200  | —         |
-| Live key-value share handles per app, per account | 100  | 50   | —         |
+| Limit                                             | Paid  | Free | Anonymous |
+| ------------------------------------------------- | ----- | ---- | --------- |
+| Durable subscriptions per account                 | 500   | 100  | —         |
+| Durable subscriptions per app, per account        | 100   | 25   | —         |
+| Live key-value share handles per account          | 512   | 200  | —         |
+| Live key-value share handles per app, per account | 512   | 128  | —         |
+| Matched subscriptions per KV event, per region    | 512   | 128  | 128       |
+| Filter evaluations per KV event, per region       | 2,048 | 512  | 512       |
+
+The KV event caps use the **owner of the key's plan**, not the writer's or listeners' plans. They count subscriptions, not distinct people, and are shared by all matching subscriptions for that change in the region, including share-handle subscriptions. An owner whose plan cannot be resolved takes the free cap; a deployment with no metering service uses the paid cap.
 
 A temporary (anonymous) account cannot create durable subscriptions at all — `subscribe` fails with `events_durable_requires_account`, and session subscriptions, which live and die with the connection, are the surface it has. Past either cap the call fails with `events_subscription_limit`; unsubscribing frees a slot immediately. Minting a share handle fails the same way — `events_kv_handle_requires_account` — and past either handle cap the mint fails with `events_kv_handle_limit_reached`; revoking frees a slot, and retired handles stay listed without counting. The per-app handle cap bounds each app namespace; a handle minted without naming one answers to the account cap alone.
 
@@ -236,8 +283,9 @@ A temporary (anonymous) account cannot create durable subscriptions at all — `
 | Key-value share-handle listing page size     | 200          |
 | Missed-event fetches per minute              | 120          |
 | Events per fetch page                        | 200          |
-| Matched subscriptions per event              | 50           |
-| Filter evaluations per event                 | 200          |
+| Matched subscriptions per non-KV event, per region | 50      |
+| Filter evaluations per non-KV event, per region | 200       |
+| Key-value value inlined in a delivery        | 16 KB        |
 | Broadcast deliveries per minute, per subscription | 600     |
 | `single` deliveries per minute, per subscription | 120      |
 | Handler invocations per minute, per (account, app) | 60     |
@@ -267,7 +315,7 @@ A durable subscription may carry a `context`: JSON that is stored with it and ha
 
 A durable subscription runs a **handler** its app published by name. An app may publish **100** of them, each up to **64 KB** of source, and a name is unique inside one app. All of an app's handlers combined may not exceed **5 MB** of source; a publish that would push the total over that is refused with `events_worker_too_large`. Publishing is a developer operation: the account has to own the app. Publishing the same source again is a no-op; publishing different source under a name whose current source the caller did not name as its base is refused with `events_handler_conflict`, so two racing build steps never silently pick a winner — `replace: true` is how a caller says it means to take the name. Handler source is never returned by any listing.
 
-The first published handler brings up an **events worker** for that app; the last one removed, or `puter.events.workers.destroy()`, takes it down. An app's events worker may (re)deploy at most **30 times an hour**; past that, delivery stays retriable until the hour rolls over. `puter.events.workers.list()` shows every app you own that currently has one — see [`puter.events.workers`](/Events/workers/) for details, including how a hosted deployment may bill it.
+The first published handler brings up an **events worker** for that app; the last one removed, or `puter.events.workers.destroy()`, takes it down. An app's events worker may (re)deploy at most **30 times an hour**; past that, delivery stays retriable until the hour rolls over. `puter.events.workers.list()` shows every app you own that currently has one from an account session or API token, or just its own from an app — see [`puter.events.workers`](/Events/workers/) for details, including how a hosted deployment may bill it.
 
 **A subscription can end or stop without you unsubscribing.** Access is re-checked against the stored permission on every delivery, so a share that is taken back stops delivering immediately; the subscription is then *suspended*, with `suspendedAt` and `suspendedReason` in `list`. There are four reasons:
 
@@ -284,11 +332,11 @@ Deleting the node a subscription is anchored on ends it too, unless the subject 
 
 Match patterns are compiled once when you subscribe and are capped at **256 characters** and **16 segments**, with **one `*` per segment** and **one `**` per pattern**; anything past that is rejected with `invalid_subject_pattern`. `**` crosses directories and costs no more than `*`.
 
-A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it.
+A `kv:` subject is indexed on the first **6** `:`-segments, or **160 bytes**, of its key — whichever comes first; past that the remainder becomes a match pattern, which is subject to the caps above. A key-value subject matches its key exactly unless it ends in `*`, and a `*` anywhere else — or a `?` — is rejected with `invalid_kv_pattern`. Watching another app's key-value data is refused with `events_cross_app_disabled` where that is not enabled, and otherwise takes the same consent as reading it. The app slot names an app uid and is capped at **40 characters**; past that the subscription is refused with `events_value_too_large`. A subscription made with `includeValue` may receive the key's new value, up to **16 KB** serialized. Values are omitted from **all deliveries** for that change when more than **128 subscriptions match in the region**, or when the filter-evaluation ceiling prevents completing that count. This count is taken before delivery-time permission checks and delivery truncation; it includes subscriptions that did not request values. The event still carries its key and other metadata. A larger value is also omitted. Subscribers with KV read access can fetch the key; a share handle grants event access only, so its holder needs a separate authorized app data path when the value is omitted.
 
 **Deliveries are coalesced over 250 ms per subject.** A multipart upload, a save loop, or a recursive delete is one thing the user did, and it arrives as one event carrying the newest state rather than as one event per write. Two different files in the same window are two deliveries.
 
-The two per-event ceilings — matched subscriptions and filter evaluations — do not fail your call: they truncate the delivery and send a `gap` marker in its place, with `reason: 'matched_subscription_limit'` or `reason: 'filter_evaluation_limit'` respectively — an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed". Both ceilings are counted **per region**: a change is evaluated against every matching region's own copy of your subscriptions, so an account with subscribers spread across several regions can see more than 50 matched, or 200 evaluated, in total for one event, even though no single region ever exceeds its own cap.
+The two per-event ceilings — matched subscriptions and filter evaluations — do not fail your call: they truncate the delivery and send a `gap` marker in its place, with `reason: 'matched_subscription_limit'` or `reason: 'filter_evaluation_limit'` respectively — an event with `op: 'gap'` and no `uid` or `path`. A gap means something happened that you were not told the details of, so a client that must not miss changes should re-read the anchor when it sees one rather than treat the silence as "nothing changed". Both ceilings are counted **per region**, so an event can reach more subscriptions in total when its audience spans regions. KV events use the owner-plan limits above; other event families remain capped at 50 matched subscriptions and 200 evaluations. Gap markers are also capped at the matched-subscription limit: with 1,100 matching subscriptions in a paid owner's region, up to 512 receive the event, the next 512 receive a gap, and the remaining 76 receive neither. A gap is not guaranteed for every omitted subscription.
 
 A **background delivery** — one that runs your app's handler with nobody there — takes the user's consent, the per-app permission `events:background`, and a subscription targeting `worker` without it is refused with `events_background_consent_required`. The handler runs as your app's own session for that user — the same reach it has from a tab, not a credential cut down to this one subscription's grant — and that session is what the consent authorizes running unattended; it shows up in the user's sessions list as a worker session, and revoking it there stops every background delivery for your app the same way withdrawing the permission does. Destroying the app's events worker ([`puter.events.workers.destroy()`](/Events/workers/)) retires that session too, and deleting the app ends it along with every subscription and anything they were owed. A handler has **30 seconds** to answer each invocation. Answering `2xx` takes the delivery; `4xx` refuses it, and it is dropped with a `gap` marker carrying `reason: 'handler_rejected'` rather than sent again to the same answer; `5xx`, `429` and a timeout are all "not now", and the delivery is held **2 seconds** before the next attempt, doubling each time up to **5 minutes**. **Five failures in a row** — refusals included — suspend the subscription with `failures`, hold what it is owed under the suspended-backlog rules above, and notify the app's developer. Publishing a handler is all the deployment there is: the app's events worker is brought up the first time a delivery needs it, and again if it has been idle long enough to be evicted, so the first background delivery after a publish pays a short cold start. Nothing else can invoke it — it answers one platform route, and only the platform can reach it.
 
@@ -330,11 +378,13 @@ Every driver call also passes one shared per-account budget of **8,000 calls/min
 
 Every account has a byte quota for the filesystem (100 MiB free; paid plans add more). Storage is what the user is _keeping_, not what they transferred — deleting files frees it immediately. At the limit, writes fail with `413` `storage_limit_reached`; reads keep working. `puter.fs.space()` returns `{ capacity, used }` live.
 
+An upload counts against the quota from the moment it starts. Its declared size, less the size of any file it replaces, is held until it completes (then the file's real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). Uploads started together are judged together, so a `startBatchWrite` that doesn't fit fails as a whole up front with `413` `storage_limit_reached`, not file by file. An upload abandoned without being cancelled holds its space until it expires. `space()` reports stored bytes only.
+
 ## What happens when you hit a limit
 
 | Status | `code`                  | Meaning                               | What to do                                                                        |
 | ------ | ----------------------- | ------------------------------------- | --------------------------------------------------------------------------------- |
-| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry; the window is at most 60s (or 1h for the sustained FS budget) |
+| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry; the window is at most 60s (or 1h for the sustained FS budget). The in-progress-uploads cap is the exception — it lasts until some of the account's pending uploads complete, are cancelled, or expire, not a fixed window |
 | `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; resets next month                               |
 | `402`  | `subscription_required` | The endpoint is limited to paid plans | The user upgrades — retrying or waiting changes nothing                           |
 | `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades                                                |
@@ -343,9 +393,14 @@ Errors come back as JSON: `{ "error": …, "message": …, "code": … }`.
 
 ### What Puter.js already does for you
 
-The SDK turns the money-shaped failures into prompts without any code on your part: an AI call that runs out of credit and a filesystem write that runs out of space both surface an upgrade dialog to the user (in an app via `puter.ui.requestUpgrade()`, on the web as a usage-limit dialog). Everything else rejects the promise with the shape above — an app that writes files should still handle `storage_limit_reached` explicitly rather than letting a save fail quietly, and anything running a loop should treat `429` as a signal to back off.
+The SDK turns the money-shaped failures into prompts without any code on your part: a call that runs out of credit (`insufficient_funds`), one the user's plan doesn't include (`subscription_required`), and a filesystem write that runs out of space (`storage_limit_reached`) all surface an upgrade dialog to the user — in an app via `puter.ui.requestUpgrade()`, on the web as a dialog the SDK renders itself. The dialog names the call that was refused, and for a plan gate says what needs the plan: the SDK's own wording where it has one (email), otherwise the `message` the server sent. The promise still rejects with the shape above — an app that writes files should handle `storage_limit_reached` explicitly rather than letting a save fail quietly, and anything running a loop should treat `429` as a signal to back off.
 
 ## Checking usage from your app
 
 - `puter.fs.space()` → `{ capacity, used }` — bytes, live.
 - `puter.auth.getMonthlyUsage()` → month-to-date spend and the remaining allowance, per API.
+
+Total spend and the remaining allowance are always current. The per-API
+breakdown and the per-app breakdown can each lag up to about a minute behind
+it, and past 5,000 distinct APIs used in a month, the rest are grouped under
+an `other` entry.

@@ -26,9 +26,14 @@ import { icons } from '../helpers/actionIcons.js';
 import { mode_label, options_for } from '../helpers/shareModes.js';
 import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
 import { share_outcome } from '../helpers/shareOutcome.js';
+import shareRecipientPicker from '../helpers/shareRecipientPicker.js';
+import { share_key } from '../helpers/shareSuggest.js';
 import {
     team_for_share, team_label, teams_for_sharing,
 } from '../helpers/shareTeams.js';
+import { share_link_for } from '../helpers/sharePaths.js';
+import { is_plan_gate_error, open_upgrade_flow } from '../helpers/planGate.js';
+import { with_verification_gate } from '../helpers/verification_gates.js';
 
 /** What each outcome of a share call is called on screen. */
 const SHARE_MESSAGE = {
@@ -46,6 +51,8 @@ const SHARE_MESSAGE = {
  * @param {string} [options.name] Display name; defaults to the path's basename.
  * @param {string} [options.owner] Owner's username; defaults to the first path
  *   segment, which is not the current user when a `manage` recipient opens this.
+ * @param {string} [options.uid] The item's uid, when the caller has it; saves
+ *   the lookup the "copy link" button otherwise makes.
  */
 async function UIWindowShare (options) {
     options = options ?? {};
@@ -64,22 +71,28 @@ async function UIWindowShare (options) {
     h += `<label for="share-recipient">${i18n('share_with')}</label>`;
     h += '<div class="share-dialog-row">';
     h += `<input class="share-recipient" id="share-recipient" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="${html_encode(i18n('share_add_people'))}" />`;
+                 placeholder="${i18n('share_add_people')}" />`;
     h += `<select class="share-mode">${options_for('read', { allow_manage })}</select>`;
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
 
-    // A team can't be typed into the field above: a bare string there is
-    // already read as an email or a username, so it needs its own control.
-    h += '<div class="share-team" style="display:none;">';
-    h += `<label for="share-team-select">${i18n('share_with_team')}</label>`;
-    h += '<div class="share-dialog-row">';
-    h += '<select class="share-team-select" id="share-team-select"></select>';
-    h += `<select class="share-team-mode">${options_for('read', { allow_manage })}</select>`;
-    h += '</div>';
-    h += `<p class="share-team-note">${i18n('share_team_note')}</p>`;
-    h += `<button class="share-team-btn button button-block button-normal">${i18n('share')}</button>`;
-    h += '</div>';
+    // The owner's switch between people-only and anyone with the link. A
+    // delegate passes access on to people; opening the item to everyone is
+    // the owner's call, so nobody else gets the control.
+    if ( allow_manage ) {
+        h += '<div class="share-general-access">';
+        h += `<div class="share-dialog-heading">${i18n('share_general_access')}</div>`;
+        h += '<div class="share-dialog-row share-link-row">';
+        h += `<select class="share-link-access" aria-label="${html_encode(i18n('share_general_access'))}">`;
+        h += `<option value="restricted">${i18n('share_link_restricted')}</option>`;
+        h += `<option value="anyone">${i18n('share_link_anyone')}</option>`;
+        h += '</select>';
+        h += `<select class="share-link-mode" aria-label="${html_encode(i18n('share_access_level'))}" hidden>${options_for('read', { allow_manage: false })}</select>`;
+        h += '</div>';
+        h += `<p class="share-link-note">${i18n('share_link_restricted_note')}</p>`;
+        h += `<button class="share-copy-link button button-block button-normal" hidden>${i18n('share_copy_link')}</button>`;
+        h += '</div>';
+    }
 
     h += `<div class="share-dialog-heading">${i18n('share_who_has_access')}</div>`;
     h += '<div class="share-list"></div>';
@@ -118,6 +131,9 @@ async function UIWindowShare (options) {
         onAppend: function (this_window) {
             $(this_window).find('.share-recipient').get(0)?.focus({ preventScroll: true });
         },
+        // The recipient field listens on the document to know when a click
+        // landed outside its suggestions; that has to come off with the window.
+        on_close: () => picker.destroy(),
         window_class: 'window-share',
         window_css: { height: 'initial' },
         body_css: { width: 'initial', padding: '0', 'background-color': 'rgb(245 247 249)' },
@@ -147,18 +163,41 @@ async function UIWindowShare (options) {
     /** The team behind each `data-team` row as last drawn. */
     const row_teams = new Map();
 
-    const render_team_picker = () => {
-        if ( ! teams.length ) return;
-        const options = teams
-            .map(team => `<option value="${html_encode(team.uid)}">${html_encode(team_label(team))}</option>`)
-            .join('');
-        $(el_window).find('.share-team-select').html(options);
-        $(el_window).find('.share-team').show();
-    };
+    /** The item's own "anyone with the link" share as last listed, or null. */
+    let link_share = null;
+    /** The item's uid, which its link is built on; looked up once. */
+    let item_uid = options.uid ?? null;
+
+    const $recipient = $(el_window).find('.share-recipient');
+    const $share_btn = $(el_window).find('.share-btn');
+
+    // One field for every kind of recipient: a colleague, a whole team, someone
+    // shared with before, or an address typed from scratch.
+    const picker = shareRecipientPicker({
+        $input: $recipient,
+        $row: $recipient.closest('.share-dialog-row'),
+        // Nobody already on the list below: offering them again would only
+        // re-grant what the row next to it already shows.
+        excluded: () => shown_shares.map(share_key).filter(Boolean),
+        onChange: () => { $share_btn.prop('disabled', ! picker.recipient()); },
+    });
+    $share_btn.prop('disabled', true);
+
+    // Enter shares, the way it submits the Dashboard's dialog. Bound after the
+    // picker, which takes the press for itself while it is choosing a row.
+    $recipient.on('keydown', (e) => {
+        if ( e.key !== 'Enter' || e.isDefaultPrevented() ) return;
+        if ( $share_btn.prop('disabled') ) return;
+        $share_btn.trigger('click');
+    });
 
     const render = (shares) => {
         shown_shares = Array.isArray(shares) ? shares : [];
         row_teams.clear();
+        // The item's own link share drives the general-access control rather
+        // than a row; a delegate, who has no control, sees it as a row.
+        link_share = shown_shares.find((share) => share.anyone && ! share.inheritedFrom) ?? null;
+        const listed = shown_shares.filter((share) => ! (allow_manage && share.anyone && ! share.inheritedFrom));
         let rows = '';
         // The owner's access comes from owning the item, so it can't be revoked
         rows += '<div class="share-row">';
@@ -166,8 +205,15 @@ async function UIWindowShare (options) {
         rows += `<span class="share-row-owner">${i18n('share_owner')}</span>`;
         rows += '</div>';
 
-        for ( const share of shares ) {
-            const holder = html_encode(share.holder ?? '');
+        for ( const share of listed ) {
+            const holder = share.anyone ? i18n('share_row_anyone') : html_encode(share.holder ?? '');
+            if ( share.anyone && ! share.inheritedFrom ) {
+                rows += '<div class="share-row share-row-inherited">';
+                rows += `<span class="share-row-who">${holder}</span>`;
+                rows += `<span class="share-row-mode">${mode_label(share.mode)}</span>`;
+                rows += '</div>';
+                continue;
+            }
             if ( share.inheritedFrom ) {
                 // Granted on an ancestor, so it can only be changed there
                 rows += '<div class="share-row share-row-inherited">';
@@ -178,12 +224,15 @@ async function UIWindowShare (options) {
                 continue;
             }
             if ( share.pending ) {
+                // Withheld unless the invite is ours to act on: nobody to name,
+                // and the server would refuse the cancellation anyway.
                 const invited = html_encode(share.recipientEmail ?? '');
                 rows += '<div class="share-row share-row-pending">';
-                rows += `<span class="share-row-who">${invited}</span>`;
+                rows += `<span class="share-row-who">${invited || html_encode(i18n('share_invited_someone'))}</span>`;
                 rows += `<span class="share-row-via">${i18n('share_awaiting_signup')}</span>`;
                 rows += `<span class="share-row-mode">${mode_label(share.mode)}</span>`;
-                rows += `<button class="share-revoke" data-holder="${invited}" title="${html_encode(i18n('share_cancel_invite'))}" aria-label="${html_encode(i18n('share_cancel_invite'))}">${icons.trash}</button>`;
+                if ( invited )
+                    rows += `<button class="share-revoke" data-holder="${invited}" title="${html_encode(i18n('share_cancel_invite'))}" aria-label="${html_encode(i18n('share_cancel_invite'))}">${icons.trash}</button>`;
                 rows += '</div>';
                 continue;
             }
@@ -201,10 +250,11 @@ async function UIWindowShare (options) {
             rows += `<button class="share-revoke" ${key} title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
             rows += '</div>';
         }
-        if ( !shares.length ) {
+        if ( !listed.length ) {
             rows += `<p class="share-dialog-empty">${i18n('share_no_one')}</p>`;
         }
         $list.html(rows);
+        render_link_access();
         // Every share, mode change and revoke lands here.
         mark_item_shared(item_path, has_direct_share(shares));
     };
@@ -217,61 +267,107 @@ async function UIWindowShare (options) {
         }
     };
 
+    // -- General access --
+
+    const $link_access = $(el_window).find('.share-link-access');
+    const $link_mode = $(el_window).find('.share-link-mode');
+    const $link_note = $(el_window).find('.share-link-note');
+    const $copy_link = $(el_window).find('.share-copy-link');
+
+    /** Put the control where the listing says the item stands. */
+    const render_link_access = () => {
+        if ( ! allow_manage ) return;
+        const on = link_share !== null;
+        $link_access.val(on ? 'anyone' : 'restricted');
+        $link_mode.prop('hidden', ! on);
+        if ( on ) $link_mode.val(link_share.mode);
+        $link_note.html(on
+            ? i18n(link_share.mode === 'write' ? 'share_link_anyone_note_write' : 'share_link_anyone_note_read')
+            : i18n('share_link_restricted_note'));
+        $copy_link.prop('hidden', ! (on && item_uid));
+    };
+
+    /** Open the item to anyone with the link at `mode`, or close it with null. */
+    const set_link_access = async (mode) => {
+        $link_access.prop('disabled', true);
+        $link_mode.prop('disabled', true);
+        try {
+            if ( mode ) {
+                const created = await with_verification_gate(() => puter.fs.share({
+                    path: item_path,
+                    recipient: { anyone: true },
+                    mode,
+                }));
+                item_uid ??= created?.[0]?.entryUid ?? null;
+                show_success(i18n(mode === 'write' ? 'share_link_on_write' : 'share_link_on_read'));
+            } else {
+                await puter.fs.unshare(item_path, { anyone: true });
+                show_success(i18n('share_link_off'));
+            }
+        } catch (e) {
+            // A plan gate gets the flow that clears it, where the deployment
+            // has one; a refusal is otherwise reported like any other.
+            if ( is_plan_gate_error(e) ) {
+                if ( ! open_upgrade_flow() ) show_error(i18n('share_link_requires_plan'));
+            } else {
+                show_error(e?.message ?? i18n('share_failed'));
+            }
+        } finally {
+            $link_access.prop('disabled', false);
+            $link_mode.prop('disabled', false);
+        }
+        // The listing is the truth either way, and it puts the control back.
+        await refresh();
+    };
+
+    $link_access.on('change', function () {
+        set_link_access($(this).val() === 'anyone' ? ($link_mode.val() || 'read') : null);
+    });
+    $link_mode.on('change', function () {
+        set_link_access($(this).val());
+    });
+    $copy_link.on('click', async function () {
+        if ( ! item_uid ) return;
+        try {
+            await window.copy_to_clipboard(share_link_for(
+                { owner: item_owner, uid: item_uid, name: item_name },
+                window.gui_origin,
+            ));
+            show_success(i18n('share_link_copied'));
+        } catch (e) {
+            show_error(e?.message ?? i18n('share_failed'));
+        }
+    });
+
     $(el_window).on('click', '.share-btn', async function () {
-        const recipient = $(el_window).find('.share-recipient').val().trim();
-        if ( !recipient ) return;
+        // A team is named by uid; anything typed goes as-is, since a bare
+        // string is what the backend reads as an email or a username.
+        const chosen = picker.recipient();
+        if ( ! chosen ) return;
 
         $(this).prop('disabled', true);
         try {
-            const created = await puter.fs.share({
+            const created = await with_verification_gate(() => puter.fs.share({
                 path: item_path,
-                recipient,
+                recipient: chosen.value,
                 mode: $(el_window).find('.share-mode').val(),
-            });
-            $(el_window).find('.share-recipient').val('');
+            }));
+            picker.clear();
             $error.hide();
             // `i18n()` encodes its replacements; encoding first would show the
             // entities to anyone whose address or username contains one.
             show_success(
                 i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
-                    recipient,
+                    recipient: chosen.label,
                 }),
             );
+            picker.remember(chosen, created);
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
             show_error(e?.message ?? i18n('share_failed'));
         } finally {
-            $(this).prop('disabled', false);
-        }
-    });
-
-    $(el_window).on('click', '.share-team-btn', async function () {
-        const uid = $(el_window).find('.share-team-select').val();
-        const team = teams.find(t => t.uid === uid);
-        if ( ! team ) return;
-
-        $(this).prop('disabled', true);
-        try {
-            // The object form, not a string: a `team:`-style prefix would
-            // change how an already-released spelling is read.
-            const created = await puter.fs.share({
-                path: item_path,
-                recipient: { team: team.uid },
-                mode: $(el_window).find('.share-team-mode').val(),
-            });
-            $error.hide();
-            show_success(
-                i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
-                    recipient: team_label(team),
-                }),
-            );
-            invalidate_shared_roots();
-            await refresh();
-        } catch (e) {
-            show_error(e?.message ?? i18n('share_failed'));
-        } finally {
-            $(this).prop('disabled', false);
+            $(this).prop('disabled', ! picker.recipient());
         }
     });
 
@@ -283,7 +379,7 @@ async function UIWindowShare (options) {
         const mode = $(this).val();
         $(this).prop('disabled', true);
         try {
-            await puter.fs.share({ path: item_path, recipient, mode });
+            await with_verification_gate(() => puter.fs.share({ path: item_path, recipient, mode }));
             show_success(i18n('share_access_updated', { recipient: name }));
             invalidate_shared_roots();
             await refresh();
@@ -337,9 +433,20 @@ async function UIWindowShare (options) {
         }
     });
 
-    // Teams first: the access list names its rows from them.
+    // The uid the link is built on; the copy button waits for it.
+    if ( allow_manage && ! item_uid ) {
+        puter.fs.stat(item_path).then((stat) => {
+            item_uid = stat?.uid ?? null;
+            render_link_access();
+        }).catch(() => { /* the button just stays hidden */ });
+    }
+
+    // Teams first: the access list names its rows from them, and the recipient
+    // field suggests both them and the people in them.
     teams = await teams_for_sharing();
-    render_team_picker();
+    picker.setTeams(teams);
+    // Not the encoded form: an attribute set from JS shows entities literally.
+    if ( teams.length ) $recipient.attr('placeholder', i18n('share_add_people_teams', [], false));
     await refresh();
     return el_window;
 }

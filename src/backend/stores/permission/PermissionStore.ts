@@ -117,6 +117,14 @@ export interface FlatPermRef {
 }
 
 /**
+ * A prefix as `subtreeClause` wants it. A caller may write the delimiter it is
+ * matching under (`fs:`) or leave it off (`fs:<uuid>`); both mean the same
+ * subtree, and the clause supplies the delimiter itself.
+ */
+const subtreeRoot = (prefix: string): string =>
+    prefix.endsWith(':') ? prefix.slice(0, -1) : prefix;
+
+/**
  * Match a permission and everything beneath it.
  *
  * `_` and `%` are LIKE wildcards, so an unescaped one would widen the match
@@ -978,6 +986,9 @@ export class PermissionStore extends PuterStore {
      * Reads group permissions granted to groups the user is a member of, for a
      * given set of permission strings. Result already joined against
      * `jct_user_group` so callers don't need group membership resolution.
+     * Deliberately blind to the block list: this reading also answers authority
+     * checks that gate permanent revocations, and a block only suspends
+     * delivery (which the share listings and fan-out filter themselves).
      */
     async readUserGroupPerms(
         userId: number,
@@ -1064,10 +1075,11 @@ export class PermissionStore extends PuterStore {
         groupId: number,
         prefix: string,
     ): Promise<string[]> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
         const rows = await this.clients.db.read(
             'SELECT permission FROM `user_to_group_permissions` ' +
-                'WHERE `user_id` = ? AND `group_id` = ? AND permission LIKE ?',
-            [issuerUserId, groupId, `${prefix}%`],
+                `WHERE \`user_id\` = ? AND \`group_id\` = ? AND (${subtree.where})`,
+            [issuerUserId, groupId, ...subtree.params],
         );
         return rows.map((r) => String(r.permission));
     }
@@ -1153,15 +1165,20 @@ export class PermissionStore extends PuterStore {
     }
 
     // -- SQL: issuer-prefix queries (share discovery, etc.) ----------
+    //
+    // All of these go through `subtreeClause`: a prefix is a permission and
+    // everything under it, so `fs:abc` must not reach `fs:abcdef`, and a `%`
+    // or `_` in one must not widen the match.
 
     async queryIssuerUserPermsByPrefix(
         issuerUserId: number,
         prefix: string,
     ): Promise<Array<{ holder_user_id: number; permission: string }>> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
         const rows = await this.clients.db.read(
             'SELECT DISTINCT holder_user_id, permission FROM `user_to_user_permissions` ' +
-                'WHERE issuer_user_id = ? AND permission LIKE ?',
-            [issuerUserId, `${prefix}%`],
+                `WHERE issuer_user_id = ? AND (${subtree.where})`,
+            [issuerUserId, ...subtree.params],
         );
         return rows.map((r) => ({
             holder_user_id: Number(r.holder_user_id),
@@ -1173,10 +1190,11 @@ export class PermissionStore extends PuterStore {
         issuerUserId: number,
         prefix: string,
     ): Promise<Array<{ app_id: number; permission: string }>> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
         const rows = await this.clients.db.read(
             'SELECT DISTINCT app_id, permission FROM `user_to_app_permissions` ' +
-                'WHERE user_id = ? AND permission LIKE ?',
-            [issuerUserId, `${prefix}%`],
+                `WHERE user_id = ? AND (${subtree.where})`,
+            [issuerUserId, ...subtree.params],
         );
         return rows.map((r) => ({
             app_id: Number(r.app_id),
@@ -1189,10 +1207,11 @@ export class PermissionStore extends PuterStore {
         holderUserId: number,
         prefix: string,
     ): Promise<string[]> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
         const rows = await this.clients.db.read(
             'SELECT permission FROM `user_to_user_permissions` ' +
-                'WHERE issuer_user_id = ? AND holder_user_id = ? AND permission LIKE ?',
-            [issuerUserId, holderUserId, `${prefix}%`],
+                `WHERE issuer_user_id = ? AND holder_user_id = ? AND (${subtree.where})`,
+            [issuerUserId, holderUserId, ...subtree.params],
         );
         return rows.map((r) => String(r.permission));
     }

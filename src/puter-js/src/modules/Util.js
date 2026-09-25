@@ -27,12 +27,17 @@ export class UtilRPC {
 
     /**
      * A dehydrator that replaces functions in a value with callback ids this
-     * side can later resolve, so the value survives `postMessage`.
+     * side can later resolve, so the value survives `postMessage`. Only
+     * `target` may invoke the callbacks it registers.
      *
+     * @param {{ target?: Window }} [config]
      * @returns {{ dehydrate: (value: unknown) => unknown }}
      */
-    getDehydrator () {
-        return new Dehydrator({ callbackManager: this.callbackManager });
+    getDehydrator ({ target } = {}) {
+        return new Dehydrator({
+            callbackManager: this.callbackManager,
+            source: target,
+        });
     }
 
     /**
@@ -47,13 +52,14 @@ export class UtilRPC {
     }
 
     /**
-     * Registers a function under a callback id the other side can invoke.
+     * Registers a function under a callback id `source` can invoke.
      *
      * @param {(value: unknown) => void} resolve
+     * @param {Window} [source]
      * @returns {string}
      */
-    registerCallback (resolve) {
-        return this.callbackManager.register_callback(resolve);
+    registerCallback (resolve, source) {
+        return this.callbackManager.register_callback(resolve, source);
     }
 
     /**

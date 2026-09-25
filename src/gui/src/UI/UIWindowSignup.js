@@ -26,6 +26,31 @@ import UIWindowLogin from './UIWindowLogin.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
+import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
+import { bonusRequirementsKey, checkSignupBonusCode } from '../helpers/signupBonusCode.js';
+
+// What a checked bonus code grants, above the form (and the provider buttons).
+function renderBonusNotice(el_window, result) {
+    const $notice = $(el_window).find('.signup-bonus-notice');
+    if (!result) {
+        $notice.hide().empty();
+        return;
+    }
+    if (!result.valid) {
+        $notice
+            .addClass('signup-bonus-notice-invalid')
+            .html(`<p>${i18n('signup_bonus_code_invalid_retry')}</p>`)
+            .show();
+        return;
+    }
+    const requirementsKey = bonusRequirementsKey(result.requirements);
+    let h = `<strong>${html_encode(result.display.title)}</strong>`;
+    h += `<p>${html_encode(result.display.description)}</p>`;
+    if (requirementsKey) {
+        h += `<p class="signup-bonus-requirements">${i18n(requirementsKey)}</p>`;
+    }
+    $notice.removeClass('signup-bonus-notice-invalid').html(h).show();
+}
 
 function UIWindowSignup(options) {
     options = options ?? {};
@@ -47,9 +72,14 @@ function UIWindowSignup(options) {
 
         let h = '';
         h +=
-            '<div style="margin: 0 auto; max-width: 500px; min-width: 400px;">';
+            '<div style="margin: 0 auto;">';
         // logo
-        h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 10px; background-color: blue; border-radius: 5px;${logo_clickable ? ' cursor: pointer;' : ''}">`;
+        h += authLogoHeader({
+            logoSrc: window.icons['logo-white.svg'],
+            logoClickable: logo_clickable,
+            openerOrigin: window.embedded_in_popup ? window.openerOrigin : '',
+            openerFallbackSrc: window.icons['website.svg'],
+        });
         // close button
         if (!options.has_head && options.show_close_button !== false) {
             h += '<div class="generic-close-window-button"> &times; </div>';
@@ -60,6 +90,11 @@ function UIWindowSignup(options) {
 
         // title
         h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
+        // In a sign-in popup, say which site brought the user here.
+        if (window.embedded_in_popup && window.openerOrigin) {
+            h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(window.openerOrigin).hostname])}</p>`;
+        }
+        h += '<div class="signup-bonus-notice" style="display:none;"></div>';
         // signup form
         h += '<form class="signup-form">';
         // error msg
@@ -166,6 +201,7 @@ function UIWindowSignup(options) {
                         .get(0)
                         .focus({ preventScroll: true });
                 }
+                wireAuthLogoHeader(el_window);
                 if (logo_clickable) {
                     $(el_window)
                         .find('.auth-logo')
@@ -221,6 +257,27 @@ function UIWindowSignup(options) {
 
                 initTurnstile();
 
+                if (window.signup_bonus_code) {
+                    (async () => {
+                        let fingerprint = null;
+                        try {
+                            fingerprint =
+                                await window.getDeviceFingerprint?.();
+                        } catch (_) {
+                            // the check works without device signals
+                        }
+                        const result = await checkSignupBonusCode(
+                            window.signup_bonus_code,
+                            { origin: window.gui_origin, fingerprint },
+                        );
+                        // Unknown (null) keeps the code; signup has the final say.
+                        if (result && !result.valid) {
+                            window.signup_bonus_code = null;
+                        }
+                        renderBonusNotice(el_window, result);
+                    })();
+                }
+
                 (async () => {
                     try {
                         // A federated hop navigates this popup away and the
@@ -256,6 +313,9 @@ function UIWindowSignup(options) {
                                         options.referrer ?? window.referrerStr;
                                     if (referrer) {
                                         url += `&referrer=${encodeURIComponent(referrer)}`;
+                                    }
+                                    if (window.signup_bonus_code) {
+                                        url += `&bonusCode=${encodeURIComponent(window.signup_bonus_code)}`;
                                     }
                                     if (
                                         window.embedded_in_popup &&
@@ -504,6 +564,9 @@ function UIWindowSignup(options) {
                 if (fingerprint) {
                     requestData.fingerprint = fingerprint;
                 }
+                if (window.signup_bonus_code) {
+                    requestData.bonusCode = window.signup_bonus_code;
+                }
 
                 $.ajax({
                     url: `${window.gui_origin}/signup`,
@@ -655,6 +718,18 @@ function UIWindowSignup(options) {
                                 </div>
                             `;
                                 document.body.appendChild(overlay);
+                                return;
+                            }
+
+                            // Drop the code so the next attempt signs up without it.
+                            if (errorJson?.code === 'bonus_code_invalid') {
+                                window.signup_bonus_code = null;
+                                // The error below says it; the offer no longer applies.
+                                renderBonusNotice(el_window, null);
+                                $(el_window)
+                                    .find('.signup-error-msg')
+                                    .html(i18n('signup_bonus_code_invalid_retry'));
+                                $(el_window).find('.signup-error-msg').fadeIn();
                                 return;
                             }
 

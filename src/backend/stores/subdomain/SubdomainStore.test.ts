@@ -158,6 +158,29 @@ describe('SubdomainStore app_owner filtering', () => {
         return subdomain;
     };
 
+    it('reassignAppOwner moves only the source app rows and refreshes their cache', async () => {
+        const userId = await makeUser();
+        const prefix = `sds-move-${Math.random().toString(36).slice(2, 6)}.`;
+        const from = await makeApp(userId);
+        const to = await makeApp(userId);
+        const other = await makeApp(userId);
+
+        const moved = await seed(userId, prefix, from.id);
+        const kept = await seed(userId, prefix, other.id);
+
+        const rows = await store.reassignAppOwner(from.id, to.id);
+        expect(rows.map((r) => r.subdomain)).toEqual([moved]);
+
+        // The by-name read must not serve the pre-move owner from cache.
+        expect(Number((await store.getBySubdomain(moved))!.app_owner)).toBe(
+            to.id,
+        );
+        expect(Number((await store.getBySubdomain(kept))!.app_owner)).toBe(
+            other.id,
+        );
+        expect((await store.listAll({ appOwner: from.id })).length).toBe(0);
+    });
+
     it('matches rows owned by any app in `appIds`', async () => {
         const userId = await makeUser();
         const prefix = `sds-multi-${Math.random().toString(36).slice(2, 6)}.`;

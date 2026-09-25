@@ -117,6 +117,27 @@ export function membersBillingSummary (annotated) {
 }
 
 /**
+ * What plan a row in the accounts table is on.
+ *
+ * `payer` is the owner, who keeps their personal plan. A suspended seat is
+ * `not_billed` -- it stops costing a per-account charge. Everyone else follows
+ * the team: its tier if it bought one, otherwise the reduced free allowance.
+ *
+ * @param {{ orgOwned: boolean, disabled: boolean }} member
+ * @param {{ current: { tier: string, name_en?: string } | null } | null} plan
+ * @returns {{ kind: 'payer'|'not_billed'|'free'|'tier', name?: string }}
+ */
+export function memberPlanLabel (member, plan) {
+    if ( ! member?.orgOwned ) return { kind: 'payer' };
+    if ( member.disabled ) return { kind: 'not_billed' };
+    // Per seat: a team can buy for some accounts and not others.
+    const tier = plan?.seatTiers?.[member.uuid];
+    if ( ! tier ) return { kind: 'free' };
+    const offering = (plan.offerings ?? []).find(o => o.tier === tier);
+    return { kind: 'tier', name: offering?.name_en || tier };
+}
+
+/**
  * The i18n key for an audit action, or `null` for one this build does not know
  * about — a new backend action must show as itself rather than as nothing.
  *
@@ -152,4 +173,98 @@ export function sortMembers (annotated) {
         if ( a.orgOwned !== b.orgOwned ) return a.orgOwned ? -1 : 1;
         return a.username.localeCompare(b.username);
     });
+}
+
+/**
+ * One page of the record, with the numbers the pager prints. Clamps the page:
+ * deleting an account shortens the record, and a stale number would otherwise
+ * show an empty table with no way back.
+ *
+ * @template T
+ * @param {T[]} entries
+ * @param {number} page - Zero-based.
+ * @param {number} size
+ * @returns {{ items: T[], page: number, pages: number, from: number, to: number, total: number }}
+ */
+export function auditSlice (entries, page, size) {
+    const all = entries ?? [];
+    const total = all.length;
+    const perPage = size > 0 ? size : 1;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const current = Math.min(Math.max(0, Math.trunc(page) || 0), pages - 1);
+    const start = current * perPage;
+    const items = all.slice(start, start + perPage);
+    return {
+        items,
+        page: current,
+        pages,
+        from: total === 0 ? 0 : start + 1,
+        to: start + items.length,
+        total,
+    };
+}
+
+/**
+ * A timestamp off the wire as a Date, or `null` when it is not one. Team
+ * audit rows carry unix seconds; members and teams carry an ISO string, so
+ * one reader covers both rather than each column guessing.
+ *
+ * @param {unknown} value
+ * @returns {Date | null}
+ */
+export function parseTimestamp (value) {
+    if ( value === null || value === undefined || value === '' ) return null;
+    let date;
+    if ( typeof value === 'number' ) {
+        // Anything below 1e12 cannot be milliseconds for a date after 2001.
+        date = new Date(value < 1e12 ? value * 1000 : value);
+    } else if ( typeof value === 'string' && /^\d+$/.test(value) ) {
+        return parseTimestamp(Number(value));
+    } else {
+        date = new Date(/** @type {string} */ (value));
+    }
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * The letter an avatar tile shows for a name. Uppercased so a lowercase
+ * username and a display name read the same in a row of tiles.
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function initialOf (name) {
+    const text = typeof name === 'string' ? name.trim() : '';
+    if ( ! text ) return '?';
+    // A leading handle sigil or bracket says nothing about the name.
+    const letter = text.replace(/^[^\p{L}\p{N}]+/u, '') || text;
+    return [...letter][0].toUpperCase();
+}
+
+/**
+ * Which billing sentence fits the summary. The count of suspended accounts
+ * only earns a mention when there are any -- "0 suspended cost nothing" is
+ * noise on a healthy team.
+ *
+ * @param {{ billed: number, disabled: number }} summary
+ * @returns {'teams_billing_summary_one'|'teams_billing_summary'|'teams_billing_summary_one_none'|'teams_billing_summary_none'}
+ */
+export function billingSummaryKey (summary) {
+    const one = summary?.billed === 1;
+    if ( (summary?.disabled ?? 0) > 0 ) return one ? 'teams_billing_summary_one' : 'teams_billing_summary';
+    return one ? 'teams_billing_summary_one_none' : 'teams_billing_summary_none';
+}
+
+/**
+ * A stable hue for a name's avatar tile, so the same account gets the same
+ * colour in every row and the tiles are told apart at a glance.
+ *
+ * @param {unknown} name
+ * @returns {number} degrees, 0-359
+ */
+export function avatarHue (name) {
+    const text = typeof name === 'string' ? name : '';
+    let hash = 0;
+    for ( const ch of text ) hash = (hash * 31 + ch.codePointAt(0)) % 360;
+    return hash;
 }

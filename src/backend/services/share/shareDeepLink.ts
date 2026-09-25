@@ -26,6 +26,14 @@
 
 /** The query parameter the GUI routes on. */
 export const SHARE_DEEP_LINK_PARAM = 'shared';
+
+/** The issuing app (its `name`, or uid), so the GUI can match the share to it. */
+export const SHARE_DEEP_LINK_APP_PARAM = 'shared_app';
+
+/**
+ * The account the mail went to, so the GUI can offer that account when another
+ * one is signed in. A hint only: it grants nothing.
+ */
 export const SHARE_RECIPIENT_PARAM = 'user_uuid';
 
 export interface ShareTarget {
@@ -75,20 +83,28 @@ export const SHARE_DEEP_LINK_MAX_LENGTH = 2000;
  * they are signed in. Only masked paths travel — each one's second segment is
  * the uuid, so a rename is recoverable and there is no second copy to disagree
  * with the first. With no paths the link still lands on Shared.
+ *
+ * `app` rides along as `shared_app` and `recipientUuid` as `user_uuid`, their
+ * length reserved up front.
  */
 export const sharedViewLink = (
     origin: string,
     paths: string[],
-    recipientUuid?: string,
+    app?: string | null,
+    recipientUuid?: string | null,
 ): string => {
     const base = `${origin.replace(/\/+$/, '')}/?`;
-    const recipient = recipientUuid
-        ? `&${SHARE_RECIPIENT_PARAM}=${encodeURIComponent(recipientUuid)}`
-        : '';
+    const suffix =
+        (app
+            ? `&${SHARE_DEEP_LINK_APP_PARAM}=${encodeURIComponent(app)}`
+            : '') +
+        (recipientUuid
+            ? `&${SHARE_RECIPIENT_PARAM}=${encodeURIComponent(recipientUuid)}`
+            : '');
     // The first items that fit, in order — never a later one over an
     // earlier, so what is highlighted reads as the top of the list.
     const params: string[] = [];
-    let length = base.length + recipient.length;
+    let length = base.length + suffix.length;
     for (const path of new Set(paths)) {
         if (params.length === SHARE_DEEP_LINK_ITEMS_LIMIT) break;
         const param = `${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`;
@@ -101,7 +117,7 @@ export const sharedViewLink = (
     return (
         base +
         (params.length === 0 ? `${SHARE_DEEP_LINK_PARAM}=` : params.join('&')) +
-        recipient
+        suffix
     );
 };
 
@@ -109,8 +125,9 @@ export const sharedViewLink = (
 export const shareDeepLink = (
     origin: string,
     path: string,
-    recipientUuid?: string,
-): string => sharedViewLink(origin, [path], recipientUuid);
+    app?: string | null,
+    recipientUuid?: string | null,
+): string => sharedViewLink(origin, [path], app, recipientUuid);
 
 /** The link for a target, or `null` when it isn't addressable. */
 export const shareTargetLink = (

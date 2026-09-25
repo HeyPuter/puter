@@ -21,6 +21,7 @@ import type { RouteRateLimit } from '../../core/http/types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
+    FREE_SUBSCRIPTION_IDS,
 } from '../../services/metering/consts.js';
 
 // -- Shared event limits ---------------------------------------------
@@ -43,10 +44,9 @@ const userWindow = (
 ): RouteRateLimit => ({ scope, limit, window, key: 'user' });
 
 /**
- * A cap that varies by plan, in the shape route gates already declare theirs
- * in: the base is what a subscribed account sees, and `bySubscription` carves
- * the free tiers out beneath it. A plan nobody enumerated falls through to the
- * base, so a new one is generous rather than accidentally throttled.
+ * A plan-varying cap in route-gate shape: `limit` is what a subscribed account
+ * gets, `bySubscription` carves out the free tiers, unlisted plans get the
+ * base.
  */
 export interface TieredLimit {
     limit: number;
@@ -61,14 +61,18 @@ const tiered = (paid: number, free: number, temp: number): TieredLimit => ({
     },
 });
 
-/** The cap one plan sees. An unresolved plan is held to the base. */
+/** The cap one plan sees; an unlisted free plan takes the free one, not `limit`. */
 export const limitFor = (
     tier: TieredLimit,
     subscriptionId: string | null,
-): number =>
-    (subscriptionId === null
-        ? undefined
-        : tier.bySubscription[subscriptionId]) ?? tier.limit;
+): number => {
+    if (subscriptionId === null) return tier.limit;
+    const own = tier.bySubscription[subscriptionId];
+    if (typeof own === 'number') return own;
+    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
+        ? (tier.bySubscription[DEFAULT_FREE_SUBSCRIPTION] ?? tier.limit)
+        : tier.limit;
+};
 
 /**
  * What a plan-tiered quota resolves to: what an account may hold, and what one
@@ -163,16 +167,15 @@ export const EVENTS_KV_HANDLE_LIMIT = userWindow('events:kvHandles', 60);
  * grow forever. A temporary account holds none: the grant outlives the session
  * that made it, and no account is left to take it back.
  */
-export const EVENTS_KV_HANDLES_PER_USER = tiered(500, 200, 0);
+export const EVENTS_KV_HANDLES_PER_USER = tiered(512, 200, 0);
 
 /**
  * Live share handles one app may hold out for one account.
  *
- * Below the per-account cap so that one app cannot spend an account's whole
- * budget: a handle names one namespace, so without this a second app on the
- * same account would be left with nothing.
+ * Separately bounded from the account cap so one namespace cannot consume the
+ * whole budget on free accounts.
  */
-export const EVENTS_KV_HANDLES_PER_APP = tiered(100, 50, 0);
+export const EVENTS_KV_HANDLES_PER_APP = tiered(512, 128, 0);
 
 // -- Handler surface -------------------------------------------------
 
@@ -252,11 +255,32 @@ export const EVENTS_WORKER_LIST_LIMIT = userWindow('events:workers:list', 120);
 // -- Dispatch fan-out ------------------------------------------------
 
 /**
- * Subscriptions one event may deliver to before dispatch stops and reports a
- * gap. The amplification ceiling: without it, one write costs as many
+ * Subscriptions one non-KV event may deliver to before dispatch stops and
+ * reports a gap. The amplification ceiling: without it, one write costs as many
  * deliveries as an account cared to register.
  */
 export const EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT = 50;
+
+/**
+ * Key-value subscriptions one mutation may deliver to. A namespace owner's plan
+ * sets this ceiling; the listeners' plans do not affect it.
+ */
+export const EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT = tiered(512, 128, 128);
+
+/**
+ * Filter evaluations a key-value mutation may spend. This leaves room for
+ * non-matching rows while retaining a finite bound on dispatch work.
+ */
+export const EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT = tiered(2048, 512, 512);
+
+/** Omit all inline KV values when the matched audience exceeds this count. */
+export const EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS = 128;
+
+/**
+ * Largest inline KV value in serialized bytes. Larger values are omitted;
+ * deliveries retain the key metadata.
+ */
+export const EVENTS_KV_VALUE_MAX_BYTES = 16 * 1024;
 
 /**
  * Broadcast deliveries per minute, per subscription.

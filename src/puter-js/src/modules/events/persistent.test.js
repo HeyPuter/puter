@@ -26,8 +26,8 @@ const makeModule = (fsRead) => {
         channel: {
             registered: [],
             deregistered: [],
-            registerDurable (subId, handler, ctx) {
-                this.registered.push({ subId, handler, ctx });
+            registerDurable (subId, handler, ctx, onError) {
+                this.registered.push({ subId, handler, ctx, onError });
             },
             deregisterDurable (subId) {
                 this.deregistered.push(subId);
@@ -74,13 +74,14 @@ describe('onPersistent', () => {
         expect(sub).toBe(view);
     });
 
-    it('carries delivery, targets, handlerName and expiry when given', async () => {
+    it('carries delivery, targets, handlerName, expiry and includeValue when given', async () => {
         await makeModule().onPersistent({
             subject: SUBJECT,
             delivery: 'single',
             targets: ['worker'],
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
+            includeValue: true,
         });
 
         expect(bodyOf()).toEqual({
@@ -89,6 +90,7 @@ describe('onPersistent', () => {
             targets: ['worker'],
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
+            includeValue: true,
         });
     });
 
@@ -223,6 +225,22 @@ describe('onPersistent', () => {
             expect(module.channel.registered).toMatchObject([
                 { subId: 'app-1#a', handler: HANDLER, ctx: { url: 'https://ingest.example' } },
             ]);
+        });
+
+        it('hands onError to the registration and never sends it', async () => {
+            mockRequest.mockResolvedValue({ subId: 'app-1#a', subject: SUBJECT });
+            const module = makeModule();
+            const onError = () => {};
+
+            await module.onPersistent({
+                subject: SUBJECT,
+                handlerName: 'ingestUpload',
+                handler: HANDLER,
+                onError,
+            });
+
+            expect(module.channel.registered).toMatchObject([{ onError }]);
+            expect(bodyOf().onError).toBeUndefined();
         });
 
         it('routes nothing when the handler is source this client cannot run', async () => {

@@ -1024,6 +1024,7 @@ describe('FSController.completeWrite', () => {
         const { actor, username } = await makeUser();
         const target = `/${username}/Documents/complete-single.txt`;
         const started = await startSignedWrite(actor, target, 4);
+        await fetch(started.url!, { method: 'PUT', body: 'wxyz' });
 
         const { res, captured } = makeRes();
         await withActor(actor, () =>
@@ -1073,6 +1074,7 @@ describe('FSController.completeWrite', () => {
             `/${username}/Documents/complete-thumb.txt`,
             2,
         );
+        await fetch(started.url!, { method: 'PUT', body: 'yz' });
         const { res } = makeRes();
         await withActor(actor, () =>
             controller.completeWrite(
@@ -1919,5 +1921,217 @@ describe('FSController.batchWrites (multipart)', () => {
                 `/${victim.username}/Documents/stolen.txt`,
             ),
         ).toBeNull();
+    });
+});
+
+// -- upload sessions outliving their share ----------------------------
+//
+// An upload session is authorized once, at `/fs/startWrite`. Resuming or
+// completing one has to re-check that the caller still has write access to the
+// session's target, or a revoked sharee lands bytes in the owner's tree.
+
+describe('FSController upload session access re-checks', () => {
+    const shareWritableFolder = async (folderName: string) => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const folder = `/${owner.username}/Documents/${folderName}`;
+        await withActor(owner.actor, () =>
+            controller.startWrite(
+                makeReq<SignedWriteRequest>({
+                    body: {
+                        fileMetadata: {
+                            path: folder,
+                            size: 0,
+                            createMissingParents: true,
+                        },
+                        directory: true,
+                    },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(folder);
+        // Read stays granted so the denial is a plain 403 rather than the
+        // existence-masking 404 an invisible path gets.
+        for (const mode of ['read', 'write']) {
+            await server.services.permission.grantUserUserPermission(
+                owner.actor,
+                recipient.username,
+                `fs:${entry!.uuid}:${mode}`,
+                {},
+            );
+        }
+        const revokeWrite = () =>
+            server.services.permission.revokeUserUserPermission(
+                owner.actor,
+                recipient.username,
+                `fs:${entry!.uuid}:write`,
+            );
+        return { owner, recipient, folder, revokeWrite };
+    };
+
+    const startUpload = async (
+        actor: Actor,
+        path: string,
+        extra: Partial<SignedWriteRequest> = {},
+    ) => {
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.startWrite(
+                makeReq<SignedWriteRequest>({
+                    body: { fileMetadata: { path, size: 8 }, ...extra },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        return captured.body as ClientSignedWriteResponse;
+    };
+
+    it('refuses to sign more parts once the share is revoked', async () => {
+        const { recipient, folder, revokeWrite } =
+            await shareWritableFolder('revoked-parts');
+        const started = await startUpload(
+            recipient.actor,
+            `${folder}/upload.bin`,
+            { uploadMode: 'multipart' },
+        );
+        await revokeWrite();
+
+        const { res } = makeRes();
+        await expect(
+            withActor(recipient.actor, () =>
+                controller.signMultipartParts(
+                    makeReq<SignMultipartPartsRequest>({
+                        body: {
+                            uploadId: started.sessionId,
+                            partNumbers: [1],
+                        },
+                        actor: recipient.actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('refuses to complete a session once the share is revoked', async () => {
+        const { recipient, folder, revokeWrite } =
+            await shareWritableFolder('revoked-complete');
+        const target = `${folder}/upload.bin`;
+        const started = await startUpload(recipient.actor, target);
+        await revokeWrite();
+
+        const { res } = makeRes();
+        await expect(
+            withActor(recipient.actor, () =>
+                controller.completeWrite(
+                    makeReq<CompleteWriteRequest>({
+                        body: { uploadId: started.sessionId },
+                        actor: recipient.actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(await server.stores.fsEntry.getEntryByPath(target)).toBeNull();
+    });
+
+    it('refuses the batch completion once the share is revoked', async () => {
+        const { recipient, folder, revokeWrite } =
+            await shareWritableFolder('revoked-batch');
+        const targets = [`${folder}/batch-a.bin`, `${folder}/batch-b.bin`];
+        const started = [
+            await startUpload(recipient.actor, targets[0]!),
+            await startUpload(recipient.actor, targets[1]!),
+        ];
+        await revokeWrite();
+
+        const { res } = makeRes();
+        await expect(
+            withActor(recipient.actor, () =>
+                controller.completeBatchWrites(
+                    makeReq<CompleteWriteRequest[]>({
+                        body: started.map((s) => ({ uploadId: s.sessionId })),
+                        actor: recipient.actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        for (const target of targets) {
+            expect(
+                await server.stores.fsEntry.getEntryByPath(target),
+            ).toBeNull();
+        }
+    });
+
+    it('still signs parts and completes while the share stands', async () => {
+        const { recipient, folder } = await shareWritableFolder('kept-share');
+        const multipart = await startUpload(
+            recipient.actor,
+            `${folder}/kept-parts.bin`,
+            { uploadMode: 'multipart' },
+        );
+        const signed = makeRes();
+        await withActor(recipient.actor, () =>
+            controller.signMultipartParts(
+                makeReq<SignMultipartPartsRequest>({
+                    body: { uploadId: multipart.sessionId, partNumbers: [1] },
+                    actor: recipient.actor,
+                }),
+                signed.res,
+            ),
+        );
+        expect(
+            (signed.captured.body as { multipartPartUrls: unknown[] })
+                .multipartPartUrls,
+        ).toHaveLength(1);
+
+        const target = `${folder}/kept-complete.bin`;
+        const single = await startUpload(recipient.actor, target);
+        await fetch(single.url!, { method: 'PUT', body: '12345678' });
+        await withActor(recipient.actor, () =>
+            controller.completeWrite(
+                makeReq<CompleteWriteRequest>({
+                    body: { uploadId: single.sessionId },
+                    actor: recipient.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        expect(
+            await server.stores.fsEntry.getEntryByPath(target),
+        ).not.toBeNull();
+    });
+
+    it('completes a batch while the share stands', async () => {
+        const { recipient, folder } = await shareWritableFolder('kept-batch');
+        const targets = [
+            `${folder}/kept-batch-a.bin`,
+            `${folder}/kept-batch-b.bin`,
+        ];
+        const started = [
+            await startUpload(recipient.actor, targets[0]!),
+            await startUpload(recipient.actor, targets[1]!),
+        ];
+        for (const s of started) {
+            await fetch(s.url!, { method: 'PUT', body: '12345678' });
+        }
+        await withActor(recipient.actor, () =>
+            controller.completeBatchWrites(
+                makeReq<CompleteWriteRequest[]>({
+                    body: started.map((s) => ({ uploadId: s.sessionId })),
+                    actor: recipient.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        for (const target of targets) {
+            expect(
+                await server.stores.fsEntry.getEntryByPath(target),
+            ).not.toBeNull();
+        }
     });
 });

@@ -309,11 +309,13 @@ These cloud storage features are supported out of the box when using Puter.js:
 - **[`puter.fs.delete()`](/FS/delete/)** - Delete a file or directory
 - **[`puter.fs.upload()`](/FS/upload/)** - Upload a file from the local system
 - **[`puter.fs.getReadURL()`](/FS/getReadURL/)** - Generate a URL that can be used to read a file
+- **[`puter.fs.revokeReadURL()`](/FS/revokeReadURL/)** - Revoke a URL created by `getReadURL()`
 - **[`puter.fs.share()`](/FS/share/)** - Give another user access to a file or directory
 - **[`puter.fs.unshare()`](/FS/unshare/)** - Withdraw a user's access
 - **[`puter.fs.listShared()`](/FS/listShared/)** - List what others have shared with you
 - **[`puter.fs.listSharedByMe()`](/FS/listSharedByMe/)** - List everything you have shared out
 - **[`puter.fs.getShares()`](/FS/getShares/)** - List who has access to an item
+- **[`puter.fs.getShareLink()`](/FS/getShareLink/)** - Build a link that opens a file in an app
 
 ## Examples
 

@@ -26,6 +26,13 @@ import {
     USERNAME_REGEX,
 } from '../../controllers/auth/AuthController.js';
 import type { EmailTemplateName } from '../../clients/email/templates.js';
+import { subscriptionSatisfies } from '../metering/enforcement.js';
+import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+
+// A free team is small on purpose; paying widens it. Both overridable in config.
+const FREE_SEAT_CAP = 4;
+const PAID_SEAT_CAP = 40;
+
 import type {
     EventMap,
     TeamBillingContext,
@@ -61,10 +68,9 @@ import { PuterService } from '../types';
 export const DISABLED_BY_TEAM = 'disabled_by_team';
 
 /**
- * Cap-lock bounds. The lock is held for a count plus an insert -- single-digit
- * milliseconds -- so 200ms of waiting is already far past the contended case,
- * and past it the request proceeds unserialized rather than holding a
- * connection or refusing.
+ * Cap-lock bounds. The lock is held for a count plus an insert, so 200ms of
+ * waiting is already far past the contended case; past it the request is
+ * refused, because running unserialized would leave the cap unenforced.
  */
 const CAP_LOCK_ATTEMPTS = 8;
 const CAP_LOCK_RETRY_MS = 25;
@@ -114,6 +120,20 @@ const epochSeconds = (value: unknown): number => {
 };
 
 export class TeamService extends PuterService {
+    /** Half the free plan for a seat, unless a paid tier outranks it. */
+    override async onServerStart(): Promise<void> {
+        if (this.config.teams_enabled !== true) return;
+        this.services.metering.registerDefaultSubscriptionResolver(
+            async (actor) => {
+                const userId = actor?.user?.id;
+                if (typeof userId !== 'number') return null;
+                // Cached, negatives included: almost nothing is a seat.
+                const seat = await this.stores.team.getOrgSeat(userId);
+                return seat ? ORG_SEAT_FREE_SUBSCRIPTION : null;
+            },
+        );
+    }
+
     // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
 
     /** The team owner pays, so the charge is keyed to its customer id. */
@@ -178,6 +198,50 @@ export class TeamService extends PuterService {
     }
     // -- Authority ---- the whole authorization model ------------------
 
+    /**
+     * Whether this account may enter the teams surface. Membership in any team
+     * always passes: an allowed owner brought them in.
+     */
+    async teamsAvailableTo(
+        userId: number,
+        email: string | null | undefined,
+    ): Promise<boolean> {
+        const domains = this.config.teams_allowed_email_domains;
+        if (!Array.isArray(domains) || domains.length === 0) return true;
+        const at = String(email ?? '').lastIndexOf('@');
+        const domain =
+            at === -1
+                ? ''
+                : String(email)
+                      .slice(at + 1)
+                      .toLowerCase();
+        if (
+            domain !== '' &&
+            domains.some((d) => String(d).toLowerCase() === domain)
+        ) {
+            return true;
+        }
+        return (await this.stores.team.listGroupIdsForUser(userId)).length > 0;
+    }
+
+    /**
+     * An account a team provisioned does not take on accounts of its own; that
+     * is the console's job, not a seat's (PUT-1890). Keyed on `org_owned = 1` —
+     * the owner is `org_owned = 0` in their own team, and a joined member is an
+     * ordinary self-paying account.
+     */
+    async #refuseIfOrgSeat(userId: number): Promise<void> {
+        const seat = await this.stores.team.getOrgSeat(userId);
+        if (!seat) return;
+        throw new HttpError(
+            403,
+            seat.team_name
+                ? `${seat.team_name} owns this account, so it cannot create a team of its own.`
+                : 'A team owns this account, so it cannot create a team of its own.',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
     /** 404 to a non-member so the endpoint is not an existence oracle. */
     async requireMembership(
         teamUid: string,
@@ -207,11 +271,14 @@ export class TeamService extends PuterService {
     async requireOrgAccount(
         teamUid: string,
         targetUserId: number,
+        opts: { includeDeleted?: boolean } = {},
     ): Promise<TeamMemberRow> {
-        const membership = await this.stores.team.getMembership(
-            teamUid,
-            targetUserId,
-        );
+        const membership = opts.includeDeleted
+            ? await this.stores.team.getMembershipIncludingDeleted(
+                  teamUid,
+                  targetUserId,
+              )
+            : await this.stores.team.getMembership(teamUid, targetUserId);
         // Tested explicitly, never inferred from NULL.
         if (!membership || Number(membership.org_owned) !== 1) {
             throw new HttpError(404, 'Not an account of this team', {
@@ -231,10 +298,37 @@ export class TeamService extends PuterService {
         return Number.isFinite(n) && n > 0 ? n : 1;
     }
 
-    /** Seats one team may provision. Adjustable without a code change. */
-    #seatCap(): number {
-        const n = Number(this.config.max_seats_per_team);
-        return Number.isFinite(n) && n > 0 ? n : 50;
+    /** Depends on whether the owner pays; `max_seats_per_team` overrides both. */
+    async #seatCap(ownerUserId: number): Promise<number> {
+        const override = Number(this.config.max_seats_per_team);
+        if (Number.isFinite(override) && override > 0) return override;
+
+        const paid = await this.#ownerPays(ownerUserId);
+        const key = paid
+            ? 'max_seats_per_team_paid'
+            : 'max_seats_per_team_free';
+        const n = Number(this.config[key]);
+        if (Number.isFinite(n) && n > 0) return n;
+        return paid ? PAID_SEAT_CAP : FREE_SEAT_CAP;
+    }
+
+    /** A resolved policy outside the free set is a plan someone is paying for. */
+    async #ownerPays(ownerUserId: number): Promise<boolean> {
+        try {
+            const owner = await this.stores.user.getById(ownerUserId);
+            if (!owner?.uuid) return false;
+            // The whole row, not an id/uuid stub: a resolver may key on any
+            // field, and one that misses makes the cap depend on whether
+            // something else cached this user's plan first.
+            const policy = await this.services.metering.getActorSubscription({
+                user: owner,
+            } as never);
+            return subscriptionSatisfies(policy.id, true);
+        } catch (e) {
+            // Smaller cap on an unreadable plan: over-provisioning is worse.
+            console.warn('[team] seat cap plan lookup failed:', e);
+            return false;
+        }
     }
 
     /** A rejected handle is 400, a taken one 409, never an unhandled 500. */
@@ -273,7 +367,11 @@ export class TeamService extends PuterService {
         }
     }
 
-    /** Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`. */
+    /**
+     * Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`.
+     * Refuses rather than running unserialized, or the cap is unenforced under
+     * concurrency. A lone create never contends.
+     */
     async #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
         const key = `team:cap:${suffix}`;
         const token = `${process.pid}:${Date.now()}:${Math.random()}`;
@@ -296,12 +394,16 @@ export class TeamService extends PuterService {
                     setTimeout(resolve, CAP_LOCK_RETRY_MS),
                 );
             }
-            // Waiting out the budget is not a refusal: the cap is a bound, and
-            // a spurious 409 on a lone create is worse than a rare overshoot.
-            if (!held) return run();
-        } catch {
-            // Redis unreachable — same reasoning, proceed unserialized.
-            return run();
+        } catch (e) {
+            // Same answer as contention below — the caller retries either way.
+            // Logged, because unlike contention the cause is ours.
+            console.warn('[team] cap lock unavailable:', e);
+            held = false;
+        }
+        if (!held) {
+            throw new HttpError(409, 'Busy — try that again in a moment', {
+                legacyCode: 'conflict',
+            });
         }
 
         try {
@@ -358,10 +460,26 @@ export class TeamService extends PuterService {
         return team;
     }
 
+    /** Whether the owner opened the team to the apps its members use. */
+    isDirectoryOpen(team: TeamRow): boolean {
+        return Number(team.directory_enabled) === 1;
+    }
+
     /**
-     * The member list as an app may read it. Unlike every other team route this
-     * admits an app actor, so the team has to have opted in and the page
-     * carries only what a colleague already sees.
+     * 404 rather than 403: whether a team opened its directory is itself
+     * something an app should not be able to probe for.
+     */
+    assertDirectoryOpen(team: TeamRow): void {
+        if (!this.isDirectoryOpen(team)) {
+            throw new HttpError(404, 'Team not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+    }
+
+    /**
+     * The member list as an app may read it, once the team has opted in. The
+     * page carries only what a colleague already sees through `/members`.
      */
     async listDirectory(
         teamUid: string,
@@ -369,13 +487,7 @@ export class TeamService extends PuterService {
         opts: { limit?: unknown; cursor?: string } = {},
     ): Promise<PageResult<{ username: string; uuid: string }>> {
         const team = await this.requireMembership(teamUid, actorUserId);
-        // 404 rather than 403: whether a team has this on is itself
-        // something an app should not be able to probe for.
-        if (Number(team.directory_enabled) !== 1) {
-            throw new HttpError(404, 'Team not found', {
-                legacyCode: 'team_not_found',
-            });
-        }
+        this.assertDirectoryOpen(team);
 
         const page = await this.stores.team.listDirectory(teamUid, opts);
         return {
@@ -401,6 +513,7 @@ export class TeamService extends PuterService {
         ownerUserId: number,
         input: { name: string; handle?: string | null },
     ): Promise<TeamRow> {
+        await this.#refuseIfOrgSeat(ownerUserId);
         // First: a capped user should hear that, not that the name was taken.
         const cap = this.#teamCap();
         if ((await this.stores.team.countOwned(ownerUserId)) >= cap) {
@@ -518,7 +631,7 @@ export class TeamService extends PuterService {
         actorUserId: number,
         opts: { limit?: unknown; cursor?: string } = {},
     ) {
-        const team = await this.#requireOwnedTeam(teamUid, actorUserId);
+        const team = await this.requireOwnedTeam(teamUid, actorUserId);
         return this.#withUsernames(
             await this.stores.team.listAudit(team.id, opts),
         );
@@ -616,7 +729,7 @@ export class TeamService extends PuterService {
     }
 
     /** Resolves a team the caller owns, soft-deleted or not. */
-    async #requireOwnedTeam(
+    async requireOwnedTeam(
         teamUid: string,
         actorUserId: number,
     ): Promise<TeamRow> {
@@ -648,16 +761,18 @@ export class TeamService extends PuterService {
             id === null ? null : (users.get(id)?.username ?? null);
 
         return {
-            items: page.items.map((row): MemberActivityEntry => ({
-                action: row.action,
-                reason: row.reason,
-                created_at: epochSeconds(row.created_at),
-                username: name(row.user_id_keep),
-                actor_username: name(row.actor_user_id),
-                // Only a sign-in carries these; the shape stays uniform.
-                ip: null,
-                user_agent: null,
-            })),
+            items: page.items.map(
+                (row): MemberActivityEntry => ({
+                    action: row.action,
+                    reason: row.reason,
+                    created_at: epochSeconds(row.created_at),
+                    username: name(row.user_id_keep),
+                    actor_username: name(row.actor_user_id),
+                    // Only a sign-in carries these; the shape stays uniform.
+                    ip: null,
+                    user_agent: null,
+                }),
+            ),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         };
     }
@@ -689,9 +804,16 @@ export class TeamService extends PuterService {
         for (let n = 1; n <= 40 && found.length < count; n++) {
             const candidate = `${base}${n}`;
             if (this.#usernameRejection(candidate)) continue;
-            if (!(await this.stores.user.getByUsername(candidate))) {
-                found.push(candidate);
-            }
+            if (await this.stores.user.getByUsername(candidate)) continue;
+            if (
+                await this.stores.fsEntry.findHomePathConflict(
+                    candidate,
+                    undefined,
+                    { includeDescendants: true },
+                )
+            )
+                continue;
+            found.push(candidate);
         }
         return found;
     }
@@ -700,7 +822,7 @@ export class TeamService extends PuterService {
     async provisionAccount(
         teamUid: string,
         actorUserId: number,
-        input: { username: string; email: string },
+        input: { username: string; email?: string | null },
     ): Promise<{
         userId: number;
         username: string;
@@ -714,16 +836,19 @@ export class TeamService extends PuterService {
     async #provisionAccountLocked(
         teamUid: string,
         actorUserId: number,
-        input: { username: string; email: string },
+        input: { username: string; email?: string | null },
     ): Promise<{
         userId: number;
         username: string;
         temporaryPassword: string;
     }> {
         const team = await this.requireOwner(teamUid, actorUserId);
+        // Unreachable while `createTeam` refuses a seat, since provisioning
+        // needs ownership; kept so the rule does not rest on that alone.
+        await this.#refuseIfOrgSeat(actorUserId);
 
         // Counted, never derived from a stored total: seats come and go.
-        const cap = this.#seatCap();
+        const cap = await this.#seatCap(team.owner_user_id);
         if ((await this.stores.team.countSeats(team.id)) >= cap) {
             throw new HttpError(409, `This team is limited to ${cap} seats`, {
                 legacyCode: 'seat_limit_reached',
@@ -732,14 +857,24 @@ export class TeamService extends PuterService {
         }
 
         this.#assertUsableUsername(input.username);
-        if (!validator.isEmail(input.email)) {
+        const email = typeof input.email === 'string' ? input.email.trim() : '';
+        if (email && !validator.isEmail(email)) {
             throw new HttpError(400, 'Invalid email', {
                 legacyCode: 'bad_request',
             });
         }
 
-        // Before any write, so a taken name fails cleanly.
-        if (await this.stores.user.getByUsername(input.username)) {
+        // Before any write, so a taken name fails cleanly. Also taken if free
+        // in the users table, but another account's rows still sit at or
+        // under its home path.
+        if (
+            (await this.stores.user.getByUsername(input.username)) ||
+            (await this.stores.fsEntry.findHomePathConflict(
+                input.username,
+                undefined,
+                { includeDescendants: true },
+            ))
+        ) {
             throw new HttpError(409, 'That username is taken', {
                 legacyCode: 'username_already_in_use',
                 fields: {
@@ -749,7 +884,7 @@ export class TeamService extends PuterService {
         }
 
         // `idx_user_owned_email` is partial and skips password-null rows.
-        if (await this.stores.user.findEmailOwner(input.email)) {
+        if (email && (await this.stores.user.findEmailOwner(email))) {
             throw new HttpError(409, 'That email is already in use', {
                 legacyCode: 'email_already_in_use',
             });
@@ -759,10 +894,10 @@ export class TeamService extends PuterService {
             username: input.username,
             uuid: uuidv4(),
             password: null,
-            email: input.email,
-            clean_email: cleanEmail(input.email),
-            // The address came from the administrator, not its holder.
-            requires_email_confirmation: true,
+            email: email || null,
+            clean_email: email ? cleanEmail(email) : null,
+            // Never demanded: the team creating the account is the trust anchor.
+            requires_email_confirmation: false,
         });
 
         await generateDefaultFsentries(this.clients.db, this.stores.user, user);
@@ -787,7 +922,9 @@ export class TeamService extends PuterService {
 
         // Returned once; forced change on first use is what bounds it.
         const temporaryPassword = await this.#issueTemporaryPassword(user.id);
-        await this.#notifyUser(user, 'team_account_created', team);
+        await this.#notifyUser(user, 'team_account_created', team, {
+            temporary_password: temporaryPassword,
+        });
 
         // Last: the seat is only chargeable once it exists and can be used.
         this.#emitBilling('team.account.created', {
@@ -830,7 +967,9 @@ export class TeamService extends PuterService {
         });
         const temporaryPassword =
             await this.#issueTemporaryPassword(targetUserId);
-        await this.#notifyUser(user, 'team_account_created', team);
+        await this.#notifyUser(user, 'team_account_created', team, {
+            temporary_password: temporaryPassword,
+        });
         return { temporaryPassword };
     }
 
@@ -909,22 +1048,19 @@ export class TeamService extends PuterService {
         return temporaryPassword;
     }
 
-    /**
-     * A notice about something the team did to a member's account. It carries
-     * no credential, so delivery is best effort -- nothing the caller did
-     * depends on it arriving, and an address the administrator supplied may not
-     * even reach its holder.
-     */
+    /** Best effort: the admin also gets the credential in the API response. */
     async #notifyUser(
         user: UserRow | null | undefined,
         template: EmailTemplateName,
         team: TeamRow,
+        vars: Record<string, string> = {},
     ): Promise<void> {
         if (!this.clients.email || !user?.email) return;
         try {
             const sent = await this.clients.email.send(user.email, template, {
                 username: user.username,
                 team_name: team.name ?? 'Your team',
+                ...vars,
             });
             // `sendRaw` returns null with no transport rather than throwing.
             if (sent === null) {
@@ -1044,8 +1180,11 @@ export class TeamService extends PuterService {
         actorUserId: number,
         targetUserId: number,
     ): Promise<void> {
-        const team = await this.requireOwner(teamUid, actorUserId);
-        await this.requireOrgAccount(teamUid, targetUserId);
+        // Deleted team included: the only self-serve way to retire its seats.
+        const team = await this.requireOwnedTeam(teamUid, actorUserId);
+        await this.requireOrgAccount(teamUid, targetUserId, {
+            includeDeleted: true,
+        });
 
         // Forced, as `enableMember` is: a cached row predates the disable.
         const user = await this.stores.user.getByProperty('id', targetUserId, {
@@ -1054,6 +1193,12 @@ export class TeamService extends PuterService {
         if (!user?.suspended) {
             throw new HttpError(409, 'Disable the account before deleting it', {
                 legacyCode: 'account_must_be_disabled_first',
+            });
+        }
+        // Only the team's own suspension may be deleted, as `enableMember` holds.
+        if (user.suspended_reason !== DISABLED_BY_TEAM) {
+            throw new HttpError(409, 'That account was suspended by Puter', {
+                legacyCode: 'conflict',
             });
         }
 

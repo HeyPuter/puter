@@ -40,29 +40,20 @@ interface TokenPayloadBase {
 export type TokenType = 'session' | 'gui' | 'app-under-user' | 'access-token';
 
 /**
- * Session token — issued at login; represents a browser session.
- *
- * `type === 'session'` is the HTTP-only-cookie flavor; `'gui'` is the same
- * shape but served as a response body (e.g., QR login → client-visible token).
- * Both resolve to a `UserActor` with `accessToken: null`.
+ * Browser session token. `'session'` is the HTTP-only-cookie flavor, `'gui'`
+ * the same shape served in a response body (e.g. QR login).
  */
 export interface SessionTokenPayload extends TokenPayloadBase {
     type: 'session' | 'gui';
-    /**
-     * Session uuid. v1 tokens carry this as the only session reference; v2
-     * tokens carry the same value in both `uuid` and `session_uid`.
-     */
+    /** Session uuid; v2 tokens carry the same value in `session_uid`. */
     uuid: string;
     /** User uuid (plain). */
     user_uid: string;
 }
 
 /**
- * App-under-user token — issued to an app acting on behalf of a user.
- *
- * V1: `session` carries the web session uuid the app token was minted under.
- * v2: `session_uid` carries the app's _own_ session row uuid (kind='app'). The
- * (web session, app) parenting is recorded on the row, not the JWT.
+ * Issued to an app acting for a user. v2 tokens carry the app's own session row
+ * in `session_uid`; the parent web session is recorded on the row.
  */
 export interface AppUnderUserTokenPayload extends TokenPayloadBase {
     type: 'app-under-user';
@@ -82,17 +73,14 @@ export interface AccessTokenPayload extends TokenPayloadBase {
     user_uid: string;
     app_uid?: string;
     /**
-     * Full-API-access ("personal access token") marker. Only ever set on
-     * user-issued tokens (never app-issued). Drives `actor.accessToken
-     * .fullAccess` — see ActorAccessToken in core/actor.ts.
+     * Personal access token marker; user-issued only. Drives
+     * `ActorAccessToken.fullAccess`.
      */
     full_access?: boolean;
 }
 
 export type AnyTokenPayload =
-    | SessionTokenPayload
-    | AppUnderUserTokenPayload
-    | AccessTokenPayload;
+    SessionTokenPayload | AppUnderUserTokenPayload | AccessTokenPayload;
 
 // -- Session row (from `sessions` table) ----------------------------
 

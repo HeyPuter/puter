@@ -55,6 +55,56 @@ export const costKeys = (
 });
 
 /**
+ * Whether a usage key is priced at the output rate when the model has no rate
+ * of its own for it.
+ */
+export const isOutputCostKey = (key: string, outputKey: string): boolean =>
+    key === outputKey ||
+    key === 'output_tokens' ||
+    key === 'completion_tokens' ||
+    key === 'thinking_tokens';
+
+/**
+ * The rate multipliers a request pays given how many input tokens it sent —
+ * cached reads and cache writes included. `1`/`1` unless the model has
+ * long-context pricing and the request is past its threshold.
+ */
+export const longContextMultipliers = (
+    model: IChatModel,
+    inputTokens: number,
+): { input: number; output: number } => {
+    const pricing = model.long_context_pricing;
+    if (!pricing || !(inputTokens > pricing.threshold)) {
+        return { input: 1, output: 1 };
+    }
+    return {
+        input: pricing.input_multiplier,
+        output: pricing.output_multiplier,
+    };
+};
+
+/**
+ * The input tokens a tracked-usage object carries: every key that isn't
+ * output-side. Providers split one prompt into uncached, cached-read and
+ * cache-write keys; the long-context threshold is measured on their sum.
+ */
+export const trackedInputTokens = (
+    trackedUsage: Record<string, unknown>,
+    model: IChatModel,
+): number => {
+    const { outputKey } = costKeys(model);
+    let total = 0;
+    for (const [key, amount] of Object.entries(trackedUsage)) {
+        if (key === 'tokens' || key === 'usd_cents') continue;
+        if (isOutputCostKey(key, outputKey)) continue;
+        if (typeof amount === 'number' && Number.isFinite(amount)) {
+            total += amount;
+        }
+    }
+    return total;
+};
+
+/**
  * Whether a model costs the user nothing to run.
  *
  * Every rate in the cost table has to be zero — a model priced on one axis and
@@ -90,11 +140,10 @@ export const buildCostsOverride = (
     const inputRate = isRate(costs[inputKey]) ? costs[inputKey] : undefined;
     const outputRate = isRate(costs[outputKey]) ? costs[outputKey] : undefined;
 
-    const isOutputKey = (key: string) =>
-        key === outputKey ||
-        key === 'output_tokens' ||
-        key === 'completion_tokens' ||
-        key === 'thinking_tokens';
+    const multipliers = longContextMultipliers(
+        model,
+        trackedInputTokens(trackedUsage, model),
+    );
 
     const overrides: Record<string, number> = {};
     for (const [key, amount] of Object.entries(trackedUsage)) {
@@ -102,11 +151,13 @@ export const buildCostsOverride = (
         // not a per-unit rate.
         if (key === 'tokens') continue;
 
+        const isOutput = isOutputCostKey(key, outputKey);
         const rate = isRate(costs[key])
             ? costs[key]
-            : ((isOutputKey(key) ? outputRate : inputRate) ?? 0);
+            : ((isOutput ? outputRate : inputRate) ?? 0);
 
-        overrides[key] = amount * rate;
+        overrides[key] =
+            amount * rate * (isOutput ? multipliers.output : multipliers.input);
     }
 
     return overrides;

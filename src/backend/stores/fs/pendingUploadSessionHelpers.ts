@@ -70,6 +70,8 @@ export function toPendingUploadSession(
         expiresAt: input.expiresAt,
         consumedAt: null,
         completedAt: null,
+        reservationOwnerId: input.reservationOwnerId ?? null,
+        reservedBytes: input.reservedBytes ?? null,
     };
 }
 
@@ -107,6 +109,8 @@ export function normalizePendingUploadSession(
         updatedAt?: unknown;
         consumedAt?: unknown;
         completedAt?: unknown;
+        reservationOwnerId?: unknown;
+        reservedBytes?: unknown;
     };
     const createdAt =
         typeof record.createdAt === 'number' ? record.createdAt : Date.now();
@@ -127,6 +131,14 @@ export function normalizePendingUploadSession(
             typeof record.consumedAt === 'number' ? record.consumedAt : null,
         completedAt:
             typeof record.completedAt === 'number' ? record.completedAt : null,
+        reservationOwnerId:
+            typeof record.reservationOwnerId === 'number'
+                ? record.reservationOwnerId
+                : null,
+        reservedBytes:
+            typeof record.reservedBytes === 'number'
+                ? record.reservedBytes
+                : null,
     };
 }
 

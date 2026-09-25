@@ -27,6 +27,8 @@
  * open — the send route can't, because by then every send is rejected by its
  * own rate limit before any handler runs).
  */
+import type { EventClient } from '../clients/event/EventClient';
+import type { PreludeClient } from '../clients/prelude/PreludeClient';
 import type { IConfig } from '../types';
 
 /**
@@ -86,19 +88,41 @@ export function cardFallbackAfterAttempts(
     );
 }
 
-/**
- * What the fallback needs to know about the rest of the system to decide
- * whether it should be on by default.
- */
 export interface CardFallbackDeps {
-    /** Whether SMS verification can work at all — i.e. a provider is set up. */
+    /** Whether an SMS provider is set up. */
     smsConfigured: () => boolean;
     /**
-     * Asks whichever extension owns card verification whether the card gate is
-     * on. Resolves null when nothing is listening (no payments extension), so
-     * "installed but off" and "not installed" stay distinguishable.
+     * Whether the owning extension reports the card gate on; null when none is
+     * installed.
      */
     probeCardVerification: () => Promise<boolean | null>;
+}
+
+/** The clients that answer {@link CardFallbackDeps}. */
+export interface CardFallbackClients {
+    prelude?: Pick<PreludeClient, 'isConfigured'> | null;
+    event?: Pick<EventClient, 'emitAndWait'> | null;
+}
+
+/**
+ * Deps over the live clients. `clients` is read at call time, not captured, so
+ * a client swapped after construction (tests) is what gets asked.
+ */
+export function cardFallbackDepsFrom(
+    clients: CardFallbackClients,
+): CardFallbackDeps {
+    return {
+        smsConfigured: () => Boolean(clients.prelude?.isConfigured()),
+        probeCardVerification: async () => {
+            const status: { enabled: boolean | null } = { enabled: null };
+            await clients.event?.emitAndWait(
+                'puter.card-verification.status',
+                status,
+                {},
+            );
+            return status.enabled;
+        },
+    };
 }
 
 /**
@@ -116,7 +140,11 @@ export function resetCardVerificationStatusCache(): void {
     cardStatusCache = null;
 }
 
-async function cardVerificationEnabled(
+/**
+ * Whether an installed extension reports the card gate on; null when nothing
+ * answers. Memoized per {@link CARD_STATUS_TTL_MS}.
+ */
+export async function isCardVerificationEnabled(
     deps: CardFallbackDeps,
 ): Promise<boolean | null> {
     const now = Date.now();
@@ -151,7 +179,7 @@ export async function isCardFallbackEnabled(
     const configured = config.phone_verification_card_fallback?.enabled;
     if (typeof configured === 'boolean') return configured;
     if (!deps.smsConfigured()) return false;
-    return (await cardVerificationEnabled(deps)) === true;
+    return (await isCardVerificationEnabled(deps)) === true;
 }
 
 /**

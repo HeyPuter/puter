@@ -15,9 +15,9 @@ import { request } from './api.js';
  * standing cost per app, which is what this surface exists for: an account
  * needs somewhere to see and stop paying for one.
  *
- * Account-scoped, unlike `puter.events.handlers`: this is the caller's own
- * view of what it is running, across every app it owns, so it takes no
- * `appUid` on `list()` and an app token cannot act here on its owner's behalf.
+ * An account session or full-access token sees every app it owns; an app
+ * token's `list()` sees only its own worker (0 or 1 item), the same scope
+ * `destroy()` already used.
  */
 
 const invalidAppUid = () =>
@@ -38,8 +38,8 @@ export class EventsWorkers {
     }
 
     /**
-     * The caller's own events workers, one per app it owns with at least one
-     * published handler.
+     * The caller's own events workers: one per app it owns with at least one
+     * published handler, or — for an app token — its own worker alone.
      *
      * @param {EventsWorkersListOptions} [options]
      * @returns {Promise<EventsWorkerPage>}

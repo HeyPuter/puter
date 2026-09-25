@@ -331,7 +331,10 @@ export class WorkerDriver extends PuterDriver {
         if (!skipAdmission) this.#requireVerified(actor);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
-        const appId = args.appId || actor.app?.uid;
+        // `effectiveApp`, not `app`: a token an app issued carries no app of
+        // its own, and reading it as "no app" is what drops the deploy into
+        // the account-scoped branch below.
+        const appId = args.appId || actor.effectiveApp?.uid;
         if (!workerName)
             throw new HttpError(400, 'Missing `workerName`', {
                 legacyCode: 'bad_request',
@@ -421,6 +424,7 @@ export class WorkerDriver extends PuterDriver {
                     legacyCode: 'internal_error',
                 });
             const session = await this.services.auth.createWorkerSessionToken(
+                actor,
                 userRow,
                 workerName,
             );
@@ -589,7 +593,7 @@ export class WorkerDriver extends PuterDriver {
 
         // An app sees the workers it deployed under itself and under the apps
         // it created (the sandboxed ones) — the same set it may manage.
-        const managedAppIds = actor.app
+        const managedAppIds = actor.effectiveApp
             ? await this.#managedAppIds(actor)
             : undefined;
 
@@ -911,9 +915,10 @@ export class WorkerDriver extends PuterDriver {
 
         if (Number(row.user_id) !== actor.user.id) throw deny();
 
-        if (!actor.app) return;
+        const app = actor.effectiveApp;
+        if (!app) return;
 
-        const actorAppId = actor.app.id;
+        const actorAppId = app.id;
         const workerAppOwnerId =
             row.app_owner === null || row.app_owner === undefined
                 ? null
@@ -945,21 +950,20 @@ export class WorkerDriver extends PuterDriver {
         // Self-binding, either implicit or named. Not every actor shape carries
         // `app.id`, so fall back to a lookup rather than leaving the subdomain
         // row unowned.
+        const ownApp = actor.effectiveApp;
         const selfBinding = async () => ({
-            uid: actor.app!.uid,
-            id:
-                actor.app!.id ??
-                (await this.stores.app.getByUid(actor.app!.uid))?.id,
+            uid: ownApp!.uid,
+            id: ownApp!.id ?? (await this.stores.app.getByUid(ownApp!.uid))?.id,
         });
         if (!requestedAppUid) {
-            return actor.app?.uid ? await selfBinding() : null;
+            return ownApp ? await selfBinding() : null;
         }
-        if (actor.app?.uid === requestedAppUid) {
+        if (ownApp?.uid === requestedAppUid) {
             return await selfBinding();
         }
 
         const app = await this.stores.app.getByUid(requestedAppUid);
-        if (!actor.app) {
+        if (!ownApp) {
             // Root session: unchanged: bind to whatever it names. An unknown
             // uid still mints a token, as it did before, and simply leaves the
             // subdomain row unowned by any app.
@@ -983,11 +987,12 @@ export class WorkerDriver extends PuterDriver {
         appId: number,
         actor: Actor & { user: { id: number } },
     ): Promise<boolean> {
-        if (!actor.app?.id) return false;
+        const ownApp = actor.effectiveApp;
+        if (!ownApp?.id) return false;
         const app = await this.stores.app.getById(appId);
         if (!app) return false;
         return (
-            Number(app.app_owner) === Number(actor.app.id) &&
+            Number(app.app_owner) === Number(ownApp.id) &&
             Number(app.owner_user_id) === Number(actor.user.id)
         );
     }
@@ -1000,14 +1005,15 @@ export class WorkerDriver extends PuterDriver {
     async #managedAppIds(
         actor: Actor & { user: { id: number } },
     ): Promise<number[]> {
-        if (!actor.app?.id) return [];
+        const ownApp = actor.effectiveApp;
+        if (!ownApp?.id) return [];
         const children = await this.stores.app.list({
-            appOwner: actor.app.id,
+            appOwner: ownApp.id,
             ownerUserId: actor.user.id,
             limit: CHILD_APP_SCAN_LIMIT,
         });
         return [
-            actor.app.id,
+            ownApp.id,
             ...children.map((app: { id: number }) => Number(app.id)),
         ];
     }
@@ -1124,6 +1130,10 @@ export class WorkerDriver extends PuterDriver {
                 // (user, app_uid, worker_name) so a hot-reload reuses
                 // the same row across reloads and the long-lived token
                 // stays stable for the worker's whole lifetime.
+                //
+                // A null `app_owner` means the worker was never bound to
+                // an app: a deleted app takes its rows with it, so this
+                // row cannot be a binding that was lost.
                 const appOwnerId = row.app_owner as number | null;
                 let authorization: string;
                 if (appOwnerId) {
@@ -1139,6 +1149,7 @@ export class WorkerDriver extends PuterDriver {
                 } else {
                     const session =
                         await this.services.auth.createWorkerSessionToken(
+                            ownerActor,
                             ownerUser,
                             workerName,
                         );

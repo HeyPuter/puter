@@ -20,7 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
-import { SYSTEM_ACTOR_UUID } from '../../core/actor.js';
+import { SYSTEM_ACTOR_UUID, makeActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -81,12 +81,20 @@ function makeService() {
         },
         user: {
             getByUsername: vi.fn().mockResolvedValue(null),
+            getById: vi.fn().mockResolvedValue(null),
+        },
+        share: {
+            // Default: no node on the chain is open to anyone with the link.
+            listAnyoneReaching: vi.fn().mockResolvedValue([]),
         },
     };
     const services = {
         permission: {
             // Default: issuer holds no scanned (shared/granted) permission.
             scan: vi.fn().mockResolvedValue([]),
+        },
+        metering: {
+            getActorSubscription: vi.fn().mockResolvedValue({ id: 'user_free' }),
         },
     };
     const config = { enable_public_folders: false };
@@ -277,10 +285,11 @@ describe('ACLService.check — the owner of a home directory', () => {
 
 // -- App actors ---------------------------------------------------------
 
-const appActor = (username: string, appUid = 'app-1'): Actor => ({
-    user: { uuid: `u-${username}`, id: 9, username },
-    app: { uid: appUid, id: 9 },
-});
+const appActor = (username: string, appUid = 'app-1'): Actor =>
+    makeActor({
+        user: { uuid: `u-${username}`, id: 9, username },
+        app: { uid: appUid, id: 9 },
+    });
 
 describe('ACLService.check — app-under-user', () => {
     it('reaches its own AppData directory under its own user without a grant', async () => {
@@ -731,7 +740,10 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
     it('refuses to stat or set with a non-user issuer or holder', async () => {
         const issuer = await makeUser();
         const holder = await makeUser();
-        const asApp: Actor = { ...issuer, app: { uid: 'app-1', id: 1 } };
+        const asApp: Actor = makeActor({
+            ...issuer,
+            app: { uid: 'app-1', id: 1 },
+        });
         const res = await ownedResource(issuer);
 
         await expect(
@@ -740,7 +752,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         await expect(
             acl.statUserUser(
                 issuer,
-                { ...holder, app: { uid: 'a', id: 1 } },
+                makeActor({ ...holder, app: { uid: 'a', id: 1 } }),
                 res,
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
@@ -877,10 +889,11 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 { ownerUserId },
             );
 
-        const asApp = (user: Actor, app: { uid: string; id: number }): Actor => ({
-            user: user.user,
-            app: { uid: app.uid, id: app.id },
-        });
+        const asApp = (user: Actor, app: { uid: string; id: number }): Actor =>
+            makeActor({
+                user: user.user,
+                app: { uid: app.uid, id: app.id },
+            });
 
         it('does not hand an app its user’s shared access', async () => {
             const issuer = await makeUser();
@@ -1069,5 +1082,78 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 acl.setUserUser(issuer, holder, res, 'read'),
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
+    });
+});
+
+// -- Anyone with the link ---------------------------------------------
+
+describe('ACLService.check — anyone with the link', () => {
+    const stranger: Actor = { user: { id: 77, uuid: 'u-stranger', username: 'stranger' } } as Actor;
+    const owner = { id: 5, uuid: 'u-owner', username: 'owner' };
+
+    /** A link share of `mode` on `path`'s node, owned by `owner`. */
+    const linked = (
+        { service, stores, services }: ReturnType<typeof makeService>,
+        path: string,
+        mode: string,
+        plan = 'business',
+    ) => {
+        stores.share.listAnyoneReaching.mockImplementation(async (uuids: string[]) =>
+            uuids.includes(`uid:${path}`)
+                ? [{ mode, entryUuid: `uid:${path}`, ownerUserId: owner.id }]
+                : [],
+        );
+        stores.user.getById.mockResolvedValue(owner);
+        services.metering.getActorSubscription.mockResolvedValue({ id: plan });
+        return service;
+    };
+
+    it('opens the node, and what is beneath it, to a signed-in stranger', async () => {
+        const made = makeService();
+        const service = linked(made, '/owner/docs', 'read');
+        expect(await service.check(stranger, resource('/owner/docs'), 'read')).toBe(true);
+        expect(await service.check(stranger, resource('/owner/docs/a/b.txt'), 'see')).toBe(true);
+        // The owner's plan was asked about, not the stranger's.
+        expect(made.services.metering.getActorSubscription).toHaveBeenCalledWith(
+            expect.objectContaining({ user: owner }),
+        );
+    });
+
+    it('grants no more than the mode the link carries', async () => {
+        const service = linked(makeService(), '/owner/docs', 'read');
+        expect(await service.check(stranger, resource('/owner/docs'), 'write')).toBe(false);
+    });
+
+    it('never hands out manage', async () => {
+        const service = linked(makeService(), '/owner/docs', 'write');
+        expect(
+            await service.check(stranger, resource('/owner/docs'), MANAGE_PERM_PREFIX),
+        ).toBe(false);
+    });
+
+    it('is silent while the owner is on a free plan', async () => {
+        const service = linked(makeService(), '/owner/docs', 'read', 'user_free');
+        expect(await service.check(stranger, resource('/owner/docs'), 'read')).toBe(false);
+    });
+
+    it('needs no plan where plan gates are switched off', async () => {
+        const made = makeService();
+        (made.service as unknown as { config: Record<string, unknown> }).config.meteringEnforcement = {
+            subscriptions: false,
+        };
+        const service = linked(made, '/owner/docs', 'read', 'user_free');
+        expect(await service.check(stranger, resource('/owner/docs'), 'read')).toBe(true);
+        expect(made.services.metering.getActorSubscription).not.toHaveBeenCalled();
+    });
+
+    it('does not reach a sibling of the linked node', async () => {
+        const service = linked(makeService(), '/owner/docs', 'write');
+        expect(await service.check(stranger, resource('/owner/other'), 'read')).toBe(false);
+    });
+
+    it('is not consulted before the cheaper answers', async () => {
+        const made = makeService();
+        await made.service.check(issuerActor, resource('/issuer/mine'), 'read');
+        expect(made.stores.share.listAnyoneReaching).not.toHaveBeenCalled();
     });
 });

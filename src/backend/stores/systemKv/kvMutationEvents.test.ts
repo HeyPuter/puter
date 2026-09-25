@@ -100,6 +100,7 @@ describe('what a mutation announces', () => {
             userId: 42,
             keys: [KEY],
             op: 'set',
+            values: [1],
         });
         expect(mutations()[0].key).toBe('kv.mutated');
     });
@@ -116,7 +117,12 @@ describe('what a mutation announces', () => {
             opts,
         );
 
-        expect(onlyMutation()).toMatchObject({ keys: ['a', 'b'], op: 'set' });
+        // The last write to `a` is the one that landed, so it is the one told.
+        expect(onlyMutation()).toMatchObject({
+            keys: ['a', 'b'],
+            op: 'set',
+            values: [3, 2],
+        });
     });
 
     it('says nothing for a batch with nothing in it', async () => {
@@ -216,6 +222,48 @@ describe('every mutating method emits once', () => {
     });
 });
 
+describe('what a mutation carries', () => {
+    beforeEach(async () => {
+        await store.set({ key: KEY, value: { count: 1, list: [] } }, opts);
+        emitted = [];
+    });
+
+    it('carries the written value on a set', async () => {
+        await store.set({ key: KEY, value: { a: 1 } }, opts);
+        expect(onlyMutation().values).toEqual([{ a: 1 }]);
+    });
+
+    it('carries null for a deletion, whichever way it is made', async () => {
+        await store.del({ key: KEY }, opts);
+        expect(onlyMutation().values).toEqual([null]);
+
+        emitted = [];
+        await store.take({ key: KEY }, opts);
+        expect(onlyMutation().values).toEqual([null]);
+
+        emitted = [];
+        await store.batchDel({ keys: ['a', 'b'] }, opts);
+        expect(onlyMutation().values).toEqual([null, null]);
+    });
+
+    it('carries the whole item after a path mutation', async () => {
+        await store.incr({ key: KEY, pathAndAmountMap: { count: 2 } }, opts);
+        expect(onlyMutation().values).toEqual([{ count: 3, list: [] }]);
+
+        emitted = [];
+        await store.update(
+            { key: KEY, pathAndValueMap: { count: 7 } },
+            opts,
+        );
+        expect(onlyMutation().values).toEqual([{ count: 7, list: [] }]);
+    });
+
+    it('carries nothing on an expire, where the value did not change', async () => {
+        await store.expire({ key: KEY, ttl: 60 }, opts);
+        expect(onlyMutation()).not.toHaveProperty('values');
+    });
+});
+
 describe('flush', () => {
     it('marks the namespace rather than fanning out per key', async () => {
         await store.batchPut(
@@ -272,4 +320,131 @@ describe('the read cache does not decide this', () => {
 
         expect(onlyMutation()).toMatchObject({ op: 'set', keys: [KEY] });
     });
+});
+
+describe('what a private entry announces', () => {
+    it('set with disableSharing marks the key', async () => {
+        await store.set({ key: KEY, value: 1, disableSharing: true }, opts);
+
+        expect(onlyMutation()).toMatchObject({ noShareKeys: [KEY] });
+    });
+
+    it('a plain set carries no such property', async () => {
+        await store.set({ key: KEY, value: 1 }, opts);
+
+        expect(onlyMutation()).not.toHaveProperty('noShareKeys');
+    });
+
+    it('batchPut with disableSharing marks every key in the batch', async () => {
+        await store.batchPut(
+            {
+                items: [
+                    { key: 'a', value: 1 },
+                    { key: 'b', value: 2 },
+                ],
+                disableSharing: true,
+            },
+            opts,
+        );
+
+        expect(onlyMutation()).toMatchObject({ noShareKeys: ['a', 'b'] });
+    });
+
+    it('re-sharing a key by writing it again without the flag carries no property', async () => {
+        await store.set({ key: KEY, value: 1, disableSharing: true }, opts);
+        emitted = [];
+
+        await store.set({ key: KEY, value: 2 }, opts);
+
+        expect(onlyMutation()).not.toHaveProperty('noShareKeys');
+    });
+
+    it('batchDel marks every key, having no way to know which were private', async () => {
+        await store.batchPut(
+            {
+                items: [
+                    { key: 'a', value: 1 },
+                    { key: 'b', value: 2 },
+                ],
+            },
+            opts,
+        );
+        emitted = [];
+
+        await store.batchDel({ keys: ['a', 'b'] }, opts);
+
+        expect(onlyMutation()).toMatchObject({ noShareKeys: ['a', 'b'] });
+    });
+
+    const cases: Array<{ name: string; run: () => Promise<unknown> }> = [
+        { name: 'del', run: () => store.del({ key: KEY }, opts) },
+        { name: 'take', run: () => store.take({ key: KEY }, opts) },
+        {
+            name: 'expireAt',
+            run: () =>
+                store.expireAt(
+                    { key: KEY, timestamp: Math.floor(Date.now() / 1000) + 60 },
+                    opts,
+                ),
+        },
+        {
+            name: 'expire',
+            run: () => store.expire({ key: KEY, ttl: 60 }, opts),
+        },
+        {
+            name: 'incr',
+            run: () =>
+                store.incr({ key: KEY, pathAndAmountMap: { count: 1 } }, opts),
+        },
+        {
+            name: 'decr',
+            run: () =>
+                store.decr({ key: KEY, pathAndAmountMap: { count: 1 } }, opts),
+        },
+        {
+            name: 'add',
+            run: () =>
+                store.add({ key: KEY, pathAndValueMap: { list: [1] } }, opts),
+        },
+        {
+            name: 'remove',
+            run: () => store.remove({ key: KEY, paths: ['count'] }, opts),
+        },
+        {
+            name: 'update',
+            run: () =>
+                store.update({ key: KEY, pathAndValueMap: { count: 7 } }, opts),
+        },
+    ];
+
+    it.each(cases)(
+        '$name announces a private entry`s key',
+        async (testCase) => {
+            await store.set(
+                {
+                    key: KEY,
+                    value: { count: 1, list: [] },
+                    disableSharing: true,
+                },
+                opts,
+            );
+            emitted = [];
+
+            await testCase.run();
+
+            expect(onlyMutation()).toMatchObject({ noShareKeys: [KEY] });
+        },
+    );
+
+    it.each(cases)(
+        '$name carries no property for a shared entry',
+        async (testCase) => {
+            await store.set({ key: KEY, value: { count: 1, list: [] } }, opts);
+            emitted = [];
+
+            await testCase.run();
+
+            expect(onlyMutation()).not.toHaveProperty('noShareKeys');
+        },
+    );
 });

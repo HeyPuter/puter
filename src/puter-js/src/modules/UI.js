@@ -350,6 +350,11 @@ export class AppConnection extends EventListener {
         // TODO: Set this.#puterOrigin to the puter origin
 
         (globalThis.document) && window.addEventListener('message', event => {
+            // Relayed by the host environment; a window that guessed an
+            // appInstanceID must not be able to forge one directly.
+            if ( event.source !== this.messageTarget ) return;
+            if ( ! event.data ) return;
+
             if ( event.data.msg === 'messageToApp' ) {
                 if ( event.data.appInstanceID !== this.targetAppInstanceID ) {
                     // Message is from a different AppConnection; ignore it.
@@ -531,6 +536,49 @@ export class UIModule extends EventListener {
     #overlayActive = false;
     #overlayTimer = null;
 
+    // The picker popups we opened in `web` env, so their replies can be told
+    // apart from any other window that can reach us. `window.open()` names
+    // these windows, so a repeated picker reuses one entry.
+    #pickerPopups = new Set();
+
+    // Canonical origin of the GUI we open popups on. The popup's messages
+    // arrive tagged with the browser's serialization of its origin, while
+    // `defaultGUIOrigin` is configuration-supplied text that may carry a
+    // trailing slash, an explicit default port or a stray path. Null when it
+    // can't be parsed, which no popup reply can then match.
+    #guiOrigin () {
+        try {
+            return new URL(puter.defaultGUIOrigin).origin;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    #trackPickerPopup (popup) {
+        // Null when the browser blocked the popup.
+        if ( popup ) this.#pickerPopups.add(popup);
+    }
+
+    // Whether a message on the window may drive this module.
+    #isTrustedMessageSource (e) {
+        // `app` env: the host frame relays everything. Its origin is whatever
+        // the deployment is served from, so pin the window instead — that
+        // keeps locally-hosted and self-hosted GUIs working while still
+        // rejecting a sibling app iframe or a third-party page that framed us.
+        if ( this.messageTarget ) return e.source === this.messageTarget;
+
+        // `web` env (a third-party site): there is no host frame to pin. The
+        // picker popups we opened post back directly, and always from the GUI
+        // origin we opened them on, so that origin is the check. Pin the
+        // window too when we can still see it: the picker calls
+        // window.close() right after posting, and a discarded browsing
+        // context can leave `event.source` null.
+        const guiOrigin = this.#guiOrigin();
+        if ( ! guiOrigin || e.origin !== guiOrigin ) return false;
+        if ( ! e.source ) return this.#pickerPopups.size > 0;
+        return this.#pickerPopups.has(e.source);
+    }
+
     // Replaces boilerplate for most methods: posts a message to the GUI with a unique ID, and sets a callback for it.
     #postMessageWithCallback (name, resolve, args = {}) {
         const msg_id = this.#messageID++;
@@ -577,7 +625,7 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve);
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget);
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -648,6 +696,7 @@ export class UIModule extends EventListener {
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
         (globalThis.document) && window.addEventListener('message', async (e) => {
+            if ( ! this.#isTrustedMessageSource(e) ) return;
             if ( ! e.data ) return;
             // `error`
             if ( e.data.error ) {
@@ -1101,11 +1150,15 @@ export class UIModule extends EventListener {
      *
      * @internal
      * @param {string} code - The gate's error code.
+     * @param {{ factors?: string[] }} [details] - What the server said about
+     *   the gate. `factors` is present when a route asked for a verified
+     *   factor rather than the account being flagged: the verifications it
+     *   accepts, in the order to offer them.
      * @returns {Promise<boolean>}
      */
-    requestVerificationGate (code) {
+    requestVerificationGate (code, details = {}) {
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestVerificationGate', resolve, { code });
+            this.#postMessageWithCallback('requestVerificationGate', resolve, { code, ...details });
         }).then((res) => res?.response === true);
     };
 
@@ -1270,11 +1323,15 @@ export class UIModule extends EventListener {
                 let title = 'Puter: Open Directory';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(
+                // Track the window we opened so the message listener accepts
+                // its reply. window.open() returns synchronously and the popup
+                // cannot post back until this function yields, so there is no
+                // race.
+                this.#trackPickerPopup(window.open(
                     `${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
                     title,
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                );
+                ));
             }
 
             //register callback
@@ -1315,11 +1372,11 @@ export class UIModule extends EventListener {
                 let title = 'Puter: Open File';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(
+                this.#trackPickerPopup(window.open(
                     `${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
                     title,
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                );
+                ));
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
@@ -1455,13 +1512,18 @@ export class UIModule extends EventListener {
     }
 
     /**
-     * Asks the desktop to show its upgrade flow.
+     * Asks the desktop to show its upgrade flow. `details` say what was
+     * refused and why, so the desktop can explain the suggestion; the SDK
+     * fills them in when a call is refused for want of credit, a plan, or
+     * storage.
      *
+     * @param {import('../lib/types.js').UpgradeRequestDetails} [details]
      * @returns {Promise<unknown>}
      */
-    requestUpgrade () {
+    requestUpgrade (details) {
+        const { reason, method, message } = details ?? {};
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestUpgrade', resolve, { });
+            this.#postMessageWithCallback('requestUpgrade', resolve, { reason, method, message });
         });
     };
 
@@ -1547,6 +1609,9 @@ export class UIModule extends EventListener {
                     window.removeEventListener('message', onSendMeFileData);
                 };
                 window.addEventListener('message', onSendMeFileData);
+
+                // Same window, for the picker's own reply on the main listener.
+                this.#trackPickerPopup(popup);
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
@@ -1817,7 +1882,8 @@ export class UIModule extends EventListener {
      *
      * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
      *   `create`: for an `fs:` permission naming a path that doesn't exist,
-     *   create it server-side after the user approves. See `puter.perms.request`.
+     *   create it server-side after the user approves. Defaults to `true`;
+     *   `false` opts out, `'dir'`/`'file'` force the kind. See `puter.perms.request`.
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
      *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
@@ -1906,9 +1972,9 @@ export class UIModule extends EventListener {
             const query = requested
                 .map(p => `permission=${encodeURIComponent(p)}`)
                 .join('&');
-            // Left out entirely when absent, so the URL is byte-identical to
-            // before this option existed.
-            const create_param = create ? `&create=${encodeURIComponent(create === true ? 'true' : create)}` : '';
+            // Left out when absent so the GUI applies its default; an explicit
+            // `false` has to travel, or the popup would create anyway.
+            const create_param = create === undefined ? '' : `&create=${encodeURIComponent(String(create))}`;
             const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}${create_param}`;
 
             // Guards against settling more than once across the message,

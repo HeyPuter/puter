@@ -23,16 +23,18 @@ import { EventMap } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
-import {
-    DEFAULT_FREE_SUBSCRIPTION,
-    DEFAULT_TEMP_SUBSCRIPTION,
-} from '../../services/metering/consts.js';
+import { FREE_SUBSCRIPTION_IDS } from '../../services/metering/consts.js';
 import type { CreditHold } from '../../services/metering/types.js';
 import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
-import { isUpstreamTimeoutError } from '../util/upstreamErrors.js';
+import {
+    isCreditExhaustion as isUpstreamCreditExhaustion,
+    isUpstreamTimeoutError,
+    sanitizeUpstreamMessage,
+} from '../util/upstreamErrors.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
 import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider.js';
@@ -84,7 +86,13 @@ import {
     normalizeResultToOpenAI,
     shouldPresentAsOpenAI,
 } from './utils/normalizeToOpenAI.js';
-import { costKeys, isFreeModel } from './utils/pricing.js';
+import {
+    costKeys,
+    isFreeModel,
+    isOutputCostKey,
+    longContextMultipliers,
+    trackedInputTokens,
+} from './utils/pricing.js';
 import {
     isRouteUnhealthy,
     markRouteUnhealthy,
@@ -155,10 +163,13 @@ const toAttempt = (
         provider: providerId,
         status,
         code: e?.error?.code ?? e?.code,
-        error: message,
+        error: sanitizeUpstreamMessage(message),
         ...(isUpstreamTimeoutError(err) ? { timedOut: true } : {}),
     };
 };
+
+const isCreditExhaustion = (a: ProviderAttempt) =>
+    isUpstreamCreditExhaustion(a.status, a.code, a.error);
 
 const isRateLimit = (a: ProviderAttempt) =>
     a.status === 429 ||
@@ -186,6 +197,7 @@ const isUpstream5xx = (a: ProviderAttempt) =>
  */
 const isRouteLevelFailure = (a: ProviderAttempt) =>
     a.status === undefined ||
+    isCreditExhaustion(a) ||
     isRateLimit(a) ||
     isAuthFailure(a) ||
     isUpstream5xx(a);
@@ -199,6 +211,7 @@ const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
  *
  * Per-class rules (see also alarm gate in server.ts):
  *
+ * - All credit-exhausted → 503 `upstream_credits_exhausted` (alerted)
  * - All rate-limited → 429 `upstream_rate_limited` (alerted, unless every attempt
  *   was on a free model — see `allModelsFree`)
  * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
@@ -219,6 +232,12 @@ const classifyAttempts = (
         });
     }
 
+    if (attempts.every(isCreditExhaustion)) {
+        return new HttpError(503, 'AI provider out of credits', {
+            legacyCode: 'upstream_credits_exhausted',
+            fields,
+        });
+    }
     if (attempts.every(isRateLimit)) {
         return new HttpError(429, 'AI provider rate limit exceeded', {
             legacyCode: 'upstream_rate_limited',
@@ -303,8 +322,13 @@ export class ChatCompletionDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, IChatProvider> = {};
-    #modelIdMap: Record<string, IChatModel[]> = {};
+    #providers: Record<string, IChatProvider> = Object.create(null);
+    #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
+
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
 
     override onServerStart() {
         this.#registerProviders();
@@ -656,7 +680,9 @@ export class ChatCompletionDriver extends PuterDriver {
                     passthrough.write(
                         `${JSON.stringify({
                             type: 'error',
-                            message: (e as Error).message,
+                            message: sanitizeUpstreamMessage(
+                                e instanceof Error ? e.message : String(e),
+                            ),
                         })}\n`,
                     );
                     passthrough.end();
@@ -793,11 +819,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 ? outputRateRaw
                 : undefined;
 
-        const isOutputKey = (key: string) =>
-            key === outputKey ||
-            key === 'output_tokens' ||
-            key === 'completion_tokens' ||
-            key === 'thinking_tokens';
+        const isOutputKey = (key: string) => isOutputCostKey(key, outputKey);
+        const multipliers = longContextMultipliers(
+            model,
+            trackedInputTokens(usage, model),
+        );
 
         let inputMicroCents = 0;
         let outputMicroCents = 0;
@@ -831,12 +857,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 }
             }
 
-            const sub = rawAmount * rate;
             sawAnyRate = true;
             if (isOutputKey(key)) {
-                outputMicroCents += sub;
+                outputMicroCents += rawAmount * rate * multipliers.output;
             } else {
-                inputMicroCents += sub;
+                inputMicroCents += rawAmount * rate * multipliers.input;
             }
         }
 
@@ -903,9 +928,14 @@ export class ChatCompletionDriver extends PuterDriver {
         const metering = this.services.metering;
         const { promptTokenEstimate, requestedMaxTokens } = estimates;
         const { inputKey, outputKey } = costKeys(model);
+        // A prompt estimated past a long-context threshold pays the raised
+        // rates on input and output alike.
+        const multipliers = longContextMultipliers(model, promptTokenEstimate);
         // `|| 0` also catches NaN from a malformed cost table.
-        const inputTokenCost = Number(model.costs?.[inputKey] ?? 0) || 0;
-        const outputTokenCost = Number(model.costs?.[outputKey] ?? 0) || 0;
+        const inputTokenCost =
+            (Number(model.costs?.[inputKey] ?? 0) || 0) * multipliers.input;
+        const outputTokenCost =
+            (Number(model.costs?.[outputKey] ?? 0) || 0) * multipliers.output;
         const approximateInputCost = promptTokenEstimate * inputTokenCost;
         const minimumCredits = Number(model.minimumCredits || 1);
 
@@ -920,10 +950,8 @@ export class ChatCompletionDriver extends PuterDriver {
 
         if (model.subscriberOnly) {
             const subscription = await metering.getActorSubscription(actor);
-            const isDefaultPolicy =
-                subscription.id === DEFAULT_FREE_SUBSCRIPTION ||
-                subscription.id === DEFAULT_TEMP_SUBSCRIPTION;
-            if (isDefaultPolicy) {
+            // Every free plan, not two named ones.
+            if (FREE_SUBSCRIPTION_IDS.has(subscription.id)) {
                 throw new HttpError(
                     403,
                     `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
@@ -1034,7 +1062,7 @@ export class ChatCompletionDriver extends PuterDriver {
         };
 
         const cost = this.#computeCost(usage, model);
-        this.services.metering.utilRecordUsageObject(
+        this.#aiMetering.utilRecordUsageObject(
             {
                 [`estimated_${inputKey}`]: inputTokens,
                 [`estimated_${outputKey}`]: outputTokens,
@@ -1132,7 +1160,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const metering = this.services.metering;
+        const metering = this.#aiMetering;
 
         const readKey = (cfg: Record<string, unknown> | undefined) =>
             (cfg?.apiKey as string | undefined) ??

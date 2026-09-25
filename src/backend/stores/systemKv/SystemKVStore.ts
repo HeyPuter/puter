@@ -151,7 +151,11 @@ const MAX_VALUE_BYTES = 399 * 1024;
 // bound as the write is encoded. Enforced there rather than here because
 // finding one means walking every value of every write: the whole payload's
 // cost again, on the hot path, for something almost nothing sends.
-const BATCH_GET_CHUNK = 100;
+/**
+ * DynamoDB's own per-request item cap for BatchGetItem; also the chunk size
+ * here.
+ */
+export const KV_BATCH_GET_LIMIT = 100;
 const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // Offset emulation re-scans everything before the requested position, so it
 // is bounded; cursors are the recommended way to page.
@@ -166,6 +170,12 @@ const KV_CACHE_BROADCAST_CHUNK = 500;
  * caller data can neither collide with it nor set it.
  */
 export const KV_PRIVATE_ATTR = 'noShare';
+
+/** `[key]` when the item carries the private flag, else nothing. */
+const privateKeys = (
+    key: string,
+    item?: Record<string, unknown>,
+): string[] | undefined => (item?.[KV_PRIVATE_ATTR] ? [key] : undefined);
 
 const ttlFilter = (now: number) => ({
     expression: 'attribute_not_exists(#ttlAttr) OR #ttlAttr > :nowTs',
@@ -286,8 +296,7 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
     });
 
 type PathToken =
-    | { type: 'key'; value: string }
-    | { type: 'index'; value: number };
+    { type: 'key'; value: string } | { type: 'index'; value: number };
 
 const invalidPathError = (): HttpError =>
     new HttpError(400, 'kv: path has invalid syntax', {
@@ -771,9 +780,11 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         keys: string[],
         op: KvMutation,
+        values?: unknown[],
+        noShareKeys?: string[],
     ): Promise<void> {
         await this.#invalidate(namespace, keys);
-        this.#emitMutation(actor, namespace, keys, op);
+        this.#emitMutation(actor, namespace, keys, op, values, noShareKeys);
     }
 
     /**
@@ -786,6 +797,8 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         keys: string[],
         op: KvMutation,
+        values?: unknown[],
+        noShareKeys?: string[],
     ): void {
         // Internal system data has no subscribable subject, and it is written
         // often enough that the emit itself would be the cost.
@@ -803,9 +816,23 @@ export class SystemKVStore extends PuterStore {
                 return;
             }
             if (keys.length === 0) return;
+            const unique = [...new Set(keys)];
             this.clients.event.emit(
                 'kv.mutated',
-                { namespace, userId, keys: [...new Set(keys)], op },
+                {
+                    namespace,
+                    userId,
+                    keys: unique,
+                    op,
+                    // Callers hand values aligned with `keys`; a deduped set
+                    // would misalign them, so only a dedupe-free batch carries.
+                    ...(values && unique.length === keys.length
+                        ? { values }
+                        : {}),
+                    ...(noShareKeys?.length
+                        ? { noShareKeys: [...new Set(noShareKeys)] }
+                        : {}),
+                },
                 {},
             );
         } catch {
@@ -1150,8 +1177,7 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 0,
+                        number | undefined) ?? 0,
                 );
             }
 
@@ -1215,7 +1241,14 @@ export class SystemKVStore extends PuterStore {
             ttl: expireAt,
             ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
         });
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [value],
+            disableSharing ? [key] : undefined,
+        );
 
         return {
             res: true,
@@ -1223,8 +1256,7 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined,
+                        number | undefined,
                 ),
             ),
         };
@@ -1286,7 +1318,14 @@ export class SystemKVStore extends PuterStore {
         }));
 
         const response = await this.clients.dynamo.batchPut(putParams);
-        await this.#committed(actor, namespace, [...byKey.keys()], 'set');
+        await this.#committed(
+            actor,
+            namespace,
+            [...byKey.keys()],
+            'set',
+            [...byKey.values()].map((item) => item.value),
+            disableSharing ? [...byKey.keys()] : undefined,
+        );
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -1307,19 +1346,28 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const response = await this.clients.dynamo.del(this.tableName, {
+        // The old item is only worth reading back for the private-key check,
+        // which a system write never needs an event for anyway.
+        const response = await this.clients.dynamo.del(
+            this.tableName,
+            { namespace, key },
+            { returnOld: !isSystemActor(actor) },
+        );
+        await this.#committed(
+            actor,
             namespace,
-            key,
-        });
-        await this.#committed(actor, namespace, [key], 'del');
+            [key],
+            'del',
+            [null],
+            privateKeys(key, response.Attributes),
+        );
         return {
             res: true,
             usage: addUsage(
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             ),
         };
@@ -1344,11 +1392,17 @@ export class SystemKVStore extends PuterStore {
             { namespace, key },
             { returnOld: true },
         );
-        await this.#committed(actor, namespace, [key], 'del');
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'del',
+            [null],
+            privateKeys(key, response.Attributes),
+        );
 
         const old = response.Attributes as
-            | { value?: unknown; ttl?: number }
-            | undefined;
+            { value?: unknown; ttl?: number } | undefined;
         const now = Date.now() / 1000;
         const res =
             old === undefined || (old.ttl && old.ttl <= now)
@@ -1361,8 +1415,7 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             ),
         };
@@ -1401,7 +1454,17 @@ export class SystemKVStore extends PuterStore {
                 key: { namespace, key },
             })),
         );
-        await this.#committed(actor, namespace, uniqueKeys, 'del');
+        await this.#committed(
+            actor,
+            namespace,
+            uniqueKeys,
+            'del',
+            uniqueKeys.map((): unknown => null),
+            // A batch delete reports no prior state, so a same-app batch is
+            // marked private wholesale; a cross-app caller was already
+            // refused any private key.
+            isCrossApp(opts) ? undefined : uniqueKeys,
+        );
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -1442,9 +1505,7 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      | string[]
-                      | unknown[]
-                      | { key: string; value: unknown }[];
+                      string[] | unknown[] | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -1567,8 +1628,7 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             );
             return response;
@@ -1585,8 +1645,7 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -1609,8 +1668,7 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -1646,8 +1704,7 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
             } while (countKey);
         }
 
@@ -1723,8 +1780,19 @@ export class SystemKVStore extends PuterStore {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
-        const usage = await this.rawExpireAt(namespace, key, Number(timestamp));
-        await this.#committed(actor, namespace, [key], 'expire');
+        const { usage, isPrivate } = await this.rawExpireAt(
+            namespace,
+            key,
+            Number(timestamp),
+        );
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'expire',
+            undefined,
+            isPrivate ? [key] : undefined,
+        );
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -1737,8 +1805,19 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const timestamp = Math.floor(Date.now() / 1000) + Number(ttl);
-        const usage = await this.rawExpireAt(namespace, key, timestamp);
-        await this.#committed(actor, namespace, [key], 'expire');
+        const { usage, isPrivate } = await this.rawExpireAt(
+            namespace,
+            key,
+            timestamp,
+        );
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'expire',
+            undefined,
+            isPrivate ? [key] : undefined,
+        );
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -1837,7 +1916,14 @@ export class SystemKVStore extends PuterStore {
             );
             response = await runUpdate();
         }
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [response.Attributes?.value],
+            privateKeys(key, response.Attributes),
+        );
 
         const usage = addUsage(
             probeUsage,
@@ -1911,7 +1997,14 @@ export class SystemKVStore extends PuterStore {
             valueAttributeValues,
             renderer.names,
         );
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [response.Attributes?.value],
+            privateKeys(key, response.Attributes),
+        );
 
         const usage = addUsage(
             probeUsage,
@@ -1954,15 +2047,21 @@ export class SystemKVStore extends PuterStore {
                 undefined,
                 renderer.names,
             );
-            await this.#committed(actor, namespace, [key], 'set');
+            await this.#committed(
+                actor,
+                namespace,
+                [key],
+                'set',
+                [response.Attributes?.value],
+                privateKeys(key, response.Attributes),
+            );
             return {
                 res: response.Attributes?.value,
                 usage: addUsage(
                     probeUsage,
                     writeUsage(
                         (response.ConsumedCapacity?.CapacityUnits as
-                            | number
-                            | undefined) ?? 1,
+                            number | undefined) ?? 1,
                     ),
                 ),
             };
@@ -2051,7 +2150,14 @@ export class SystemKVStore extends PuterStore {
             renderer.names,
         );
 
-        await this.#committed(actor, namespace, [key], 'set');
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [response.Attributes?.value],
+            privateKeys(key, response.Attributes),
+        );
 
         const usage = addUsage(
             probeUsage,
@@ -2074,8 +2180,8 @@ export class SystemKVStore extends PuterStore {
         usage: KVUsage;
     }> {
         const batches: string[][] = [];
-        for (let i = 0; i < allKeys.length; i += BATCH_GET_CHUNK) {
-            batches.push(allKeys.slice(i, i + BATCH_GET_CHUNK));
+        for (let i = 0; i < allKeys.length; i += KV_BATCH_GET_LIMIT) {
+            batches.push(allKeys.slice(i, i + KV_BATCH_GET_LIMIT));
         }
 
         const results = await Promise.all(
@@ -2086,7 +2192,7 @@ export class SystemKVStore extends PuterStore {
                 }));
                 const response = await this.clients.dynamo.batchGet(requests);
                 const entries = (response.Responses?.[this.tableName] ??
-                    []) as KvCachedItem[];
+                    []) as unknown as KvCachedItem[];
                 const units =
                     response.ConsumedCapacity?.reduce(
                         (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -2113,7 +2219,7 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         key: string,
         timestamp: number,
-    ): Promise<KVUsage> {
+    ): Promise<{ usage: KVUsage; isPrivate: boolean }> {
         const response = await this.clients.dynamo.update(
             this.tableName,
             { key, namespace },
@@ -2121,10 +2227,14 @@ export class SystemKVStore extends PuterStore {
             { ':ttl': timestamp, ':defaultValue': null },
             { '#ttl': 'ttl', '#value': 'value' },
         );
-        return writeUsage(
-            (response.ConsumedCapacity?.CapacityUnits as number | undefined) ??
-                1,
-        );
+        return {
+            usage: writeUsage(
+                (response.ConsumedCapacity?.CapacityUnits as
+                    | number
+                    | undefined) ?? 1,
+            ),
+            isPrivate: Boolean(response.Attributes?.[KV_PRIVATE_ATTR]),
+        };
     }
 
     /**

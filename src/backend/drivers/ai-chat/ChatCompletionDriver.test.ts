@@ -191,16 +191,33 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         ).rejects.toMatchObject({ statusCode: 401 });
     });
 
-    it('throws 400 when the requested model is unknown', async () => {
-        await expect(
-            withTestActor(() =>
-                driver.complete({
-                    model: 'totally-not-a-model',
-                    messages: [{ role: 'user', content: 'hi' }],
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
+    it.each(['totally-not-a-model', '__proto__', 'constructor'])(
+        'throws 400 when the requested model is unknown: %s',
+        async (model) => {
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        model,
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
+
+    it.each(['__proto__', 'constructor'])(
+        'rejects inherited object keys as unknown providers: %s',
+        async (provider) => {
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        provider,
+                        messages: [{ role: 'user', content: 'hi' }],
+                    } as ICompleteArguments),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
 
     it('falls back to the provider default model when neither model nor provider is given (azure-openai is the hard-coded default provider)', async () => {
         // Without `azure-openai` in providers config, the driver tries
@@ -478,6 +495,43 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
         expect(res.usage.usd_cents).toBe(expectedMicroCents / 1_000_000);
     });
 
+    it('prices `usd_cents` at long-context rates once input passes the threshold', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'priced',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                long_context_pricing: {
+                    threshold: 5,
+                    input_multiplier: 2,
+                    output_multiplier: 1.5,
+                },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: { input_tokens: 10, output_tokens: 7 },
+            finish_reason: 'stop',
+        } as never);
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { usage: Record<string, number> };
+
+        const expectedMicroCents = 10 * 1000 * 2 + 7 * 2000 * 1.5;
+        expect(res.usage.usd_cents).toBe(expectedMicroCents / 1_000_000);
+    });
+
     it('does not override `usd_cents` when the provider already returned one (e.g. OpenRouter)', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
             message: {
@@ -647,6 +701,54 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         expect(passed.max_tokens!).toBeGreaterThan(0);
     });
 
+    it('caps `max_tokens` at the long-context output rate for a prompt past the threshold', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'capme',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                long_context_pricing: {
+                    threshold: 10,
+                    input_multiplier: 2,
+                    output_multiplier: 1.5,
+                },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        // A ~100-token prompt is past the threshold. 1_000_000 microcents at
+        // 2000 * 1.5 per output token leaves at most 333 output tokens before
+        // the prompt is paid for; the standard rate would allow ~450 after it.
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            1_000_000,
+        );
+
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce({
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'ok' }],
+                },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+
+        await withTestActor(() =>
+            d.complete({
+                model: 'capme',
+                messages: [{ role: 'user', content: 'x'.repeat(400) }],
+                max_tokens: 10_000,
+            }),
+        );
+
+        const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+        expect(passed.max_tokens!).toBeLessThanOrEqual(333);
+        expect(passed.max_tokens!).toBeGreaterThan(0);
+    });
+
     it('throws 402 instead of leaving `max_tokens` unset when credits cannot afford one output token', async () => {
         // Regression: previously a sub-1 cap set max_tokens to `undefined`,
         // which let the provider run to the model's full output limit and
@@ -737,6 +839,41 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             expect(passed.max_tokens!).toBeLessThanOrEqual(50);
         });
     }
+
+    it('rejects subscriber-only models for a team seat on the free org plan', async () => {
+        // `org_seat_free` pays nothing, so it must not reach a paid model —
+        // the gate checks every free plan, not two named ones.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'subonly-seat',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 100, 'output-tokens': 100 },
+                max_tokens: 8192,
+                subscriberOnly: true,
+            },
+        ]);
+        const d = await makeDriver();
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            1_000_000,
+        );
+        vi.spyOn(
+            server.services.metering,
+            'getActorSubscription',
+        ).mockResolvedValue({ id: 'org_seat_free' } as never);
+
+        await expect(
+            withTestActor(() =>
+                d.complete({
+                    model: 'subonly-seat',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'permission_denied',
+        });
+    });
 
     it('rejects subscriber-only models for the default free subscription', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([

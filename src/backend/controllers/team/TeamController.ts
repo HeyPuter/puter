@@ -25,6 +25,7 @@ import {
     Post,
     Put,
 } from '../../core/http/decorators.js';
+import { isAccountContext } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { TeamRow } from '../../stores/team/TeamStore.js';
 import { PuterController } from '../types.js';
@@ -70,7 +71,9 @@ const toClientTeam = (team: TeamRow, isOwner: boolean) => ({
 
 @Controller('/teams')
 export class TeamController extends PuterController {
-    // `requireUserActor` installs the auth gates; reads need it too.
+    // Most routes gate with `requireUserActor`; `listTeams` and `listMembers`
+    // use `requireAuth` so an app can read a team whose owner opted into the
+    // directory (see `directory_enabled`).
 
     /** Off means `/teams` 404s and no team route is registered at all. */
     isEnabled(): boolean {
@@ -85,6 +88,7 @@ export class TeamController extends PuterController {
     })
     async createTeam(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
+        await this.#requireTeamsAvailable(req, userId);
         const body = this.#body(req);
 
         const team = await this.services.team.createTeam(userId, {
@@ -99,15 +103,21 @@ export class TeamController extends PuterController {
 
     @Get('', {
         subdomain: 'api',
-        requireUserActor: true,
+        requireAuth: true,
         requireVerified: true,
         rateLimit: TEAM_READ_LIMIT,
     })
     async listTeams(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
+        await this.#requireTeamsAvailable(req, userId);
         const teams = await this.stores.team.listTeamsForUser(userId);
+        // An app only sees a team whose owner opened the directory to apps;
+        // a team that hasn't is indistinguishable from no team at all.
+        const visible = isAccountContext(req.actor)
+            ? teams
+            : teams.filter((t) => this.services.team.isDirectoryOpen(t));
         res.json({
-            items: teams.map((t) =>
+            items: visible.map((t) =>
                 toClientTeam(t, t.owner_user_id === userId),
             ),
         });
@@ -176,16 +186,23 @@ export class TeamController extends PuterController {
 
     @Get('/:uid/members', {
         subdomain: 'api',
-        requireUserActor: true,
+        requireAuth: true,
         requireVerified: true,
         rateLimit: TEAM_READ_LIMIT,
     })
     async listMembers(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
-        await this.services.team.requireMembership(
+        const team = await this.services.team.requireMembership(
             this.#param(req, 'uid'),
             userId,
         );
+        const accountContext = isAccountContext(req.actor);
+        // Same consent as the directory: an app only reads a team that opted in.
+        if (!accountContext) this.services.team.assertDirectoryOpen(team);
+
+        // uuid only when the team owner calls with their own session or API
+        // token; an app needing a stable id uses `listDirectory()` instead.
+        const showUuid = accountContext && team.owner_user_id === userId;
 
         const page = await this.stores.team.listMembers(
             this.#param(req, 'uid'),
@@ -195,22 +212,30 @@ export class TeamController extends PuterController {
                     typeof req.query.cursor === 'string'
                         ? req.query.cursor
                         : undefined,
+                // An app's view matches the directory's: active seats only.
+                activeOnly: !accountContext,
             },
         );
+        // An app only ever gets a username; org_owned/created_at are account-only.
         res.json({
-            items: page.items.map((m) => ({
-                username: m.username,
-                org_owned: Number(m.org_owned) === 1,
-                created_at: m.created_at,
-            })),
+            items: page.items.map((m) =>
+                accountContext
+                    ? {
+                          username: m.username,
+                          org_owned: Number(m.org_owned) === 1,
+                          created_at: m.created_at,
+                          ...(showUuid ? { uuid: m.uuid } : {}),
+                      }
+                    : { username: m.username },
+            ),
             ...(page.cursor ? { cursor: page.cursor } : {}),
         });
     }
 
     /**
-     * The only team route that admits an app actor. It discloses nothing a
-     * colleague cannot already read through `/members`, and the team has to
-     * have opted in, so an app cannot enumerate a team by default.
+     * Admits an app actor, like `listTeams` and `listMembers`, once the team
+     * has opted in. Discloses nothing a colleague cannot already read through
+     * `/members`.
      */
     @Get('/:uid/directory', {
         subdomain: 'api',
@@ -220,6 +245,15 @@ export class TeamController extends PuterController {
     async listDirectory(req: Request, res: Response): Promise<void> {
         // The membership is the person's, never the app's.
         const userId = this.#requireUserId(req);
+        // A scoped token holds only what it was minted for; a roster is not that.
+        const token = req.actor?.accessToken;
+        if (token && token.fullAccess !== true) {
+            throw new HttpError(
+                403,
+                'This endpoint is not available to scoped access tokens',
+                { legacyCode: 'forbidden' },
+            );
+        }
         const page = await this.services.team.listDirectory(
             this.#param(req, 'uid'),
             userId,
@@ -249,7 +283,7 @@ export class TeamController extends PuterController {
         const body = this.#body(req);
         const result = await this.services.team.provisionAccount(uid, userId, {
             username: this.#requireString(body.username, 'username'),
-            email: this.#requireString(body.email, 'email'),
+            email: this.#optionalString(body.email, 'email'),
         });
         // Shown once; the admin delivers it out of band.
         res.json({
@@ -349,8 +383,8 @@ export class TeamController extends PuterController {
     async deleteMember(req: Request, res: Response): Promise<void> {
         const userId = this.#requireUserId(req);
         const uid = this.#param(req, 'uid');
-        // Authority first, or resolving `:username` is an existence oracle.
-        await this.services.team.requireOwner(uid, userId);
+        // Authority first (anti-oracle); deleted team included, see the service.
+        await this.services.team.requireOwnedTeam(uid, userId);
         const target = await this.#requireTargetUserId(req);
 
         await this.services.team.deleteMember(uid, userId, target);
@@ -406,6 +440,18 @@ export class TeamController extends PuterController {
         };
     }
 
+    /**
+     * The domain-allowlist gate, on the two routes that enter the feature. Same
+     * 404 as a teams-off deployment; other routes bound by membership.
+     */
+    async #requireTeamsAvailable(req: Request, userId: number): Promise<void> {
+        const email = (
+            req.actor as { user?: { email?: string | null } } | undefined
+        )?.user?.email;
+        if (await this.services.team.teamsAvailableTo(userId, email)) return;
+        throw new HttpError(404, 'Not found', { legacyCode: 'not_found' });
+    }
+
     #requireUserId(req: Request): number {
         const id = (req.actor as { user?: { id?: number } } | undefined)?.user
             ?.id;
@@ -424,6 +470,17 @@ export class TeamController extends PuterController {
 
     #body(req: Request): Record<string, unknown> {
         return (req.body ?? {}) as Record<string, unknown>;
+    }
+
+    /** Absent or empty means "not given"; a wrong type is still a 400. */
+    #optionalString(value: unknown, field: string): string | null {
+        if (value === undefined || value === null) return null;
+        if (typeof value !== 'string') {
+            throw new HttpError(400, `${field} must be a string`, {
+                legacyCode: 'bad_request',
+            });
+        }
+        return value.trim() === '' ? null : value;
     }
 
     #requireString(value: unknown, field: string): string {

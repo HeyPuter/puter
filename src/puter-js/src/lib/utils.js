@@ -1,5 +1,8 @@
 import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
-import { buildXhr, driverCall, parseResponse, resolveReauth } from './networkUtils.js';
+import {
+    buildXhr, driverCall, isVerificationGateCode, parseResponse, resolveReauth,
+    resolveVerificationGate,
+} from './networkUtils.js';
 
 /**
  * A function that generates a UUID (Universally Unique Identifier) using the version 4 format,
@@ -54,12 +57,12 @@ function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType =
 }
 
 /**
- * Re-issue an XHR after the reauth coordinator resolves. Rebuilds the request
- * from the captured `_puterReq` spec (with a fresh token via `buildXhr`) and
- * routes the new response back through the same callbacks. Returns true if a
- * replay was scheduled, false otherwise.
+ * Re-issue an XHR once whatever refused it has been cleared (a reauth, a
+ * verification gate). Rebuilds the request from the captured `_puterReq` spec
+ * (with a fresh token via `buildXhr`) and routes the new response back through
+ * the same callbacks. Returns true if a replay was scheduled, false otherwise.
  */
-function replayXhrAfterReauth (response, success_cb, error_cb, resolve_func, reject_func) {
+function replayXhr (response, success_cb, error_cb, resolve_func, reject_func) {
     const xhr = response.target ?? response;
     const spec = xhr?._puterReq;
     if ( ! spec ) return false;
@@ -103,7 +106,7 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
             // Replay the original request with the fresh token. If the replay
             // can't be scheduled (no captured request, or already retried),
             // fall through to the generic Unauthorized rejection below.
-            if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
+            if ( replayXhr(response, success_cb, error_cb, resolve_func, reject_func) ) {
                 return;
             }
         } else if ( reauth?.action === 'reject' ) {
@@ -117,6 +120,22 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
         }
         // reject promise
         return reject_func({ status: 401, message: 'Unauthorized' });
+    }
+    // error - account verification gate. Inside the desktop the user is walked
+    // through the flow and the request replayed once; everywhere else (and
+    // when they back out, or the replay is refused too) the rejection reaches
+    // the caller unchanged.
+    else if (
+        response.status === 403 &&
+        isVerificationGateCode(resp?.code) &&
+        ! response._puterReq?._replayed
+    ) {
+        const gate = await resolveVerificationGate(resp.code, resp.factors);
+        if ( gate.verified && replayXhr(response, success_cb, error_cb, resolve_func, reject_func) ) {
+            return;
+        }
+        if ( error_cb && typeof error_cb === 'function' ) error_cb(resp);
+        return reject_func(resp);
     }
     // error - other
     else if ( response.status !== 200 ) {
@@ -226,13 +245,16 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
  *   responseType?: '' | 'text' | 'blob',
  *   preprocess?: (args: Record<string, unknown>) => Record<string, unknown>,
  *   transform?: (result: unknown) => unknown,
+ *   upgradePrompt?: import('./types.js').UpgradePromptContext,
  * }} spec `iface`/`driver`/`method`/`testMode` address the driver call itself
- *   (see `driverCall`); the rest configures this wrapper.
+ *   (see `driverCall`); the rest configures this wrapper. `upgradePrompt`
+ *   names the public method (`puter.email.sendTransactional`) in the upgrade
+ *   prompt a refusal raises, and says why the method needs a plan.
  * @returns {(...args: unknown[]) => Promise<unknown>}
  */
 function makeDriverMethod (spec) {
     const { iface, method, argNames = [], driver, puter, testMode } = spec;
-    const { readonly, responseType, preprocess, transform } = spec;
+    const { readonly, responseType, preprocess, transform, upgradePrompt } = spec;
 
     return async function (...args) {
         let driverArgs = {};
@@ -269,7 +291,7 @@ function makeDriverMethod (spec) {
 
         return await driverCall(
             { iface, driver, method, args: driverArgs, testMode, puter },
-            { readonly, responseType, transform, onError },
+            { readonly, responseType, transform, onError, upgradePrompt },
         );
     };
 }

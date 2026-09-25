@@ -122,6 +122,11 @@ export interface PendingUploadSession {
     expiresAt: number;
     consumedAt: number | null;
     completedAt: number | null;
+    // Whose allowance the storage lease is held against, and how many bytes —
+    // null for sessions that predate lease tracking, so nothing is released
+    // for them.
+    reservationOwnerId?: number | null;
+    reservedBytes?: number | null;
 }
 
 export interface PendingUploadCreateInput {
@@ -146,4 +151,6 @@ export interface PendingUploadCreateInput {
     objectKey: string;
     metadataJson: string;
     expiresAt: number;
+    reservationOwnerId?: number | null;
+    reservedBytes?: number | null;
 }

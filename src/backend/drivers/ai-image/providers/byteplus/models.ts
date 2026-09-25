@@ -19,12 +19,16 @@
 
 import type { IImageModel } from '../../types.js';
 
-// Ark's `size` "method 1" tiers and the pixel dimensions each (tier, aspect
-// ratio) pair resolves to, from the image generation API reference:
+export type BytePlusImageModel = IImageModel & {
+    minPixels: number;
+    maxPixels: number;
+};
+
+export const BYTEPLUS_PIXEL_SIZE_THRESHOLD = 921_600;
+
+// Output dimensions from the ModelArk image generation API reference.
 // https://docs.byteplus.com/en/docs/ModelArk/1541523
-// The table is identical for dola-seedream-5-0-pro, seedream-5-0-lite,
-// seedream-4-5 and seedream-4-0.
-export const SEEDREAM_RESOLUTION_MAP: Record<
+export const SEEDREAM_PRO_RESOLUTION_MAP: Record<
     string,
     Record<string, { w: number; h: number }>
 > = {
@@ -70,12 +74,59 @@ export const SEEDREAM_RESOLUTION_MAP: Record<
     },
 };
 
-const SEEDREAM_QUALITY_LEVELS = ['1k', '1.5k', '2k'];
-
-// seedream-4-5 and the 5.0 series enforce a minimum output of 3,686,400
-// pixels, which every 1K and 1.5K entry in the table above falls under —
-// they only accept the 2K tier.
-const SEEDREAM_2K_ONLY = ['2k'];
+export const SEEDREAM_RESOLUTION_MAP: Record<
+    string,
+    Record<string, { w: number; h: number }>
+> = {
+    '1:1': {
+        '1k': { w: 1024, h: 1024 },
+        '2k': { w: 2048, h: 2048 },
+        '3k': { w: 3072, h: 3072 },
+        '4k': { w: 4096, h: 4096 },
+    },
+    '4:3': {
+        '1k': { w: 1152, h: 864 },
+        '2k': { w: 2304, h: 1728 },
+        '3k': { w: 3456, h: 2592 },
+        '4k': { w: 4704, h: 3520 },
+    },
+    '3:4': {
+        '1k': { w: 864, h: 1152 },
+        '2k': { w: 1728, h: 2304 },
+        '3k': { w: 2592, h: 3456 },
+        '4k': { w: 3520, h: 4704 },
+    },
+    '16:9': {
+        '1k': { w: 1424, h: 800 },
+        '2k': { w: 2848, h: 1600 },
+        '3k': { w: 4096, h: 2304 },
+        '4k': { w: 5504, h: 3040 },
+    },
+    '9:16': {
+        '1k': { w: 800, h: 1424 },
+        '2k': { w: 1600, h: 2848 },
+        '3k': { w: 2304, h: 4096 },
+        '4k': { w: 3040, h: 5504 },
+    },
+    '3:2': {
+        '1k': { w: 1248, h: 832 },
+        '2k': { w: 2496, h: 1664 },
+        '3k': { w: 3744, h: 2496 },
+        '4k': { w: 4992, h: 3328 },
+    },
+    '2:3': {
+        '1k': { w: 832, h: 1248 },
+        '2k': { w: 1664, h: 2496 },
+        '3k': { w: 2496, h: 3744 },
+        '4k': { w: 3328, h: 4992 },
+    },
+    '21:9': {
+        '1k': { w: 1568, h: 672 },
+        '2k': { w: 3136, h: 1344 },
+        '3k': { w: 4704, h: 2016 },
+        '4k': { w: 6240, h: 2656 },
+    },
+};
 
 // Costs are in usd-cents per image, hardcoded from
 // https://docs.byteplus.com/en/docs/ModelArk/1544106 (pricing) and
@@ -85,10 +136,13 @@ const SEEDREAM_2K_ONLY = ['2k'];
 // lower") vs above — plus a per-input-image rate from the second reference
 // image onward (the first is free). Every other model is a flat per-image
 // rate with free image input.
-export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
+export const BYTEPLUS_IMAGE_GENERATION_MODELS: BytePlusImageModel[] = [
     {
         puterId: 'byteplus:byteplus/dola-seedream-5-0-pro-260628',
         id: 'dola-seedream-5-0-pro-260628',
+        pixelSizeThreshold: BYTEPLUS_PIXEL_SIZE_THRESHOLD,
+        minPixels: 921_600,
+        maxPixels: 4_624_220,
         aliases: [
             'byteplus/dola-seedream-5-0-pro-260628',
             'dola-seedream-5-0-pro',
@@ -105,8 +159,8 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
             'output:2k': 9, // $0.09 per image > 2.61MP
             input_image: 0.3, // $0.003 per input image from the 2nd on
         },
-        allowedQualityLevels: SEEDREAM_QUALITY_LEVELS,
-        resolution_map: SEEDREAM_RESOLUTION_MAP,
+        allowedQualityLevels: ['1k', '1.5k', '2k'],
+        resolution_map: SEEDREAM_PRO_RESOLUTION_MAP,
     },
     {
         // The catalog lists `seedream-5-0-260128` as the same service
@@ -114,6 +168,9 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
         // under the -lite id, so that's the primary id here.
         puterId: 'byteplus:byteplus/seedream-5-0-lite-260128',
         id: 'seedream-5-0-lite-260128',
+        pixelSizeThreshold: BYTEPLUS_PIXEL_SIZE_THRESHOLD,
+        minPixels: 3_686_400,
+        maxPixels: 16_777_216,
         aliases: [
             'byteplus/seedream-5-0-lite-260128',
             'seedream-5-0-lite',
@@ -126,12 +183,15 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
         pricing_unit: 'per-image',
         index_cost_key: 'per-image',
         costs: { 'per-image': 3.5 },
-        allowedQualityLevels: SEEDREAM_2K_ONLY,
+        allowedQualityLevels: ['2k', '3k', '4k'],
         resolution_map: SEEDREAM_RESOLUTION_MAP,
     },
     {
         puterId: 'byteplus:byteplus/seedream-4-5-251128',
         id: 'seedream-4-5-251128',
+        pixelSizeThreshold: BYTEPLUS_PIXEL_SIZE_THRESHOLD,
+        minPixels: 3_686_400,
+        maxPixels: 16_777_216,
         aliases: [
             'byteplus/seedream-4-5-251128',
             'seedream-4-5',
@@ -142,12 +202,15 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
         pricing_unit: 'per-image',
         index_cost_key: 'per-image',
         costs: { 'per-image': 4 },
-        allowedQualityLevels: SEEDREAM_2K_ONLY,
+        allowedQualityLevels: ['2k', '4k'],
         resolution_map: SEEDREAM_RESOLUTION_MAP,
     },
     {
         puterId: 'byteplus:byteplus/seedream-4-0-250828',
         id: 'seedream-4-0-250828',
+        pixelSizeThreshold: BYTEPLUS_PIXEL_SIZE_THRESHOLD,
+        minPixels: 921_600,
+        maxPixels: 16_777_216,
         aliases: [
             'byteplus/seedream-4-0-250828',
             'seedream-4-0',
@@ -158,7 +221,7 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
         pricing_unit: 'per-image',
         index_cost_key: 'per-image',
         costs: { 'per-image': 3 },
-        allowedQualityLevels: SEEDREAM_QUALITY_LEVELS,
+        allowedQualityLevels: ['1k', '2k', '4k'],
         resolution_map: SEEDREAM_RESOLUTION_MAP,
     },
 ];

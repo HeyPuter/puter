@@ -22,6 +22,18 @@ import { EventSubscription } from './subscription.js';
 
 /** @typedef {{ ok: true, sub?: SubscriptionView }} VerbAck */
 
+/**
+ * The `subscribe` body for one handle, the same on first subscribe and on
+ * every re-subscribe.
+ *
+ * @param {EventSubscription} sub
+ * @returns {{ subject: string, includeValue?: true }}
+ */
+const subscribePayload = (sub) => ({
+    subject: sub.subject,
+    ...(sub.includeValue ? { includeValue: true } : {}),
+});
+
 // The wire, fixed by the server: three verbs answered with an ack, one channel
 // events arrive on.
 const SUBSCRIBE_VERB = 'events.subscribe';
@@ -35,6 +47,14 @@ export const DEFAULT_TIMEOUT_MS = 30000;
 // A reconnect re-issues every subscription at once, so the ones past the
 // per-minute call budget wait this long for another pass rather than lapsing.
 const RESUBSCRIBE_RETRY_MS = 10000;
+
+// Backoff for a socket the server hung up on: doubling delay, capped, giving
+// up after this many in a row. Attempts reset once a connection has stayed up
+// long enough to call it stable.
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+const MAX_RECONNECT_ATTEMPTS = 6;
+const STABLE_CONNECTION_MS = 60000;
 
 /** Raised when the connection itself is the problem, never by the server. */
 const connectionError = (message) =>
@@ -75,6 +95,27 @@ const handshakeError = (error) => {
 };
 
 /**
+ * Report that something stopped running: the caller's `onError` if it gave
+ * one, the console otherwise.
+ *
+ * @param {((error: Error & { code?: string }) => void) | undefined} onError
+ * @param {PuterJSError} error
+ * @param {string} what
+ * @returns {void}
+ */
+const reportLapse = (onError, error, what) => {
+    if ( ! onError ) {
+        console.warn(`[puter.events] ${what}`, error);
+        return;
+    }
+    try {
+        onError(error);
+    } catch (handlerError) {
+        console.error('[puter.events] onError handler failed', handlerError);
+    }
+};
+
+/**
  * The one connection every subscription rides on, and the routing table that
  * makes one socket serve all of them.
  *
@@ -88,6 +129,10 @@ const handshakeError = (error) => {
  * id outlives every connection, and what a reconnect has to rebuild is only
  * this side's routing — so those registrations are kept apart from the session
  * ones and are never re-subscribed.
+ *
+ * A server hang-up is retried with a backoff, the same as a transport drop;
+ * only a refused handshake or a server that keeps hanging up ends what the
+ * channel carries.
  */
 export class EventChannel {
     /** @param {import('../index.js').EventsModule} module */
@@ -118,6 +163,12 @@ export class EventChannel {
         this.generation = 0;
         /** @internal @type {ReturnType<typeof setTimeout> | null} */
         this.retryTimer = null;
+        /** @internal @type {ReturnType<typeof setTimeout> | null} */
+        this.reconnectTimer = null;
+        /** @internal Server hang-ups in a row since the connection was last stable. */
+        this.reconnectAttempts = 0;
+        /** @internal When the current (or most recent) socket last connected. */
+        this.connectedAt = 0;
     }
 
     /**
@@ -131,7 +182,7 @@ export class EventChannel {
         const sub = new EventSubscription(this, subject, handler, options);
         this.inflight++;
         try {
-            const response = await this.request(SUBSCRIBE_VERB, { subject }, timeoutFor(sub));
+            const response = await this.request(SUBSCRIBE_VERB, subscribePayload(sub), timeoutFor(sub));
             sub.apply(viewOf(response));
             this.subscriptions.add(sub);
             this.byId.set(/** @type {string} */ (sub.subId), sub);
@@ -177,10 +228,18 @@ export class EventChannel {
      * @param {import('../types.js').EventHandler} handler
      * @param {Record<string, unknown>} [ctx] The context the subscription was
      *   created with, delivered frozen alongside every event.
+     * @param {(error: Error & { code?: string }) => void} [onError] Told once
+     *   if this client stops running the handler here because the connection
+     *   could not be restored.
      * @returns {void}
      */
-    registerDurable (subId, handler, ctx) {
-        this.durable.set(subId, { subId, handler, ctx: Object.freeze({ ...(ctx ?? {}) }) });
+    registerDurable (subId, handler, ctx, onError) {
+        this.durable.set(subId, {
+            subId,
+            handler,
+            ctx: Object.freeze({ ...(ctx ?? {}) }),
+            onError: typeof onError === 'function' ? onError : undefined,
+        });
         this.connect();
     }
 
@@ -206,6 +265,8 @@ export class EventChannel {
      * @returns {void}
      */
     reset () {
+        this.reconnectAttempts = 0;
+        this.connectedAt = 0;
         this.close();
         if ( this.subscriptions.size > 0 || this.durable.size > 0 ) this.connect();
     }
@@ -216,6 +277,10 @@ export class EventChannel {
      */
     connect () {
         if ( this.socket ) return this.socket;
+        if ( this.reconnectTimer ) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
 
         const socket = io(this.module.APIOrigin, {
             auth: { auth_token: this.module.authToken },
@@ -224,22 +289,33 @@ export class EventChannel {
             withCredentials: true,
         });
 
-        socket.on('connect', () => this.resubscribe());
+        socket.on('connect', () => {
+            this.connectedAt = Date.now();
+            for ( const registration of this.durable.values() ) registration.lapseReported = false;
+            this.resubscribe();
+        });
         socket.on('disconnect', () => {
-            // socket.io reconnects on its own after a transport drop, but not
-            // after the server hangs up: that socket is finished, and so is
-            // everything riding it.
+            // socket.io reconnects by itself after a transport drop but not
+            // after the server hangs up; that retry is ours, and a fresh
+            // handshake is what finds out whether this session is still good.
             if ( socket.active ) {
                 this.orphan();
                 return;
             }
-            this.fail(connectionError('The events connection was closed by the server'));
+            this.reconnectLater();
         });
         socket.on('connect_error', error => {
             // socket.io retries on its own while the socket is still active;
             // only a refusal it will not retry is the client's problem.
             if ( socket.active ) return;
-            this.fail(handshakeError(error));
+            const failure = handshakeError(error);
+            // Mid-backoff, a refusal that isn't about this session retries
+            // within the cap; a first attempt or a signed-out session fails.
+            if ( this.reconnectAttempts > 0 && failure.code !== 'reauth_required' ) {
+                this.reconnectLater();
+                return;
+            }
+            this.fail(failure);
         });
         socket.on(DELIVERY_CHANNEL, envelope => this.route(envelope));
 
@@ -305,6 +381,37 @@ export class EventChannel {
     }
 
     /**
+     * The server hung up; socket.io will not reconnect this on its own, so
+     * the retry is ours — with a backoff, capped so a server that keeps
+     * hanging up is not retried forever.
+     *
+     * @internal
+     * @returns {void}
+     */
+    reconnectLater () {
+        this.close();
+        if ( this.subscriptions.size === 0 && this.durable.size === 0 ) return;
+        // Only the connection that just ended counts; a failed attempt never
+        // connected, so it can't look stable.
+        const stable = this.connectedAt > 0 && Date.now() - this.connectedAt >= STABLE_CONNECTION_MS;
+        this.connectedAt = 0;
+        if ( stable ) this.reconnectAttempts = 0;
+        if ( this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS ) {
+            this.fail(connectionError('The events server kept closing the connection'));
+            return;
+        }
+        const backoff = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** this.reconnectAttempts++);
+        const delay = backoff / 2 + Math.random() * (backoff / 2);
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if ( this.subscriptions.size > 0 || this.durable.size > 0 ) this.connect();
+        }, delay);
+        // Same liveness policy as the socket itself: never hold a process
+        // open that the socket alone would not.
+        if ( socketAutoUnref(this.module.puter) ) this.reconnectTimer?.unref?.();
+    }
+
+    /**
      * @internal
      * @returns {void}
      */
@@ -313,7 +420,7 @@ export class EventChannel {
         for ( const sub of [...this.subscriptions] ) {
             if ( sub.subId !== null || sub.pending ) continue;
             sub.pending = true;
-            this.request(SUBSCRIBE_VERB, { subject: sub.subject }, timeoutFor(sub))
+            this.request(SUBSCRIBE_VERB, subscribePayload(sub), timeoutFor(sub))
                 .then(response => {
                     sub.pending = false;
                     const view = viewOf(response);
@@ -454,17 +561,27 @@ export class EventChannel {
     }
 
     /**
-     * The connection is not coming back: fail what is waiting on it and end
-     * every subscription it was carrying.
+     * The connection is not coming back for now: fail what is waiting on it
+     * and end every session subscription. A persistent registration is only
+     * parked — its `onError` is told once, but it keeps its place in
+     * `durable` and resumes routing the next time this channel connects.
      *
      * @internal
      * @param {PuterJSError} error
      * @returns {void}
      */
     fail (error) {
+        const subs = [...this.subscriptions];
+        this.reconnectAttempts = 0;
+        this.connectedAt = 0;
         this.rejectWaiters(error);
-        for ( const sub of [...this.subscriptions] ) this.lapse(sub, error);
         this.close();
+        for ( const sub of subs ) this.lapse(sub, error);
+        for ( const registration of this.durable.values() ) {
+            if ( registration.lapseReported ) continue;
+            registration.lapseReported = true;
+            reportLapse(registration.onError, error, `stopped running the handler for ${registration.subId} here`);
+        }
     }
 
     /**
@@ -476,15 +593,7 @@ export class EventChannel {
     lapse (sub, error) {
         this.forget(sub);
         sub.subId = null;
-        if ( ! sub.onError ) {
-            console.warn(`[puter.events] subscription to ${sub.subject} lapsed`, error);
-        } else {
-            try {
-                sub.onError(error);
-            } catch (handlerError) {
-                console.error('[puter.events] onError handler failed', handlerError);
-            }
-        }
+        reportLapse(sub.onError, error, `subscription to ${sub.subject} lapsed`);
         this.closeIfIdle();
     }
 
@@ -538,6 +647,8 @@ export class EventChannel {
     close () {
         if ( this.retryTimer ) clearTimeout(this.retryTimer);
         this.retryTimer = null;
+        if ( this.reconnectTimer ) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
         const socket = this.socket;
         if ( ! socket ) return;
         this.socket = null;
@@ -561,6 +672,10 @@ const timeoutFor = (sub) =>
  * @property {string} subId
  * @property {import('../types.js').EventHandler} handler
  * @property {Readonly<Record<string, unknown>>} ctx
+ * @property {(error: Error & { code?: string }) => void} [onError] Told once
+ *   when this client stops running the handler here.
+ * @property {boolean} [lapseReported] Internal: whether `onError` was already
+ *   told about the current failure. Cleared on the next connect.
  */
 
 /**

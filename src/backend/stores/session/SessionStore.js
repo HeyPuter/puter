@@ -355,7 +355,11 @@ export class SessionStore extends PuterStore {
         // up to CACHE_TTL_SECONDS. `created_via` + `last_ip` +
         // `last_user_agent` ride along for the symmetric legacy-web
         // key derivation.
-        const rows = await this.clients.db.read(
+        // Primary read: a row minted moments ago (e.g. revoking a token
+        // right after creating it) may not have replicated yet, and a
+        // replica miss here would return early and silently skip the
+        // revoke. Revokes are rare, so the primary read is cheap.
+        const rows = await this.clients.db.pread(
             'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
             [uuid],
         );

@@ -38,6 +38,7 @@ import { SubdomainStore } from './subdomain/SubdomainStore.js';
 import { PresenceStore } from './events/PresenceStore.js';
 import { SystemKVStore } from './systemKv/SystemKVStore.js';
 import { TeamStore } from './team/TeamStore.js';
+import { UploadReservationStore } from './fs/UploadReservationStore.js';
 import { UserBlockStore } from './userBlock/UserBlockStore.js';
 import { UserStore } from './user/UserStore.js';
 import type { IPuterStoreRegistry } from './types.js';
@@ -54,6 +55,7 @@ declare module './types.js' {
         kv: SystemKVStore;
         meteringBuffer: MeteringBufferStore;
         creditHold: CreditHoldStore;
+        uploadReservation: UploadReservationStore;
         user: UserStore;
         app: AppStore;
         appFeedback: AppFeedbackStore;
@@ -81,6 +83,7 @@ declare module './types.js' {
 // PermissionStore depends on `kv`, so `kv` must come first.
 // MeteringBufferStore sits in front of `kv` for metering counters, so it too
 // has to come after it.
+// UploadReservationStore is a leaf (redis only), modelled on CreditHoldStore.
 // UserStore / AppStore are leaves (db + redis only); sit early so other
 // stores/services can lean on them for cached lookups.
 // FSEntryStore depends on `kv` (pending-upload sessions live there).
@@ -90,6 +93,7 @@ export const puterStores = {
     kv: SystemKVStore,
     meteringBuffer: MeteringBufferStore,
     creditHold: CreditHoldStore,
+    uploadReservation: UploadReservationStore,
     user: UserStore,
     app: AppStore,
     appFeedback: AppFeedbackStore,

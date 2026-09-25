@@ -26,6 +26,8 @@ export type {
     PuterEnvironment,
     RequestCallbacks,
     ToolSchema,
+    UpgradeReason,
+    UpgradeRequestDetails,
 } from './types/lib/types.js';
 export type { default as APICallLogger } from './types/lib/APICallLogger.js';
 
@@ -77,6 +79,8 @@ export type {
     MonthlyUsage,
     SignInResult,
     User,
+    UserProfile,
+    UserProfilePatch,
 } from './types/modules/Auth.js';
 
 // -- puter.debug --
@@ -90,7 +94,18 @@ export type {
     EmailAttachment,
     EmailSendOptions,
     EmailSendResult,
-} from './types/modules/Email.js';
+} from './types/modules/Email/Email.js';
+export type {
+    EmailAddress,
+    EmailFolder,
+    EmailGetOptions,
+    EmailHeader,
+    EmailListOptions,
+    EmailListStreamOptions,
+    EmailMessage,
+    EmailMessageAttachment,
+    EmailSummary,
+} from './types/modules/Email/types.js';
 
 // -- puter.events --
 export type {
@@ -125,6 +140,7 @@ export type {
     DeleteOptions,
     FSItemRead,
     FSItemWithShares,
+    GetShareLinkOptions,
     GetSharesOptions,
     ListSharedByMeOptions,
     ListSharedOptions,
@@ -273,7 +289,7 @@ export type AI = InstanceType<import('./types/modules/ai/index.js').AIConstructo
 export type Apps = InstanceType<import('./types/modules/apps/index.js').AppsConstructor>;
 export type Auth = InstanceType<import('./types/modules/Auth.js').AuthConstructor>;
 export type Drivers = InstanceType<import('./types/modules/Drivers.js').DriversConstructor>;
-export type Email = InstanceType<import('./types/modules/Email.js').EmailConstructor>;
+export type Email = InstanceType<import('./types/modules/Email/Email.js').EmailConstructor>;
 export type Events = InstanceType<import('./types/modules/events/index.js').EventsConstructor>;
 export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSConstructor>;
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;

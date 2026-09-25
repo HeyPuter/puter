@@ -39,8 +39,11 @@ export function toDirectoryEntry (row) {
 export function toMember (row) {
     return {
         username: /** @type {string} */ (row.username),
-        orgOwned: row.org_owned === true,
-        createdAt: /** @type {string} */ (row.created_at),
+        // Account context only; an app's row carries neither field.
+        ...(typeof row.org_owned === 'boolean' ? { orgOwned: row.org_owned } : {}),
+        ...(typeof row.created_at === 'string' ? { createdAt: row.created_at } : {}),
+        // Owners only, and what billing keys a seat's plan on.
+        ...(typeof row.uuid === 'string' ? { uuid: row.uuid } : {}),
     };
 }
 

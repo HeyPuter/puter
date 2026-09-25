@@ -21,22 +21,23 @@ import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
 import type { Actor } from '../../core/actor';
-import { isSystemActor } from '../../core/actor';
+import {
+    isAppActor,
+    isPlainUserActor,
+    isSystemActor,
+    makeActor,
+} from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { HttpError } from '../../core/http/HttpError.js';
+import { actorHasSubscription } from '../metering/enforcement';
 
 // -- Types ------------------------------------------------------------
 
 /**
- * Thin, filesystem-agnostic view of a resource for ACL checks.
- *
- * Callers construct a descriptor from whatever entry metadata they already
- * have; ACL does not depend on the filesystem layer. FSController does exactly
- * this (see its `resourceDescriptor` in `#assertWriteAccess`).
- *
- * `resolveAncestors()` MUST return the chain starting with the resource itself
- * and ending at the direct child of root. Empty means "root".
+ * Filesystem-agnostic view of a resource. `resolveAncestors()` returns the
+ * chain from the resource itself to the direct child of root; empty means
+ * root.
  */
 export interface ResourceDescriptor {
     path: string;
@@ -46,11 +47,7 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    | 'see'
-    | 'list'
-    | 'read'
-    | 'write'
-    | typeof MANAGE_PERM_PREFIX;
+    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -123,7 +120,7 @@ export class ACLService extends PuterService {
         const components = resource.path.slice(1).split('/');
 
         // Short-circuit: users accessing their own home directory.
-        if (!actor.app && !actor.accessToken) {
+        if (isPlainUserActor(actor)) {
             const username = actor.user.username;
             if (
                 username &&
@@ -137,9 +134,9 @@ export class ACLService extends PuterService {
         // Short-circuit: apps accessing their own AppData directory (under
         // any user). Shared-appdata access is handled below via the
         // per-user-permission gate.
-        if (actor.app && !actor.accessToken) {
+        if (isAppActor(actor)) {
             const username = actor.user.username;
-            const appUid = actor.app.uid;
+            const appUid = actor.effectiveApp!.uid;
             if (username) {
                 const appDataPath = `/${username}/AppData/${appUid}`;
                 if (
@@ -202,7 +199,7 @@ export class ACLService extends PuterService {
         }
 
         // App-under-user: underlying user must also hold the permission.
-        if (actor.app) {
+        if (isAppActor(actor)) {
             const userActor: Actor = { user: actor.user, effectiveApp: null };
             if (!(await this.check(userActor, resource, mode))) return false;
 
@@ -212,7 +209,7 @@ export class ACLService extends PuterService {
             if (
                 components[0] !== actor.user.username &&
                 components[1] === 'AppData' &&
-                components[2] === actor.app.uid
+                components[2] === actor.effectiveApp!.uid
             ) {
                 return true;
             }
@@ -230,7 +227,54 @@ export class ACLService extends PuterService {
             if (options.length > 0) return true;
         }
 
-        return false;
+        // Last: a link share on the node or a folder above it. Nothing in the
+        // permission tables stands behind one, so it is read on its own.
+        return this.#anyoneWithLinkAllows(actor, ancestors, mode);
+    }
+
+    /**
+     * "Anyone with the link": the owner switched the node open to every
+     * signed-in account, at `read` or `write`. Honoured only while the owner's
+     * plan covers link sharing, so a lapsed plan silences the link without
+     * anyone having to find and withdraw it; a deployment with no plan gates
+     * honours it outright.
+     */
+    async #anyoneWithLinkAllows(
+        actor: Actor,
+        ancestors: ReadonlyArray<{ uid: string }>,
+        mode: AclMode,
+    ): Promise<boolean> {
+        // Authority over the node is never handed out this way, and there has
+        // to be an account on the other end for "anyone" to mean someone.
+        if (mode === MANAGE_PERM_PREFIX) return false;
+        if (typeof actor.user?.id !== 'number') return false;
+        if (ancestors.length === 0) return false;
+
+        const links = await this.stores.share.listAnyoneReaching(
+            ancestors.map((ancestor) => ancestor.uid),
+        );
+        const covering = links.find((link) =>
+            MODES_ABOVE[mode].some((above) => above === link.mode),
+        );
+        if (!covering) return false;
+        return this.#planCoversLinkSharing(covering.ownerUserId);
+    }
+
+    /**
+     * Whether the owner is on a plan that includes link sharing — the same
+     * question `ShareService` asks when the link is made, asked again on each
+     * use. Answered from the metering service's per-actor cache, so it costs a
+     * map lookup once warm.
+     */
+    async #planCoversLinkSharing(ownerUserId: number): Promise<boolean> {
+        const owner = await this.stores.user.getById(ownerUserId);
+        if (!owner) return false;
+        return actorHasSubscription(
+            this.services.metering,
+            makeActor({ user: owner }),
+            true,
+            this.config,
+        );
     }
 
     /**
@@ -288,7 +332,7 @@ export class ACLService extends PuterService {
         groupUid: string,
         resource: ResourceDescriptor,
     ): Promise<StatPermissionsResult> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
@@ -325,7 +369,7 @@ export class ACLService extends PuterService {
         mode: AclMode,
         options: { onlyIfHigher?: boolean } = {},
     ): Promise<boolean> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
@@ -415,11 +459,11 @@ export class ACLService extends PuterService {
         holder: Actor,
         resource: ResourceDescriptor,
     ): Promise<StatPermissionsResult> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
-        if (holder.app || holder.accessToken)
+        if (!isPlainUserActor(holder))
             throw new HttpError(403, 'holder must be a user actor', {
                 legacyCode: 'forbidden',
             });
@@ -466,11 +510,11 @@ export class ACLService extends PuterService {
         mode: AclMode,
         options: { onlyIfHigher?: boolean } = {},
     ): Promise<boolean> {
-        if (issuer.app || issuer.accessToken)
+        if (!isPlainUserActor(issuer))
             throw new HttpError(403, 'issuer must be a user actor', {
                 legacyCode: 'forbidden',
             });
-        if (holder.app || holder.accessToken)
+        if (!isPlainUserActor(holder))
             throw new HttpError(403, 'holder must be a user actor', {
                 legacyCode: 'forbidden',
             });

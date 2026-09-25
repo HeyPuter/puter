@@ -23,7 +23,10 @@ import {
     EVENTS_SUSPENDED_PENDING_CAP,
 } from '../../controllers/events/limits.js';
 import type { DurableSubscription } from '../../stores/events/types.js';
-import type { SuspendedReason } from '../../stores/events/DurableSubscriptionStore.js';
+import {
+    SUSPENDED_REASONS,
+    type SuspendedReason,
+} from '../../stores/events/DurableSubscriptionStore.js';
 
 /**
  * Suspended-versus-active on a durable subscription, and what each reason does
@@ -75,6 +78,14 @@ export const backlogPolicyFor = (reason: SuspendedReason): BacklogPolicy =>
 /** Whether a reason ever lifts. `permission_revoked` never does. */
 export const isResumable = (reason: SuspendedReason): boolean =>
     BACKLOG_POLICY[reason].resumable;
+
+/**
+ * The reasons that lift, and therefore the ones a revocation has to re-stamp: a
+ * row left holding a backlog under one of these hands it over the moment it
+ * resumes.
+ */
+export const RESUMABLE_REASONS: readonly SuspendedReason[] =
+    SUSPENDED_REASONS.filter(isResumable);
 
 /** Whether a suspended row is in the state a given resume would lift. */
 export const suspendedFor = (

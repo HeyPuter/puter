@@ -32,6 +32,10 @@
     "port": 4100,
     // Externally-visible port (set this when behind a reverse proxy on 80/443).
     "pub_port": 4100,
+    // Idle keep-alive timeout in ms. Must stay above the idle timeout of any
+    // proxy in front, or the proxy reuses connections this server has closed
+    // and its clients see 502s.
+    "keep_alive_timeout": 620000,
     "protocol": "http",
     "domain": "puter.localhost",
     // Fully-qualified externally-visible URL. Computed from protocol/domain/
@@ -285,12 +289,26 @@
     // deleting yours frees the slot. Default 1.
     "max_teams_per_user": 1,
     //
-    // Seats one team may provision. Each seat is a real Puter account
-    // taking a name from the global username pool, so this is what bounds a
-    // team's blast radius until per-seat billing lands. Lowering it below
-    // a team's current seat count blocks new provisioning and disables
-    // nobody. Default 50.
-    "max_seats_per_team": 50,
+    // Seats one team may provision. Each seat is a real Puter account taking a
+    // name from the global username pool, so this is what bounds a team's blast
+    // radius. The owner's plan decides which of the two applies; defaults are 4
+    // and 40. Lowering either below a team's current seat count blocks new
+    // provisioning and disables nobody. Deployments upgrading from the old flat
+    // default of 50: without a billing extension every owner reads as free, so
+    // set `max_seats_per_team` to keep the old behavior.
+    "max_seats_per_team_free": 4,
+    "max_seats_per_team_paid": 40,
+    //
+    // One flat cap for every team, whatever the owner pays. Setting it
+    // overrides both of the above, so a deployment that does not sell seats can
+    // ignore plans entirely. Unset by default — leave it that way to keep the
+    // free cap meaningful.
+    // "max_seats_per_team": 50,
+    //
+    // Staged rollout: only these email domains may create a team, and the tab
+    // renders for them even with `gui_params.teams_ui` off. Members of an
+    // existing team always pass. Unset means everyone, gated by `teams_ui`.
+    // "teams_allowed_email_domains": ["puter.com"],
 
     // ── Notifications ───────────────────────────────────────────────────
     // How long a notification is kept, in days from creation. Acknowledged or
@@ -524,4 +542,10 @@
     // what this deployment's normal traffic costs, so it has to be measured
     // rather than guessed, and a stale number here alarms on healthy growth.
     // "maxGlobalUsagePerMinute": 200000000
+
+    // How many full months past its own a monthly usage record is kept before
+    // it expires. Defaults to 3; set to 0 to keep every month's records
+    // forever. Changing it, including to 0, applies to records first written
+    // after the change; records already stamped keep their expiry.
+    // "meteringRetentionMonths": 3
 }

@@ -10,6 +10,8 @@
     ·
     <a href="https://apps.puter.com/">App Store</a>
     ·
+    <a href="https://builder.puter.com/">AI Builder</a>
+    ·
     <a href="https://developer.puter.com" target="_blank">Developers</a>
     ·
     <a href="https://twitter.com/HeyPuter">X</a>
@@ -45,6 +47,8 @@ npm install
 npm start
 ```
 **→** This should launch Puter at  http://puter.localhost:4100
+
+To run this checkout with Docker, follow [Building from source](./doc/self-hosting.md#building-from-source-instead-of-pulling). Create a local `docker-compose.override.yml` to select the local build; keeping these settings out of `docker-compose.yml` avoids conflicts when pulling updates and keeps local configuration out of pull requests.
 
 
 <br/>

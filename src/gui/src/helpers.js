@@ -623,30 +623,16 @@ window.update_auth_data = async (auth_token, user) => {
     }
 
     // ----------------------------------------------------
-    // get .profile file and update user profile
+    // load the user's profile
     // ----------------------------------------------------
     user.profile = {};
-    puter.fs.read(`/${user.username}/Public/.profile`).then((blob) => {
-        blob.text()
-            .then(text => {
-                const profile = JSON.parse(text);
-                if ( profile.picture ) {
-                    window.user.profile.picture = html_encode(profile.picture);
-                }
-
-                // update profile picture in GUI
-                if ( window.user.profile.picture ) {
-                    $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
-                }
-            })
-            .catch(error => {
-                console.error('Error converting Blob to JSON:', error);
-            });
-    }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
-            // create .profile file
-            puter.fs.write(`/${user.username}/Public/.profile`, JSON.stringify({}));
+    puter.auth.getProfile().then((profile) => {
+        if ( profile?.picture ) {
+            window.user.profile.picture = html_encode(profile.picture);
+            $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
         }
+    }).catch((error) => {
+        console.error('Error loading profile:', error);
     });
 
     // ----------------------------------------------------
@@ -2378,6 +2364,9 @@ window.upload_items = async function (items, dest_path) {
             // init
             init: async (operation_id, xhr) => {
                 opid = operation_id;
+                // register before the first await, so a failure while the progress
+                // window is still opening can't delete the entry before it exists
+                window.active_uploads[opid] = 0;
                 // create upload progress window
                 upload_progress_window = await UIWindowProgress({
                     title: i18n('upload'),
@@ -2389,8 +2378,6 @@ window.upload_items = async function (items, dest_path) {
                         xhr.abort();
                     },
                 });
-                // add to active_uploads
-                window.active_uploads[opid] = 0;
             },
             // start
             start: async function () {
@@ -2572,7 +2559,7 @@ window.getUserAppToken = async function (origin) {
 
 window.checkUserSiteRelationship = async function (origin) {
     try {
-        const response = await fetch(`${window.api_origin }/auth/check-app `, {
+        const response = await fetch(`${window.api_origin }/auth/check-app`, {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${ window.auth_token}`,
@@ -3235,19 +3222,22 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await item_icon(fsentry)).image);
             $(el_item_icon).find('.item-icon-icon').attr('src', new_icon);
 
-            // Set new `data-name`
+            // Set new `data-name`. Attributes and form values are stored raw:
+            // .attr()/.val() don't parse HTML, so an encoded name would come
+            // back as "a&amp;b" wherever it is read (sorting, type-to-select,
+            // the dashboard's column truncation).
             options.name = new_name;
-            $(el_item).attr('data-name', html_encode(new_name));
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', html_encode(new_name));
-            $(`.window-${options.uid}`).attr('data-name', html_encode(new_name));
+            $(el_item).attr('data-name', new_name);
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', new_name);
+            $(`.window-${options.uid}`).attr('data-name', new_name);
 
             // Set new `title` attribute
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', html_encode(new_name));
-            $(`.window-${options.uid}`).attr('title', html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', new_name);
+            $(`.window-${options.uid}`).attr('title', new_name);
 
             // Set new value for `item-name-editor`
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(html_encode(new_name));
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(new_name);
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', new_name);
 
             // Set new `data-path` attribute
             options.path = path.join(path.dirname(options.path), options.name);
@@ -3301,7 +3291,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
 
             // hide item name editor
             $(el_item_name_editor).hide();
-            $(el_item_name_editor).val(html_encode($(el_item).attr('data-name')));
+            $(el_item_name_editor).val($(el_item).attr('data-name'));
 
             //show error
             if ( err.message ) {
@@ -3506,30 +3496,17 @@ window.countSubstr = (str, substring) => {
     return count;
 };
 
+// Updates the signed-in user's profile; `username` is kept for callers that
+// still pass it.
 window.update_profile = function (username, key_vals) {
-    puter.fs.read(`/${username}/Public/.profile`).then((blob) => {
-        blob.text()
-            .then(text => {
-                const profile = JSON.parse(text);
-
-                for ( const key in key_vals ) {
-                    profile[key] = key_vals[key];
-                    // update window.user.profile
-                    window.user.profile[key] = key_vals[key];
-                }
-
-                puter.fs.write(`/${username}/Public/.profile`, JSON.stringify(profile));
-            })
-            .catch(error => {
-                console.error('Error converting Blob to JSON:', error);
-            });
-    }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
-            // create .profile file
-            puter.fs.write(`/${username}/Public/.profile`, JSON.stringify({}));
+    return puter.auth.updateProfile(key_vals).then((profile) => {
+        window.user.profile = window.user.profile ?? {};
+        for ( const key in key_vals ) {
+            window.user.profile[key] = profile?.[key] ?? key_vals[key];
         }
-        // Ignored
-        console.log(e);
+        return profile;
+    }).catch((e) => {
+        console.error('Error updating profile:', e);
     });
 };
 
@@ -3542,24 +3519,9 @@ window.blob2str = (blob) => {
     });
 };
 
+// Another user's picture is only available while they are on a paid plan.
 window.get_profile_picture = async function (username) {
-    let icon;
-    // try getting profile pic
-    try {
-        let stat = await puter.fs.stat({ path: `/${ username }/Public/.profile`, consistency: 'eventual' });
-        if ( stat.size > 0 && stat.is_dir === false && stat.size < 1000000 ) {
-            let profile_json = await puter.fs.read(`/${ username }/Public/.profile`);
-            profile_json = await blob2str(profile_json);
-            const profile = JSON.parse(profile_json);
-
-            if ( profile.picture && profile.picture.startsWith('data:image') ) {
-                icon = profile.picture;
-            }
-        }
-    } catch (e) {
-    }
-
-    return icon;
+    return (await puter.auth.getProfilePicture(username)) ?? undefined;
 };
 
 window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {

@@ -8,8 +8,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import murmurhash from 'murmurhash';
 import type { Actor } from '../../core/actor.ts';
-import { SYSTEM_ACTOR } from '../../core/actor.ts';
+import { SYSTEM_ACTOR, makeActor as resolveActor } from '../../core/actor.ts';
 import { PuterServer } from '../../server.ts';
 import { bucketTag } from '../../stores/metering/MeteringBufferStore.ts';
 import { setupTestServer } from '../../testUtil.ts';
@@ -18,14 +19,56 @@ import {
     DEFAULT_TEMP_SUBSCRIPTION,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
+    METRICS_V2_PREFIX,
+    OTHER_USAGE_TYPE,
     PERIOD_ESCAPE,
     POLICY_PREFIX,
+    USAGE_DETAIL_SHARD_COUNT,
+    V1_CLAIM_THROUGH_MONTH,
 } from './consts.ts';
 import type { MeteringService } from './MeteringService.ts';
 import type { UsageInput } from './types.ts';
+import { detailShardOf } from './usageDetail.ts';
 import { toMicroCents } from './utils.ts';
 
+/** A month whose recurring-charge claim still uses the v1 key. */
+const SEPTEMBER_MONTH_ISO = '2026-09-25T12:00:00Z';
+/** A month whose claim uses the v2 key like everything else. */
+const OCTOBER_MONTH_ISO = '2026-10-15T12:00:00Z';
+
 const escape = (usageType: string) => usageType.replace(/\./g, PERIOD_ESCAPE);
+
+/** `MeteringService`'s own month string — real clock, whatever it is now. */
+const currentMonthString = (): string => {
+    const now = new Date();
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+
+/**
+ * How many `incr` calls one buffered write of `types` costs against the
+ * actor's own usage item(s): one totals write plus one per distinct detail
+ * shard the types hash to.
+ */
+const usageWriteCalls = (types: string[]): number =>
+    1 + new Set(types.map((t) => detailShardOf(t))).size;
+
+/** `MeteringService`'s private `globalUsageKey`, replicated for assertions. */
+const globalUsageKeyFor = (
+    userId: string,
+    appId: string,
+    month: string,
+    shardCount: number,
+): string =>
+    `${METRICS_V2_PREFIX}:puter:${murmurhash.v3(`${userId}:${appId}`) % shardCount}:${month}`;
+
+/** `MeteringService`'s private `appUsageKey`, replicated for assertions. */
+const appUsageKeyFor = (
+    appId: string,
+    userId: string,
+    month: string,
+    shardCount: number,
+): string =>
+    `${METRICS_V2_PREFIX}:app:${appId}:${murmurhash.v3(`${appId}${userId}`) % shardCount}:${month}`;
 
 describe('MeteringService', () => {
     let server: PuterServer;
@@ -39,6 +82,7 @@ describe('MeteringService', () => {
         subscriptionResolvers: unknown[];
         defaultSubscriptionResolvers: unknown[];
         extraPolicies: unknown[];
+        pendingAuxPromises: Set<Promise<unknown>>;
     };
     let internals: Internals;
     let snapshot: {
@@ -70,13 +114,17 @@ describe('MeteringService', () => {
         await server.stores.meteringBuffer.onServerShutdown();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         internals.subscriptionResolvers.length = 0;
         internals.subscriptionResolvers.push(...snapshot.subs);
         internals.defaultSubscriptionResolvers.length = 0;
         internals.defaultSubscriptionResolvers.push(...snapshot.defs);
         internals.extraPolicies.length = 0;
         internals.extraPolicies.push(...snapshot.pols);
+
+        // Drain this test's fire-and-forget aux writes so none of them land
+        // during the next test's window and get caught by its incr spy.
+        await Promise.allSettled([...internals.pendingAuxPromises]);
     });
 
     afterAll(async () => {
@@ -423,10 +471,10 @@ describe('MeteringService', () => {
         });
 
         it('writes the per-actor / per-app aux record', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await target.incrementUsage(appActor, 'kv:read', 1, 100);
             await waitFor(async () => {
                 const u = await target.getActorAppUsage(appActor, 'my-app');
@@ -756,23 +804,76 @@ describe('MeteringService', () => {
             ]);
             const keys = auxSpy.mock.calls.map(([input]) => input.key);
             expect(
-                keys.some((key) => key.startsWith(`${METRICS_PREFIX}:app:`)),
+                keys.some((key) => key.startsWith(`${METRICS_V2_PREFIX}:app:`)),
             ).toBe(false);
             auxSpy.mockRestore();
         });
 
         it('still writes the per-app aggregate for an app actor', async () => {
-            const appActor: Actor = { ...actor, app: { uid: 'batch-app' } };
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'batch-app' },
+            });
             await target.batchIncrementUsages(appActor, [
                 { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
             ]);
-            await waitFor(async () => {
-                const usage = await target.getActorAppUsage(
-                    appActor,
-                    'batch-app',
-                );
-                expect(usage.total).toBe(1);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const ctor = target.constructor as typeof MeteringService;
+            const appKey = appUsageKeyFor(
+                'batch-app',
+                appActor.user!.uuid!,
+                currentMonthString(),
+                ctor.APP_SHARD_COUNT,
+            );
+            const { res } = await server.stores.kv.get({ key: appKey });
+            expect(res).toMatchObject({ total: expect.any(Number) });
+        });
+
+        it('writes the global and per-app aggregates as {total} only, once per call', async () => {
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'agg-app' },
             });
+            const ctor = target.constructor as typeof MeteringService;
+            const month = currentMonthString();
+            const globalKey = globalUsageKeyFor(
+                appActor.user!.uuid!,
+                'agg-app',
+                month,
+                ctor.GLOBAL_SHARD_COUNT,
+            );
+            const appKey = appUsageKeyFor(
+                'agg-app',
+                appActor.user!.uuid!,
+                month,
+                ctor.APP_SHARD_COUNT,
+            );
+
+            const auxSpy = vi.spyOn(server.stores.meteringBuffer, 'incrAux');
+            await target.incrementUsage(appActor, 'kv:read', 1, 10);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const globalCalls = auxSpy.mock.calls.filter(
+                ([input]) => input.key === globalKey,
+            );
+            const appCalls = auxSpy.mock.calls.filter(
+                ([input]) => input.key === appKey,
+            );
+            expect(globalCalls).toHaveLength(1);
+            expect(appCalls).toHaveLength(1);
+            auxSpy.mockRestore();
+
+            const { res: globalRes } = await server.stores.kv.get({
+                key: globalKey,
+            });
+            const { res: appRes } = await server.stores.kv.get({
+                key: appKey,
+            });
+            // Shared shards accumulate across the whole suite, so only the
+            // shape — total only, nothing per-type — is asserted here.
+            expect(Object.keys(globalRes as object)).toEqual(['total']);
+            expect(Object.keys(appRes as object)).toEqual(['total']);
         });
 
         it('raises an alarm for any negative costOverride in the batch', async () => {
@@ -831,9 +932,12 @@ describe('MeteringService', () => {
             }
             const incrSpy = vi.spyOn(server.stores.meteringBuffer, 'incr');
             await target.flushBufferedUsages();
-            // One usage write for all ten buffered events, plus the settle
-            // write that records the allowance/credit split.
-            expect(incrSpy).toHaveBeenCalledTimes(2);
+            // One usage write (pre-cutover) or one totals + per-shard detail
+            // write (from the cutover on) for all ten buffered events, plus
+            // the settle write that records the allowance/credit split.
+            expect(incrSpy).toHaveBeenCalledTimes(
+                usageWriteCalls(['egress:bytes', 'storage:read:ops']) + 1,
+            );
             incrSpy.mockRestore();
 
             const { usage } =
@@ -852,7 +956,10 @@ describe('MeteringService', () => {
 
         it('keeps actors and their apps in separate buckets', async () => {
             const other = makeActor();
-            const appActor: Actor = { ...actor, app: { uid: 'app-1' } };
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'app-1' },
+            });
             target.bufferIncrementUsages(actor, [
                 { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
             ]);
@@ -921,8 +1028,10 @@ describe('MeteringService', () => {
                     ]);
                 }
                 await target.flushBufferedUsages();
-                // Per bucket: the usage write plus the allowance settle.
-                expect(spy).toHaveBeenCalledTimes(concurrency * 3 * 2);
+                // Per bucket: the usage write(s) plus the allowance settle.
+                expect(spy).toHaveBeenCalledTimes(
+                    concurrency * 3 * (usageWriteCalls(['egress:bytes']) + 1),
+                );
                 expect(peak).toBeLessThanOrEqual(concurrency);
             } finally {
                 spy.mockRestore();
@@ -952,8 +1061,8 @@ describe('MeteringService', () => {
                     target.flushBufferedUsages(),
                     target.flushBufferedUsages(),
                 ]);
-                // One cycle ran (usage write + allowance settle), not three.
-                expect(started).toBe(2);
+                // One cycle ran (usage write(s) + allowance settle), not three.
+                expect(started).toBe(usageWriteCalls(['egress:bytes']) + 1);
             } finally {
                 spy.mockRestore();
             }
@@ -999,8 +1108,7 @@ describe('MeteringService', () => {
                 },
             ]);
 
-            // Shutdown hooks run clients first, so a drain deferred to
-            // `onServerShutdown` would be writing through a closed stack.
+            // Prepare runs before any teardown, while connections are still open.
             await target.onServerPrepareShutdown();
 
             expect(
@@ -1062,50 +1170,46 @@ describe('MeteringService', () => {
 
         it('returns the recorded usage and app totals after increments', async () => {
             const userId = actor.user.uuid;
-            const appA: Actor = {
+            const appA: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'A', id: 1 },
-            };
-            const appB: Actor = {
+            });
+            const appB: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'B', id: 2 },
-            };
+            });
             await target.incrementUsage(appA, 'kv:read', 1, 100);
             await target.incrementUsage(appB, 'kv:read', 1, 50);
-
-            await waitFor(async () => {
-                const r = await target.getActorCurrentMonthUsageDetails({
-                    user: { uuid: userId },
-                });
-                expect(r.appTotals.A?.total).toBe(100);
-                expect(r.appTotals.B?.total).toBe(50);
-            });
+            // appTotals is a prefix listing of the persisted store, not the
+            // buffer — it only sees an app's total once it has been flushed.
+            await server.stores.meteringBuffer.flushCycle();
 
             const result = await target.getActorCurrentMonthUsageDetails({
                 user: { uuid: userId },
             });
             expect(result.usage.total).toBe(150);
+            expect(result.appTotals.A?.total).toBe(100);
+            expect(result.appTotals.B?.total).toBe(50);
         });
 
         it('filters appTotals by actor.app.uid and rolls others into "others"', async () => {
             const userId = actor.user.uuid;
-            const appA: Actor = {
+            const appA: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'A', id: 1 },
-            };
-            const appB: Actor = {
+            });
+            const appB: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'B', id: 2 },
-            };
+            });
             await target.incrementUsage(appA, 'kv:read', 1, 100);
             await target.incrementUsage(appB, 'kv:read', 1, 50);
+            await server.stores.meteringBuffer.flushCycle();
 
-            await waitFor(async () => {
-                const r = await target.getActorCurrentMonthUsageDetails(appA);
-                expect(r.appTotals.A?.total).toBe(100);
-                expect(r.appTotals.others?.total).toBe(50);
-                expect(r.appTotals).not.toHaveProperty('B');
-            });
+            const r = await target.getActorCurrentMonthUsageDetails(appA);
+            expect(r.appTotals.A?.total).toBe(100);
+            expect(r.appTotals.others?.total).toBe(50);
+            expect(r.appTotals).not.toHaveProperty('B');
         });
 
         it('rejects an actor with no user uuid', async () => {
@@ -1121,10 +1225,10 @@ describe('MeteringService', () => {
 
     describe('getActorCurrentMonthAppUsageDetails', () => {
         it('returns the per-app record for an explicit appId', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await target.incrementUsage(appActor, 'kv:read', 1, 250);
             await waitFor(async () => {
                 const r = await target.getActorCurrentMonthAppUsageDetails(
@@ -1136,10 +1240,10 @@ describe('MeteringService', () => {
         });
 
         it('defaults to the actor app id when none is supplied', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await target.incrementUsage(appActor, 'kv:read', 1, 75);
             await waitFor(async () => {
                 const r =
@@ -1151,10 +1255,10 @@ describe('MeteringService', () => {
         it('allows an app actor to query the global namespace', async () => {
             const userOnly: Actor = { user: makeUser() };
             await target.incrementUsage(userOnly, 'kv:read', 1, 60);
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: userOnly.user,
                 app: { uid: 'my-app', id: 1 },
-            };
+            });
             await waitFor(async () => {
                 const r = await target.getActorCurrentMonthAppUsageDetails(
                     appActor,
@@ -1165,10 +1269,10 @@ describe('MeteringService', () => {
         });
 
         it('forbids an app actor from querying another app', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'mine', id: 1 },
-            };
+            });
             await expect(
                 target.getActorCurrentMonthAppUsageDetails(
                     appActor,
@@ -1269,7 +1373,7 @@ describe('MeteringService', () => {
             // Whatever the drift came from, re-applying the total the record
             // already holds is the support-facing repair for it, so it has to
             // take even though there is nothing to write.
-            const key = `${METRICS_PREFIX}:actor:${actor.user.uuid}:${new Date().toISOString().slice(0, 7)}`;
+            const key = `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${new Date().toISOString().slice(0, 7)}`;
             await server.clients.redis.hset(
                 `meter:b:{${bucketTag(key)}}:${key}`,
                 'total',
@@ -1314,10 +1418,10 @@ describe('MeteringService', () => {
         });
 
         it('forbids an app actor from reading another app', async () => {
-            const appActor: Actor = {
+            const appActor: Actor = resolveActor({
                 user: makeUser(),
                 app: { uid: 'mine', id: 1 },
-            };
+            });
             await expect(
                 target.getActorAppUsage(appActor, 'theirs'),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -1327,6 +1431,43 @@ describe('MeteringService', () => {
             await expect(
                 target.getActorAppUsage({ user: { uuid: '' } }, 'app'),
             ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it("never leaks the item's own call count as a top-level field, while appTotals still reports it", async () => {
+            const appActor: Actor = resolveActor({
+                user: makeUser(),
+                app: { uid: 'count-app', id: 1 },
+            });
+            // Several calls so the actor-app item's own `count` is > 1 and
+            // distinguishable from a per-API record's `count`.
+            await target.incrementUsage(appActor, 'kv:read', 1, 10);
+            await target.incrementUsage(appActor, 'kv:read', 1, 5);
+            await target.incrementUsage(appActor, 'kv:write', 1, 3);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const appUsage = await target.getActorAppUsage(
+                appActor,
+                'count-app',
+            );
+            expect(appUsage.count).toBeUndefined();
+            expect(typeof appUsage.total).toBe('number');
+            // Every other key is a per-API record, not a bare number.
+            for (const [key, value] of Object.entries(appUsage)) {
+                if (key === 'total') continue;
+                expect(typeof value).toBe('object');
+            }
+
+            const detailed =
+                await target.getActorCurrentMonthAppUsageDetails(
+                    appActor,
+                    'count-app',
+                );
+            expect(detailed.count).toBeUndefined();
+
+            // appTotals reads the same item separately and still has count.
+            const { appTotals } =
+                await target.getActorCurrentMonthUsageDetails(appActor);
+            expect(appTotals['count-app']).toEqual({ total: 18, count: 3 });
         });
     });
 
@@ -1457,7 +1598,7 @@ describe('MeteringService', () => {
             // no allowanceUsed split recorded.
             const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
             await server.stores.meteringBuffer.incr({
-                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                key: `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${month}`,
                 pathAndAmountMap: {
                     total: sub.monthUsageAllowance + 5_000_000,
                 },
@@ -1478,7 +1619,7 @@ describe('MeteringService', () => {
             // or repeated write). The split is bookkeeping over the total,
             // so the total is the most the allowance can have been charged.
             await server.stores.meteringBuffer.incr({
-                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                key: `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${month}`,
                 pathAndAmountMap: {
                     total: 1_000_000,
                     allowanceUsed: sub.monthUsageAllowance + 99_000_000,
@@ -1496,7 +1637,7 @@ describe('MeteringService', () => {
             // Legacy spend with no split recorded — one page load then fires
             // many metered requests at once, all seeing the field absent.
             await server.stores.meteringBuffer.incr({
-                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                key: `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${month}`,
                 pathAndAmountMap: { total: 10_000 },
             });
 
@@ -1537,6 +1678,19 @@ describe('MeteringService', () => {
             expect(
                 await target.hasEnoughCredits(actor, Number.MAX_SAFE_INTEGER),
             ).toBe(false);
+        });
+
+        it('reads only the actor month key, not the per-app breakdown', async () => {
+            const getSpy = vi.spyOn(server.stores.meteringBuffer, 'get');
+            await target.getAllowedUsage(actor);
+
+            expect(getSpy).toHaveBeenCalledTimes(1);
+            const [{ key: calledKey }] = getSpy.mock.calls[0]!;
+            const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+            expect(calledKey).toBe(
+                `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${month}`,
+            );
+            getSpy.mockRestore();
         });
     });
 
@@ -1596,7 +1750,7 @@ describe('MeteringService', () => {
 
             const sub = await target.getActorSubscription(actor);
             await server.stores.meteringBuffer.incr({
-                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${new Date().toISOString().slice(0, 7)}`,
+                key: `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${new Date().toISOString().slice(0, 7)}`,
                 pathAndAmountMap: { total: sub.monthUsageAllowance },
             });
 
@@ -1710,9 +1864,16 @@ describe('MeteringService', () => {
 
             const now = await settledGlobalUsage();
             expect(now.total - before.total).toBe(300);
-            const beforeRead = (before['kv:read']?.cost ?? 0) as number;
-            const nowRead = (now['kv:read']?.cost ?? 0) as number;
-            expect(nowRead - beforeRead).toBe(300);
+        });
+
+        it('returns total only, with no per-model breakdown', async () => {
+            const user1: Actor = { user: makeUser() };
+            await target.incrementUsage(user1, 'kv:read', 1, 100);
+
+            const usage = await settledGlobalUsage();
+
+            expect(typeof usage.total).toBe('number');
+            expect(Object.keys(usage)).toEqual(['total']);
         });
     });
 
@@ -1727,7 +1888,7 @@ describe('MeteringService', () => {
             const month = `${new Date().getUTCFullYear()}-${String(
                 new Date().getUTCMonth() + 1,
             ).padStart(2, '0')}`;
-            const key = `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`;
+            const key = `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${month}`;
             const { res } = await server.stores.kv.get({ key });
             expect(res).toMatchObject({ total: 100 });
         });
@@ -1748,7 +1909,7 @@ describe('MeteringService', () => {
             const month = `${now.getUTCFullYear()}-${String(
                 now.getUTCMonth() + 1,
             ).padStart(2, '0')}`;
-            return `${METRICS_PREFIX}:actor:${usageActor.user!.uuid}:${month}`;
+            return `${METRICS_V2_PREFIX}:actor:${usageActor.user!.uuid}:${month}`;
         };
 
         it('accumulates a running total without a write per call', async () => {
@@ -1840,6 +2001,125 @@ describe('MeteringService', () => {
             // so this deliberately does not pay for an exact reading.
             expect(usage.total).toBe(started + 5);
         });
+
+        it('still reads exact once the allowance already reads as used up', async () => {
+            // The approximate view is only a lower bound — it can never prove
+            // headroom is zero on its own, so a near-allowance decision must
+            // never skip the exact read just because it already looks spent.
+            const bufActor: Actor = { user: makeUser() };
+            const allowance = (await target.getActorSubscription(bufActor))
+                .monthUsageAllowance;
+
+            await target.incrementUsage(bufActor, 'ai:chat', 1, allowance);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const readExactSpy = vi.spyOn(
+                server.stores.meteringBuffer,
+                'readExact',
+            );
+            await target.incrementUsage(bufActor, 'ai:chat', 1, 100);
+
+            expect(readExactSpy).toHaveBeenCalled();
+            readExactSpy.mockRestore();
+        });
+
+        it('charges a downward correction to the allowance, not credits, once a credits-changed event lands', async () => {
+            // Reproduces a real bug: a stale cached base left over from before
+            // a downward correction (made elsewhere, on another node) routed
+            // spend to purchased credit instead of the allowance the
+            // correction just freed up.
+            const bufActor: Actor = { user: makeUser() };
+            const paid = {
+                id: 'force-exact-paid',
+                monthUsageAllowance: 50_000_000,
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            };
+            target.registerPolicy(paid);
+            target.registerSubscriptionResolver(async () => 'force-exact-paid');
+
+            // Reaches the full allowance — this node's cached base now holds
+            // total/allowanceUsed at 50,000,000.
+            await target.incrementUsage(
+                bufActor,
+                'ai:chat',
+                1,
+                paid.monthUsageAllowance,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+
+            // A correction lands elsewhere — a plain overwrite of the stored
+            // record, bypassing this node's buffer entirely, the way another
+            // deployment's write would.
+            const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+            const monthKey = `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:${month}`;
+            await server.stores.kv.set({
+                key: monthKey,
+                value: { total: 25_000_000, allowanceUsed: 25_000_000 },
+            });
+
+            // The correction's own node announces it; this node's listener is
+            // what a cross-node broadcast would also reach.
+            target.invalidateActorCredits(bufActor.user!.uuid!);
+
+            const usage = await target.incrementUsage(
+                bufActor,
+                'ai:chat',
+                1,
+                10_000,
+            );
+
+            // `usage` is read before the settle's own allowanceUsed write —
+            // the settle's answer is what confirms the split, and the
+            // absence of any consumed credit confirms it landed on the
+            // allowance rather than the purchased-credit pool.
+            expect(usage.total).toBe(25_010_000);
+            const addons = await target.getActorAddons(bufActor);
+            expect(addons.consumedPurchaseCredits ?? 0).toBe(0);
+
+            const settled =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(settled.usage.allowanceUsed).toBe(25_010_000);
+        });
+
+        it('still throttles repeated exact reads within a second outside a force-exact window', async () => {
+            // A real interval, not a fake clock — widened well past what this
+            // test could plausibly take, so it isn't flaky under load.
+            const ctor = target.constructor as typeof MeteringService;
+            const originalInterval = ctor.EXACT_READ_MIN_INTERVAL_MS;
+            ctor.EXACT_READ_MIN_INTERVAL_MS = 60_000;
+            try {
+                const bufActor: Actor = { user: makeUser() };
+                const allowance = (
+                    await target.getActorSubscription(bufActor)
+                ).monthUsageAllowance;
+
+                // Already near the allowance — every further call re-triggers
+                // the near-allowance check, and the first one already read
+                // exact once (stamping the throttle).
+                const firstSpend = Math.round(allowance * 0.95);
+                await target.incrementUsage(bufActor, 'ai:chat', 1, firstSpend);
+                await server.stores.meteringBuffer.flushCycle();
+
+                const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+                const monthKey = `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:${month}`;
+                // Written directly to the store, out of band — a strong read
+                // would see it; the throttled buffered view can't.
+                await server.stores.kv.incr({
+                    key: monthKey,
+                    pathAndAmountMap: { total: 1_000_000 },
+                });
+
+                const usage = await target.incrementUsage(
+                    bufActor,
+                    'ai:chat',
+                    1,
+                    100,
+                );
+                expect(usage.total).toBe(firstSpend + 100);
+            } finally {
+                ctor.EXACT_READ_MIN_INTERVAL_MS = originalInterval;
+            }
+        });
     });
 
     // ── Monthly recurring charges ────────────────────────────────────
@@ -1856,7 +2136,13 @@ describe('MeteringService', () => {
             const month = `${now.getUTCFullYear()}-${String(
                 now.getUTCMonth() + 1,
             ).padStart(2, '0')}`;
-            return `${METRICS_PREFIX}:actor:${chargeActor.user!.uuid}:${month}`;
+            // The claim shim: September (and earlier) still claims on the v1
+            // key; later months claim on v2 like everything else.
+            const prefix =
+                month <= V1_CLAIM_THROUGH_MONTH
+                    ? METRICS_PREFIX
+                    : METRICS_V2_PREFIX;
+            return `${prefix}:actor:${chargeActor.user!.uuid}:${month}`;
         };
 
         const claimOf = async (chargeActor: Actor) => {
@@ -2102,25 +2388,35 @@ describe('MeteringService', () => {
             const incr = vi.spyOn(server.stores.meteringBuffer, 'incr');
             const usage = await target.getActorCurrentMonthUsageDetails(actor);
 
-            // Four charges across two listeners fold into a single usage
-            // write; the second call is the allowance settle.
-            expect(incr).toHaveBeenCalledTimes(2);
-            expect(incr.mock.calls[0]![0].pathAndAmountMap).toEqual({
-                total: 600,
-                'workers:monthly.units': 5,
-                'workers:monthly.cost': 500,
-                'workers:monthly.count': 2,
-                'domains:monthly.units': 1,
-                'domains:monthly.cost': 100,
-                'domains:monthly.count': 1,
-            });
-            expect(usage.usage.total).toBe(600);
+            // Four charges across two listeners fold into one totals write
+            // plus one per distinct detail shard; the extra call is the
+            // allowance settle.
+            expect(incr).toHaveBeenCalledTimes(
+                usageWriteCalls(['workers:monthly', 'domains:monthly']) + 1,
+            );
             incr.mockRestore();
+
+            // The decoded result is the same either way — this is the
+            // invariant the layout split must never break.
+            expect(usage.usage.total).toBe(600);
+            expect(usage.usage[escape('workers:monthly')]).toMatchObject({
+                units: 5,
+                cost: 500,
+                count: 2,
+            });
+            expect(usage.usage[escape('domains:monthly')]).toMatchObject({
+                units: 1,
+                cost: 100,
+                count: 1,
+            });
         });
 
         it('bills the user, not the app that happened to trigger it', async () => {
             chargeOnce(700);
-            const appActor: Actor = { ...actor, app: { uid: 'app-abc' } };
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'app-abc' },
+            });
 
             await target.incrementUsage(appActor, 'kv:read', 1, 50);
             await server.stores.meteringBuffer.flushCycle();
@@ -2147,13 +2443,13 @@ describe('MeteringService', () => {
             const listener = chargeOnce(800);
 
             await target.incrementUsage(
-                { ...actor, app: { uid: 'app-one' } },
+                resolveActor({ ...actor, app: { uid: 'app-one' } }),
                 'kv:read',
                 1,
                 10,
             );
             await target.incrementUsage(
-                { ...actor, app: { uid: 'app-two' } },
+                resolveActor({ ...actor, app: { uid: 'app-two' } }),
                 'kv:read',
                 1,
                 10,
@@ -2172,7 +2468,7 @@ describe('MeteringService', () => {
             );
 
             await target.incrementUsage(
-                { ...actor, app: { uid: 'app-abc' } },
+                resolveActor({ ...actor, app: { uid: 'app-abc' } }),
                 'kv:read',
                 1,
                 10,
@@ -2197,6 +2493,146 @@ describe('MeteringService', () => {
 
             expect(usage.total).toBe(50);
             expect(await claimOf(actor)).toBe(1);
+        });
+
+        // The v1 → v2 claim shim: September's claim stays on the v1 key so a
+        // user already charged before the switch is never charged twice, and
+        // every month after reads the claim off the v2 totals record like
+        // everything else.
+        describe('v1 → v2 claim shim', () => {
+            beforeEach(() => {
+                vi.useFakeTimers({ toFake: ['Date'] });
+            });
+            afterEach(() => {
+                vi.useRealTimers();
+            });
+
+            it('does not charge again a user whose v1 September key already claimed', async () => {
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                const septActor = makeActor();
+                await server.stores.kv.incr({
+                    key: monthKey(septActor),
+                    pathAndAmountMap: { monthlyChargesApplied: 1 },
+                });
+
+                const listener = chargeOnce(999);
+                const usage = await target.incrementUsage(
+                    septActor,
+                    'kv:read',
+                    1,
+                    10,
+                );
+
+                expect(listener).not.toHaveBeenCalled();
+                expect(usage.total).toBe(10);
+                // The claim counts every attempt, so a pre-existing claim of
+                // 1 reads back as 2 once this call's own attempt lands.
+                expect(await claimOf(septActor)).toBe(2);
+            });
+
+            it('charges a user with no v1 September claim exactly once', async () => {
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                const septActor = makeActor();
+                const listener = chargeOnce(500);
+
+                const first = await target.incrementUsage(
+                    septActor,
+                    'kv:read',
+                    1,
+                    10,
+                );
+                expect(listener).toHaveBeenCalledTimes(1);
+                expect(first.total).toBe(510);
+
+                // Simulates another node (or this one restarted): no memory
+                // of the claim, so it has to ask the v1 key again — and must
+                // still see it as already settled rather than charge again.
+                forgetSettled();
+                const second = await target.incrementUsage(
+                    septActor,
+                    'kv:read',
+                    1,
+                    10,
+                );
+                expect(listener).toHaveBeenCalledTimes(1);
+                expect(second.total).toBe(520);
+                // Every attempt bumps the v1 counter, win or lose, so the
+                // second (losing) attempt reads back as 2.
+                expect(await claimOf(septActor)).toBe(2);
+            });
+
+            it('claims on the v2 key in October and charges exactly once', async () => {
+                vi.setSystemTime(OCTOBER_MONTH_ISO);
+                const octActor = makeActor();
+                const listener = chargeOnce(500);
+
+                const first = await target.incrementUsage(
+                    octActor,
+                    'kv:read',
+                    1,
+                    10,
+                );
+                expect(listener).toHaveBeenCalledTimes(1);
+                expect(first.total).toBe(510);
+
+                const second = await target.incrementUsage(
+                    octActor,
+                    'kv:read',
+                    1,
+                    10,
+                );
+                expect(listener).toHaveBeenCalledTimes(1);
+                expect(second.total).toBe(520);
+
+                const v2Key = `${METRICS_V2_PREFIX}:actor:${octActor.user!.uuid}:2026-10`;
+                const { res: v2Record } = await server.stores.kv.get({
+                    key: v2Key,
+                });
+                expect(
+                    (v2Record as { monthlyChargesApplied?: number } | null)
+                        ?.monthlyChargesApplied,
+                ).toBe(1);
+
+                // Nothing this month ever touches the v1 key.
+                const v1Key = `${METRICS_PREFIX}:actor:${octActor.user!.uuid}:2026-10`;
+                const { res: v1Record } = await server.stores.kv.get({
+                    key: v1Key,
+                });
+                expect(v1Record).toBeNull();
+            });
+
+            it('two concurrent claims on the v1 key settle exactly one charge (old-node/new-node race)', async () => {
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                const raceActor = makeActor();
+                const listener = chargeOnce(450);
+
+                // Bypasses the in-process `claimsInFlight` guard on purpose —
+                // that guard only protects one node against itself; this
+                // exercises the KV-level race two separate nodes would hit.
+                const privateTarget = target as unknown as {
+                    claimAndCharge: (
+                        a: Actor,
+                        userId: string,
+                        month: string,
+                    ) => Promise<unknown>;
+                };
+                const [first, second] = await Promise.all([
+                    privateTarget.claimAndCharge(
+                        raceActor,
+                        raceActor.user!.uuid!,
+                        '2026-09',
+                    ),
+                    privateTarget.claimAndCharge(
+                        raceActor,
+                        raceActor.user!.uuid!,
+                        '2026-09',
+                    ),
+                ]);
+
+                expect([first, second].filter(Boolean)).toHaveLength(1);
+                expect(listener).toHaveBeenCalledTimes(1);
+                expect(await claimOf(raceActor)).toBe(2);
+            });
         });
     });
 
@@ -2297,6 +2733,662 @@ describe('MeteringService', () => {
             });
             const policy = await target.getActorSubscription(actor);
             expect(policy.id).toBe(DEFAULT_FREE_SUBSCRIPTION);
+        });
+    });
+
+    // ── Usage detail layout ─────────────────────────────────────────────
+
+    describe('usage detail layout', () => {
+        let originalCacheMs: number;
+        let originalPathCap: number;
+
+        beforeAll(() => {
+            originalCacheMs = (target.constructor as typeof MeteringService)
+                .USAGE_DETAIL_CACHE_MS;
+            originalPathCap = (target.constructor as typeof MeteringService)
+                .USAGE_DETAIL_PATH_CAP;
+            // Live reads by default — only the dedicated cache tests below
+            // pin this back to a real window.
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_CACHE_MS = 0;
+        });
+
+        afterAll(() => {
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_CACHE_MS = originalCacheMs;
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_PATH_CAP = originalPathCap;
+        });
+
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            vi.setSystemTime(OCTOBER_MONTH_ISO);
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('keeps the totals item scalar-only across many models', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            const usages: UsageInput[] = Array.from(
+                { length: 300 },
+                (_, i) => ({
+                    usageType: `provider${i}:model${i}:input`,
+                    usageAmount: 1,
+                    costOverride: 10,
+                }),
+            );
+
+            await target.batchIncrementUsages(bufActor, usages);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const month = '2026-10';
+            const totalsKey = `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:${month}`;
+            const { res } = await server.stores.kv.get({ key: totalsKey });
+            const stored = res as Record<string, unknown>;
+
+            expect(stored.total).toBe(3000);
+            expect(typeof stored.detailPaths).toBe('number');
+            // No per-type keys landed on the totals item itself.
+            for (const key of Object.keys(stored)) {
+                expect(usages.some((u) => u.usageType.startsWith(key))).toBe(
+                    false,
+                );
+            }
+            // 300 types fan out to every shard; slow under a loaded full run.
+        }, 30_000);
+
+        it('groups a model’s kinds under the shard its head hashes to', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            await target.batchIncrementUsages(bufActor, [
+                {
+                    usageType: 'openai:gpt-5-nano:input',
+                    usageAmount: 10,
+                    costOverride: 100,
+                },
+                {
+                    usageType: 'openai:gpt-5-nano:output',
+                    usageAmount: 5,
+                    costOverride: 200,
+                },
+            ]);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const month = '2026-10';
+            const userId = bufActor.user!.uuid!;
+            let found: Record<string, unknown> | null = null;
+            for (let shard = 0; shard < USAGE_DETAIL_SHARD_COUNT; shard++) {
+                const { res } = await server.stores.kv.get({
+                    key: `${METRICS_V2_PREFIX}:actor:${userId}:detail:${shard}:${month}`,
+                });
+                if (res) {
+                    found = res as Record<string, unknown>;
+                    break;
+                }
+            }
+
+            expect(found).not.toBeNull();
+            const head = found!['openai:gpt-5-nano'] as Record<string, unknown>;
+            expect(head.input).toEqual({ units: 10, cost: 100, count: 1 });
+            expect(head.output).toEqual({ units: 5, cost: 200, count: 1 });
+        });
+
+        it('reads the per-model breakdown in one batch of at most 100 keys', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            await target.incrementUsage(bufActor, 'kv:read', 1, 10);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const getSpy = vi.spyOn(server.stores.meteringBuffer, 'get');
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+
+            // Distinct from the single-key totals read and the (one-app)
+            // app-totals read — this is the shard breakdown `getSummed`
+            // batches through the same `get`.
+            const shardCalls = getSpy.mock.calls.filter(
+                (call) => Array.isArray(call[0]?.key) && call[0].key.length > 2,
+            );
+            expect(shardCalls).toHaveLength(1);
+            expect(
+                (shardCalls[0]![0].key as string[]).length,
+            ).toBeLessThanOrEqual(100);
+            expect(usage['kv:read']).toEqual({ units: 1, cost: 10, count: 1 });
+            getSpy.mockRestore();
+        });
+
+        it('does not read any shard for an actor with no usage this month', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            const getSummedSpy = vi.spyOn(
+                server.stores.meteringBuffer,
+                'getSummed',
+            );
+
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+
+            expect(usage).toEqual({ total: 0 });
+            expect(getSummedSpy).not.toHaveBeenCalled();
+            getSummedSpy.mockRestore();
+        });
+
+        it('serves a cached breakdown while the total stays live', async () => {
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_CACHE_MS = 60_000;
+            try {
+                const bufActor: Actor = { user: makeUser() };
+                await target.incrementUsage(bufActor, 'kv:read', 1, 10);
+                await server.stores.meteringBuffer.flushCycle();
+
+                const first =
+                    await target.getActorCurrentMonthUsageDetails(bufActor);
+                expect(first.usage['kv:read']).toEqual({
+                    units: 1,
+                    cost: 10,
+                    count: 1,
+                });
+
+                // More usage of the same type — the total must reflect it
+                // immediately even though the cached breakdown can lag.
+                await target.incrementUsage(bufActor, 'kv:read', 1, 5);
+                await server.stores.meteringBuffer.flushCycle();
+
+                const second =
+                    await target.getActorCurrentMonthUsageDetails(bufActor);
+                expect(second.usage.total).toBe(15);
+                expect(second.usage['kv:read']).toEqual({
+                    units: 1,
+                    cost: 10,
+                    count: 1,
+                });
+            } finally {
+                (
+                    target.constructor as typeof MeteringService
+                ).USAGE_DETAIL_CACHE_MS = 0;
+            }
+        });
+
+        it('folds a flat-shaped record placed on a detail shard exactly once', async () => {
+            // The decoder treats a flat record the same as a hierarchical
+            // one, whatever put it there.
+            const month = '2026-10';
+            const userId = `legacy-${Math.random().toString(36).slice(2)}`;
+            await server.stores.kv.incr({
+                key: `${METRICS_V2_PREFIX}:actor:${userId}:detail:${USAGE_DETAIL_SHARD_COUNT - 1}:${month}`,
+                pathAndAmountMap: {
+                    'kv:read.units': 2,
+                    'kv:read.cost': 20,
+                    'kv:read.count': 1,
+                },
+            });
+            await server.stores.kv.incr({
+                key: `${METRICS_V2_PREFIX}:actor:${userId}:${month}`,
+                pathAndAmountMap: { total: 20 },
+            });
+
+            const bufActor: Actor = {
+                user: { uuid: userId, username: 'legacy' },
+            };
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+
+            expect(usage['kv:read']).toEqual({ units: 2, cost: 20, count: 1 });
+        });
+
+        it('folds a flat-shaped record placed straight on the totals and actor-app items exactly once', async () => {
+            // A flat record mixes the total and per-type data in one item —
+            // not a detail shard — and must still decode correctly.
+            const month = '2026-10';
+            const userId = `legacy-totals-${Math.random().toString(36).slice(2)}`;
+            const appId = 'app-legacy';
+            const flatPathAndAmountMap = {
+                total: 20,
+                'kv:read.units': 2,
+                'kv:read.cost': 20,
+                'kv:read.count': 1,
+            };
+            await server.stores.kv.incr({
+                key: `${METRICS_V2_PREFIX}:actor:${userId}:${month}`,
+                pathAndAmountMap: flatPathAndAmountMap,
+            });
+            await server.stores.kv.incr({
+                key: `${METRICS_V2_PREFIX}:actor:${userId}:app:${appId}:${month}`,
+                pathAndAmountMap: flatPathAndAmountMap,
+            });
+
+            const bufActor: Actor = {
+                user: { uuid: userId, username: 'legacy' },
+            };
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(usage.total).toBe(20);
+            expect(usage['kv:read']).toEqual({ units: 2, cost: 20, count: 1 });
+
+            const appUsage = await target.getActorCurrentMonthAppUsageDetails(
+                bufActor,
+                appId,
+            );
+            expect(appUsage.total).toBe(20);
+            expect(appUsage['kv:read']).toEqual({
+                units: 2,
+                cost: 20,
+                count: 1,
+            });
+        });
+
+        it('folds detail past a lowered cap into other, keeping totals exact', async () => {
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_PATH_CAP = 5;
+            try {
+                const bufActor: Actor = { user: makeUser() };
+                const usages: UsageInput[] = Array.from(
+                    { length: 8 },
+                    (_, i) => ({
+                        usageType: `provider${i}:model${i}:input`,
+                        usageAmount: 1,
+                        costOverride: 10,
+                    }),
+                );
+
+                await target.batchIncrementUsages(bufActor, usages);
+                const { usage } =
+                    await target.getActorCurrentMonthUsageDetails(bufActor);
+
+                expect(usage.total).toBe(80);
+
+                // At most 5 types keep their own row; the rest collapse into
+                // `other` — which of the 8 doesn't matter here.
+                const admitted = usages.filter((u) => usage[u.usageType]);
+                expect(admitted.length).toBeLessThanOrEqual(5);
+                const other = usage[OTHER_USAGE_TYPE] as
+                    | { cost: number }
+                    | undefined;
+                expect(other).toBeDefined();
+
+                // Nothing was lost, only regrouped: every admitted type's
+                // cost plus `other`'s adds back to the exact total.
+                const admittedCost = admitted.reduce(
+                    (sum, u) =>
+                        sum + (usage[u.usageType] as { cost: number }).cost,
+                    0,
+                );
+                expect(admittedCost + other!.cost).toBe(80);
+            } finally {
+                (
+                    target.constructor as typeof MeteringService
+                ).USAGE_DETAIL_PATH_CAP = originalPathCap;
+            }
+        });
+
+        it('keeps a type already known its own row even once the cap is full', async () => {
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_PATH_CAP = 5;
+            try {
+                const bufActor: Actor = { user: makeUser() };
+                await target.incrementUsage(
+                    bufActor,
+                    'openai:gpt-5-nano:input',
+                    1,
+                    10,
+                );
+                // Fill the rest of the cap with other types.
+                await target.batchIncrementUsages(
+                    bufActor,
+                    Array.from({ length: 4 }, (_, i) => ({
+                        usageType: `provider${i}:model${i}:input`,
+                        usageAmount: 1,
+                        costOverride: 10,
+                    })),
+                );
+
+                // The cap is now full — a brand-new type would fold into
+                // `other`, but more of an already-known one must not.
+                await target.incrementUsage(
+                    bufActor,
+                    'openai:gpt-5-nano:input',
+                    1,
+                    5,
+                );
+                const { usage } =
+                    await target.getActorCurrentMonthUsageDetails(bufActor);
+
+                expect(usage['openai:gpt-5-nano:input']).toEqual({
+                    units: 2,
+                    cost: 15,
+                    count: 2,
+                });
+            } finally {
+                (
+                    target.constructor as typeof MeteringService
+                ).USAGE_DETAIL_PATH_CAP = originalPathCap;
+            }
+        });
+
+        it('does not expose detailPaths as a usage type', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            await target.incrementUsage(bufActor, 'kv:read', 1, 10);
+
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+
+            expect(usage.detailPaths).toBeUndefined();
+        });
+
+        it('still charges the allowance when writing detail fails', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            const realIncr = server.stores.meteringBuffer.incr.bind(
+                server.stores.meteringBuffer,
+            );
+            const incrSpy = vi
+                .spyOn(server.stores.meteringBuffer, 'incr')
+                .mockImplementation(
+                    async (input: Parameters<typeof realIncr>[0]) => {
+                        if (input.key.includes(':detail:'))
+                            throw new Error('shard write boom');
+                        return realIncr(input);
+                    },
+                );
+            const warnSpy = vi
+                .spyOn(console, 'warn')
+                .mockImplementation(() => {});
+
+            const usage = await target.incrementUsage(
+                bufActor,
+                'kv:read',
+                1,
+                10,
+            );
+            incrSpy.mockRestore();
+            warnSpy.mockRestore();
+
+            // `usage` predates the settle's own allowanceUsed write (same as
+            // any other call) — a fresh read is what confirms the charge.
+            expect(usage.total).toBe(10);
+            const settled =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(settled.usage.allowanceUsed).toBe(10);
+        });
+
+        it('still charges the allowance when the detail write throws outright', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            // A synchronous throw escapes #recordDetail's own per-write
+            // catches, so only the billing path's guard stands in the way.
+            const auxSpy = vi
+                .spyOn(server.stores.meteringBuffer, 'incrAux')
+                .mockImplementation(() => {
+                    throw new Error('aux boom');
+                });
+            const warnSpy = vi
+                .spyOn(console, 'warn')
+                .mockImplementation(() => {});
+
+            const usage = await target.incrementUsage(
+                bufActor,
+                'kv:read',
+                1,
+                10,
+            );
+            auxSpy.mockRestore();
+            warnSpy.mockRestore();
+
+            expect(usage.total).toBe(10);
+            const settled =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(settled.usage.allowanceUsed).toBe(10);
+        });
+
+        it('still invalidates credits on a correction when writing detail fails', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            await target.incrementUsage(bufActor, 'kv:read', 1, 10);
+
+            const realIncr = server.stores.meteringBuffer.incr.bind(
+                server.stores.meteringBuffer,
+            );
+            const incrSpy = vi
+                .spyOn(server.stores.meteringBuffer, 'incr')
+                .mockImplementation(
+                    async (input: Parameters<typeof realIncr>[0]) => {
+                        if (input.key.includes(':detail:'))
+                            throw new Error('shard write boom');
+                        return realIncr(input);
+                    },
+                );
+            const warnSpy = vi
+                .spyOn(console, 'warn')
+                .mockImplementation(() => {});
+            const invalidateSpy = vi.spyOn(target, 'invalidateActorCredits');
+
+            await target.setActorCurrentMonthUsageTotal(bufActor, 5);
+            incrSpy.mockRestore();
+            warnSpy.mockRestore();
+
+            expect(invalidateSpy).toHaveBeenCalledWith(bufActor.user!.uuid);
+            invalidateSpy.mockRestore();
+        });
+
+        it('keeps a colon-free type and its own kinds both readable, and counts both as new', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            // "kv" (head-only) and "kv:read" (head "kv", kind "read") share a
+            // shard item — both land under the same top-level key there.
+            await target.incrementUsage(bufActor, 'kv', 1, 10);
+            await target.incrementUsage(bufActor, 'kv:read', 1, 20);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+
+            expect(usage.kv).toEqual({ units: 1, cost: 10, count: 1 });
+            expect(usage['kv:read']).toEqual({ units: 1, cost: 20, count: 1 });
+
+            const month = '2026-10';
+            const totalsKey = `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:${month}`;
+            const { res } = await server.stores.kv.get({ key: totalsKey });
+            expect((res as { detailPaths?: number })?.detailPaths).toBe(2);
+        });
+    });
+
+    // ── appTotals (prefix listing) ──────────────────────────────────────
+
+    describe('appTotals (prefix listing)', () => {
+        let originalCacheMs: number;
+
+        beforeAll(() => {
+            originalCacheMs = (target.constructor as typeof MeteringService)
+                .USAGE_DETAIL_CACHE_MS;
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_CACHE_MS = 0;
+        });
+        afterAll(() => {
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_CACHE_MS = originalCacheMs;
+        });
+
+        it('lists every app the actor used this month, with total and count', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            const appOne = resolveActor({
+                ...bufActor,
+                app: { uid: 'app-one' },
+            });
+            await target.incrementUsage(appOne, 'kv:read', 1, 10);
+            await target.incrementUsage(appOne, 'kv:read', 1, 5);
+            await target.incrementUsage(
+                resolveActor({ ...bufActor, app: { uid: 'app-two' } }),
+                'kv:read',
+                1,
+                20,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+
+            const { appTotals } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+
+            expect(appTotals['app-one']).toEqual({ total: 15, count: 2 });
+            expect(appTotals['app-two']).toEqual({ total: 20, count: 1 });
+        });
+
+        it('merges a buffered, not-yet-flushed delta into the listing', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            const appActor = resolveActor({
+                ...bufActor,
+                app: { uid: 'app-buffered' },
+            });
+            await target.incrementUsage(appActor, 'kv:read', 1, 10);
+            await server.stores.meteringBuffer.flushCycle();
+            // Not flushed — the key already exists (listable), but this
+            // increment is still only in the buffer.
+            await target.incrementUsage(appActor, 'kv:read', 1, 5);
+
+            const { appTotals } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(appTotals['app-buffered']).toEqual({ total: 15, count: 2 });
+        });
+
+        it('never lists a detail or appdetail shard as an app', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            await target.incrementUsage(
+                resolveActor({ ...bufActor, app: { uid: 'app-shard' } }),
+                'openai:gpt-5-nano:input',
+                1,
+                10,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+
+            const { appTotals } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(Object.keys(appTotals)).toEqual(['app-shard']);
+        });
+
+        it("ignores another month's app totals", async () => {
+            const bufActor: Actor = { user: makeUser() };
+            await server.stores.kv.incr({
+                key: `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:app:app-old:2020-01`,
+                pathAndAmountMap: { total: 999, count: 1 },
+            });
+            await target.incrementUsage(
+                resolveActor({ ...bufActor, app: { uid: 'app-new' } }),
+                'kv:read',
+                1,
+                10,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+
+            const { appTotals } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(appTotals['app-old']).toBeUndefined();
+            expect(appTotals['app-new']).toEqual({ total: 10, count: 1 });
+        });
+
+        it('an app actor sees only its own total, with everyone else folded into others', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            await target.incrementUsage(
+                resolveActor({ ...bufActor, app: { uid: 'app-mine' } }),
+                'kv:read',
+                1,
+                10,
+            );
+            await target.incrementUsage(
+                resolveActor({ ...bufActor, app: { uid: 'app-theirs' } }),
+                'kv:read',
+                1,
+                20,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+
+            const appActor = resolveActor({
+                ...bufActor,
+                app: { uid: 'app-mine' },
+            });
+            const { appTotals } =
+                await target.getActorCurrentMonthUsageDetails(appActor);
+
+            expect(appTotals['app-mine']).toEqual({ total: 10, count: 1 });
+            expect(appTotals['app-theirs']).toBeUndefined();
+            expect(appTotals.others).toEqual({ total: 20, count: 1 });
+        });
+
+        it('caches the app-totals listing and invalidates it on a correction', async () => {
+            (
+                target.constructor as typeof MeteringService
+            ).USAGE_DETAIL_CACHE_MS = 60_000;
+            try {
+                const bufActor: Actor = { user: makeUser() };
+                await target.incrementUsage(
+                    resolveActor({ ...bufActor, app: { uid: 'app-cached' } }),
+                    'kv:read',
+                    1,
+                    10,
+                );
+                await server.stores.meteringBuffer.flushCycle();
+
+                const first =
+                    await target.getActorCurrentMonthUsageDetails(bufActor);
+                expect(first.appTotals['app-cached']).toEqual({
+                    total: 10,
+                    count: 1,
+                });
+
+                const listSpy = vi.spyOn(server.stores.kv, 'list');
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+                expect(listSpy).not.toHaveBeenCalled();
+
+                await target.setActorCurrentMonthUsageTotal(bufActor, 50);
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+                expect(listSpy).toHaveBeenCalled();
+                listSpy.mockRestore();
+            } finally {
+                (
+                    target.constructor as typeof MeteringService
+                ).USAGE_DETAIL_CACHE_MS = 0;
+            }
+        });
+
+        it('a user with 150 apps still returns every one of them', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            const month = currentMonthString();
+            // Seeded directly: 150 full increments flush ~600 keys and time
+            // out under coverage.
+            await Promise.all(
+                Array.from({ length: 150 }, (_, i) =>
+                    server.stores.kv.incr({
+                        key: `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:app:app-${i}:${month}`,
+                        pathAndAmountMap: { total: 1, count: 1 },
+                    }),
+                ),
+            );
+
+            const { appTotals } =
+                await target.getActorCurrentMonthUsageDetails(bufActor);
+            expect(Object.keys(appTotals)).toHaveLength(150);
+            expect(appTotals['app-77']).toEqual({ total: 1, count: 1 });
+        }, 30_000);
+    });
+
+    // ── The removed `:apps:` item ────────────────────────────────────────
+
+    describe('no more per-actor apps item', () => {
+        it('never writes the old unsharded apps-totals key', async () => {
+            const bufActor: Actor = { user: makeUser() };
+            const month = currentMonthString();
+            await target.incrementUsage(
+                resolveActor({ ...bufActor, app: { uid: 'app-x' } }),
+                'kv:read',
+                1,
+                10,
+            );
+            await server.stores.meteringBuffer.flushCycle();
+
+            const { res } = await server.stores.kv.get({
+                key: `${METRICS_V2_PREFIX}:actor:${bufActor.user!.uuid}:apps:${month}`,
+            });
+            expect(res).toBeNull();
         });
     });
 });

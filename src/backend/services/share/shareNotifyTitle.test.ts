@@ -246,4 +246,33 @@ describe('email digests', () => {
             },
         ]);
     });
+
+    it('carries the issuing app onto the line, as "via"', () => {
+        const merged = mergeDigestEntry([], 'alice', 1, [item('a.txt')], 'Draw');
+        expect(merged).toEqual([
+            { username: 'alice', count: 1, items: [item('a.txt')], app: 'Draw' },
+        ]);
+        expect(digestLines(merged)).toMatchObject([
+            { sender: 'alice', what: 'a.txt', via: 'Draw' },
+        ]);
+        // No app, no `via` key — the template's {{#if}} must see nothing.
+        expect(digestLines([{ username: 'bob', count: 1, items: [] }])[0])
+            .not.toHaveProperty('via');
+    });
+
+    it('drops the app when one sender arrives through two sources', () => {
+        const viaApp = mergeDigestEntry([], 'alice', 1, [item('a.txt')], 'Draw');
+        // Same app again: attribution holds.
+        expect(
+            mergeDigestEntry(viaApp, 'alice', 1, [item('b.txt')], 'Draw')[0].app,
+        ).toBe('Draw');
+        // A plain share, or another app, makes the line nobody's to claim.
+        expect(mergeDigestEntry(viaApp, 'alice', 1, [])[0].app).toBeNull();
+        expect(
+            mergeDigestEntry(viaApp, 'alice', 1, [], 'Notes')[0].app,
+        ).toBeNull();
+        // A different sender keeps their own attribution.
+        const two = mergeDigestEntry(viaApp, 'bob', 1, [], 'Notes');
+        expect(two.map((entry) => entry.app)).toEqual(['Draw', 'Notes']);
+    });
 });

@@ -1,61 +1,72 @@
 # Default owner, including backend and SDK areas without a specialist below.
+
 # The last matching rule takes precedence.
-* @Salazareo
+
+- @Salazareo
 
 # GUI
+
 /src/gui/ @jelveh @Salazareo
 
 # Documentation, developer site, and CLI
-/doc/ @reynaldichernando
-/src/docs/ @reynaldichernando
-/src/dev-center/ @reynaldichernando
-/src/cli/ @reynaldichernando
+
+/doc/ @reynaldichernando @Salazareo
+/src/docs/ @reynaldichernando @Salazareo
+/src/dev-center/ @reynaldichernando @Salazareo
+/src/cli/ @reynaldichernando @Salazareo
+
+# Backend AI
+
+/src/backend/controllers/puterai/ @404oops @ProgrammerIn-wonderland @Salazareo
+/src/backend/drivers/ai-\*/ @404oops @ProgrammerIn-wonderland @Salazareo
 
 # Backend: AI, hosting, workers, networking, and WebDAV
-/src/backend/controllers/puterai/ @ProgrammerIn-wonderland
-/src/backend/controllers/hosting/ @ProgrammerIn-wonderland
-/src/backend/controllers/webdav/ @ProgrammerIn-wonderland
-/src/backend/controllers/wisp/ @ProgrammerIn-wonderland
-/src/backend/drivers/ai-*/ @ProgrammerIn-wonderland
-/src/backend/drivers/util/ @ProgrammerIn-wonderland
-/src/backend/drivers/workers/ @ProgrammerIn-wonderland
-/src/backend/services/localworker/ @ProgrammerIn-wonderland
-/src/backend/stores/subdomain/ @ProgrammerIn-wonderland
-/extensions/workerSandbox* @ProgrammerIn-wonderland
-/src/worker/ @ProgrammerIn-wonderland
-/src/worker-types/ @ProgrammerIn-wonderland
-/src/backend/controllers/peer/ @ProgrammerIn-wonderland
+
+/src/backend/controllers/hosting/ @ProgrammerIn-wonderland @Salazareo
+/src/backend/controllers/webdav/ @ProgrammerIn-wonderland @Salazareo
+/src/backend/controllers/wisp/ @ProgrammerIn-wonderland @Salazareo
+/src/backend/drivers/util/ @ProgrammerIn-wonderland @Salazareo
+/src/backend/drivers/workers/ @ProgrammerIn-wonderland @Salazareo
+/src/backend/services/localworker/ @ProgrammerIn-wonderland @Salazareo
+/src/backend/stores/subdomain/ @ProgrammerIn-wonderland @Salazareo
+/extensions/workerSandbox\* @ProgrammerIn-wonderland @Salazareo
+/src/worker/ @ProgrammerIn-wonderland @Salazareo
+/src/worker-types/ @ProgrammerIn-wonderland @Salazareo
+/src/backend/controllers/peer/ @ProgrammerIn-wonderland @Salazareo
 
 # Backend: sharing, permissions, and teams
-/src/backend/controllers/share/ @jfcastro92
-/src/backend/controllers/team/ @jfcastro92
-/src/backend/services/share/ @jfcastro92
-/src/backend/services/permission/ @jfcastro92
-/src/backend/services/acl/ @jfcastro92
-/src/backend/services/team/ @jfcastro92
-/src/backend/services/apps/AppPermissionService* @jfcastro92
-/src/backend/stores/share/ @jfcastro92
-/src/backend/stores/permission/ @jfcastro92
-/src/backend/stores/group/ @jfcastro92
-/src/backend/stores/team/ @jfcastro92
+
+/src/backend/controllers/share/ @jfcastro92 @Salazareo
+/src/backend/controllers/team/ @jfcastro92 @Salazareo
+/src/backend/services/share/ @jfcastro92 @Salazareo
+/src/backend/services/permission/ @jfcastro92 @Salazareo
+/src/backend/services/acl/ @jfcastro92 @Salazareo
+/src/backend/services/team/ @jfcastro92 @Salazareo
+/src/backend/services/apps/AppPermissionService\* @jfcastro92 @Salazareo
+/src/backend/stores/share/ @jfcastro92 @Salazareo
+/src/backend/stores/permission/ @jfcastro92 @Salazareo
+/src/backend/stores/group/ @jfcastro92 @Salazareo
+/src/backend/stores/team/ @jfcastro92 @Salazareo
 
 # SDK: AI, hosting, workers, and networking
-/src/puter-js/src/modules/ai/ @ProgrammerIn-wonderland
-/src/puter-js/src/modules/hosting/ @ProgrammerIn-wonderland
-/src/puter-js/src/modules/Workers* @ProgrammerIn-wonderland
-/src/puter-js/src/modules/networking/ @ProgrammerIn-wonderland
-/src/puter-js/src/lib/networkUtils* @ProgrammerIn-wonderland
-/src/puter-js/tests/api/suites/ai.suite.ts @ProgrammerIn-wonderland
-/src/puter-js/tests/api/suites/hosting.suite.ts @ProgrammerIn-wonderland
-/src/puter-js/tests/api/suites/workers.suite.ts @ProgrammerIn-wonderland
-/src/puter-js/tests/api/suites/net.suite.ts @ProgrammerIn-wonderland
-/src/puter-js/src/modules/Peer* @ProgrammerIn-wonderland
+
+/src/puter-js/src/modules/ai/ @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/src/modules/hosting/ @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/src/modules/Workers* @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/src/modules/networking/ @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/src/lib/networkUtils* @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/tests/api/suites/ai.suite.ts @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/tests/api/suites/hosting.suite.ts @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/tests/api/suites/workers.suite.ts @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/tests/api/suites/net.suite.ts @ProgrammerIn-wonderland @Salazareo
+/src/puter-js/src/modules/Peer\* @ProgrammerIn-wonderland @Salazareo
 
 # SDK: sharing and permissions
+
 /src/puter-js/src/modules/perms/ @jfcastro92
-/src/puter-js/src/modules/FileSystem/operations/share* @jfcastro92
-/src/puter-js/src/modules/FileSystem/operations/unshare* @jfcastro92
-/src/puter-js/src/modules/FileSystem/operations/getShares* @jfcastro92
-/src/puter-js/src/modules/FileSystem/operations/listShared* @jfcastro92
-/src/puter-js/tests/api/suites/perms.suite.ts @jfcastro92
-/src/puter-js/tests/api/suites/sharing.suite.ts @jfcastro92
+/src/puter-js/src/modules/FileSystem/operations/share* @jfcastro92 @Salazareo
+/src/puter-js/src/modules/FileSystem/operations/unshare* @jfcastro92 @Salazareo
+/src/puter-js/src/modules/FileSystem/operations/getShares* @jfcastro92 @Salazareo
+/src/puter-js/src/modules/FileSystem/operations/listShared* @jfcastro92 @Salazareo
+/src/puter-js/tests/api/suites/perms.suite.ts @jfcastro92 @Salazareo
+/src/puter-js/tests/api/suites/sharing.suite.ts @jfcastro92 @Salazareo

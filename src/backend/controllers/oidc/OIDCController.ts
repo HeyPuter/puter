@@ -24,6 +24,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { normalizeBonusCode } from '../../util/signupBonus.js';
 import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
 import {
     SHARE_DEEP_LINK_ITEMS_LIMIT,
@@ -52,6 +53,7 @@ const ALLOWED_ERRORS = [
     'account_suspended',
     'unauthorized',
     'signup_blocked',
+    'bonus_code_invalid',
 ] as const;
 
 /**
@@ -69,6 +71,23 @@ function resolutionErrorCode(code: string | undefined): string {
     return (ALLOWED_ERRORS as readonly string[]).includes(code)
         ? code
         : 'signup_blocked';
+}
+
+/** What a new account created by an OIDC callback inherits from its flow. */
+interface OIDCSignupOptions {
+    referrer?: string | null;
+    bonusCode?: string | null;
+}
+
+function signupOptionsFromState(
+    stateDecoded: Record<string, unknown>,
+): OIDCSignupOptions {
+    return {
+        referrer: (stateDecoded.referrer as string) ?? null,
+        // Normalized when the state was signed; re-checked since this is the
+        // value signup acts on.
+        bonusCode: normalizeBonusCode(stateDecoded.bonus_code),
+    };
 }
 
 // GUI pages an OIDC flow may return to: the root (where a share email lands),
@@ -240,6 +259,13 @@ function buildErrorRedirectUrl(
     if (requestCode) {
         params.set('request_code', requestCode);
     }
+    // A retry from the error page keeps the bonus code, unless it's what failed.
+    if (
+        typeof stateDecoded?.bonus_code === 'string' &&
+        clamped !== 'bonus_code_invalid'
+    ) {
+        params.set('bonusCode', stateDecoded.bonus_code);
+    }
     for (const path of sharedPaths) {
         params.append(SHARE_DEEP_LINK_PARAM, path);
     }
@@ -323,6 +349,7 @@ export class OIDCController extends PuterController {
                     opener_origin: decoded.opener_origin ?? null,
                     msg_id: decoded.msg_id ?? null,
                     oidc_login: decoded.oidc_login === true,
+                    user_uuid: decoded.user_uuid ?? null,
                 });
             },
         );
@@ -443,6 +470,15 @@ export class OIDCController extends PuterController {
                     redirect_uri: appRedirectUri,
                 };
                 if (referrer) statePayload.referrer = referrer ?? openerOrigin;
+                // Login can create an account too, so both flows carry it. A
+                // malformed code is dropped here and never reaches signup.
+                const rawBonusCode = Array.isArray(req.query.bonusCode)
+                    ? req.query.bonusCode[0]
+                    : req.query.bonusCode;
+                const bonusCode = normalizeBonusCode(rawBonusCode);
+                if (bonusCode && (flow === 'login' || flow === 'signup')) {
+                    statePayload.bonus_code = bonusCode;
+                }
                 if (embeddedInPopup && msgId) {
                     statePayload.embedded_in_popup = true;
                     statePayload.msg_id = msgId;
@@ -527,7 +563,7 @@ export class OIDCController extends PuterController {
             const resolved = await this.#resolveOrCreateOIDCUser(
                 provider,
                 userinfo,
-                (stateDecoded.referrer as string) ?? null,
+                signupOptionsFromState(stateDecoded),
             );
             if ('error' in resolved) {
                 console.warn(
@@ -594,7 +630,7 @@ export class OIDCController extends PuterController {
             const resolved = await this.#resolveOrCreateOIDCUser(
                 provider,
                 userinfo,
-                (stateDecoded.referrer as string) ?? null,
+                signupOptionsFromState(stateDecoded),
             );
             if ('error' in resolved) {
                 console.warn(
@@ -762,7 +798,7 @@ if (window.opener) {
     async #resolveOrCreateOIDCUser(
         provider: string,
         userinfo: { sub: string; email?: unknown; [k: string]: unknown },
-        referrer?: string | null,
+        signup: OIDCSignupOptions = {},
         attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
@@ -812,7 +848,8 @@ if (window.opener) {
         const outcome = await this.services.oidc.createUserFromOIDC(
             provider,
             userinfo as { sub: string; email?: string },
-            referrer,
+            signup.referrer ?? null,
+            { bonusCode: signup.bonusCode ?? null },
         );
         // A concurrent callback (a second tab, a provider retry) created the
         // account between step 2 and the insert. Nothing went wrong for the
@@ -822,7 +859,7 @@ if (window.opener) {
             return this.#resolveOrCreateOIDCUser(
                 provider,
                 userinfo,
-                referrer,
+                signup,
                 attempt + 1,
             );
         }
@@ -945,6 +982,11 @@ if (window.opener) {
             // identity to mint a token for, so it needs the integrity this
             // state already carries — re-signed here, at the one point where
             // the round trip is known to have actually happened.
+            //
+            // `user_uuid` binds the proof to the account that just completed
+            // OIDC. Without it a proof from one login could be replayed in
+            // another signed-in browser to skip its account picker; the popup
+            // only honors `oidc_login` when this matches its current user.
             target = appendQueryParam(
                 target,
                 'opener_state',
@@ -952,6 +994,7 @@ if (window.opener) {
                     opener_origin: stateDecoded.opener_origin ?? null,
                     msg_id: stateDecoded.msg_id ?? null,
                     oidc_login: true,
+                    user_uuid: user.uuid,
                 }),
             );
         }

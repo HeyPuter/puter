@@ -121,6 +121,82 @@ const SAMPLE_API_MODELS = [
         min_completion_price: 10,
     },
     {
+        // Sold at several service tiers; the flex tier undercuts standard.
+        id: 'openai/gpt-6-astra',
+        display_name: 'OpenAI: GPT-6 Astra',
+        category_type: 'LLM',
+        supported_endpoint_types: ['openai'],
+        context_length: 1050000,
+        max_output_tokens: 128000,
+        min_prompt_price: 5,
+        min_completion_price: 25,
+        providers: [
+            {
+                provider_slug: 'openai/flex',
+                service_tier: 'flex',
+                prompt_price: 5,
+                completion_price: 25,
+                context_length: 400000,
+            },
+            {
+                provider_slug: 'azure',
+                service_tier: 'standard',
+                prompt_price: 7.5,
+                completion_price: 37.5,
+            },
+            {
+                provider_slug: 'openai',
+                service_tier: 'standard',
+                prompt_price: 10,
+                completion_price: 50,
+            },
+            {
+                provider_slug: 'openai/priority',
+                service_tier: 'priority',
+                prompt_price: 20,
+                completion_price: 100,
+            },
+        ],
+    },
+    {
+        // Flex is the only tier on offer — nothing to pin.
+        id: 'example/flex-only-model',
+        display_name: 'Flex Only',
+        category_type: 'LLM',
+        supported_endpoint_types: ['openai'],
+        context_length: 128000,
+        max_output_tokens: 4096,
+        min_prompt_price: 1,
+        min_completion_price: 2,
+        providers: [
+            {
+                provider_slug: 'example/flex',
+                service_tier: 'flex',
+                prompt_price: 1,
+                completion_price: 2,
+            },
+        ],
+    },
+    {
+        // Catalog ids can contain a colon of their own.
+        id: 'example/colon-model:free',
+        display_name: 'Colon Model (free)',
+        category_type: 'LLM',
+        supported_endpoint_types: ['openai'],
+        context_length: 64000,
+        max_output_tokens: 4096,
+        min_prompt_price: 0,
+        min_completion_price: 0,
+        providers: [
+            {
+                provider_slug: 'example',
+                service_tier: 'standard',
+                prompt_price: 0,
+                completion_price: 0,
+            },
+        ],
+    },
+    {
         // Non-chat modality — filtered out.
         id: 'black-forest-labs/flux-2.1',
         display_name: 'FLUX 2.1',
@@ -262,10 +338,87 @@ describe('InfronProvider model catalog', () => {
         expect(axiosRequestMock).toHaveBeenCalledTimes(1);
     });
 
+    it('quotes the tier Infron routes to by default, not the cheaper flex tier', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+        // Cheapest standard offering is Azure at $7.5/$37.5 per million,
+        // not the $5/$25 flex tier the catalog floor reports.
+        expect(models).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'infron:openai/gpt-6-astra',
+                    costs: expect.objectContaining({
+                        prompt: 750,
+                        completion: 3750,
+                        input_cache_read: 750,
+                    }),
+                }),
+            ]),
+        );
+    });
+
+    it('lists a :flex id alongside the default-tier id, each at its own price', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+
+        expect(models).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'infron:openai/gpt-6-astra',
+                    costs: expect.objectContaining({
+                        prompt: 750,
+                        completion: 3750,
+                    }),
+                }),
+                expect.objectContaining({
+                    id: 'infron:openai/gpt-6-astra:flex',
+                    costs: expect.objectContaining({
+                        prompt: 500,
+                        completion: 2500,
+                    }),
+                }),
+                expect.objectContaining({
+                    id: 'infron:openai/gpt-6-astra:priority',
+                    costs: expect.objectContaining({
+                        prompt: 2000,
+                        completion: 10000,
+                    }),
+                }),
+            ]),
+        );
+    });
+
+    it('takes a tier variant context window from its own offering', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+        const flex = models.find(
+            (m) => m.id === 'infron:openai/gpt-6-astra:flex',
+        );
+        // The flex offering caps context below the model-level figure.
+        expect(flex?.context).toBe(400000);
+    });
+
+    it('accepts the explicit :standard spelling as an alias of the plain id', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+        const base = models.find((m) => m.id === 'infron:openai/gpt-6-astra');
+        expect(base?.aliases).toContain('openai/gpt-6-astra:standard');
+    });
+
+    it('still offers an explicit tier id when no default tier is sold', async () => {
+        const { provider } = makeProvider();
+        const ids = await provider.list();
+        // The plain id leaves routing to Infron; the :flex id pins the one
+        // tier on offer. Same price, different routing guarantee.
+        expect(ids).toContain('infron:example/flex-only-model');
+        expect(ids).toContain('infron:example/flex-only-model:flex');
+    });
+
     it('converts USD-per-million-token prices to microcents per token', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
-        // $10/M tokens → 10 * 100 = 1000 microcents per token.
+        // $10/M tokens → 10 * 100 = 1000 microcents per token. This model
+        // carries no per-tier breakdown, so the catalog floor is used.
         expect(models).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
@@ -312,6 +465,68 @@ describe('InfronProvider.complete request shape', () => {
         // Infron requires `usage: { include: true }` to surface the
         // cost field — the provider always sets this.
         expect(args.usage).toEqual({ include: true });
+    });
+
+    it('pins the standard service tier so billing matches the quoted price', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'infron:openai/gpt-6-astra',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].provider).toEqual({
+            service_tier: 'standard',
+        });
+    });
+
+    it('leaves routing to Infron for models with no standard tier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'infron:example/flex-only-model',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        expect('provider' in createMock.mock.calls[0]![0]).toBe(false);
+    });
+
+    it('pins the tier named by a :flex model id and strips it from the wire id', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'infron:openai/gpt-6-astra:flex',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.model).toBe('openai/gpt-6-astra');
+        expect(args.provider).toEqual({ service_tier: 'flex' });
+    });
+
+    it('keeps a colon-bearing catalog id intact rather than reading it as a tier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'infron:example/colon-model:free',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.model).toBe('example/colon-model:free');
+        expect(args.provider).toEqual({ service_tier: 'standard' });
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {

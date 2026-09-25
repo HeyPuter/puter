@@ -53,6 +53,7 @@ export interface OrgSeatRow {
     uuid: string;
     username: string;
     team_uid: string;
+    team_name: string | null;
     owner_user_id: number;
 }
 
@@ -147,7 +148,10 @@ const RESERVED_HANDLES = new Set([
 ]);
 
 export type HandleRejection =
-    'too_short' | 'too_long' | 'malformed' | 'reserved';
+    | 'too_short'
+    | 'too_long'
+    | 'malformed'
+    | 'reserved';
 
 /** Trimmed and capped, so the same name is accepted on every engine. */
 export const normalizeTeamName = (name: string): string => {
@@ -177,8 +181,23 @@ export class TeamStore extends PuterStore {
     }
 
     /** Makes the seeded `kind IS NULL` groups unreachable, not merely absent. */
-    #live(): string {
-        return '`kind` = ? AND `deleted_at` IS NULL';
+    #live(alias = ''): string {
+        const prefix = alias ? `${alias}.` : '';
+        return `${prefix}\`kind\` = ? AND ${prefix}\`deleted_at\` IS NULL`;
+    }
+
+    /**
+     * Excludes a suspended account and one that never took up its credential
+     * (activation is `requires_password_change` clearing, not the password
+     * existing — a provisioned seat holds the temporary one from birth).
+     */
+    #activeAccount(alias = ''): string {
+        const prefix = alias ? `${alias}.` : '';
+        return (
+            `(${prefix}\`suspended\` IS NULL OR ${prefix}\`suspended\` = 0) ` +
+            `AND (${prefix}\`requires_password_change\` IS NULL ` +
+            `OR ${prefix}\`requires_password_change\` = 0)`
+        );
     }
 
     // -- Reads --------------------------------------------------------
@@ -345,15 +364,54 @@ export class TeamStore extends PuterStore {
         return (rows[0] as unknown as TeamMemberRow) ?? null;
     }
 
+    /** As `getMembership`, deleted team included; uncached — deletion is rare. */
+    async getMembershipIncludingDeleted(
+        teamUid: string,
+        userId: number,
+    ): Promise<TeamMemberRow | null> {
+        const rows = await this.clients.db.read(
+            'SELECT ug.`id`, ug.`user_id`, ug.`group_id`, ug.`org_owned`, ' +
+                'ug.`created_at`, u.`username`, u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                'WHERE g.`uid` = ? AND ug.`user_id` = ? AND g.`kind` = ?',
+            [teamUid, userId, TEAM_KIND],
+        );
+        return (rows[0] as unknown as TeamMemberRow) ?? null;
+    }
+
     /** Whether this user belongs to this team. */
     async isMember(teamUid: string, userId: number): Promise<boolean> {
         return (await this.getMembership(teamUid, userId)) !== null;
     }
 
-    /** A team's members, keyset-paginated on `id` per doc/pagination.md. */
+    /**
+     * Which of `userIds` belong to this team; bounded by its input, no page
+     * cap.
+     */
+    async memberIdsAmong(
+        teamUid: string,
+        userIds: number[],
+    ): Promise<number[]> {
+        const ids = [...new Set(userIds)].filter((id) => Number.isFinite(id));
+        if (ids.length === 0) return [];
+        const rows = (await this.clients.db.read(
+            'SELECT ug.`user_id` FROM `jct_user_group` ug ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE g.\`uid\` = ? AND ${this.#live('g')} ` +
+                `AND ug.\`user_id\` IN (${ids.map(() => '?').join(', ')})`,
+            [teamUid, TEAM_KIND, ...ids],
+        )) as { user_id: number }[];
+        return rows.map((row) => Number(row.user_id));
+    }
+
+    /**
+     * A team's members, keyset-paginated on `id` per doc/pagination.md.
+     * `activeOnly` keeps only accounts the directory would list.
+     */
     async listMembers(
         teamUid: string,
-        opts: { limit?: unknown; cursor?: string } = {},
+        opts: { limit?: unknown; cursor?: string; activeOnly?: boolean } = {},
     ): Promise<PageResult<TeamMemberRow>> {
         const limit =
             normalizeLimit(opts.limit, { cap: MEMBER_PAGE_CAP }) ??
@@ -368,6 +426,7 @@ export class TeamStore extends PuterStore {
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND g.${this.#live()}` +
+                (opts.activeOnly ? ` AND ${this.#activeAccount('u')}` : '') +
                 (after === null ? '' : ' AND ug.`id` > ?') +
                 ' ORDER BY ug.`id` LIMIT ?',
             after === null
@@ -387,9 +446,6 @@ export class TeamStore extends PuterStore {
      * The directory page: who a member may be suggested alongside. Excludes
      * suspended accounts and ones that never activated -- offering someone who
      * cannot sign in is noise, and their existence is not this list's to tell.
-     *
-     * Activation is `requires_password_change` clearing, not the password
-     * existing: a provisioned seat holds the temporary one from birth.
      */
     async listDirectory(
         teamUid: string,
@@ -406,9 +462,7 @@ export class TeamStore extends PuterStore {
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +
                 `WHERE g.\`uid\` = ? AND g.${this.#live()} ` +
-                'AND (u.`suspended` IS NULL OR u.`suspended` = 0) ' +
-                'AND (u.`requires_password_change` IS NULL ' +
-                'OR u.`requires_password_change` = 0)' +
+                `AND ${this.#activeAccount('u')}` +
                 (after === null ? '' : ' AND ug.`id` > ?') +
                 ' ORDER BY ug.`id` LIMIT ?',
             after === null
@@ -596,11 +650,44 @@ export class TeamStore extends PuterStore {
         return Number(rows[0]?.n ?? 0);
     }
 
+    /**
+     * Uuids of the seats a team is actually billed for, keyed by `uid` because
+     * that is what the billing side holds. Same filter as `countActiveSeats`;
+     * the quantities are per tier now, so a count is no longer enough.
+     */
+    async listActiveSeatUuids(teamUid: string): Promise<string[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT u.`uuid` AS `uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE g.\`uid\` = ? AND g.${this.#live()} ` +
+                'AND ug.`org_owned` = 1 ' +
+                'AND (u.`suspended` IS NULL OR u.`suspended` = 0)',
+            [teamUid, TEAM_KIND],
+        )) as unknown as { uuid: string }[];
+        return rows.map((r) => r.uuid).filter(Boolean);
+    }
+
     /** Live teams this user owns. Soft-deleted ones do not count. */
     async countOwned(ownerUserId: number): Promise<number> {
         const rows = (await this.clients.db.read(
             'SELECT COUNT(*) AS n FROM `group` ' +
                 `WHERE \`owner_user_id\` = ? AND ${this.#live()}`,
+            [ownerUserId, TEAM_KIND],
+        )) as { n: number }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
+    /**
+     * Teams this user owns that still hold provisioned accounts, soft-deleted
+     * ones included: a deleted team's seats are suspended, not gone.
+     */
+    async countOwnedTeamsWithAccounts(ownerUserId: number): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(DISTINCT g.`id`) AS n FROM `group` g ' +
+                'JOIN `jct_user_group` ug ON ug.`group_id` = g.`id` ' +
+                'WHERE g.`owner_user_id` = ? AND g.`kind` = ? ' +
+                'AND ug.`org_owned` = 1',
             [ownerUserId, TEAM_KIND],
         )) as { n: number }[];
         return Number(rows[0]?.n ?? 0);
@@ -626,7 +713,8 @@ export class TeamStore extends PuterStore {
     async #readOrgSeat(userId: number): Promise<OrgSeatRow | null> {
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, u.`uuid`, u.`username`, ' +
-                'g.`uid` AS `team_uid`, g.`owner_user_id` ' +
+                'g.`uid` AS `team_uid`, g.`name` AS `team_name`, ' +
+                'g.`owner_user_id` ' +
                 'FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +

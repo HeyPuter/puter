@@ -18,12 +18,36 @@
  */
 
 import { IImageModel } from '../../types.js';
+import { ADDITIONAL_REPLICATE_IMAGE_MODELS } from './catalog.js';
 
-export type ReplicateBillingScheme = 'per-image' | 'megapixel';
+export type ReplicateBillingScheme = 'per-image' | 'megapixel' | 'metered';
+
+export interface ReplicateInputField {
+    type?: string;
+    enum?: (string | number | boolean)[];
+    default?: unknown;
+    minimum?: number;
+    maximum?: number;
+    minLength?: number;
+    maxItems?: number;
+}
+
+export interface ReplicateBillingRate {
+    when?: Record<string, string | number | boolean>;
+    costs: Record<string, number>;
+}
 
 export type ReplicateImageModel = IImageModel & {
     replicateId: string;
     billingScheme: ReplicateBillingScheme;
+    replicateVersion?: string;
+    inputSchema?: Record<string, ReplicateInputField>;
+    requiredInputs?: string[];
+    promptKey?: string | false;
+    billingRates?: ReplicateBillingRate[];
+    priceSource?: string;
+    outputIndex?: number;
+    unavailableReason?: string;
     imageInputKey?: string; // our `input_images`
     singleImageInputKey?: string; // our `input_image`
     /** Cost map used when `go_fast: true` (e.g. flux-2-dev fast mode). */
@@ -196,10 +220,10 @@ export const REPLICATE_IMAGE_GENERATION_MODELS: ReplicateImageModel[] = [
         costs_currency: 'usd-cents',
         index_cost_key: 'output',
         costs: {
-            output: 1.65, // standard: 11 units * $0.0015/unit = $0.0165
+            output: 1.67,
         },
         costs_by_generation_mode: {
-            standard: { output: 1.65 },
+            standard: { output: 1.67 },
             ultra: { output: 7.65 }, // 51 units * $0.0015/unit = $0.0765
         },
         billingScheme: 'per-image',
@@ -212,6 +236,7 @@ export const REPLICATE_IMAGE_GENERATION_MODELS: ReplicateImageModel[] = [
     },
     {
         id: 'leonardoai/phoenix-1.0',
+        unavailableReason: 'Replicate reports an upstream generation failure.',
         replicateId: 'leonardoai/phoenix-1.0',
         puterId: 'replicate:leonardoai/phoenix-1.0',
         aliases: ['phoenix-1.0', 'leonardo/phoenix-1.0'],
@@ -234,4 +259,5 @@ export const REPLICATE_IMAGE_GENERATION_MODELS: ReplicateImageModel[] = [
             'generation_mode',
         ],
     },
+    ...ADDITIONAL_REPLICATE_IMAGE_MODELS,
 ];

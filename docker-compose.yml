@@ -139,8 +139,10 @@ services:
       start_period: 5s
 
   s3-init:
-    # One-shot container that creates the `puter-local` bucket on first
-    # boot. Exits 0 once the bucket exists; stays exited 0 thereafter.
+    # One-shot container that creates the `puter-local` bucket and
+    # applies its CORS rules on every boot (put-bucket-cors is
+    # idempotent). Without CORS, browser uploads to presigned URLs
+    # fail the preflight check.
     image: amazon/aws-cli:latest
     container_name: puter-s3-init
     depends_on:
@@ -163,6 +165,26 @@ services:
           echo "creating bucket $$bucket"
           aws --endpoint-url "$$endpoint" s3 mb "s3://$$bucket"
         fi
+        # Browser uploads (Dev Center deploy, puter.fs.upload) PUT to
+        # presigned URLs cross-origin, so the bucket must answer the
+        # OPTIONS preflight. Origins are open because the presigned URL
+        # itself is the credential and the SDK sends no cookies.
+        cat > /tmp/cors.json <<'EOF'
+        {
+          "CORSRules": [
+            {
+              "AllowedOrigins": ["*"],
+              "AllowedMethods": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+              "AllowedHeaders": ["*"],
+              "ExposeHeaders": ["ETag", "x-amz-request-id"],
+              "MaxAgeSeconds": 3600
+            }
+          ]
+        }
+        EOF
+        aws --endpoint-url "$$endpoint" s3api put-bucket-cors \
+          --bucket "$$bucket" --cors-configuration file:///tmp/cors.json
+        echo "bucket CORS configured"
     restart: "no"
 
   # ── Optional: local LLM ───────────────────────────────────────────
@@ -230,15 +252,8 @@ services:
   puter:
     image: ghcr.io/heyputer/puter:main
     pull_policy: always
-    # Uncomment to build from this directory instead of pulling the published
-    # image. Also flip pull_policy to `never` so compose doesn't overwrite
-    # your local build by re-pulling :latest.
-    # build:
-    #   context: .
-    #   # buildx-only: cross-compile to both archs in a single push
-    #   # platforms:
-    #   #   - linux/amd64
-    #   #   - linux/arm64
+    # For local builds, create a docker-compose.override.yml;
+    # see doc/self-hosting.md#building-from-source-instead-of-pulling.
     container_name: puter
     restart: unless-stopped
     depends_on:

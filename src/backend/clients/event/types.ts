@@ -54,19 +54,9 @@ export type TeamBillingEvent = TeamBillingContext & {
 };
 
 /**
- * Extension-augmentable half of {@link EventMap}. Extensions that emit their own
- * events declare the payload here by declaration merging, so both the emitter
- * and every listener are typed against the same shape:
- *
- *     declare module '@heyputer/backend/clients/event/types' {
- *         interface IExtensionEventMap {
- *             'my.thing.happened': { thingId: string };
- *         }
- *     }
- *
- * Deliberately member-less and index-signature-free: an index signature here
- * would widen `keyof EventMap` to `string` and silently disable key checking on
- * every `emit` in the tree.
+ * Extension-augmentable half of {@link EventMap}, declaration-merged like
+ * `IExtensionClientInstances`. No index signature: it would widen `keyof
+ * EventMap` to `string` and disable key checking on every `emit`.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IExtensionEventMap {}
@@ -237,7 +227,39 @@ export type EventMap = {
         fingerprint?: string | null;
         /** True when the created account is a temp user (no email/password). */
         is_temp?: boolean;
+        /** The bonus code `puter.signup-bonus.validate` accepted, if any. */
+        bonus_code?: string;
         [key: string]: unknown;
+    };
+    // Signup bonus codes are pure mechanism here: an extension decides what a
+    // code is worth and fills these in (both emitted via `emitAndWait`).
+    'puter.signup-bonus.check': {
+        code: string;
+        ip: string | null;
+        fingerprint: string | null;
+        valid: boolean;
+        /** Opaque to core; forwarded to the client when `valid` is false. */
+        reason: string | null;
+        display: { title: string; description: string } | null;
+        /** Verification the code will require after signup. */
+        requirements: { phone: boolean; card: boolean } | null;
+    };
+    /**
+     * Emitted once a signup has passed `puter.signup.validate`, so listeners
+     * see the harness's verdict. A listener sets `accepted` to honor the code,
+     * and may raise (never lower) the verification requirements.
+     */
+    'puter.signup-bonus.validate': {
+        code: string;
+        email?: string;
+        clean_email?: string;
+        ip?: string | null;
+        fingerprint?: string | null;
+        reputation?: number | null;
+        source?: 'oidc';
+        requires_phone_verification: boolean;
+        requires_card_verification: boolean;
+        accepted: boolean;
     };
     'email.validate': {
         email: string;
@@ -294,6 +316,7 @@ export type EventMap = {
     'puter.card-verification.setup': {
         user_id: number;
         user_uid: string;
+        email?: string;
         ip?: string | null;
         // Client-supplied device fingerprint for this request, or null. Lets
         // the abuse extension cap card-verification setups per device (across
@@ -320,6 +343,7 @@ export type EventMap = {
     'puter.card-verification.confirm': {
         user_id: number;
         user_uid: string;
+        email?: string;
         setup_intent_id: string;
         enabled: boolean | null;
         verified: boolean;
@@ -431,6 +455,14 @@ export type EventMap = {
         userId: number;
         keys: string[];
         op: KvOp;
+        /**
+         * What each key holds after the change, aligned with `keys`: the
+         * written value on a `set`, `null` on a `del`. Absent when the write
+         * did not have it in hand, as an `expire` does not.
+         */
+        values?: unknown[];
+        /** Keys among `keys` private to the namespace's app. */
+        noShareKeys?: string[];
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
@@ -607,6 +639,16 @@ export type EventMap = {
         requestHash?: string;
         mime: string;
     };
+    // Asked before a hosted file is streamed. A listener that owns the site
+    // sets `result.allowed = false` to withhold the entry; the visitor then
+    // sees the same 404 as for a missing file.
+    'site.access.check': {
+        subdomain: string;
+        host: string;
+        requestPath: string;
+        entry: { name: string; path: string };
+        result: { allowed: boolean };
+    };
 
     // ---- Thumbnails ----
     // The listener rewrites `thumbnail` in place (an s3:// key or legacy
@@ -696,6 +738,11 @@ export type EventMap = {
     // wildcard + veto semantics as the driver lifecycle above.
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
+    // Cost factor for recorded AI usage, keyed by driver and model:
+    // `ai.cost.factor.<driverName>.<provider>:<model>`. Emitted once per model
+    // per batch; the last listener to set `factor` wins.
+    [K in `ai.cost.factor.${string}`]: AiCostFactorEvent;
+} & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
 } & {
     /**
@@ -714,6 +761,18 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** Payload for `ai.cost.factor.<driver>.<model>` events. */
+export type AiCostFactorEvent = {
+    /** Driver doing the pricing, e.g. `ai-chat`. */
+    driver: string;
+    /** `<provider>:<model>` the usage is recorded under. */
+    model: string;
+    /** Who the usage is being charged to. */
+    actor: Actor;
+    /** Applied to the cost, starting at 1. Values <= 0 are ignored. */
+    factor: number;
+};
 
 /**
  * Phase of a request/method lifecycle. `reject` is emitted when a `before`

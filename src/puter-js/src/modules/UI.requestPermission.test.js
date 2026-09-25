@@ -158,6 +158,19 @@ describe('ui.requestPermission `create`', () => {
         });
     });
 
+    // The GUI creates by default, so an opt-out must not be dropped as falsy.
+    it('forwards an explicit `create: false`', async () => {
+        const ui = makeUI();
+
+        ui.requestPermission({
+            permission: 'fs:/alice/.mail:write',
+            create: false,
+        });
+
+        await vi.waitFor(() => expect(promptCalls()).toHaveLength(1));
+        expect(promptCalls()[0][0].options.create).toBe(false);
+    });
+
     it('rejects an invalid `create` value before any postMessage or check', async () => {
         const ui = makeUI();
 
