@@ -41,7 +41,7 @@ export class DeepSeekProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'deepseek-v4-flash';
+        return 'deepseek-v4-pro';
     }
 
     models() {
