@@ -17,10 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Microcents per page — Textract $1.50/1000 pages = 150,000 µ¢/page.
-// Mistral OCR $1/1000 pages, annotations $3/1000 pages.
+// Microcents per page. Textract DetectDocumentText $1.50/1000 pages. Mistral
+// OCR 4.x $4/1000 pages with annotations $5/1000; OCR 3 $2 and $3.
 export const OCR_COSTS = {
     'aws-textract:detect-document-text:page': 150000,
-    'mistral-ocr:ocr:page': 100000,
-    'mistral-ocr:annotations:page': 300000,
+    'mistral-ocr:mistral-ocr-4-1:page': 400000,
+    'mistral-ocr:mistral-ocr-4-1:annotations:page': 500000,
+    'mistral-ocr:mistral-ocr-4-0:page': 400000,
+    'mistral-ocr:mistral-ocr-4-0:annotations:page': 500000,
+    'mistral-ocr:mistral-ocr-2512:page': 200000,
+    'mistral-ocr:mistral-ocr-2512:annotations:page': 300000,
 } as const;
+
+export type OcrUsageType = keyof typeof OCR_COSTS;

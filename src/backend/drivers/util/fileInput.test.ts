@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -25,6 +25,14 @@ import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { inferFilenameFromUrlOrPath, loadFileInput } from './fileInput.js';
+
+// Web inputs leave the process through secureFetch; stub that boundary so
+// the tests control the remote response without real network access.
+const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
+vi.mock('../../util/secureHttp.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../util/secureHttp.js')>()),
+    secureFetch: secureFetchMock,
+}));
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -389,5 +397,80 @@ describe('loadFileInput FS path', () => {
             statusCode: 413,
             legacyCode: 'storage_limit_reached',
         });
+    });
+});
+
+// ── loadFileInput web URL ──────────────────────────────────────────
+
+/** A web stream that yields `chunks` one pull at a time, counting pulls. */
+const chunkedBody = (chunks: Buffer[]) => {
+    const state = { pulls: 0, cancelled: false };
+    const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+            const next = chunks[state.pulls++];
+            if (next) controller.enqueue(new Uint8Array(next));
+            else controller.close();
+        },
+        cancel() {
+            state.cancelled = true;
+        },
+    });
+    return { body, state };
+};
+
+describe('loadFileInput web URL', () => {
+    it('returns the fetched bytes with the response content type', async () => {
+        const { actor } = await makeUser();
+        const { body } = chunkedBody([Buffer.from('hello '), Buffer.from('web')]);
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(body, {
+                headers: { 'content-type': 'image/png; charset=binary' },
+            }),
+        );
+
+        const loaded = await callLoadFileInput(
+            actor,
+            'https://example.com/scan.png',
+            { acceptWebInput: true, maxBytes: 64 },
+        );
+
+        expect(loaded.buffer.toString()).toBe('hello web');
+        expect(loaded.mimeType).toBe('image/png');
+        expect(loaded.filename).toBe('scan.png');
+    });
+
+    it('refuses a declared content-length over maxBytes without reading the body', async () => {
+        const { actor } = await makeUser();
+        const { body, state } = chunkedBody([Buffer.alloc(32)]);
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(body, { headers: { 'content-length': '4096' } }),
+        );
+
+        await expect(
+            callLoadFileInput(actor, 'https://example.com/big.pdf', {
+                acceptWebInput: true,
+                maxBytes: 64,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 413,
+            legacyCode: 'storage_limit_reached',
+        });
+        expect(state.cancelled).toBe(true);
+    });
+
+    it('stops reading an undeclared-length body once it passes maxBytes', async () => {
+        const { actor } = await makeUser();
+        const chunks = Array.from({ length: 50 }, () => Buffer.alloc(40));
+        const { body, state } = chunkedBody(chunks);
+        secureFetchMock.mockResolvedValueOnce(new Response(body));
+
+        await expect(
+            callLoadFileInput(actor, 'https://example.com/stream', {
+                acceptWebInput: true,
+                maxBytes: 64,
+            }),
+        ).rejects.toMatchObject({ statusCode: 413 });
+        expect(state.cancelled).toBe(true);
+        expect(state.pulls).toBeLessThan(chunks.length);
     });
 });
