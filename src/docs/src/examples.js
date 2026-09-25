@@ -146,6 +146,18 @@ const examples = [
                 source: '/playground/examples/ai-img2txt.html',
             },
             {
+                title: 'Extract Text with Mistral OCR',
+                description: 'Extract text from images with Mistral OCR using Puter.js AI API. Run and modify this OCR example instantly in your browser.',
+                slug: 'ai-img2txt-mistral',
+                source: '/playground/examples/ai-img2txt-mistral.html',
+            },
+            {
+                title: 'Extract Structured Data with OCR',
+                description: 'Fill a JSON schema from a document with Mistral OCR annotations using Puter.js AI API. Run and modify this example in the playground.',
+                slug: 'ai-img2txt-annotation',
+                source: '/playground/examples/ai-img2txt-annotation.html',
+            },
+            {
                 title: 'Text to Image',
                 description: 'Generate images from text with Puter.js AI API. Run and experiment with this text-to-image example in the playground.',
                 slug: 'ai-txt2img',

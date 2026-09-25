@@ -43,7 +43,11 @@ Every call has the same shape; only the model name changes which service reads t
 | `mistral-ocr-4-0` | Mistral | Mistral OCR 4.0. |
 | `mistral-ocr-2512` (aliases `mistral-ocr-3`, `mistral-ocr-3-0`) | Mistral | Mistral OCR 3, at a lower per-page rate than OCR 4. |
 
-`mistral-ocr-latest` is pinned to OCR 4.1 and moves to a newer model only when Puter adds it. `mistral-ocr-2503` still works and runs on OCR 4.1, because that is how Mistral now serves it. `mistral-ocr-2505` has been retired by Mistral and is rejected with `bad_request`. Per-page prices for each model are listed by the API at `GET /metering/allCosts`.
+`mistral-ocr-latest` is pinned to OCR 4.1 and moves to a newer model only when Puter adds it. Mistral has deprecated `mistral-ocr-2503`; Puter keeps that name as a compatibility alias for OCR 4.1. Puter rejects the deprecated `mistral-ocr-2505` with `bad_request`. Per-page prices for each model are listed by the API at `GET /metering/allCosts`.
+
+#### AWS Textract options
+
+AWS Textract takes no options beyond `model` and `provider`. It reads a single-page document as a whole, so there is nothing to select or tune; the Mistral options below are ignored.
 
 #### Mistral options
 
@@ -73,7 +77,7 @@ For more details about each option, see the [Mistral OCR documentation](https://
 | AWS Textract | JPEG, PNG, TIFF, and **single-page** PDF | 10 MB |
 | Mistral | PDF (up to 1,000 pages), images (JPEG, PNG, AVIF, TIFF, GIF, HEIC, BMP, WebP), and documents such as DOCX, PPTX, XLSX, EPUB and RTF | 50 MB |
 
-`File`, `Blob` and data URI inputs are limited to 10 MB by the SDK before upload, whichever model is used. URLs and Puter paths are limited to the model's maximum. Larger inputs are rejected with `storage_limit_reached`. Textract rejects multi-page PDFs and other formats with `bad_request`; use a Mistral model for those.
+The SDK checks the decoded size of data URI inputs against the selected model's limit before upload: 10 MB for Textract and 36 MB when a Mistral model or provider is specified (a data URI is a third larger than the file, and a request body is capped at 50 MB). URLs and Puter paths are limited by the backend. When neither model nor provider is specified, the SDK checks against 10 MB; explicitly select Mistral for larger inline inputs. SDK size failures use `input_too_large`; backend size failures use `storage_limit_reached`. Textract rejects multi-page PDFs and other formats with `bad_request`; use a Mistral model for those.
 
 ## Return value
 
@@ -82,7 +86,7 @@ A `Promise` that resolves to a string.
 - By default the string is the recognized text, one line per line: plain text from AWS Textract, Markdown from Mistral.
 - When `documentAnnotationFormat` is set, the string is the document annotation: JSON that follows your schema.
 
-The return shape is the same for every model. That means the `normalize` option and `puter.ai.normalize` described for [`chat()`](/AI/chat#response-normalization) have no effect on `img2txt()`.
+The return shape is the same for every model.
 
 ## Errors
 
@@ -91,7 +95,7 @@ A rejection carries the error body as the backend sent it: `{ message, code }`.
 | Code | Meaning |
 | --- | --- |
 | `arguments_required`, `source_required` | Raised by the SDK before any request is made: the call had no arguments, or no source. |
-| `input_too_large` | Raised by the SDK before any request is made: a `File`, `Blob` or data URI input is larger than 10 MB. |
+| `input_too_large` | Raised by the SDK before any request is made: a `File`, `Blob` or data URI input exceeds the selected model's limit. |
 | `storage_limit_reached` | The input is larger than the model accepts (HTTP 413). |
 | `bad_request` | The provider or model is unknown or retired, the model does not belong to the named provider, an option is invalid, or Textract cannot read the document. |
 | `insufficient_funds` | Your balance cannot cover the first page. Arrives as HTTP 402. |
@@ -115,7 +119,7 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
 
 <strong class="example-title">Read the same image with Mistral OCR</strong>
 
-```html
+```html;ai-img2txt-mistral
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -130,7 +134,7 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
 
 <strong class="example-title">Extract structured data with a document annotation</strong>
 
-```html
+```html;ai-img2txt-annotation
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

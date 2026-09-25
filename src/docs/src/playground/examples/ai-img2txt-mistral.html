@@ -1,0 +1,13 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // Loading ...
+        puter.print(`Loading...`);
+
+        // Only the model name changes; the result is still a string.
+        puter.ai.img2txt('https://assets.puter.site/letter.png', { model: 'mistral-ocr-latest' })
+            .then(puter.print);
+    </script>
+</body>
+</html>

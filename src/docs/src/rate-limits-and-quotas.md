@@ -78,7 +78,7 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 | AWS Textract | 10 MB per input. JPEG, PNG, TIFF, or a single-page PDF. |
 | Mistral | 50 MB per input. PDFs up to 1,000 pages. |
 
-`File`, `Blob` and data URI inputs are also limited to 10 MB by the SDK before upload. URLs and Puter paths are read up to the provider's limit and rejected with `413 storage_limit_reached` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
+`File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 storage_limit_reached` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
 
 ### Key-value store
 

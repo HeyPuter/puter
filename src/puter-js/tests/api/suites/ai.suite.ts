@@ -1175,6 +1175,15 @@ export default suite('ai', {
         );
     },
 
+    'img2txt accepts a Mistral inline source above the Textract limit': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.img2txt(
+            oversizedDataUri('image/png', 10 * 1024 * 1024, 2),
+            { model: 'mistral-ocr-latest', testMode: true },
+        );
+        t.assert.ok(text.includes('sample OCR response'));
+    },
+
     // -- speech2txt --------------------------------------------------
 
     'speech2txt rejects a call with no arguments': async (t) => {
