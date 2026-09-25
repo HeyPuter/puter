@@ -43,6 +43,7 @@ import {
     vi,
     type MockInstance,
 } from 'vitest';
+import { UnsupportedDocumentException } from '@aws-sdk/client-textract';
 import { v4 as uuidv4 } from 'uuid';
 
 import type { Actor } from '../../core/actor.js';
@@ -242,12 +243,11 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     const sampleTextractResponse = {
         Blocks: [
             { BlockType: 'PAGE' },
-            { BlockType: 'PAGE' }, // 2 pages
-            { BlockType: 'WORD', Text: 'should-be-skipped' },
-            { BlockType: 'TABLE' }, // skipped
             { BlockType: 'LINE', Text: 'hello world', Confidence: 99.5 },
+            { BlockType: 'WORD', Text: 'should-be-skipped' },
+            { BlockType: 'LAYOUT_TITLE', Confidence: 85 }, // no Text
+            { BlockType: 'PAGE' }, // 2 pages
             { BlockType: 'LINE', Text: 'second line', Confidence: 80 },
-            { BlockType: 'LAYOUT_TITLE', Text: 'Title!', Confidence: 85 },
         ],
     };
 
@@ -279,33 +279,73 @@ describe('OCRDriver.recognize (aws-textract)', () => {
                 provider: 'aws-textract',
             }),
         )) as {
+            model: string;
             blocks: Array<{ type: string; text: string; confidence: number }>;
+            text: string;
         };
 
-        // Driver issued AnalyzeDocumentCommand{ Bytes: <buffer> }.
+        // Driver issued DetectDocumentTextCommand{ Bytes: <buffer> } — the
+        // API billed at the detect-document-text rate, with no paid features.
         const sentCmd = textractSendMock.mock.calls[0]![0];
+        expect(sentCmd.constructor.name).toBe('DetectDocumentTextCommand');
         expect(sentCmd.input.Document.Bytes).toEqual(buf);
-        expect(sentCmd.input.FeatureTypes).toEqual(['LAYOUT']);
+        expect(sentCmd.input.FeatureTypes).toBeUndefined();
 
-        // PAGE/WORD/TABLE/etc. are skipped; LINE and LAYOUT_TITLE pass
-        // through with `text/textract:<BlockType>` namespacing.
+        // Only LINE blocks carry text; each is tagged with its 0-based page.
         expect(result.blocks).toEqual([
             {
                 type: 'text/textract:LINE',
                 text: 'hello world',
                 confidence: 99.5,
+                page: 0,
             },
             {
                 type: 'text/textract:LINE',
                 text: 'second line',
                 confidence: 80,
-            },
-            {
-                type: 'text/textract:LAYOUT_TITLE',
-                text: 'Title!',
-                confidence: 85,
+                page: 1,
             },
         ]);
+        expect(result.text).toBe('hello world\nsecond line');
+        expect(result.model).toBe('aws-textract');
+    });
+
+    it('rejects multi-page and unsupported documents with a 400 that names the alternative', async () => {
+        const { actor } = await makeUser();
+        textractSendMock.mockRejectedValueOnce(
+            new UnsupportedDocumentException({
+                message: 'Request has unsupported document format',
+                $metadata: {},
+            }),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(Buffer.from('%PDF-1.4'), 'application/pdf'),
+                    provider: 'aws-textract',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining('Mistral OCR model'),
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses input over the 10 MB Textract limit before any upstream call', async () => {
+        const { actor } = await makeUser();
+        const oversize = Buffer.alloc(10 * 1024 * 1024 + 1);
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(oversize, 'image/png'),
+                    provider: 'aws-textract',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 413 });
+        expect(textractSendMock).not.toHaveBeenCalled();
     });
 
     // Note: the S3Object-source branch (driver picks `Document.S3Object`
@@ -374,6 +414,12 @@ it('meters one usage line per detected page at the per-page rate from costs.ts',
 // ── Mistral OCR ─────────────────────────────────────────────────────
 
 describe('OCRDriver.recognize (mistral)', () => {
+    const bboxSchema = { type: 'object', properties: {} };
+    const docSchema = {
+        type: 'object',
+        properties: { total: { type: 'string' } },
+    };
+
     it('throws 402 when the actor does not have enough credits', async () => {
         hasCreditsSpy.mockResolvedValueOnce(false);
         const { actor } = await makeUser();
@@ -408,7 +454,8 @@ describe('OCRDriver.recognize (mistral)', () => {
         );
 
         const payload = mistralOcrProcessMock.mock.calls[0]![0];
-        expect(payload.model).toBe('mistral-ocr-latest');
+        // The floating alias is pinned to the model the catalog prices.
+        expect(payload.model).toBe('mistral-ocr-4-1');
         // Mistral's SDK uses camelCase imageUrl on this chunk shape.
         expect(payload.document).toEqual({
             type: 'image_url',
@@ -450,6 +497,45 @@ describe('OCRDriver.recognize (mistral)', () => {
         );
     });
 
+    it('sends non-image documents such as DOCX as a document_url chunk', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
+        const docx =
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('PK'), docx),
+                provider: 'mistral',
+            }),
+        );
+
+        const payload = mistralOcrProcessMock.mock.calls[0]![0];
+        expect(payload.document.type).toBe('document_url');
+        expect(payload.document.documentUrl).toMatch(/^data:application\/vnd/);
+    });
+
+    it('sends untyped PDF bytes as a document and untyped other bytes as an image', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+
+        for (const bytes of ['%PDF-1.7', 'png-ish']) {
+            await withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(
+                        Buffer.from(bytes),
+                        'application/octet-stream',
+                    ),
+                    provider: 'mistral',
+                }),
+            );
+        }
+
+        const [pdfCall, imageCall] = mistralOcrProcessMock.mock.calls;
+        expect(pdfCall![0].document.type).toBe('document_url');
+        expect(imageCall![0].document.type).toBe('image_url');
+    });
+
     it('forwards page filters and annotation options to Mistral when supplied', async () => {
         const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({
@@ -465,8 +551,23 @@ describe('OCRDriver.recognize (mistral)', () => {
                 includeImageBase64: true,
                 imageLimit: 10,
                 imageMinSize: 64,
-                bboxAnnotationFormat: { schema: 'bbox' },
-                documentAnnotationFormat: { schema: 'doc' },
+                // REST spelling and SDK spelling are both accepted.
+                bboxAnnotationFormat: {
+                    type: 'json_schema',
+                    json_schema: { name: 'bbox', schema: bboxSchema },
+                },
+                documentAnnotationFormat: {
+                    type: 'json_schema',
+                    jsonSchema: {
+                        name: 'doc',
+                        schemaDefinition: docSchema,
+                        strict: true,
+                    },
+                },
+                documentAnnotationPrompt: 'Extract the invoice fields',
+                tableFormat: 'html',
+                extractHeader: true,
+                extractFooter: false,
             }),
         );
 
@@ -475,8 +576,44 @@ describe('OCRDriver.recognize (mistral)', () => {
         expect(payload.includeImageBase64).toBe(true);
         expect(payload.imageLimit).toBe(10);
         expect(payload.imageMinSize).toBe(64);
-        expect(payload.bboxAnnotationFormat).toEqual({ schema: 'bbox' });
-        expect(payload.documentAnnotationFormat).toEqual({ schema: 'doc' });
+        expect(payload.bboxAnnotationFormat).toEqual({
+            type: 'json_schema',
+            jsonSchema: { name: 'bbox', schemaDefinition: bboxSchema },
+        });
+        expect(payload.documentAnnotationFormat).toEqual({
+            type: 'json_schema',
+            jsonSchema: {
+                name: 'doc',
+                schemaDefinition: docSchema,
+                strict: true,
+            },
+        });
+        expect(payload.documentAnnotationPrompt).toBe(
+            'Extract the invoice fields',
+        );
+        expect(payload.tableFormat).toBe('html');
+        expect(payload.extractHeader).toBe(true);
+        expect(payload.extractFooter).toBe(false);
+    });
+
+    it.each([
+        ['documentAnnotationFormat', { schema: 'doc' }],
+        ['documentAnnotationFormat', 'json'],
+        ['bboxAnnotationFormat', { type: 'json_object' }],
+        ['tableFormat', 'csv'],
+    ])('rejects an invalid %s before calling Mistral', async (name, value) => {
+        const { actor } = await makeUser();
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(Buffer.from('x'), 'application/pdf'),
+                    provider: 'mistral',
+                    [name]: value,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
     });
 
     it('normalises the response: each markdown line becomes a LINE block on its source page', async () => {
@@ -527,6 +664,30 @@ describe('OCRDriver.recognize (mistral)', () => {
         expect(result.usage_info).toEqual({ pagesProcessed: 2 });
     });
 
+    it('returns the document annotation Mistral produced', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValueOnce({
+            model: 'mistral-ocr-4-1',
+            pages: [{ index: 0, markdown: 'Total: 42' }],
+            documentAnnotation: '{"total": "42"}',
+            usageInfo: { pagesProcessed: 1 },
+        });
+
+        const result = (await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('x'), 'application/pdf'),
+                provider: 'mistral',
+                documentAnnotationFormat: {
+                    type: 'json_schema',
+                    json_schema: { name: 'doc', schema: docSchema },
+                },
+            }),
+        )) as { document_annotation?: string; text: string };
+
+        expect(result.document_annotation).toBe('{"total": "42"}');
+        expect(result.text).toBe('Total: 42');
+    });
+
     it('meters per-page Mistral OCR usage from costs.ts', async () => {
         const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({
@@ -545,12 +706,12 @@ describe('OCRDriver.recognize (mistral)', () => {
         );
 
         const ocrCalls = incrementUsageSpy.mock.calls.filter(
-            ([, type]) => type === 'mistral-ocr:ocr:page',
+            ([, type]) => type === 'mistral-ocr:mistral-ocr-4-1:page',
         );
         expect(ocrCalls).toHaveLength(1);
         const [, , count, cost] = ocrCalls[0]!;
         expect(count).toBe(2);
-        expect(cost).toBe(OCR_COSTS['mistral-ocr:ocr:page'] * 2);
+        expect(cost).toBe(OCR_COSTS['mistral-ocr:mistral-ocr-4-1:page'] * 2);
     });
 
     it('also meters annotations when bboxAnnotationFormat or documentAnnotationFormat is requested', async () => {
@@ -564,24 +725,54 @@ describe('OCRDriver.recognize (mistral)', () => {
             driver.recognize({
                 source: dataUrl(Buffer.from('x'), 'application/pdf'),
                 provider: 'mistral',
-                bboxAnnotationFormat: { schema: 'bbox' },
+                bboxAnnotationFormat: {
+                    type: 'json_schema',
+                    json_schema: { name: 'bbox', schema: bboxSchema },
+                },
             }),
         );
 
+        const pageType = 'mistral-ocr:mistral-ocr-4-1:page';
+        const annotationType = 'mistral-ocr:mistral-ocr-4-1:annotations:page';
+        // The pre-flight covers the page plus its annotation.
+        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(
+            OCR_COSTS[pageType] + OCR_COSTS[annotationType],
+        );
         const ocrCalls = incrementUsageSpy.mock.calls.filter(
-            ([, type]) => type === 'mistral-ocr:ocr:page',
+            ([, type]) => type === pageType,
         );
         const annotationCalls = incrementUsageSpy.mock.calls.filter(
-            ([, type]) => type === 'mistral-ocr:annotations:page',
+            ([, type]) => type === annotationType,
         );
         expect(ocrCalls).toHaveLength(1);
         expect(annotationCalls).toHaveLength(1);
         expect(ocrCalls[0]![2]).toBe(1);
-        expect(ocrCalls[0]![3]).toBe(OCR_COSTS['mistral-ocr:ocr:page']);
+        expect(ocrCalls[0]![3]).toBe(OCR_COSTS[pageType]);
         expect(annotationCalls[0]![2]).toBe(1);
-        expect(annotationCalls[0]![3]).toBe(
-            OCR_COSTS['mistral-ocr:annotations:page'],
+        expect(annotationCalls[0]![3]).toBe(OCR_COSTS[annotationType]);
+    });
+
+    it('bills OCR 3 at its own rate', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValueOnce({
+            pages: [{ index: 0, markdown: 'a' }],
+            usageInfo: { pagesProcessed: 1 },
+        });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('x'), 'application/pdf'),
+                model: 'mistral-ocr-3',
+            }),
         );
+
+        expect(mistralOcrProcessMock.mock.calls[0]![0].model).toBe(
+            'mistral-ocr-2512',
+        );
+        const [, type, count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(type).toBe('mistral-ocr:mistral-ocr-2512:page');
+        expect(count).toBe(1);
+        expect(cost).toBe(OCR_COSTS['mistral-ocr:mistral-ocr-2512:page']);
     });
 });
 
@@ -617,6 +808,79 @@ describe('OCRDriver provider aliases', () => {
             expect(mistralOcrProcessMock).toHaveBeenCalledTimes(1);
             expect(textractSendMock).not.toHaveBeenCalled();
         }
+    });
+});
+
+describe('OCRDriver model routing', () => {
+    it.each([
+        ['aws-textract', 'textract'],
+        ['textract', 'textract'],
+        ['mistral-ocr-latest', 'mistral'],
+        ['mistral-ocr-4-0', 'mistral'],
+        ['MISTRAL-OCR-2512', 'mistral'],
+    ])('model %s alone selects the %s backend', async (model, expected) => {
+        const { actor } = await makeUser();
+        textractSendMock.mockResolvedValueOnce({
+            Blocks: [{ BlockType: 'PAGE' }],
+        });
+        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('img'), 'image/png'),
+                model,
+            }),
+        );
+
+        if (expected === 'textract') {
+            expect(textractSendMock).toHaveBeenCalledTimes(1);
+            expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        } else {
+            expect(mistralOcrProcessMock).toHaveBeenCalledTimes(1);
+            expect(textractSendMock).not.toHaveBeenCalled();
+        }
+    });
+
+    it.each([
+        [{ model: 'mistral-ocr-2505' }, 'no longer available'],
+        [{ model: 'gpt-4o' }, 'Unknown OCR model'],
+        [{ model: '' }, 'non-empty string'],
+        [
+            { model: 'mistral-ocr-latest', provider: 'aws-textract' },
+            'not served by provider',
+        ],
+    ])('rejects %j with a 400 before any upstream call', async (args, message) => {
+        const { actor } = await makeUser();
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(Buffer.from('img'), 'image/png'),
+                    ...args,
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining(message),
+        });
+        expect(textractSendMock).not.toHaveBeenCalled();
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the retired mistral-ocr-2503 working on the model Mistral serves it with', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('img'), 'image/png'),
+                model: 'mistral-ocr-2503',
+            }),
+        );
+
+        expect(mistralOcrProcessMock.mock.calls[0]![0].model).toBe(
+            'mistral-ocr-4-1',
+        );
     });
 });
 

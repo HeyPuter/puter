@@ -346,6 +346,24 @@ describe('ai.img2txt driver payloads', () => {
         expect(text).toBe('line one\nline two\n');
     });
 
+    it('img2txt resolves to the document annotation when one was requested', async () => {
+        FakeXHR.respondWith = () => ({
+            success: true,
+            result: {
+                blocks: [{ type: 'text/mistral:LINE', text: 'Total: 42' }],
+                document_annotation: '{"total":"42"}',
+            },
+        });
+        const annotation = await ai.img2txt('https://example.com/invoice.pdf', {
+            model: 'mistral-ocr-latest',
+            documentAnnotationFormat: { type: 'json_schema', json_schema: { name: 'invoice', schema: { type: 'object' } } },
+        });
+        expect(annotation).toBe('{"total":"42"}');
+        // Without the option the same result still reads as text.
+        const text = await ai.img2txt('https://example.com/invoice.pdf');
+        expect(text).toBe('Total: 42\n');
+    });
+
     it('img2txt rejects without a source', async () => {
         await expect(ai.img2txt({})).rejects.toMatchObject({ code: 'source_required' });
     });

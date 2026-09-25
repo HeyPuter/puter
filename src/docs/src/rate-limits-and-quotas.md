@@ -69,6 +69,17 @@ Sharing a file or folder with **anyone with the link** ([`puter.fs.share()`](/FS
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
 
+### OCR
+
+`puter.ai.img2txt()` input limits apply in addition to the shared AI limits above:
+
+| Provider | Limit |
+|----------|-------|
+| AWS Textract | 10 MB per input. JPEG, PNG, TIFF, or a single-page PDF. |
+| Mistral | 50 MB per input. PDFs up to 1,000 pages. |
+
+`File`, `Blob` and data URI inputs are also limited to 10 MB by the SDK before upload. URLs and Puter paths are read up to the provider's limit and rejected with `413 storage_limit_reached` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
+
 ### Key-value store
 
 | Limit                           | Paid | Free | Anonymous |

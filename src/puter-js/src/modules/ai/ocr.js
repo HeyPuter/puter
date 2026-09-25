@@ -19,12 +19,17 @@ const MAX_INPUT_SIZE = 10 * 1024 * 1024;
 const OCR_DRIVER = 'ai-ocr';
 
 /**
- * Reduce the provider-specific recognition result to plain text.
+ * Reduce the recognition result to a string: the requested document
+ * annotation when there is one, the recognized text otherwise.
  * @param {OcrResult | null | undefined} result
+ * @param {boolean} [wantsAnnotation]
  * @returns {string}
  */
-const toText = (result) => {
+const toText = (result, wantsAnnotation = false) => {
     if ( ! result ) return '';
+    if ( wantsAnnotation && typeof result.document_annotation === 'string' ) {
+        return result.document_annotation;
+    }
     if ( Array.isArray(result.blocks) && result.blocks.length ) {
         let str = '';
         for ( const block of result.blocks ) {
@@ -135,6 +140,6 @@ export async function img2txt (sourceOrOptions, optionsOrTestMode, testModeOrOpt
         argNames: ['source'],
         puter,
         testMode: testMode ?? false,
-        transform: async (result) => toText(result),
+        transform: async (result) => toText(result, options.documentAnnotationFormat !== undefined),
     })(options);
 }
