@@ -4364,7 +4364,9 @@ export class AuthController extends PuterController {
         }
 
         if (action === 'enable') {
-            if (!user.email_confirmed) {
+            // A seat has no email by design, so this would bar it forever.
+            const seat = await this.stores.team.getOrgSeat(user.id);
+            if (!user.email_confirmed && !seat) {
                 throw new HttpError(
                     403,
                     'Email must be confirmed before enabling 2FA.',

@@ -656,7 +656,7 @@ const en = {
         teams_directory_confirm: 'Apps your members install will be able to read the usernames of everyone active in this team. They will not see emails, records, or suspended accounts. You can turn this off again at any time.',
         teams_directory_confirm_action: 'Open the directory',
         teams_require_2fa_label: 'Require two-factor authentication',
-        teams_require_2fa_on_note: 'Accounts this team created must set up two-factor authentication before they can use Puter. You can reset it for anyone who loses their device.',
+        teams_require_2fa_on_note: 'Accounts this team created must set it up before they can use Puter.',
         teams_require_2fa_off_note: 'Members choose for themselves whether to use two-factor authentication.',
         teams_require_2fa_confirm: 'Every account this team created will be asked to set up two-factor authentication, and cannot use Puter until it has. Accounts that people joined with are not affected. You can turn this off again at any time.',
         teams_require_2fa_confirm_action: 'Require two-factor authentication',
