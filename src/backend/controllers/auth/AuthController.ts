@@ -4308,6 +4308,8 @@ export class AuthController extends PuterController {
     @Post('/auth/configure-2fa/:action', {
         subdomain: 'api',
         requireUserActor: true,
+        // A member owing their team's 2FA reaches nothing else until this.
+        allowUnconfirmed: true,
         rateLimit: TWO_FACTOR_LIMIT,
     })
     async handleConfigure2fa(req: Request, res: Response): Promise<void> {

@@ -67,6 +67,7 @@ const toClientTeam = (team: TeamRow, isOwner: boolean) => ({
     is_owner: isOwner,
     created_at: team.created_at,
     directory_enabled: Number(team.directory_enabled) === 1,
+    require_2fa: Number(team.require_2fa) === 1,
 });
 
 @Controller('/teams')
@@ -153,6 +154,7 @@ export class TeamController extends PuterController {
             name?: string;
             handle?: string | null;
             directoryEnabled?: boolean;
+            require2fa?: boolean;
         } = {};
         if (body.name !== undefined)
             changes.name = this.#requireString(body.name, 'name');
@@ -160,6 +162,8 @@ export class TeamController extends PuterController {
             changes.handle = body.handle === null ? null : String(body.handle);
         if (body.directory_enabled !== undefined)
             changes.directoryEnabled = body.directory_enabled === true;
+        if (body.require_2fa !== undefined)
+            changes.require2fa = body.require_2fa === true;
 
         // Through the service: turning the directory on writes an audit row.
         const team = await this.services.team.updateTeam(

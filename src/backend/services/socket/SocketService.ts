@@ -22,6 +22,7 @@ import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import {
     assertNotSuspended,
     assertVerifiedAccount,
@@ -68,6 +69,8 @@ export interface SocketAuthOptions {
      * its own room and nothing else (see `socketRoomsFor`).
      */
     allowAppActors?: boolean;
+    /** Resolved by the caller, which has the store; this stays pure. */
+    teamRequires2fa?: boolean;
 }
 
 /**
@@ -109,6 +112,13 @@ export const decideSocketAuth = (
     try {
         assertNotSuspended(actor.user);
         assertVerifiedAccount(actor.user);
+        if (options.teamRequires2fa && !actor.user.otp_enabled) {
+            throw new HttpError(
+                403,
+                'Your team requires two-factor authentication. Set it up to continue.',
+                { legacyCode: 'two_factor_required' as never },
+            );
+        }
     } catch (err) {
         return {
             reject:
@@ -369,6 +379,21 @@ export class SocketService extends PuterService {
         return { allowAppActors: this.config.events?.enabled === true };
     }
 
+    /** Resolves the seat read here so `decideSocketAuth` stays pure. */
+    async #authOptionsFor(actor?: Actor): Promise<SocketAuthOptions> {
+        const base = this.#authOptions();
+        const id = actor?.user?.id;
+        if (typeof id !== 'number' || actor?.user?.otp_enabled) return base;
+        const seat = await (
+            this.stores.team as unknown as {
+                getOrgSeat?: (n: number) => Promise<{ require_2fa?: number }>;
+            }
+        )
+            ?.getOrgSeat?.(id)
+            .catch(() => null);
+        return { ...base, teamRequires2fa: Number(seat?.require_2fa) === 1 };
+    }
+
     #installAuthMiddleware(): void {
         if (!this.#io) return;
         const authService = this.services.auth as AuthService | undefined;
@@ -383,7 +408,8 @@ export class SocketService extends PuterService {
             // `{ auth: { ... } }`, not the query string. puter-js uses
             // `io(url, { auth: { auth_token } })`.
             const handshakeAuth = socket.handshake.auth as
-                Record<string, unknown> | undefined;
+                | Record<string, unknown>
+                | undefined;
             const tokenRaw =
                 typeof handshakeAuth?.auth_token === 'string'
                     ? handshakeAuth.auth_token
@@ -423,7 +449,10 @@ export class SocketService extends PuterService {
                     );
                 }
 
-                const decision = decideSocketAuth(result, this.#authOptions());
+                const decision = decideSocketAuth(
+                    result,
+                    await this.#authOptionsFor(result.actor),
+                );
                 if ('reject' in decision) {
                     next(decision.reject);
                     return;
@@ -626,9 +655,10 @@ export class SocketService extends PuterService {
             let decision = decisions.get(token);
             if (!decision) {
                 try {
+                    const result = await authService.authenticate(token, {});
                     decision = decideSocketAuth(
-                        await authService.authenticate(token, {}),
-                        this.#authOptions(),
+                        result,
+                        await this.#authOptionsFor(result.actor),
                     );
                 } catch {
                     decision = { reject: new Error('socket reauth failed') };
@@ -827,7 +857,8 @@ export class SocketService extends PuterService {
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (
                     data.response as
-                        { original_client_socket_id?: string } | undefined
+                        | { original_client_socket_id?: string }
+                        | undefined
                 )?.original_client_socket_id;
                 await this.send({ room: userId }, 'cache.updated', {
                     timestamp,
@@ -841,7 +872,9 @@ export class SocketService extends PuterService {
     #handleUploadProgress(data: UploadProgressPayload): void {
         const meta = data.meta ?? {};
         const userId = (meta.user_id ?? meta.userId) as
-            number | string | undefined;
+            | number
+            | string
+            | undefined;
         if (!userId) {
             console.warn('[socket] upload-progress missing user_id', { meta });
             return;

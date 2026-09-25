@@ -706,6 +706,65 @@ describe('TeamService', () => {
         });
     });
 
+    describe('requiring 2FA of the team (PUT-1988)', () => {
+        const setOtp = (userId, on) =>
+            server.stores.user.update(userId, { otp_enabled: on ? 1 : 0 });
+
+        it('refuses to turn the rule on while the owner has no 2FA', async () => {
+            const { team } = await makeTeam();
+            await setOtp(owner.id, false);
+            await server.stores.user.invalidateById(owner.id);
+
+            // Otherwise the first thing the rule does is lock out its author.
+            await expect(
+                service.updateTeam(team.uid, owner.id, { require2fa: true }),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        });
+
+        it('turns on once the owner holds 2FA, and records it', async () => {
+            const { team } = await makeTeam();
+            await setOtp(owner.id, true);
+            await server.stores.user.invalidateById(owner.id);
+
+            const updated = await service.updateTeam(team.uid, owner.id, {
+                require2fa: true,
+            });
+            expect(Number(updated.require_2fa)).toBe(1);
+
+            const audit = await service.listAudit(team.uid, owner.id);
+            expect(audit.items.map((r) => r.action)).toContain(
+                'require_2fa_enabled',
+            );
+        });
+
+        it('carries the rule onto the seat row the gate reads', async () => {
+            const { team, member } = await makeTeam();
+            await setOtp(owner.id, true);
+            await server.stores.user.invalidateById(owner.id);
+            await service.updateTeam(team.uid, owner.id, { require2fa: true });
+
+            const seat = await server.stores.team.getOrgSeat(member.id);
+            expect(Number(seat?.require_2fa)).toBe(1);
+        });
+
+        it('clears the seat row when the rule is turned back off', async () => {
+            const { team, member } = await makeTeam();
+            await setOtp(owner.id, true);
+            await server.stores.user.invalidateById(owner.id);
+            await service.updateTeam(team.uid, owner.id, { require2fa: true });
+            expect(
+                Number((await server.stores.team.getOrgSeat(member.id))?.require_2fa),
+            ).toBe(1);
+
+            // The seat row is cached, so turning it off has to bust it or the
+            // member stays locked out until the TTL lapses.
+            await service.updateTeam(team.uid, owner.id, { require2fa: false });
+            expect(
+                Number((await server.stores.team.getOrgSeat(member.id))?.require_2fa),
+            ).toBe(0);
+        });
+    });
+
     describe('what a seat of a free team gets', () => {
         const policyFor = async (userId: number, uuid: string) => {
             server.services.metering.invalidateActorSubscription(uuid);

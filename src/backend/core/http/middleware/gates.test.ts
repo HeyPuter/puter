@@ -33,6 +33,7 @@ import {
     requireAuthGate,
     requireCardVerifiedGate,
     requirePhoneVerifiedGate,
+    requireTeam2fa,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -760,6 +761,46 @@ describe('requireVerifiedAccount', () => {
             },
         });
         expectHttpError(got, 403, 'card_verification_required');
+    });
+
+    it('returns 403 two_factor_required for a seat whose team requires 2FA', async () => {
+        const teams = { getOrgSeat: async () => ({ require_2fa: 1 }) };
+        const got = await runGateAsync(requireTeam2fa(teams), {
+            actor: { user: { uuid: 'u-1', id: 7, otp_enabled: 0 } },
+        });
+        expectHttpError(got, 403, 'two_factor_required');
+    });
+
+    it('lets the same seat through once it holds 2FA', async () => {
+        const teams = { getOrgSeat: async () => ({ require_2fa: 1 }) };
+        const got = await runGateAsync(requireTeam2fa(teams), {
+            actor: { user: { uuid: 'u-1', id: 7, otp_enabled: 1 } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('does not gate an account that is not a seat', async () => {
+        // No seat row: an ordinary account, whatever any team requires.
+        const teams = { getOrgSeat: async () => null };
+        const got = await runGateAsync(requireTeam2fa(teams), {
+            actor: { user: { uuid: 'u-1', id: 7, otp_enabled: 0 } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('does not gate a seat whose team does not require 2FA', async () => {
+        const teams = { getOrgSeat: async () => ({ require_2fa: 0 }) };
+        const got = await runGateAsync(requireTeam2fa(teams), {
+            actor: { user: { uuid: 'u-1', id: 7, otp_enabled: 0 } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('stays inert where Teams is not deployed', async () => {
+        const got = await runGateAsync(requireTeam2fa(undefined), {
+            actor: { user: { uuid: 'u-1', id: 7, otp_enabled: 0 } },
+        });
+        expect(got).toBeUndefined();
     });
 
     it('returns 403 password_change_required while the account owes a password', () => {

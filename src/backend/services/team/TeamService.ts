@@ -91,6 +91,10 @@ export const AUDIT_DELETE_ACCOUNT = 'delete_account';
 export const AUDIT_DIRECTORY_ON = 'directory_enabled';
 export const AUDIT_DIRECTORY_OFF = 'directory_disabled';
 
+/** Changes what every seat must hold to sign in, so it is recorded too. */
+export const AUDIT_2FA_ON = 'require_2fa_enabled';
+export const AUDIT_2FA_OFF = 'require_2fa_disabled';
+
 /** Not an audit row: synthesised from `sessions` for the member's own view. */
 export const SIGN_IN_ACTION = 'sign_in';
 
@@ -427,10 +431,14 @@ export class TeamService extends PuterService {
             name?: string;
             handle?: string | null;
             directoryEnabled?: boolean;
+            require2fa?: boolean;
         },
     ): Promise<TeamRow> {
         const before = await this.requireOwner(teamUid, actorUserId);
         if (changes.handle) await this.assertHandleUsable(changes.handle);
+        if (changes.require2fa === true) {
+            await this.#assertOwnerHas2fa(actorUserId);
+        }
 
         const team = await this.#asHttpErrors(() =>
             this.stores.team.update(teamUid, changes),
@@ -457,7 +465,55 @@ export class TeamService extends PuterService {
                     : AUDIT_DIRECTORY_OFF,
             });
         }
+
+        const required = Number(before.require_2fa) === 1;
+        if (
+            changes.require2fa !== undefined &&
+            changes.require2fa !== required
+        ) {
+            await this.stores.team.appendAudit({
+                teamId: team.id,
+                userId: actorUserId,
+                actorUserId,
+                action: changes.require2fa ? AUDIT_2FA_ON : AUDIT_2FA_OFF,
+            });
+            // The seat rows carry this flag, so a stale one would keep a
+            // member locked out after the owner turned the rule off.
+            await this.#bustSeatCaches(team);
+        }
         return team;
+    }
+
+    /** Turning the rule on without it would lock out the account doing so. */
+    async #assertOwnerHas2fa(actorUserId: number): Promise<void> {
+        const owner = await this.stores.user.getByProperty('id', actorUserId, {
+            force: true,
+        });
+        if (owner?.otp_enabled) return;
+        throw new HttpError(
+            409,
+            'Set up two-factor authentication on your own account before requiring it of the team.',
+            { legacyCode: 'conflict' },
+        );
+    }
+
+    /** Bounded by the seat cap, so no paging cap is needed. */
+    async #bustSeatCaches(team: TeamRow): Promise<void> {
+        let cursor: string | undefined;
+        for (let page = 0; page < 50; page++) {
+            const res = await this.stores.team.listMembers(team.uid, {
+                limit: 100,
+                ...(cursor ? { cursor } : {}),
+            });
+            for (const member of res.items) {
+                await this.stores.team.bustMembership(
+                    team.id,
+                    Number(member.user_id),
+                );
+            }
+            if (!res.cursor) return;
+            cursor = res.cursor;
+        }
     }
 
     /** Whether the owner opened the team to the apps its members use. */
