@@ -424,6 +424,17 @@ Calls driven by a deployed worker are exempt from enforcement by default,
 because a worker has no prompt to show and nobody watching it fail. Set
 `"meteringEnforcement": { "workers": true }` to include them.
 
+Monthly usage records expire on their own once they're old enough to be of no
+further use — `meteringRetentionMonths` full months past the month they
+belong to, 3 by default. Set it to `0` to keep every month's records forever:
+
+```json
+"meteringRetentionMonths": 6
+```
+
+Changing it, including to `0`, applies to records first written after the
+change; records already stamped keep their expiry.
+
 ### Captcha on signup / login
 
 Built-in proof-of-work captcha — no external service needed.

@@ -1613,23 +1613,13 @@ export class PuterServer {
             });
             this.#server.closeAllConnections();
             await closed;
-            for (const client of Object.values(
-                this.clients,
+            // Top-down, so each layer shuts down while the layers it writes
+            // through are still up.
+            for (const driver of Object.values(
+                this.drivers,
             ) as WithLifecycle[]) {
-                if (client.onServerShutdown) {
-                    await client.onServerShutdown();
-                }
-            }
-            for (const store of Object.values(this.stores) as WithLifecycle[]) {
-                if (store.onServerShutdown) {
-                    await store.onServerShutdown();
-                }
-            }
-            for (const service of Object.values(
-                this.services,
-            ) as WithLifecycle[]) {
-                if (service.onServerShutdown) {
-                    await service.onServerShutdown();
+                if (driver.onServerShutdown) {
+                    await driver.onServerShutdown();
                 }
             }
             for (const controller of Object.values(
@@ -1639,11 +1629,23 @@ export class PuterServer {
                     await controller.onServerShutdown();
                 }
             }
-            for (const driver of Object.values(
-                this.drivers,
+            for (const service of Object.values(
+                this.services,
             ) as WithLifecycle[]) {
-                if (driver.onServerShutdown) {
-                    await driver.onServerShutdown();
+                if (service.onServerShutdown) {
+                    await service.onServerShutdown();
+                }
+            }
+            for (const store of Object.values(this.stores) as WithLifecycle[]) {
+                if (store.onServerShutdown) {
+                    await store.onServerShutdown();
+                }
+            }
+            for (const client of Object.values(
+                this.clients,
+            ) as WithLifecycle[]) {
+                if (client.onServerShutdown) {
+                    await client.onServerShutdown();
                 }
             }
         }

@@ -46,6 +46,11 @@ import {
     PendingUploadCreateInput,
     PendingUploadSession,
 } from '../../stores/fs/FSEntry.js';
+import {
+    clampSignedUploadExpirySeconds,
+    isMissingObjectError,
+} from '../../stores/fs/S3ObjectStore.js';
+import { toUploadReservationBytes } from '../../stores/fs/UploadReservationStore.js';
 import type {
     MultipartCompletePart,
     SignedUploadResult,
@@ -96,6 +101,15 @@ type AncestorChain = Array<{ uid: string; path: string }>;
  */
 export const UNLIMITED_STORAGE_ALLOWANCE = Number.MAX_SAFE_INTEGER;
 
+// Held past a lease's signed-URL expiry so a client finishing right at the
+// deadline still settles or aborts before the lease would otherwise lapse.
+const UPLOAD_RESERVATION_GRACE_MS = 5 * 60_000;
+// How long a completed lease still counts as pending after settling, so a
+// replica that hasn't caught up to the commit doesn't undercount usage.
+const UPLOAD_RESERVATION_SETTLE_MS = 60_000;
+/** Signed uploads one storage owner may have outstanding at once. */
+export const MAX_PENDING_UPLOADS_PER_OWNER = 10_000;
+
 const RESERVED_METADATA_KEYS: readonly string[] = ['objectKey'];
 
 /**
@@ -118,6 +132,77 @@ const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
     const e = err as { name?: unknown; Code?: unknown };
     return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
+};
+
+/** Also recorded as the failure reason on a session refused for it. */
+const UPLOAD_NOT_RECEIVED = 'Upload content was not received';
+const uploadNotReceivedError = (): HttpError =>
+    new HttpError(400, UPLOAD_NOT_RECEIVED, { legacyCode: 'bad_request' });
+
+/** A session refused for a missing object keeps giving that answer. */
+const assertSessionCompletable = (session: PendingUploadSession): void => {
+    if (session.status === 'pending') return;
+    if (
+        session.status === 'failed' &&
+        session.failureReason === UPLOAD_NOT_RECEIVED
+    ) {
+        throw uploadNotReceivedError();
+    }
+    throw new HttpError(
+        409,
+        `Upload session is not pending (status=${session.status})`,
+        { legacyCode: 'conflict' },
+    );
+};
+
+/**
+ * Active/settled bytes an owner has pending in signed uploads not yet
+ * committed.
+ */
+type PendingUploadBytes = { activeBytes: number; settledBytes: number };
+
+/**
+ * A storage lease taken for one signed-upload session, ready to release or
+ * settle.
+ */
+type HeldUploadReservation = {
+    ownerId: number;
+    sessionId: string;
+    bytes: number;
+};
+
+/** Minimal shape `#probeBatchUploads` needs from a batch completion item. */
+type BatchCompletionProbeItem = {
+    session: PendingUploadSession;
+    finalData: FSEntryCreateInput;
+};
+
+type UploadReservationClaim = {
+    sessionId: string;
+    path: string;
+    incomingSize: number;
+    existingSize: number;
+    expiresInSeconds: number;
+};
+
+/**
+ * A session's reservation, or null for one with nothing to release (unmetered
+ * owner, or predates lease tracking).
+ */
+const heldFromSession = (
+    session: PendingUploadSession,
+): HeldUploadReservation | null => {
+    if (
+        typeof session.reservationOwnerId !== 'number' ||
+        typeof session.reservedBytes !== 'number'
+    ) {
+        return null;
+    }
+    return {
+        ownerId: session.reservationOwnerId,
+        sessionId: session.sessionId,
+        bytes: session.reservedBytes,
+    };
 };
 
 interface WriteTargetResolutionInput {
@@ -150,6 +235,9 @@ interface BatchStartSignedWriteResult {
 }
 
 export class FSService extends PuterService {
+    /** Overridable so tests can reach the cap without filling it. */
+    static MAX_PENDING_UPLOADS_PER_OWNER = MAX_PENDING_UPLOADS_PER_OWNER;
+
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
 
@@ -501,7 +589,7 @@ export class FSService extends PuterService {
         }
 
         const size = Number(metadata.size);
-        if (Number.isNaN(size) || size < 0) {
+        if (!Number.isFinite(size) || size < 0) {
             throw new HttpError(400, 'Invalid file size', {
                 legacyCode: 'bad_request',
             });
@@ -861,70 +949,288 @@ export class FSService extends PuterService {
         );
     }
 
+    /**
+     * The shared allowance check: usage plus pending bytes against the max,
+     * from a replica. Only settled bytes can make this stricter than a plain
+     * replica check, so only then is the primary consulted. Returns whether a
+     * limit was actually enforced and throws the existing 413 when `delta`
+     * doesn't fit.
+     */
+    async #checkStorageAllowance(
+        userId: number,
+        delta: number,
+        storageAllowanceMaxOverride?: number,
+        pending?: PendingUploadBytes,
+    ): Promise<boolean> {
+        // Skip the allowance lookup entirely for unmetered writes — it costs
+        // a query plus a quota-bonus round trip whose answer can't matter.
+        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
+            return false;
+        }
+
+        const [fast, resolvedPending] = await Promise.all([
+            this.stores.fsEntry.getUserStorageAllowance(userId),
+            pending ?? this.stores.uploadReservation.outstanding(userId),
+        ]);
+        const fastMax = this.#resolveStorageMax(
+            fast.max,
+            storageAllowanceMaxOverride,
+        );
+        if (fastMax === UNLIMITED_STORAGE_ALLOWANCE) {
+            return false;
+        }
+
+        const { activeBytes, settledBytes } = resolvedPending;
+        const fastProjected = fast.curr + activeBytes + settledBytes + delta;
+        if (!(fastProjected > fastMax)) {
+            return true;
+        }
+        if (settledBytes === 0) {
+            throw new HttpError(413, 'Storage limit reached', {
+                legacyCode: 'storage_limit_reached',
+            });
+        }
+
+        const exact = await this.stores.fsEntry.getUserStorageAllowance(
+            userId,
+            { consistentRead: true },
+        );
+        const exactMax = this.#resolveStorageMax(
+            exact.max,
+            storageAllowanceMaxOverride,
+        );
+        if (exactMax === UNLIMITED_STORAGE_ALLOWANCE) {
+            return false;
+        }
+        if (!(exact.curr + activeBytes + delta > exactMax)) {
+            return true;
+        }
+
+        throw new HttpError(413, 'Storage limit reached', {
+            legacyCode: 'storage_limit_reached',
+        });
+    }
+
     async #assertStorageAllowance(
         userId: number,
         incomingSize: number,
         existingSize = 0,
         storageAllowanceMaxOverride?: number,
+        pending?: PendingUploadBytes,
     ): Promise<void> {
-        // Skip the allowance lookup entirely for unmetered writes — it costs
-        // a query plus a quota-bonus round trip whose answer can't matter.
-        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
-        }
-        const allowance =
-            await this.stores.fsEntry.getUserStorageAllowance(userId);
-        const maxStorage = this.#resolveStorageMax(
-            allowance.max,
+        await this.#checkStorageAllowance(
+            userId,
+            incomingSize - existingSize,
             storageAllowanceMaxOverride,
+            pending,
         );
-        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
-        }
-
-        const projectedUsage = allowance.curr - existingSize + incomingSize;
-        if (projectedUsage > maxStorage) {
-            throw new HttpError(413, 'Storage limit reached', {
-                legacyCode: 'storage_limit_reached',
-            });
-        }
     }
 
+    /**
+     * Same check for a batch's combined delta. Returns whether a limit was
+     * actually enforced.
+     */
     async #assertStorageAllowanceForBatch(
         userId: number,
         sizeChanges: Array<{ incomingSize: number; existingSize: number }>,
         storageAllowanceMaxOverride?: number,
-    ): Promise<void> {
+        pending?: PendingUploadBytes,
+    ): Promise<boolean> {
         if (sizeChanges.length === 0) {
-            return;
-        }
-        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
+            return false;
         }
 
-        const allowance =
-            await this.stores.fsEntry.getUserStorageAllowance(userId);
-        const maxStorage = this.#resolveStorageMax(
-            allowance.max,
-            storageAllowanceMaxOverride,
+        const delta = sizeChanges.reduce(
+            (total, sizeChange) =>
+                total - sizeChange.existingSize + sizeChange.incomingSize,
+            0,
         );
-        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
+        return this.#checkStorageAllowance(
+            userId,
+            delta,
+            storageAllowanceMaxOverride,
+            pending,
+        );
+    }
+
+    /**
+     * Reserve storage for a batch of about-to-be-signed uploads, one owner at a
+     * time so each owner's leases serialize through its own cache key rather
+     * than racing on separate reads. Returns every lease actually taken, so the
+     * caller can settle or release them later; on any failure, everything taken
+     * so far is released before the error propagates.
+     */
+    async #reserveUploadStorage(
+        actingUserId: number,
+        claims: UploadReservationClaim[],
+        storageAllowanceMax?: number,
+    ): Promise<HeldUploadReservation[]> {
+        if (claims.length === 0) {
+            return [];
         }
 
-        let projectedUsage = allowance.curr;
-        for (const sizeChange of sizeChanges) {
-            projectedUsage =
-                projectedUsage -
-                sizeChange.existingSize +
-                sizeChange.incomingSize;
+        const owners = await this.#storageOwnersOf(
+            claims.map((claim) => claim.path),
+            actingUserId,
+        );
+        const claimsByOwner = new Map<number, UploadReservationClaim[]>();
+        for (const claim of claims) {
+            const owner = owners.get(claim.path) ?? actingUserId;
+            const ownerClaims = claimsByOwner.get(owner) ?? [];
+            ownerClaims.push(claim);
+            claimsByOwner.set(owner, ownerClaims);
         }
 
-        if (projectedUsage > maxStorage) {
-            throw new HttpError(413, 'Storage limit reached', {
-                legacyCode: 'storage_limit_reached',
-            });
+        const held: HeldUploadReservation[] = [];
+        try {
+            for (const [owner, ownerClaims] of claimsByOwner) {
+                const override = this.#allowanceOverrideFor(
+                    owner,
+                    actingUserId,
+                    storageAllowanceMax,
+                );
+                if (override === UNLIMITED_STORAGE_ALLOWANCE) {
+                    continue;
+                }
+
+                const now = Date.now();
+                const leases = ownerClaims.map((claim) => ({
+                    sessionId: claim.sessionId,
+                    bytes: toUploadReservationBytes(
+                        claim.incomingSize,
+                        claim.existingSize,
+                    ),
+                    deadline:
+                        now +
+                        clampSignedUploadExpirySeconds(claim.expiresInSeconds) *
+                            1000 +
+                        UPLOAD_RESERVATION_GRACE_MS,
+                }));
+
+                const taken = await this.stores.uploadReservation.take(
+                    owner,
+                    leases,
+                    FSService.MAX_PENDING_UPLOADS_PER_OWNER,
+                );
+                if (taken && !taken.added) {
+                    throw new HttpError(429, 'Too many uploads in progress', {
+                        legacyCode: 'too_many_requests',
+                    });
+                }
+
+                // `taken === null` means the cache couldn't be reached —
+                // nothing was actually leased, so there is nothing to hold or
+                // release, and pending is treated as zero for this owner.
+                const ownerHeld = taken
+                    ? leases.map((lease) => ({
+                          ownerId: owner,
+                          sessionId: lease.sessionId,
+                          bytes: lease.bytes,
+                      }))
+                    : [];
+                const heldFromIndex = held.length;
+                held.push(...ownerHeld);
+
+                const ownBytes = leases.reduce(
+                    (sum, lease) => sum + lease.bytes,
+                    0,
+                );
+                const pending: PendingUploadBytes = taken
+                    ? {
+                          activeBytes: Math.max(
+                              0,
+                              taken.activeBytes - ownBytes,
+                          ),
+                          settledBytes: taken.settledBytes,
+                      }
+                    : { activeBytes: 0, settledBytes: 0 };
+
+                const enforced = await this.#assertStorageAllowanceForBatch(
+                    owner,
+                    ownerClaims.map((claim) => ({
+                        incomingSize: claim.incomingSize,
+                        existingSize: claim.existingSize,
+                    })),
+                    override,
+                    pending,
+                );
+                if (!enforced && ownerHeld.length > 0) {
+                    // Nothing to guard for this owner — give the leases back
+                    // rather than holding bytes no check will ever read.
+                    await this.stores.uploadReservation.release(
+                        owner,
+                        ownerHeld,
+                    );
+                    held.splice(heldFromIndex, ownerHeld.length);
+                }
+            }
+        } catch (error) {
+            await this.#releaseUploadReservations(held);
+            throw error;
         }
+
+        return held;
+    }
+
+    #groupReservationsByOwner(
+        items: HeldUploadReservation[],
+    ): Map<number, { sessionId: string; bytes: number }[]> {
+        const byOwner = new Map<
+            number,
+            { sessionId: string; bytes: number }[]
+        >();
+        for (const item of items) {
+            const list = byOwner.get(item.ownerId) ?? [];
+            list.push({ sessionId: item.sessionId, bytes: item.bytes });
+            byOwner.set(item.ownerId, list);
+        }
+        return byOwner;
+    }
+
+    async #releaseUploadReservations(
+        items: HeldUploadReservation[],
+    ): Promise<void> {
+        if (items.length === 0) return;
+        await Promise.all(
+            [...this.#groupReservationsByOwner(items)].map(([owner, list]) =>
+                this.stores.uploadReservation.release(owner, list),
+            ),
+        );
+    }
+
+    async #settleUploadReservations(
+        items: HeldUploadReservation[],
+    ): Promise<void> {
+        if (items.length === 0) return;
+        await Promise.all(
+            [...this.#groupReservationsByOwner(items)].map(([owner, list]) =>
+                this.stores.uploadReservation.settle(
+                    owner,
+                    list,
+                    UPLOAD_RESERVATION_SETTLE_MS,
+                ),
+            ),
+        );
+    }
+
+    async #releaseSessionUploadReservations(
+        sessions: PendingUploadSession[],
+    ): Promise<void> {
+        await this.#releaseUploadReservations(
+            sessions
+                .map(heldFromSession)
+                .filter((item): item is HeldUploadReservation => item !== null),
+        );
+    }
+
+    async #settleSessionUploadReservations(
+        sessions: PendingUploadSession[],
+    ): Promise<void> {
+        await this.#settleUploadReservations(
+            sessions
+                .map(heldFromSession)
+                .filter((item): item is HeldUploadReservation => item !== null),
+        );
     }
 
     // Bytes an entry accounts for in the owner's usage: a directory's own row
@@ -1757,110 +2063,137 @@ export class FSService extends PuterService {
 
         const existingSize = existingEntry?.size ?? 0;
         const parentPath = pathPosix.dirname(normalizedInput.path);
-        const [, { parentEntries, createdDirectoryEntries }] =
-            await Promise.all([
-                this.#storageOwnerOf(normalizedInput.path, userId).then(
-                    (owner) =>
-                        this.#assertStorageAllowance(
-                            owner,
-                            normalizedInput.size,
-                            existingSize,
-                            this.#allowanceOverrideFor(
-                                owner,
-                                userId,
-                                storageAllowanceMax,
-                            ),
-                        ),
-                ),
-                this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
-                    userId,
-                    [
-                        {
-                            parentPath,
-                            createPaths: normalizedInput.createMissingParents,
-                        },
-                    ],
-                ),
-            ]);
-        const [parentEntry] = parentEntries;
-        if (!parentEntry) {
-            throw new Error(
-                'Failed to resolve parent directory for signed write',
-            );
-        }
-
-        const objectKey = existingEntry?.uuid ?? uuidv4();
-        const uploadMode = this.#determineUploadMode(
-            signedWriteRequest.uploadMode,
-            normalizedInput.size,
-        );
+        const sessionId = uuidv4();
         const expiresInSeconds =
             signedWriteRequest.expiresInSeconds ??
             DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
-        const createInput = this.#toCreateInput(normalizedInput, objectKey);
 
-        const signedUploadResult =
-            await this.stores.s3Object.createSignedUploadUrl(
-                {
-                    bucket: normalizedInput.bucket,
-                    objectKey,
-                    size: normalizedInput.size,
-                    contentType: normalizedInput.contentType,
-                    uploadMode,
-                    expiresInSeconds,
-                    multipartPartSize: normalizedInput.multipartPartSize,
-                },
-                normalizedInput.bucketRegion,
-            );
+        const [reserveResult, parentResult] = await Promise.allSettled([
+            this.#reserveUploadStorage(
+                userId,
+                [
+                    {
+                        sessionId,
+                        path: normalizedInput.path,
+                        incomingSize: normalizedInput.size,
+                        existingSize,
+                        expiresInSeconds,
+                    },
+                ],
+                storageAllowanceMax,
+            ),
+            this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
+                userId,
+                [
+                    {
+                        parentPath,
+                        createPaths: normalizedInput.createMissingParents,
+                    },
+                ],
+            ),
+        ]);
 
-        const sessionId = uuidv4();
-        const pendingUploadInput: PendingUploadCreateInput = {
-            sessionId,
-            userId,
-            appId: normalizedInput.associatedAppId ?? null,
-            parentUid: parentEntry.uuid,
-            parentPath: parentEntry.path,
-            targetName: pathPosix.basename(normalizedInput.path),
-            targetPath: normalizedInput.path,
-            overwriteTargetUid: existingEntry?.uuid ?? null,
-            contentType: normalizedInput.contentType,
-            size: normalizedInput.size,
-            checksumSha256: normalizedInput.checksumSha256 ?? null,
-            uploadMode,
-            multipartUploadId: signedUploadResult.multipartUploadId ?? null,
-            multipartPartSize: signedUploadResult.multipartPartSize ?? null,
-            multipartPartCount: signedUploadResult.multipartPartCount ?? null,
-            storageProvider: 's3',
-            bucket: normalizedInput.bucket,
-            bucketRegion: normalizedInput.bucketRegion,
-            objectKey,
-            metadataJson: JSON.stringify(createInput),
-            expiresAt: signedUploadResult.expiresAt,
-        };
+        if (reserveResult.status === 'rejected') {
+            throw reserveResult.reason;
+        }
+        // Parent resolution failed but the reservation succeeded: any
+        // directories parent resolution already created are left in place
+        // (unchanged from a plain rejection), and the lease is given back.
+        if (parentResult.status === 'rejected') {
+            await this.#releaseUploadReservations(reserveResult.value);
+            throw parentResult.reason;
+        }
+        const reservedLeases = reserveResult.value;
+        const { parentEntries, createdDirectoryEntries } = parentResult.value;
 
         try {
-            await this.stores.fsEntry.createPendingEntry(pendingUploadInput);
-        } catch (error) {
-            await this.#cleanupSignedMultipartUploads([
-                {
-                    bucket: normalizedInput.bucket,
-                    bucketRegion: normalizedInput.bucketRegion,
+            const [parentEntry] = parentEntries;
+            if (!parentEntry) {
+                throw new Error(
+                    'Failed to resolve parent directory for signed write',
+                );
+            }
+
+            const objectKey = existingEntry?.uuid ?? uuidv4();
+            const uploadMode = this.#determineUploadMode(
+                signedWriteRequest.uploadMode,
+                normalizedInput.size,
+            );
+            const createInput = this.#toCreateInput(normalizedInput, objectKey);
+
+            const signedUploadResult =
+                await this.stores.s3Object.createSignedUploadUrl(
+                    {
+                        bucket: normalizedInput.bucket,
+                        objectKey,
+                        size: normalizedInput.size,
+                        contentType: normalizedInput.contentType,
+                        uploadMode,
+                        expiresInSeconds,
+                        multipartPartSize: normalizedInput.multipartPartSize,
+                    },
+                    normalizedInput.bucketRegion,
+                );
+
+            const reservation = reservedLeases.find(
+                (lease) => lease.sessionId === sessionId,
+            );
+            const pendingUploadInput: PendingUploadCreateInput = {
+                sessionId,
+                userId,
+                appId: normalizedInput.associatedAppId ?? null,
+                parentUid: parentEntry.uuid,
+                parentPath: parentEntry.path,
+                targetName: pathPosix.basename(normalizedInput.path),
+                targetPath: normalizedInput.path,
+                overwriteTargetUid: existingEntry?.uuid ?? null,
+                contentType: normalizedInput.contentType,
+                size: normalizedInput.size,
+                checksumSha256: normalizedInput.checksumSha256 ?? null,
+                uploadMode,
+                multipartUploadId: signedUploadResult.multipartUploadId ?? null,
+                multipartPartSize: signedUploadResult.multipartPartSize ?? null,
+                multipartPartCount:
+                    signedUploadResult.multipartPartCount ?? null,
+                storageProvider: 's3',
+                bucket: normalizedInput.bucket,
+                bucketRegion: normalizedInput.bucketRegion,
+                objectKey,
+                metadataJson: JSON.stringify(createInput),
+                expiresAt: signedUploadResult.expiresAt,
+                reservationOwnerId: reservation?.ownerId ?? null,
+                reservedBytes: reservation?.bytes ?? null,
+            };
+
+            try {
+                await this.stores.fsEntry.createPendingEntry(
+                    pendingUploadInput,
+                );
+            } catch (error) {
+                await this.#cleanupSignedMultipartUploads([
+                    {
+                        bucket: normalizedInput.bucket,
+                        bucketRegion: normalizedInput.bucketRegion,
+                        objectKey,
+                        signedUploadResult,
+                    },
+                ]);
+                throw error;
+            }
+
+            return {
+                response: this.#toSignedWriteResponse(
+                    sessionId,
+                    normalizedInput,
                     objectKey,
                     signedUploadResult,
-                },
-            ]);
+                ),
+                createdDirectoryEntries,
+            };
+        } catch (error) {
+            await this.#releaseUploadReservations(reservedLeases);
             throw error;
         }
-
-        return {
-            response: this.#toSignedWriteResponse(
-                sessionId,
-                normalizedInput,
-                objectKey,
-                signedUploadResult,
-            ),
-            createdDirectoryEntries,
-        };
     }
 
     async batchStartUrlWrites(
@@ -1990,43 +2323,21 @@ export class FSService extends PuterService {
                 };
             });
 
-            const owners = await this.#storageOwnersOf(
-                resolvedFileItems.map((item) => item.normalizedInput.path),
-                userId,
-            );
-            const allowanceChecksByOwner = new Map<
-                number,
-                Array<{ incomingSize: number; existingSize: number }>
-            >();
-            for (const item of resolvedFileItems) {
-                const owner = owners.get(item.normalizedInput.path) ?? userId;
-                const checks = allowanceChecksByOwner.get(owner) ?? [];
-                checks.push({
+            const sessionIds = resolvedFileItems.map(() => uuidv4());
+            const claims: UploadReservationClaim[] = resolvedFileItems.map(
+                (item, index) => ({
+                    sessionId: sessionIds[index] as string,
+                    path: item.normalizedInput.path,
                     incomingSize: item.normalizedInput.size,
                     existingSize: item.existingEntry?.size ?? 0,
-                });
-                allowanceChecksByOwner.set(owner, checks);
-            }
-            const [
-                ,
-                {
-                    parentEntries,
-                    createdDirectoryEntries: createdParentDirectoryEntries,
-                },
-            ] = await Promise.all([
-                Promise.all(
-                    [...allowanceChecksByOwner].map(([owner, checks]) =>
-                        this.#assertStorageAllowanceForBatch(
-                            owner,
-                            checks,
-                            this.#allowanceOverrideFor(
-                                owner,
-                                userId,
-                                storageAllowanceMax,
-                            ),
-                        ),
-                    ),
-                ),
+                    expiresInSeconds:
+                        item.request.expiresInSeconds ??
+                        DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
+                }),
+            );
+
+            const [reserveResult, parentResult] = await Promise.allSettled([
+                this.#reserveUploadStorage(userId, claims, storageAllowanceMax),
                 this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
                     userId,
                     resolvedFileItems.map((item) => ({
@@ -2037,6 +2348,22 @@ export class FSService extends PuterService {
                     })),
                 ),
             ]);
+
+            if (reserveResult.status === 'rejected') {
+                throw reserveResult.reason;
+            }
+            if (parentResult.status === 'rejected') {
+                await this.#releaseUploadReservations(reserveResult.value);
+                throw parentResult.reason;
+            }
+            const reservedLeases = reserveResult.value;
+            const reservationBySessionId = new Map(
+                reservedLeases.map((lease) => [lease.sessionId, lease]),
+            );
+            const {
+                parentEntries,
+                createdDirectoryEntries: createdParentDirectoryEntries,
+            } = parentResult.value;
             for (const createdParentDirectoryEntry of createdParentDirectoryEntries) {
                 createdDirectoryEntriesByPath.set(
                     createdParentDirectoryEntry.path,
@@ -2044,213 +2371,233 @@ export class FSService extends PuterService {
                 );
             }
 
-            const objectKeys = resolvedFileItems.map((item) => {
-                return item.existingEntry?.uuid ?? uuidv4();
-            });
-            const uploadModes = resolvedFileItems.map((item) => {
-                return this.#determineUploadMode(
-                    item.request.uploadMode,
-                    item.normalizedInput.size,
-                );
-            });
-            const sessionIds = resolvedFileItems.map(() => uuidv4());
+            try {
+                const objectKeys = resolvedFileItems.map((item) => {
+                    return item.existingEntry?.uuid ?? uuidv4();
+                });
+                const uploadModes = resolvedFileItems.map((item) => {
+                    return this.#determineUploadMode(
+                        item.request.uploadMode,
+                        item.normalizedInput.size,
+                    );
+                });
 
-            const signedResultsByIndex = new Map<number, SignedUploadResult>();
-            const writesByRegion = new Map<
-                string,
-                Array<{
-                    requestIndex: number;
-                    input: {
-                        bucket: string;
-                        objectKey: string;
-                        size: number;
-                        contentType: string;
-                        uploadMode: UploadMode;
-                        expiresInSeconds: number;
-                        multipartPartSize?: number;
-                    };
-                }>
-            >();
-            for (let index = 0; index < resolvedFileItems.length; index++) {
-                const item = resolvedFileItems[index];
-                const objectKey = objectKeys[index];
-                const uploadMode = uploadModes[index];
-                if (!item || !objectKey || !uploadMode) {
-                    throw new Error(
-                        'Failed to build batch signed upload request',
+                const signedResultsByIndex = new Map<
+                    number,
+                    SignedUploadResult
+                >();
+                const writesByRegion = new Map<
+                    string,
+                    Array<{
+                        requestIndex: number;
+                        input: {
+                            bucket: string;
+                            objectKey: string;
+                            size: number;
+                            contentType: string;
+                            uploadMode: UploadMode;
+                            expiresInSeconds: number;
+                            multipartPartSize?: number;
+                        };
+                    }>
+                >();
+                for (let index = 0; index < resolvedFileItems.length; index++) {
+                    const item = resolvedFileItems[index];
+                    const objectKey = objectKeys[index];
+                    const uploadMode = uploadModes[index];
+                    if (!item || !objectKey || !uploadMode) {
+                        throw new Error(
+                            'Failed to build batch signed upload request',
+                        );
+                    }
+                    const regionEntries =
+                        writesByRegion.get(item.normalizedInput.bucketRegion) ??
+                        [];
+                    regionEntries.push({
+                        requestIndex: item.index,
+                        input: {
+                            bucket: item.normalizedInput.bucket,
+                            objectKey,
+                            size: item.normalizedInput.size,
+                            contentType: item.normalizedInput.contentType,
+                            uploadMode,
+                            expiresInSeconds:
+                                item.request.expiresInSeconds ??
+                                DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
+                            multipartPartSize:
+                                item.normalizedInput.multipartPartSize,
+                        },
+                    });
+                    writesByRegion.set(
+                        item.normalizedInput.bucketRegion,
+                        regionEntries,
                     );
                 }
-                const regionEntries =
-                    writesByRegion.get(item.normalizedInput.bucketRegion) ?? [];
-                regionEntries.push({
-                    requestIndex: item.index,
-                    input: {
-                        bucket: item.normalizedInput.bucket,
-                        objectKey,
-                        size: item.normalizedInput.size,
-                        contentType: item.normalizedInput.contentType,
-                        uploadMode,
-                        expiresInSeconds:
-                            item.request.expiresInSeconds ??
-                            DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
-                        multipartPartSize:
-                            item.normalizedInput.multipartPartSize,
-                    },
-                });
-                writesByRegion.set(
-                    item.normalizedInput.bucketRegion,
-                    regionEntries,
-                );
-            }
 
-            const regionResults = await Promise.allSettled(
-                Array.from(writesByRegion.entries()).map(
-                    async ([region, regionWrites]) => {
-                        const signedResults =
-                            await this.stores.s3Object.batchCreateSignedUploadUrls(
-                                regionWrites.map((item) => item.input),
-                                region,
-                            );
-                        for (
-                            let index = 0;
-                            index < regionWrites.length;
-                            index++
-                        ) {
-                            const regionWrite = regionWrites[index];
-                            const signedResult = signedResults[index];
-                            if (!regionWrite || !signedResult) {
-                                throw new Error(
-                                    'Failed to map signed upload result to request',
+                const regionResults = await Promise.allSettled(
+                    Array.from(writesByRegion.entries()).map(
+                        async ([region, regionWrites]) => {
+                            const signedResults =
+                                await this.stores.s3Object.batchCreateSignedUploadUrls(
+                                    regionWrites.map((item) => item.input),
+                                    region,
+                                );
+                            for (
+                                let index = 0;
+                                index < regionWrites.length;
+                                index++
+                            ) {
+                                const regionWrite = regionWrites[index];
+                                const signedResult = signedResults[index];
+                                if (!regionWrite || !signedResult) {
+                                    throw new Error(
+                                        'Failed to map signed upload result to request',
+                                    );
+                                }
+                                signedResultsByIndex.set(
+                                    regionWrite.requestIndex,
+                                    signedResult,
                                 );
                             }
-                            signedResultsByIndex.set(
-                                regionWrite.requestIndex,
-                                signedResult,
+                        },
+                    ),
+                );
+                const signedMultipartCleanupTargets =
+                    this.#toSignedMultipartCleanupTargets(
+                        resolvedFileItems,
+                        objectKeys,
+                        signedResultsByIndex,
+                    );
+
+                const failedRegionResult = regionResults.find(
+                    (result) => result.status === 'rejected',
+                );
+                if (failedRegionResult?.status === 'rejected') {
+                    await this.#cleanupSignedMultipartUploads(
+                        signedMultipartCleanupTargets,
+                    );
+
+                    throw this.#toError(
+                        failedRegionResult.reason,
+                        'Failed to create batch signed upload urls',
+                    );
+                }
+
+                try {
+                    const pendingInputs: PendingUploadCreateInput[] = [];
+                    for (
+                        let index = 0;
+                        index < resolvedFileItems.length;
+                        index++
+                    ) {
+                        const item = resolvedFileItems[index];
+                        const parentEntry = parentEntries[index];
+                        const objectKey = objectKeys[index];
+                        const sessionId = sessionIds[index];
+                        const uploadMode = uploadModes[index];
+                        const existingEntry = item?.existingEntry;
+                        if (
+                            !item ||
+                            !parentEntry ||
+                            !objectKey ||
+                            !sessionId ||
+                            !uploadMode
+                        ) {
+                            throw new Error(
+                                'Failed to build pending upload input from batch start data',
                             );
                         }
-                    },
-                ),
-            );
-            const signedMultipartCleanupTargets =
-                this.#toSignedMultipartCleanupTargets(
-                    resolvedFileItems,
-                    objectKeys,
-                    signedResultsByIndex,
-                );
-
-            const failedRegionResult = regionResults.find(
-                (result) => result.status === 'rejected',
-            );
-            if (failedRegionResult?.status === 'rejected') {
-                await this.#cleanupSignedMultipartUploads(
-                    signedMultipartCleanupTargets,
-                );
-
-                throw this.#toError(
-                    failedRegionResult.reason,
-                    'Failed to create batch signed upload urls',
-                );
-            }
-
-            try {
-                const pendingInputs: PendingUploadCreateInput[] = [];
-                for (let index = 0; index < resolvedFileItems.length; index++) {
-                    const item = resolvedFileItems[index];
-                    const parentEntry = parentEntries[index];
-                    const objectKey = objectKeys[index];
-                    const sessionId = sessionIds[index];
-                    const uploadMode = uploadModes[index];
-                    const existingEntry = item?.existingEntry;
-                    if (
-                        !item ||
-                        !parentEntry ||
-                        !objectKey ||
-                        !sessionId ||
-                        !uploadMode
-                    ) {
-                        throw new Error(
-                            'Failed to build pending upload input from batch start data',
+                        const signedUploadResult = signedResultsByIndex.get(
+                            item.index,
                         );
-                    }
-                    const signedUploadResult = signedResultsByIndex.get(
-                        item.index,
-                    );
-                    if (!signedUploadResult) {
-                        throw new Error(
-                            'Failed to resolve signed upload result for batch start data',
-                        );
-                    }
+                        if (!signedUploadResult) {
+                            throw new Error(
+                                'Failed to resolve signed upload result for batch start data',
+                            );
+                        }
 
-                    const createInput = this.#toCreateInput(
-                        item.normalizedInput,
-                        objectKey,
-                    );
-                    pendingInputs.push({
-                        sessionId,
-                        userId,
-                        appId: item.normalizedInput.associatedAppId ?? null,
-                        parentUid: parentEntry.uuid,
-                        parentPath: parentEntry.path,
-                        targetName: pathPosix.basename(
-                            item.normalizedInput.path,
-                        ),
-                        targetPath: item.normalizedInput.path,
-                        overwriteTargetUid: existingEntry?.uuid ?? null,
-                        contentType: item.normalizedInput.contentType,
-                        size: item.normalizedInput.size,
-                        checksumSha256:
-                            item.normalizedInput.checksumSha256 ?? null,
-                        uploadMode,
-                        multipartUploadId:
-                            signedUploadResult.multipartUploadId ?? null,
-                        multipartPartSize:
-                            signedUploadResult.multipartPartSize ?? null,
-                        multipartPartCount:
-                            signedUploadResult.multipartPartCount ?? null,
-                        storageProvider: 's3',
-                        bucket: item.normalizedInput.bucket,
-                        bucketRegion: item.normalizedInput.bucketRegion,
-                        objectKey,
-                        metadataJson: JSON.stringify(createInput),
-                        expiresAt: signedUploadResult.expiresAt,
-                    });
-                }
-
-                await this.stores.fsEntry.batchCreatePendingEntries(
-                    pendingInputs,
-                );
-
-                for (let index = 0; index < resolvedFileItems.length; index++) {
-                    const item = resolvedFileItems[index];
-                    const sessionId = sessionIds[index];
-                    const objectKey = objectKeys[index];
-                    if (!item || !sessionId || !objectKey) {
-                        throw new Error(
-                            'Failed to build signed write response from batch start data',
-                        );
-                    }
-                    const signedUploadResult = signedResultsByIndex.get(
-                        item.index,
-                    );
-                    if (!signedUploadResult) {
-                        throw new Error(
-                            'Failed to resolve signed upload result for batch response data',
-                        );
-                    }
-                    responsesByIndex.set(
-                        item.index,
-                        this.#toSignedWriteResponse(
-                            sessionId,
+                        const createInput = this.#toCreateInput(
                             item.normalizedInput,
                             objectKey,
-                            signedUploadResult,
-                        ),
+                        );
+                        const reservation =
+                            reservationBySessionId.get(sessionId);
+                        pendingInputs.push({
+                            sessionId,
+                            userId,
+                            appId: item.normalizedInput.associatedAppId ?? null,
+                            parentUid: parentEntry.uuid,
+                            parentPath: parentEntry.path,
+                            targetName: pathPosix.basename(
+                                item.normalizedInput.path,
+                            ),
+                            targetPath: item.normalizedInput.path,
+                            overwriteTargetUid: existingEntry?.uuid ?? null,
+                            contentType: item.normalizedInput.contentType,
+                            size: item.normalizedInput.size,
+                            checksumSha256:
+                                item.normalizedInput.checksumSha256 ?? null,
+                            uploadMode,
+                            multipartUploadId:
+                                signedUploadResult.multipartUploadId ?? null,
+                            multipartPartSize:
+                                signedUploadResult.multipartPartSize ?? null,
+                            multipartPartCount:
+                                signedUploadResult.multipartPartCount ?? null,
+                            storageProvider: 's3',
+                            bucket: item.normalizedInput.bucket,
+                            bucketRegion: item.normalizedInput.bucketRegion,
+                            objectKey,
+                            metadataJson: JSON.stringify(createInput),
+                            expiresAt: signedUploadResult.expiresAt,
+                            reservationOwnerId: reservation?.ownerId ?? null,
+                            reservedBytes: reservation?.bytes ?? null,
+                        });
+                    }
+
+                    await this.stores.fsEntry.batchCreatePendingEntries(
+                        pendingInputs,
                     );
+
+                    for (
+                        let index = 0;
+                        index < resolvedFileItems.length;
+                        index++
+                    ) {
+                        const item = resolvedFileItems[index];
+                        const sessionId = sessionIds[index];
+                        const objectKey = objectKeys[index];
+                        if (!item || !sessionId || !objectKey) {
+                            throw new Error(
+                                'Failed to build signed write response from batch start data',
+                            );
+                        }
+                        const signedUploadResult = signedResultsByIndex.get(
+                            item.index,
+                        );
+                        if (!signedUploadResult) {
+                            throw new Error(
+                                'Failed to resolve signed upload result for batch response data',
+                            );
+                        }
+                        responsesByIndex.set(
+                            item.index,
+                            this.#toSignedWriteResponse(
+                                sessionId,
+                                item.normalizedInput,
+                                objectKey,
+                                signedUploadResult,
+                            ),
+                        );
+                    }
+                } catch (error) {
+                    await this.#cleanupSignedMultipartUploads(
+                        signedMultipartCleanupTargets,
+                    );
+                    throw error;
                 }
             } catch (error) {
-                await this.#cleanupSignedMultipartUploads(
-                    signedMultipartCleanupTargets,
-                );
+                await this.#releaseUploadReservations(reservedLeases);
                 throw error;
             }
         }
@@ -2355,10 +2702,14 @@ export class FSService extends PuterService {
             );
         }
         if (session.expiresAt < Date.now()) {
-            await this.stores.fsEntry.markPendingEntryFailed(
-                session.sessionId,
-                'Upload session expired',
-            );
+            try {
+                await this.stores.fsEntry.markPendingEntryFailed(
+                    session.sessionId,
+                    'Upload session expired',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
             throw new HttpError(400, 'Upload session expired', {
                 legacyCode: 'session_required',
             });
@@ -2419,7 +2770,7 @@ export class FSService extends PuterService {
 
         const expiresAt =
             Date.now() +
-            Math.max(60, Math.min(60 * 60, expiresInSeconds)) * 1000;
+            clampSignedUploadExpirySeconds(expiresInSeconds) * 1000;
 
         return {
             uploadId: session.sessionId,
@@ -2430,6 +2781,90 @@ export class FSService extends PuterService {
             expiresAt,
             multipartPartUrls,
         };
+    }
+
+    // Object size once landed, 'missing' when the store says it isn't there,
+    // null when the check failed or gave no length.
+    async #probeSignedUpload(
+        bucket: string,
+        objectKey: string,
+        region: string,
+    ): Promise<number | 'missing' | null> {
+        try {
+            return await this.stores.s3Object.headObjectSize(
+                bucket,
+                objectKey,
+                region,
+            );
+        } catch (error) {
+            if (isMissingObjectError(error)) return 'missing';
+            console.warn(
+                `[fs] signed upload size check failed for ${objectKey}: ${this.#toErrorMessage(error)}`,
+            );
+            return null;
+        }
+    }
+
+    #logUnreceivedUploads(sessions: PendingUploadSession[]): void {
+        for (const session of sessions) {
+            console.warn('[fs] signed upload refused: object not received', {
+                sessionId: session.sessionId,
+                userId: session.userId,
+                appId: session.appId,
+                uploadMode: session.uploadMode,
+                overwrite: Boolean(session.overwriteTargetUid),
+            });
+        }
+    }
+
+    // Marks the sessions failed, releases their leases, and refuses the batch.
+    async #refuseUnreceivedUploads(
+        sessions: PendingUploadSession[],
+    ): Promise<never> {
+        this.#logUnreceivedUploads(sessions);
+        try {
+            await this.stores.fsEntry.markPendingEntriesFailed(
+                sessions.map((session) => session.sessionId),
+                UPLOAD_NOT_RECEIVED,
+            );
+        } finally {
+            await this.#releaseSessionUploadReservations(sessions);
+        }
+        throw uploadNotReceivedError();
+    }
+
+    // Probes each item's size into `sizes`; refuses the batch if any object never arrived.
+    async #probeBatchUploads(
+        items: BatchCompletionProbeItem[],
+        sizes: Map<string, number | null>,
+    ): Promise<void> {
+        if (items.length === 0) return;
+        const missing: PendingUploadSession[] = [];
+        await Promise.all(
+            items.map(async (item) => {
+                const bucket =
+                    item.session.bucket ??
+                    item.finalData.bucket ??
+                    this.#resolveBucket();
+                const region =
+                    item.session.bucketRegion ??
+                    item.finalData.bucketRegion ??
+                    this.#resolveBucketRegion();
+                const uploaded = await this.#probeSignedUpload(
+                    bucket,
+                    item.session.objectKey,
+                    region,
+                );
+                if (uploaded === 'missing') {
+                    missing.push(item.session);
+                    return;
+                }
+                sizes.set(item.session.sessionId, uploaded);
+            }),
+        );
+        if (missing.length > 0) {
+            await this.#refuseUnreceivedUploads(missing);
+        }
     }
 
     async completeUrlWrite(
@@ -2449,18 +2884,16 @@ export class FSService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
-        if (session.status !== 'pending') {
-            throw new HttpError(
-                409,
-                `Upload session is not pending (status=${session.status})`,
-                { legacyCode: 'conflict' },
-            );
-        }
+        assertSessionCompletable(session);
         if (session.expiresAt < Date.now()) {
-            await this.stores.fsEntry.markPendingEntryFailed(
-                session.sessionId,
-                'Upload session expired',
-            );
+            try {
+                await this.stores.fsEntry.markPendingEntryFailed(
+                    session.sessionId,
+                    'Upload session expired',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
             throw new HttpError(400, 'Upload session expired', {
                 legacyCode: 'session_required',
             });
@@ -2520,34 +2953,32 @@ export class FSService extends PuterService {
                 session.bucketRegion ??
                 createInput.bucketRegion ??
                 this.#resolveBucketRegion();
-            let trueSize: number | null = null;
-            try {
-                trueSize = await this.stores.s3Object.headObjectSize(
-                    reconcileBucket,
-                    session.objectKey,
-                    reconcileRegion,
-                );
-            } catch {
-                // HEAD failed (e.g. object never uploaded) — leave the
-                // declared size; don't block completion on a metadata read.
-                trueSize = null;
+            const uploaded = await this.#probeSignedUpload(
+                reconcileBucket,
+                session.objectKey,
+                reconcileRegion,
+            );
+            if (uploaded === 'missing') {
+                this.#logUnreceivedUploads([session]);
+                throw uploadNotReceivedError();
             }
-            if (typeof trueSize === 'number' && trueSize >= 0) {
+            if (typeof uploaded === 'number' && uploaded >= 0) {
                 // Record the true size only — do not re-assert the quota
-                // here. The bytes are already in S3, so a completion-time
-                // reject can't reclaim them; it only false-rejects (the
-                // start-check may have used a higher storageAllowanceMax
-                // override that isn't persisted in the session) and deletes
-                // within-quota uploads. Over-declaration is closed at
-                // signing time now, so what's left is the bounded
-                // check-then-act window the start-check already has.
-                createInput.size = trueSize;
+                // here. The bytes are already in the object store, so a
+                // completion-time reject can't reclaim them; it only
+                // false-rejects (the start-check may have used a higher
+                // storageAllowanceMax override that isn't persisted in the
+                // session) and deletes within-quota uploads. Over-declaration
+                // is closed at signing time now, so what's left is the
+                // bounded check-then-act window the start-check already has.
+                createInput.size = uploaded;
             }
 
             const fsEntry = await this.stores.fsEntry.completePendingEntry(
                 session.sessionId,
                 createInput,
             );
+            await this.#settleSessionUploadReservations([session]);
             this.#emitFsEvent(
                 session.overwriteTargetUid ? 'fs.write.file' : 'fs.create.file',
                 fsEntry,
@@ -2559,12 +2990,16 @@ export class FSService extends PuterService {
                 requestedThumbnail,
             };
         } catch (error) {
-            await this.stores.fsEntry.markPendingEntryFailed(
-                session.sessionId,
-                error instanceof Error
-                    ? error.message
-                    : 'Unknown error while completing upload',
-            );
+            try {
+                await this.stores.fsEntry.markPendingEntryFailed(
+                    session.sessionId,
+                    error instanceof Error
+                        ? error.message
+                        : 'Unknown error while completing upload',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
             throw error;
         }
     }
@@ -2598,7 +3033,7 @@ export class FSService extends PuterService {
             finalData: FSEntryCreateInput;
             requestedThumbnail: string | null | undefined;
         }> = [];
-        const expiredSessionIds: string[] = [];
+        const expiredSessions: PendingUploadSession[] = [];
 
         for (let index = 0; index < completeWriteRequests.length; index++) {
             const request = completeWriteRequests[index];
@@ -2613,15 +3048,9 @@ export class FSService extends PuterService {
                     legacyCode: 'forbidden',
                 });
             }
-            if (session.status !== 'pending') {
-                throw new HttpError(
-                    409,
-                    `Upload session is not pending (status=${session.status})`,
-                    { legacyCode: 'conflict' },
-                );
-            }
+            assertSessionCompletable(session);
             if (session.expiresAt < Date.now()) {
-                expiredSessionIds.push(session.sessionId);
+                expiredSessions.push(session);
                 continue;
             }
 
@@ -2638,15 +3067,27 @@ export class FSService extends PuterService {
             });
         }
 
-        if (expiredSessionIds.length > 0) {
-            await this.stores.fsEntry.markPendingEntriesFailed(
-                expiredSessionIds,
-                'Upload session expired',
-            );
+        if (expiredSessions.length > 0) {
+            try {
+                await this.stores.fsEntry.markPendingEntriesFailed(
+                    expiredSessions.map((session) => session.sessionId),
+                    'Upload session expired',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations(expiredSessions);
+            }
             throw new HttpError(400, 'Upload session expired', {
                 legacyCode: 'session_required',
             });
         }
+
+        const uploadedSizes = new Map<string, number | null>();
+        const singleItems = completionItems.filter(
+            (item) => item.session.uploadMode !== 'multipart',
+        );
+        // Probe the single-mode items before any multipart completion runs —
+        // a multipart completion can't be undone if a sibling is refused.
+        await this.#probeBatchUploads(singleItems, uploadedSizes);
 
         const multipartItems = completionItems.filter(
             (item) => item.session.uploadMode === 'multipart',
@@ -2691,6 +3132,7 @@ export class FSService extends PuterService {
 
         const failedMultipartItems: Array<{
             sessionId: string;
+            session: PendingUploadSession;
             reason: unknown;
         }> = [];
         for (let index = 0; index < multipartCompletions.length; index++) {
@@ -2699,20 +3141,27 @@ export class FSService extends PuterService {
             if (completion?.status === 'rejected' && multipartItem) {
                 failedMultipartItems.push({
                     sessionId: multipartItem.session.sessionId,
+                    session: multipartItem.session,
                     reason: completion.reason,
                 });
             }
         }
 
         if (failedMultipartItems.length > 0) {
-            await Promise.all(
-                failedMultipartItems.map((item) => {
-                    return this.stores.fsEntry.markPendingEntryFailed(
-                        item.sessionId,
-                        this.#toErrorMessage(item.reason),
-                    );
-                }),
-            );
+            try {
+                await Promise.all(
+                    failedMultipartItems.map((item) => {
+                        return this.stores.fsEntry.markPendingEntryFailed(
+                            item.sessionId,
+                            this.#toErrorMessage(item.reason),
+                        );
+                    }),
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations(
+                    failedMultipartItems.map((item) => item.session),
+                );
+            }
 
             const firstReason = failedMultipartItems[0]?.reason;
             if (firstReason instanceof HttpError) {
@@ -2724,47 +3173,20 @@ export class FSService extends PuterService {
             throw new Error('Failed to complete multipart upload');
         }
 
-        // Reconcile client-declared sizes against the true uploaded object
-        // sizes before persisting — see completeUrlWrite for the rationale.
-        // Without this the batch endpoint is a parallel bypass of the same
-        // storage-quota check.
-        const reconcileBucketRegion = (
-            item: (typeof completionItems)[number],
-        ) => ({
-            bucket:
-                item.session.bucket ??
-                item.finalData.bucket ??
-                this.#resolveBucket(),
-            region:
-                item.session.bucketRegion ??
-                item.finalData.bucketRegion ??
-                this.#resolveBucketRegion(),
-        });
-        const headSizes = await Promise.all(
-            completionItems.map(async (item) => {
-                const { bucket, region } = reconcileBucketRegion(item);
-                try {
-                    return await this.stores.s3Object.headObjectSize(
-                        bucket,
-                        item.session.objectKey,
-                        region,
-                    );
-                } catch {
-                    return null;
-                }
-            }),
-        );
+        // Also records the multipart sizes.
+        await this.#probeBatchUploads(multipartItems, uploadedSizes);
+
         // Record the true sizes only — do not re-assert the quota here. See
-        // completeUrlWrite: the bytes are already in S3 so a completion-time
-        // reject can't reclaim them, and per-item deletes would destroy the
-        // bytes of correctly-declared, within-quota siblings in the batch.
-        // Recording real sizes keeps SUM(size) accurate so the next
-        // signed-write start-check blocks an over-quota user.
-        for (let index = 0; index < completionItems.length; index++) {
-            const item = completionItems[index];
-            const trueSize = headSizes[index];
-            if (typeof trueSize !== 'number' || trueSize < 0) continue;
-            item.finalData.size = trueSize;
+        // completeUrlWrite: the bytes are already in the object store so a
+        // completion-time reject can't reclaim them, and per-item deletes
+        // would destroy the bytes of correctly-declared, within-quota
+        // siblings in the batch. Recording real sizes keeps SUM(size)
+        // accurate so the next signed-write start-check blocks an
+        // over-quota user.
+        for (const item of completionItems) {
+            const uploaded = uploadedSizes.get(item.session.sessionId);
+            if (typeof uploaded !== 'number' || uploaded < 0) continue;
+            item.finalData.size = uploaded;
         }
 
         const completedEntries =
@@ -2774,6 +3196,9 @@ export class FSService extends PuterService {
                     finalData: item.finalData,
                 })),
             );
+        await this.#settleSessionUploadReservations(
+            completionItems.map((item) => item.session),
+        );
 
         const responseByIndex = new Map<number, CompleteWriteResponse>();
         for (let index = 0; index < completionItems.length; index++) {
@@ -2825,6 +3250,9 @@ export class FSService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
+        // A completed session's object now backs a live entry, and its
+        // reservation is already settled — nothing left for abort to undo.
+        if (session.status === 'completed') return;
 
         try {
             const bucket = session.bucket;
@@ -2840,6 +3268,20 @@ export class FSService extends PuterService {
                         bucket,
                         session.objectKey,
                     );
+                } else if (session.overwriteTargetUid) {
+                    // An overwrite shares the live entry's object key, so only
+                    // delete once the primary confirms that entry is gone.
+                    const target =
+                        await this.stores.fsEntry.getEntryByUuidFromPrimary(
+                            session.overwriteTargetUid,
+                        );
+                    if (target === null) {
+                        await this.stores.s3Object.deleteObject(
+                            bucket,
+                            session.objectKey,
+                            bucketRegion,
+                        );
+                    }
                 } else {
                     await this.stores.s3Object.deleteObject(
                         bucket,
@@ -2849,10 +3291,14 @@ export class FSService extends PuterService {
                 }
             }
         } finally {
-            await this.stores.fsEntry.abortPendingEntry(
-                session.sessionId,
-                'Upload aborted by caller',
-            );
+            try {
+                await this.stores.fsEntry.abortPendingEntry(
+                    session.sessionId,
+                    'Upload aborted by caller',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
         }
     }
 
@@ -3238,11 +3684,34 @@ export class FSService extends PuterService {
         }
     }
 
-    // S3 returned NoSuchKey for an entry the DB still has — orphan. Delete
-    // the row (and emit fs.remove.node) so subsequent reads 404 cleanly via
-    // resolveNode instead of bubbling another S3 error. Best-effort: read
-    // path must not fail because cleanup failed.
+    // Only a second, definitive not-found from the entry's own recorded
+    // location removes it — a spurious miss elsewhere must not destroy data.
+    async #isObjectConfirmedMissing(
+        entry: FSEntry,
+        objectKey: string,
+    ): Promise<boolean> {
+        if (!entry.bucket || !entry.bucketRegion) return false;
+        try {
+            await this.stores.s3Object.headObjectSize(
+                entry.bucket,
+                objectKey,
+                entry.bucketRegion,
+            );
+            return false;
+        } catch (error) {
+            return isMissingObjectError(error);
+        }
+    }
+
+    // Called after NoSuchKey against an entry the DB still has. Confirm at
+    // the entry's own recorded location before deleting the row (and
+    // emitting fs.remove.node) — best-effort: the caller must not fail
+    // because cleanup failed.
     async #handleGhostFile(entry: FSEntry, objectKey: string): Promise<void> {
+        const confirmed = await this.#isObjectConfirmedMissing(
+            entry,
+            objectKey,
+        );
         console.error('prodfsv2 ghost fsentry — backing S3 object missing', {
             userId: entry.userId,
             uuid: entry.uuid,
@@ -3250,7 +3719,9 @@ export class FSService extends PuterService {
             bucket: entry.bucket,
             bucketRegion: entry.bucketRegion,
             objectKey,
+            removed: confirmed,
         });
+        if (!confirmed) return;
         try {
             await this.remove(entry.userId, { entry, systemInitiated: true });
         } catch (cleanupErr) {

@@ -241,6 +241,15 @@ describe('team endpoints over HTTP', () => {
         expect(after.status).toBe(200);
         const body = (await after.json()) as { items: { username: string }[] };
         expect(body.items.some((m) => m.username === env.users.user.username)).toBe(true);
+
+        // A scoped token was minted for one thing; a roster is not it.
+        const scoped = await makeScopedToken(env.users.user);
+        const narrow = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            typeof scoped === 'string' ? scoped : scoped.token,
+        );
+        expect(narrow.status).toBe(403);
     });
 
     it('refuses the directory to someone outside the team', async () => {

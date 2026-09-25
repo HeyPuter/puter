@@ -102,6 +102,8 @@ export interface ForwardEvent {
         op: KvOp;
         /** The value after the change, when it is small enough to carry. */
         value?: unknown;
+        /** The key was private to its namespace's app when it changed. */
+        noShare?: true;
     };
 }
 

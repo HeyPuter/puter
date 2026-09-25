@@ -705,6 +705,79 @@ describe('AuthController.handleSignup', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('rejects 400 when the home path is already occupied by a foreign row', async () => {
+        const parked = `s_${uniq()}`;
+        const occupantUsername = `s_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username: occupantUsername,
+                email: `${occupantUsername}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const occupant = await server.stores.user.getByUsername(
+            occupantUsername,
+        );
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            occupant!.id,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}`, root.id],
+        );
+
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: parked,
+                    email: `${parked}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        await expect(
+            server.stores.user.getByUsername(parked, { force: true }),
+        ).resolves.toBeNull();
+    });
+
+    it('rejects 400 when only a foreign row sits under the home path', async () => {
+        const parked = `s_${uniq()}`;
+        const occupantUsername = `s_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username: occupantUsername,
+                email: `${occupantUsername}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${occupantUsername}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}/Documents`, docs.id],
+        );
+
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: parked,
+                    email: `${parked}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        await expect(
+            server.stores.user.getByUsername(parked, { force: true }),
+        ).resolves.toBeNull();
+    });
+
     it('rejects reserved usernames (e.g. "admin")', async () => {
         await expect(
             controller.handleSignup(
@@ -5108,6 +5181,102 @@ describe('AuthController.handleSaveAccount address conflicts', () => {
         expect(untouched!.email).toBeNull();
         expect(untouched!.password).toBeNull();
     });
+
+    it('refuses to promote a temp account when the home path is already occupied', async () => {
+        const parked = `save_home_${Math.random().toString(36).slice(2, 10)}`;
+        const { user: occupant } = await makeUserAndActor();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            occupant.id,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}`, root.id],
+        );
+
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempUser = (
+            tempRes.body as { user: { username: string; uuid: string } }
+        ).user;
+        const tempRow = await server.stores.user.getByUuid(tempUser.uuid);
+        const actor = {
+            user: {
+                id: tempRow!.id,
+                uuid: tempRow!.uuid,
+                username: tempRow!.username,
+                email: null,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await expect(
+            controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username: parked,
+                        email: `${parked}@test.local`,
+                        password: 'another-strong-password',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const untouched = await server.stores.user.getById(tempRow!.id, {
+            force: true,
+        });
+        expect(untouched!.username).toBe(tempRow!.username);
+        expect(untouched!.password).toBeNull();
+    });
+
+    it('refuses to promote a temp account when only a foreign row sits under the home path', async () => {
+        const parked = `save_home_${Math.random().toString(36).slice(2, 10)}`;
+        const { user: occupant } = await makeUserAndActor();
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${occupant.username}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}/Documents`, docs.id],
+        );
+
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempUser = (
+            tempRes.body as { user: { username: string; uuid: string } }
+        ).user;
+        const tempRow = await server.stores.user.getByUuid(tempUser.uuid);
+        const actor = {
+            user: {
+                id: tempRow!.id,
+                uuid: tempRow!.uuid,
+                username: tempRow!.username,
+                email: null,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await expect(
+            controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username: parked,
+                        email: `${parked}@test.local`,
+                        password: 'another-strong-password',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const untouched = await server.stores.user.getById(tempRow!.id, {
+            force: true,
+        });
+        expect(untouched!.username).toBe(tempRow!.username);
+        expect(untouched!.password).toBeNull();
+    });
 });
 
 // ── Password recovery flow ──────────────────────────────────────────
@@ -5531,6 +5700,33 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         });
         expect(after!.username).toBe(mover.username);
         void actor;
+    });
+
+    it('change-username: 400 when only a foreign row sits under the target home path', async () => {
+        const { user } = await makeUserAndActor();
+        // Nothing sits at `/parked` itself — only a leftover child row does,
+        // the shape a partial cascade or a user-scoped cleanup leaves behind.
+        const parked = `p_${uniq()}`;
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${user.username}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}/Documents`, docs.id],
+        );
+        const { user: mover, actor: moverActor } = await makeUserAndActor();
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: parked }, { actor: moverActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const after = await server.stores.user.getById(mover.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(mover.username);
     });
 
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {

@@ -34,3 +34,13 @@ Usage information per API. Each key is an API name, and the value is an object w
 Resources in Puter are measured in microcents (e.g., $0.01 = 1,000,000).
 
 </div>
+
+<div class="info">
+
+`allowanceInfo` and the total resources consumed are always current. The
+per-API breakdown under `usage` and the per-app breakdown under `appTotals`
+can each lag up to about a minute behind it. Once a month has used more than
+5,000 distinct APIs, the rest are grouped under an `other` entry rather than
+listed individually.
+
+</div>

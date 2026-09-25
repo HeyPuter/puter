@@ -138,6 +138,34 @@ describe('MeteringBufferStore', () => {
                 false,
             );
         });
+
+        it("tells an actor's own month from the aggregates under the v2 prefix", () => {
+            const uuid = '0f6a1b2c-3d4e-5f60-7182-93a4b5c6d7e8';
+            expect(
+                isBilledCounter(`metering:v2:actor:${uuid}:2026-10`),
+            ).toBe(true);
+            expect(
+                isBilledCounter(
+                    `metering:v2:actor:${uuid}:app:app-1:2026-10`,
+                ),
+            ).toBe(false);
+            expect(
+                isBilledCounter(
+                    `metering:v2:actor:${uuid}:detail:5:2026-10`,
+                ),
+            ).toBe(false);
+            expect(
+                isBilledCounter(
+                    `metering:v2:actor:${uuid}:appdetail:app-1:5:2026-10`,
+                ),
+            ).toBe(false);
+            expect(isBilledCounter('metering:v2:puter:412:2026-10')).toBe(
+                false,
+            );
+            expect(
+                isBilledCounter('metering:v2:app:app-1:412:2026-10'),
+            ).toBe(false);
+        });
     });
 
     describe('pending index entries', () => {
@@ -169,6 +197,12 @@ describe('MeteringBufferStore', () => {
     const cacheKeys = async (): Promise<string[]> =>
         (await server.clients.redis.keys('meter:*')).sort();
 
+    /** The real current month, so a key's TTL always lands in the future. */
+    const currentMonth = (): string => {
+        const now = new Date();
+        return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    };
+
     beforeAll(async () => {
         server = await setupTestServer();
         target = server.stores.meteringBuffer;
@@ -188,7 +222,7 @@ describe('MeteringBufferStore', () => {
     // tests through either layer.
     let key: string;
     beforeEach(async () => {
-        key = `metering:actor:buf-${Math.random().toString(36).slice(2)}:2026-08`;
+        key = `metering:actor:buf-${Math.random().toString(36).slice(2)}:${currentMonth()}`;
         const stale = await server.clients.redis.keys('meter:*');
         if (stale.length) await server.clients.redis.del(...stale);
     });
@@ -419,6 +453,40 @@ describe('MeteringBufferStore', () => {
             const { res: fromGet } = await target.get({ key });
             expect(fromGet).toEqual(fromIncr);
         });
+
+        it('batches keys with no cached base into a single store read', async () => {
+            const keys = [`${key}:a`, `${key}:b`, `${key}:c`];
+            await kv.incr({ key: keys[0]!, pathAndAmountMap: { total: 1 } });
+            await kv.incr({ key: keys[2]!, pathAndAmountMap: { total: 3 } });
+            // keys[1] is never written — read back as absent.
+
+            const getSpy = vi.spyOn(kv, 'get');
+            const { res } = await target.get({ key: keys });
+
+            expect(getSpy).toHaveBeenCalledTimes(1);
+            const [{ key: sentKeys }] = getSpy.mock.calls[0]!;
+            expect([...(sentKeys as string[])].sort()).toEqual(
+                [...keys].sort(),
+            );
+            getSpy.mockRestore();
+
+            const results = res as ({ total: number } | null)[];
+            expect(results[0]).toMatchObject({ total: 1 });
+            expect(results[1]).toBeNull();
+            expect(results[2]).toMatchObject({ total: 3 });
+        });
+
+        it('rejects an array read when the store read for uncached keys fails', async () => {
+            const keys = [`${key}:a`, `${key}:b`];
+            const boom = vi
+                .spyOn(kv, 'get')
+                .mockRejectedValue(new Error('store unavailable'));
+
+            await expect(target.get({ key: keys })).rejects.toThrow(
+                'store unavailable',
+            );
+            boom.mockRestore();
+        });
     });
 
     describe('readExact', () => {
@@ -450,6 +518,302 @@ describe('MeteringBufferStore', () => {
         it('reads an untouched counter without inventing one', async () => {
             const { res } = await target.readExact({ key });
             expect(res).toBeNull();
+        });
+
+        it('answers a throttled read from the buffered view, not a fresh strong read', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const first = await target.readExact({
+                key,
+                minIntervalMs: 60_000,
+            });
+            expect((first.res as { total: number }).total).toBe(10);
+
+            // Written straight to the store between the two reads. A strong
+            // read would see it; the throttled buffered view can't.
+            await kv.incr({ key, pathAndAmountMap: { total: 100 } });
+
+            const second = await target.readExact({
+                key,
+                minIntervalMs: 60_000,
+            });
+            expect((second.res as { total: number }).total).toBe(10);
+        });
+
+        it('runs a fresh exact read once the throttle interval has passed', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            await target.readExact({ key, minIntervalMs: 20 });
+
+            await kv.incr({ key, pathAndAmountMap: { total: 100 } });
+            await new Promise((resolve) => setTimeout(resolve, 40));
+
+            const { res } = await target.readExact({
+                key,
+                minIntervalMs: 20,
+            });
+            expect((res as { total: number }).total).toBe(110);
+        });
+    });
+
+    describe('retention (ttl)', () => {
+        const rawItem = (k: string) =>
+            kv.getReservedItem<{ ttl?: number; value?: unknown }>(k);
+
+        it('stamps a ttl when a counter settles through the ordinary buffer path', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            await target.flushCycle();
+
+            const item = await rawItem(key);
+            expect(item?.ttl).toBeGreaterThan(Date.now() / 1000);
+        });
+
+        it('stamps a ttl when a buffered write falls back to writing straight through', async () => {
+            const boom = vi
+                .spyOn(
+                    server.clients.redis as unknown as {
+                        meterIncr: () => Promise<never>;
+                    },
+                    'meterIncr',
+                )
+                .mockRejectedValue(new Error('cache down'));
+
+            await target.incr({ key, pathAndAmountMap: { total: 9 } });
+            boom.mockRestore();
+
+            const item = await rawItem(key);
+            expect(item?.ttl).toBeGreaterThan(Date.now() / 1000);
+        });
+
+        it('does not stamp a key with no month suffix', async () => {
+            const noMonthKey = `metering:actor:${Math.random().toString(36).slice(2)}:apps`;
+            await target.incrAux({
+                key: noMonthKey,
+                pathAndAmountMap: { total: 1 },
+            });
+            await target.flushCycle();
+
+            const item = await rawItem(noMonthKey);
+            expect(item?.ttl).toBeUndefined();
+        });
+
+        it('does not stamp anything when retention is turned off', async () => {
+            const configRef = (
+                target as unknown as {
+                    config: { meteringRetentionMonths?: number };
+                }
+            ).config;
+            const original = configRef.meteringRetentionMonths;
+            configRef.meteringRetentionMonths = 0;
+            try {
+                await target.incr({ key, pathAndAmountMap: { total: 5 } });
+                await target.flushCycle();
+            } finally {
+                configRef.meteringRetentionMonths = original;
+            }
+
+            const item = await rawItem(key);
+            expect(item?.ttl).toBeUndefined();
+        });
+    });
+
+    describe('getSummed / forgetSummed', () => {
+        it('sums several counters into one value', async () => {
+            const a = `${key}:a`;
+            const b = `${key}:b`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 3 } });
+            await target.incr({ key: b, pathAndAmountMap: { total: 4 } });
+
+            const summed = await target.getSummed({
+                keys: [a, b],
+                cacheKey: key,
+                maxAgeMs: 0,
+            });
+            expect(summed).toEqual({ total: 7 });
+        });
+
+        it('treats an untouched set of keys as nothing summed', async () => {
+            const summed = await target.getSummed({
+                keys: [`${key}:a`, `${key}:b`],
+                cacheKey: key,
+                maxAgeMs: 0,
+            });
+            expect(summed).toBeNull();
+        });
+
+        it('serves a cached sum instead of re-reading the keys', async () => {
+            const a = `${key}:a`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 1 } });
+
+            const first = await target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 60_000,
+            });
+            expect(first).toEqual({ total: 1 });
+
+            // Changed after the cache was filled — a cached read must not see it.
+            await target.incr({ key: a, pathAndAmountMap: { total: 10 } });
+
+            const second = await target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 60_000,
+            });
+            expect(second).toEqual({ total: 1 });
+        });
+
+        it('reads fresh again once forgetSummed drops the cache', async () => {
+            const a = `${key}:a`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 1 } });
+            await target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 60_000,
+            });
+
+            await target.incr({ key: a, pathAndAmountMap: { total: 10 } });
+            await target.forgetSummed(key);
+
+            const summed = await target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 60_000,
+            });
+            expect(summed).toEqual({ total: 11 });
+        });
+
+        it('does not cache a stale sum that finishes after forgetSummed ran', async () => {
+            const a = `${key}:a`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 1 } });
+
+            // Delay the underlying read, so forgetSummed can land — and
+            // fully finish bumping the generation and dropping the cache —
+            // while this getSummed call is still in flight, before its
+            // compute reaches the check that gates caching its answer.
+            const realGet = target.get.bind(target);
+            const getSpy = vi
+                .spyOn(target, 'get')
+                .mockImplementation(
+                    async (...args: Parameters<typeof realGet>) => {
+                        await new Promise((resolve) => setTimeout(resolve, 30));
+                        return realGet(...args);
+                    },
+                );
+
+            const stalePromise = target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 60_000,
+            });
+            // Let forgetSummed land (and fully finish) while the read above
+            // is still pending.
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            await target.forgetSummed(key);
+
+            const stale = await stalePromise;
+            getSpy.mockRestore();
+            expect(stale).toEqual({ total: 1 });
+
+            // The in-flight compute must not have re-cached its answer after
+            // forgetSummed already dropped the cache — a broken guard would
+            // leave total:1 sitting here again right after the drop.
+            const cacheSlot = `meter:sum:{${bucketTag(key)}}:${key}`;
+            expect(await server.clients.redis.get(cacheSlot)).toBeNull();
+        });
+
+        it('never sums fresh once its own age window has passed', async () => {
+            const a = `${key}:a`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 1 } });
+            await target.getSummed({ keys: [a], cacheKey: key, maxAgeMs: 30 });
+
+            await target.incr({ key: a, pathAndAmountMap: { total: 10 } });
+            await new Promise((resolve) => setTimeout(resolve, 60));
+
+            const summed = await target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 30,
+            });
+            expect(summed).toEqual({ total: 11 });
+        });
+
+        it('disables caching outright at maxAgeMs 0', async () => {
+            const a = `${key}:a`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 1 } });
+            await target.getSummed({ keys: [a], cacheKey: key, maxAgeMs: 0 });
+
+            await target.incr({ key: a, pathAndAmountMap: { total: 10 } });
+            const summed = await target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 0,
+            });
+            expect(summed).toEqual({ total: 11 });
+        });
+
+        it('shares one computation across concurrent callers', async () => {
+            const a = `${key}:a`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 1 } });
+
+            const getSpy = vi.spyOn(target, 'get');
+            const [first, second] = await Promise.all([
+                target.getSummed({
+                    keys: [a],
+                    cacheKey: key,
+                    maxAgeMs: 60_000,
+                }),
+                target.getSummed({
+                    keys: [a],
+                    cacheKey: key,
+                    maxAgeMs: 60_000,
+                }),
+            ]);
+
+            expect(first).toEqual({ total: 1 });
+            expect(second).toEqual({ total: 1 });
+            expect(getSpy).toHaveBeenCalledTimes(1);
+            getSpy.mockRestore();
+        });
+
+        it('degrades to an uncached read when the cache is unreachable', async () => {
+            const a = `${key}:a`;
+            await target.incr({ key: a, pathAndAmountMap: { total: 1 } });
+
+            const boom = vi
+                .spyOn(server.clients.redis, 'get')
+                .mockRejectedValue(new Error('cache down'));
+            const summed = await target.getSummed({
+                keys: [a],
+                cacheKey: key,
+                maxAgeMs: 60_000,
+            });
+            boom.mockRestore();
+
+            expect(summed).toEqual({ total: 1 });
+        });
+
+        it('never throws forgetting a cache entry it cannot reach', async () => {
+            const boom = vi
+                .spyOn(server.clients.redis, 'del')
+                .mockRejectedValue(new Error('cache down'));
+            await expect(target.forgetSummed(key)).resolves.toBeUndefined();
+            boom.mockRestore();
+        });
+
+        it('lets a genuine read failure propagate, without caching anything', async () => {
+            const boom = vi
+                .spyOn(target, 'get')
+                .mockRejectedValue(new Error('read failed'));
+
+            await expect(
+                target.getSummed({
+                    keys: [`${key}:a`],
+                    cacheKey: key,
+                    maxAgeMs: 60_000,
+                }),
+            ).rejects.toThrow('read failed');
+            boom.mockRestore();
+
+            expect(await server.clients.redis.keys('meter:sum:*')).toEqual([]);
         });
     });
 
@@ -630,7 +994,7 @@ describe('MeteringBufferStore', () => {
             try {
                 const timerKey = `metering:actor:timer-${Math.random()
                     .toString(36)
-                    .slice(2)}:2026-08`;
+                    .slice(2)}:${currentMonth()}`;
                 await own.stores.meteringBuffer.incrAux({
                     key: timerKey,
                     pathAndAmountMap: { total: 6 },
@@ -959,7 +1323,7 @@ describe('MeteringBufferStore', () => {
         });
 
         it('records an aggregate drop without paging', async () => {
-            const aggregate = `metering:puter:7:2026-08`;
+            const aggregate = `metering:puter:7:${currentMonth()}`;
             const doomed = 'aggregate_poison_test.units';
             await target.incrAux({
                 key: aggregate,
@@ -1181,6 +1545,115 @@ describe('MeteringBufferStore', () => {
             warned.mockRestore();
 
             expect(await storedTotal(key)).toBe(5);
+        });
+    });
+
+    describe('unwritable paths', () => {
+        it('keeps a path refused for one counter writable for another', async () => {
+            const path = 'shared_poison_path_test.units';
+            const otherKey = `${key}-other`;
+            await target.incr({ key, pathAndAmountMap: { [path]: 5 } });
+
+            const rejected = Object.assign(
+                new Error(
+                    'Invalid UpdateExpression: Expression size has exceeded the maximum allowed size',
+                ),
+                { name: 'ValidationException' },
+            );
+            const boom = vi.spyOn(kv, 'incr').mockRejectedValue(rejected);
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            await target.flushCycle();
+            boom.mockRestore();
+            logged.mockRestore();
+
+            // The path is now remembered as unwritable for `key` — that must
+            // not poison a different counter using the same path name.
+            await target.incr({
+                key: otherKey,
+                pathAndAmountMap: { [path]: 3 },
+            });
+            await target.flushCycle();
+
+            const stored = flattenAmounts(
+                (await kv.get({ key: otherKey })).res,
+            );
+            expect(stored).toEqual({ [path]: 3 });
+        });
+    });
+
+    describe('large-settle alarm', () => {
+        it('raises an alarm when settling a counter costs a large write', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            const incrSpy = vi.spyOn(kv, 'incr').mockResolvedValue({
+                res: { total: 5 },
+                usage: { read: 0, write: 150, cachedRead: 0 },
+            });
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+
+            await target.flushCycle();
+            incrSpy.mockRestore();
+
+            expect(alarmSpy).toHaveBeenCalledWith(
+                'metering_counter_large',
+                expect.stringContaining(key),
+                expect.objectContaining({ key, writeUnits: 150 }),
+                'warning',
+                expect.objectContaining({ dedup: true }),
+            );
+            alarmSpy.mockRestore();
+        });
+
+        it('raises the alarm after the claim is dropped, not before', async () => {
+            // A throw between the write landing and the claim being dropped
+            // would leave the claim in place, and a re-drive would apply the
+            // same amounts a second time.
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            const incrSpy = vi.spyOn(kv, 'incr').mockResolvedValue({
+                res: { total: 5 },
+                usage: { read: 0, write: 150, cachedRead: 0 },
+            });
+            const order: string[] = [];
+            const realHdel = server.clients.redis.hdel.bind(
+                server.clients.redis,
+            );
+            const hdelSpy = vi
+                .spyOn(server.clients.redis, 'hdel')
+                .mockImplementation((...args: Parameters<typeof realHdel>) => {
+                    order.push('dropFromClaim');
+                    return realHdel(...args);
+                });
+            const alarmSpy = vi
+                .spyOn(server.clients.alarm, 'create')
+                .mockImplementation(() => {
+                    order.push('alarm');
+                });
+
+            await target.flushCycle();
+            incrSpy.mockRestore();
+            hdelSpy.mockRestore();
+            alarmSpy.mockRestore();
+
+            expect(order).toEqual(['dropFromClaim', 'alarm']);
+        });
+
+        it('stays quiet for an ordinary write', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+
+            await target.flushCycle();
+
+            expect(alarmSpy).not.toHaveBeenCalledWith(
+                'metering_counter_large',
+                expect.anything(),
+                expect.anything(),
+                expect.anything(),
+                expect.anything(),
+            );
+            alarmSpy.mockRestore();
         });
     });
 

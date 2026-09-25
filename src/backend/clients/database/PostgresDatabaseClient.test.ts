@@ -18,7 +18,7 @@
  */
 
 import type { FieldDef, QueryResult } from 'pg';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../types';
 import { DatabaseClientFactory } from './index.js';
 import {
@@ -356,5 +356,34 @@ describe('PostgresDatabaseClient', () => {
             { text: 'ROLLBACK', values: undefined },
         ]);
         expect(conn.released).toBe(true);
+    });
+
+    it('leaves the pool open through prepare-shutdown; only onServerShutdown closes it', async () => {
+        vi.useFakeTimers();
+        try {
+            const pool = new RecordingPool();
+            let ended = false;
+            pool.end = async () => {
+                ended = true;
+            };
+            const client = new PostgresDatabaseClient(
+                postgresConfig(),
+                () => pool,
+            );
+            await client.onServerStart();
+
+            await client.onServerPrepareShutdown();
+            expect(ended).toBe(false);
+
+            // No timer closes the pool on its own — the layers above are
+            // still draining through it for as long as the process drains.
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(ended).toBe(false);
+
+            await client.onServerShutdown();
+            expect(ended).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

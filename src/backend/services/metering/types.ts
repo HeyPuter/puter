@@ -57,6 +57,12 @@ export type UsageByType = {
      * same semantics.
      */
     monthlyChargesApplied?: number;
+    /**
+     * How many distinct detail types the totals item has admitted this month
+     * (sharded months only) — bookkeeping for the cap, never returned to a
+     * caller.
+     */
+    detailPaths?: number;
 } & Partial<Record<Exclude<string, 'total'>, UsageRecord>>;
 
 export interface AppTotals {

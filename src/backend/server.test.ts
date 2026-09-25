@@ -676,3 +676,44 @@ describe('PuterServer keep-alive timeout', () => {
         expect(closed).toBe(true);
     });
 });
+
+/**
+ * Each layer's `onServerShutdown` has to run while the layers beneath it (the
+ * ones it writes through) are still up, so teardown goes top-down: drivers,
+ * controllers, services, stores, clients — the reverse of construction order.
+ */
+describe('PuterServer shutdown order', () => {
+    it('tears layers down top-down: drivers, controllers, services, stores, clients', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+
+        const order: string[] = [];
+        const probe = (label: string) => ({
+            onServerShutdown: () => {
+                order.push(label);
+            },
+        });
+        (server.drivers as Record<string, unknown>).shutdownOrderProbe =
+            probe('driver');
+        (server.controllers as Record<string, unknown>).shutdownOrderProbe =
+            probe('controller');
+        (server.services as Record<string, unknown>).shutdownOrderProbe =
+            probe('service');
+        (server.stores as Record<string, unknown>).shutdownOrderProbe =
+            probe('store');
+        (server.clients as Record<string, unknown>).shutdownOrderProbe =
+            probe('client');
+
+        await server.shutdown();
+
+        expect(order).toEqual([
+            'driver',
+            'controller',
+            'service',
+            'store',
+            'client',
+        ]);
+    });
+});

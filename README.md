@@ -10,6 +10,8 @@
     ·
     <a href="https://apps.puter.com/">App Store</a>
     ·
+    <a href="https://builder.puter.com/">AI Builder</a>
+    ·
     <a href="https://developer.puter.com" target="_blank">Developers</a>
     ·
     <a href="https://twitter.com/HeyPuter">X</a>

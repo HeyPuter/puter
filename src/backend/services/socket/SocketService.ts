@@ -665,8 +665,10 @@ export class SocketService extends PuterService {
      * user room. Narrowing would mean matching each socket to its session via
      * `fetchSockets`, which the adapter implements on top of `serverCount()` —
      * and that path is unavailable with our Redis client. Dropping the room is
-     * the safe direction: a connection whose session survived reconnects on its
-     * own, and its handshake re-authenticates.
+     * the safe direction — a client does not reconnect by itself after a
+     * server-side disconnect, so one that wants to stay connected opens a new
+     * connection, and that handshake re-authenticates: only the revoked session
+     * is refused.
      */
     async #evictUserSockets(userId: number): Promise<void> {
         const io = this.#io;

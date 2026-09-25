@@ -342,9 +342,16 @@ describe('FSController.completeBatchWrites', () => {
             .body as ClientSignedWriteResponse[];
         expect(startResponses).toHaveLength(2);
 
-        // 2) Complete via the controller. Single-mode completion only
-        //    needs the session row → it doesn't read the S3 object back,
-        //    so we can skip the actual upload step in this test.
+        // 2) PUT the declared bytes through each presigned URL, then
+        //    complete via the controller.
+        await fetch(startResponses[0]!.url!, {
+            method: 'PUT',
+            body: '12345',
+        });
+        await fetch(startResponses[1]!.url!, {
+            method: 'PUT',
+            body: '1234567',
+        });
         const { res, captured } = makeRes();
         const completeBody: CompleteWriteRequest[] = startResponses.map(
             (r) => ({ uploadId: r.sessionId }),
@@ -416,6 +423,7 @@ describe('FSController.completeBatchWrites', () => {
         );
         const [firstResponse] = firstStart.captured
             .body as ClientSignedWriteResponse[];
+        await fetch(firstResponse!.url!, { method: 'PUT', body: 'x' });
         const firstComplete = makeRes();
         await withActor(actor, () =>
             controller.completeBatchWrites(
@@ -547,6 +555,7 @@ describe('FSController.completeBatchWrites', () => {
         );
         const [firstResponse] = firstStart.captured
             .body as ClientSignedWriteResponse[];
+        await fetch(firstResponse!.url!, { method: 'PUT', body: 'x' });
         await withActor(actor, () =>
             controller.completeBatchWrites(
                 makeReq<CompleteWriteRequest[]>({
@@ -2731,6 +2740,7 @@ describe('FSController associatedAppId entitlement gate', () => {
             ),
         );
         const [started] = startRes.captured.body as ClientSignedWriteResponse[];
+        await fetch(started.url!, { method: 'PUT', body: 'abc' });
         const completeRes = makeRes();
         await withActor(actor, () =>
             controller.completeBatchWrites(

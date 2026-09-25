@@ -542,4 +542,10 @@
     // what this deployment's normal traffic costs, so it has to be measured
     // rather than guessed, and a stale number here alarms on healthy growth.
     // "maxGlobalUsagePerMinute": 200000000
+
+    // How many full months past its own a monthly usage record is kept before
+    // it expires. Defaults to 3; set to 0 to keep every month's records
+    // forever. Changing it, including to 0, applies to records first written
+    // after the change; records already stamped keep their expiry.
+    // "meteringRetentionMonths": 3
 }

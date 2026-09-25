@@ -479,6 +479,27 @@ describe('TeamStore', () => {
             return { team, members };
         };
 
+        it('counts owned teams still holding accounts, deleted ones included', async () => {
+            // What gates closing an owner's account: a deleted team's seats
+            // are suspended, not gone, and only its owner can retire them.
+            const solo = await makeUser();
+            expect(await store.countOwnedTeamsWithAccounts(solo.id)).toBe(0);
+
+            const team = await store.create({
+                ownerUserId: solo.id,
+                name: 'Solo',
+                handle: freeHandle(),
+            });
+            const seat = await makeUser();
+            await store.addMember(team.uid, seat.id, { orgOwned: true });
+            expect(await store.countOwnedTeamsWithAccounts(solo.id)).toBe(1);
+
+            await store.softDelete(team.uid);
+            expect(await store.countOwnedTeamsWithAccounts(solo.id)).toBe(1);
+            // `countOwned` sees only live teams, which is why it is not enough.
+            expect(await store.countOwned(solo.id)).toBe(0);
+        });
+
         it('counts provisioned seats and active seats alike when none is suspended', async () => {
             const { team } = await seatedTeam(3);
             expect(await store.countSeats(team.id)).toBe(3);

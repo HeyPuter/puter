@@ -27,7 +27,11 @@ import { configContainer } from '../../exports.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
-import { S3ObjectStore } from './S3ObjectStore.js';
+import {
+    clampSignedUploadExpirySeconds,
+    isMissingObjectError,
+    S3ObjectStore,
+} from './S3ObjectStore.js';
 
 // ── Harness ─────────────────────────────────────────────────────────
 //
@@ -121,6 +125,64 @@ const makeFakeStore = (options: {
 };
 
 const names = (sent: SentCommand[]) => sent.map((command) => command.name);
+
+describe('clampSignedUploadExpirySeconds', () => {
+    it('clamps into the one-minute to one-hour window', () => {
+        expect(clampSignedUploadExpirySeconds(1)).toBe(60);
+        expect(clampSignedUploadExpirySeconds(60 * 60 * 24)).toBe(3600);
+        expect(clampSignedUploadExpirySeconds(900)).toBe(900);
+    });
+
+    it('gives non-finite input the max rather than erroring', () => {
+        expect(clampSignedUploadExpirySeconds(Number.NaN)).toBe(3600);
+        expect(clampSignedUploadExpirySeconds(Number.POSITIVE_INFINITY)).toBe(
+            3600,
+        );
+        expect(clampSignedUploadExpirySeconds(undefined)).toBe(3600);
+        expect(clampSignedUploadExpirySeconds('nope')).toBe(3600);
+    });
+});
+
+describe('isMissingObjectError', () => {
+    it('rejects a HEAD of a never-uploaded key with a bare NotFound', async () => {
+        const error = await store()
+            .headObjectSize(bucket, uuidv4(), region)
+            .then(
+                () => null,
+                (e: unknown) => e,
+            );
+        expect((error as { name?: string })?.name).toBe('NotFound');
+        expect(isMissingObjectError(error)).toBe(true);
+    });
+
+    it('reads a missing key off name or Code', () => {
+        expect(isMissingObjectError({ name: 'NotFound' })).toBe(true);
+        expect(isMissingObjectError({ name: 'NoSuchKey' })).toBe(true);
+        expect(isMissingObjectError({ Code: 'NoSuchKey' })).toBe(true);
+    });
+
+    it('never reads throttling, network, access or server errors as missing', () => {
+        expect(
+            isMissingObjectError({
+                name: 'Unknown',
+                $metadata: { httpStatusCode: 403 },
+            }),
+        ).toBe(false);
+        expect(
+            isMissingObjectError({
+                name: 'Unknown',
+                $metadata: { httpStatusCode: 503 },
+            }),
+        ).toBe(false);
+        expect(isMissingObjectError({ name: 'SlowDown' })).toBe(false);
+        expect(isMissingObjectError({ name: 'TimeoutError' })).toBe(false);
+        expect(isMissingObjectError(new Error('socket hang up'))).toBe(false);
+        // A missing bucket is not a missing object — must not read as "gone".
+        expect(isMissingObjectError({ name: 'NoSuchBucket' })).toBe(false);
+        expect(isMissingObjectError(null)).toBe(false);
+        expect(isMissingObjectError('NotFound')).toBe(false);
+    });
+});
 
 describe('S3ObjectStore region and bucket fallbacks', () => {
     it('falls back to configured region then to the built-in default', () => {
@@ -476,6 +538,21 @@ describe('S3ObjectStore object round trips', () => {
             region,
         );
         expect(tooLong.url).toContain('X-Amz-Expires=3600');
+
+        // A non-finite request (bad client input, not a real duration) gets
+        // the max rather than propagating a NaN into the presign call.
+        const nonFinite = await store().createSignedUploadUrl(
+            {
+                bucket,
+                objectKey: key,
+                size: 1,
+                contentType: 'text/plain',
+                uploadMode: 'single',
+                expiresInSeconds: Number.NaN,
+            },
+            region,
+        );
+        expect(nonFinite.url).toContain('X-Amz-Expires=3600');
     });
 
     it('signs the requested part numbers of an existing multipart upload', async () => {

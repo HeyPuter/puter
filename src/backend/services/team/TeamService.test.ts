@@ -658,6 +658,54 @@ describe('TeamService', () => {
         }
     });
 
+    describe('a seat may not become an owner (PUT-1890)', () => {
+        it('refuses a provisioned seat creating a team of its own', async () => {
+            const { member } = await makeTeam();
+            await expect(
+                service.createTeam(member.id, {
+                    name: 'Seat-owned',
+                    handle: freeHandle(),
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('still admits the owner and a joined member', async () => {
+            // The owner is `org_owned = 0` in their own team, and a joined
+            // member is an ordinary self-paying account; neither is a seat.
+            const { team } = await makeTeam();
+            const joined = await makeUser();
+            await server.stores.team.addMember(team.uid, joined.id, {
+                orgOwned: false,
+            });
+            await expect(
+                service.createTeam(joined.id, {
+                    name: 'Joined-owned',
+                    handle: freeHandle(),
+                }),
+            ).resolves.toBeTruthy();
+            await expect(
+                service.createTeam(owner.id, {
+                    name: 'Owner-second',
+                    handle: freeHandle(),
+                }),
+            ).resolves.toBeTruthy();
+        });
+
+        it('refuses a seat provisioning, even given ownership', async () => {
+            const { team, member } = await makeTeam();
+            // Backstop: `createTeam` already keeps a seat from owning one.
+            await server.clients.db.write(
+                'UPDATE `group` SET `owner_user_id` = ? WHERE `uid` = ?',
+                [member.id, team.uid],
+            );
+            await server.stores.team.bustMember(team.uid, member.id);
+            const username = `sub_${Math.random().toString(36).slice(2, 8)}`;
+            await expect(
+                service.provisionAccount(team.uid, member.id, { username }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+    });
+
     describe('what a seat of a free team gets', () => {
         const policyFor = async (userId: number, uuid: string) => {
             server.services.metering.invalidateActorSubscription(uuid);

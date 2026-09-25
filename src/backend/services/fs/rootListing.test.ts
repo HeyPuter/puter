@@ -140,6 +140,36 @@ describe('listRootEntries', () => {
         renameUserHome.mockRestore();
     });
 
+    it("does not fall back onto a foreign row holding the actor's home path", async () => {
+        const userA = await makeUser();
+        const userB = await makeUser();
+
+        // Drift B's own root out of the way, then move A's root onto the path
+        // B's healing attempt will target — the shape a freed-then-reclaimed
+        // username leaves behind.
+        const rootB = (await fsEntryStore.getRootEntryForUser(userB.userId))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [
+                `/b-drift-${Math.random().toString(36).slice(2, 8)}`,
+                'b-drift',
+                rootB.id,
+            ],
+        );
+        const rootA = (await fsEntryStore.getRootEntryForUser(userA.userId))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [`/${userB.username}`, userB.username, rootA.id],
+        );
+        await server.clients.redis.flushall?.();
+
+        const entries = await listFor(userB.actor);
+
+        // The heal throws (A holds the path); the path-based fallback must
+        // not then hand B a listing of A's tree.
+        expect(entries).toEqual([]);
+    });
+
     it('returns nothing for an actor with no user id or username', async () => {
         await expect(listFor({ user: {} })).resolves.toEqual([]);
         await expect(

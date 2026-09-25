@@ -167,16 +167,15 @@ export const EVENTS_KV_HANDLE_LIMIT = userWindow('events:kvHandles', 60);
  * grow forever. A temporary account holds none: the grant outlives the session
  * that made it, and no account is left to take it back.
  */
-export const EVENTS_KV_HANDLES_PER_USER = tiered(500, 200, 0);
+export const EVENTS_KV_HANDLES_PER_USER = tiered(512, 200, 0);
 
 /**
  * Live share handles one app may hold out for one account.
  *
- * Below the per-account cap so that one app cannot spend an account's whole
- * budget: a handle names one namespace, so without this a second app on the
- * same account would be left with nothing.
+ * Separately bounded from the account cap so one namespace cannot consume the
+ * whole budget on free accounts.
  */
-export const EVENTS_KV_HANDLES_PER_APP = tiered(100, 50, 0);
+export const EVENTS_KV_HANDLES_PER_APP = tiered(512, 128, 0);
 
 // -- Handler surface -------------------------------------------------
 
@@ -256,17 +255,30 @@ export const EVENTS_WORKER_LIST_LIMIT = userWindow('events:workers:list', 120);
 // -- Dispatch fan-out ------------------------------------------------
 
 /**
- * Subscriptions one event may deliver to before dispatch stops and reports a
- * gap. The amplification ceiling: without it, one write costs as many
+ * Subscriptions one non-KV event may deliver to before dispatch stops and
+ * reports a gap. The amplification ceiling: without it, one write costs as many
  * deliveries as an account cared to register.
  */
 export const EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT = 50;
 
 /**
- * Largest key-value value a delivery inlines, in serialized bytes. A value over
- * this is left out and the subscriber re-reads the key: a delivery fans out to
- * many rows, may cross regions and may sit in a backlog, none of which is sized
- * for the store's own ceiling.
+ * Key-value subscriptions one mutation may deliver to. A namespace owner's plan
+ * sets this ceiling; the listeners' plans do not affect it.
+ */
+export const EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT = tiered(512, 128, 128);
+
+/**
+ * Filter evaluations a key-value mutation may spend. This leaves room for
+ * non-matching rows while retaining a finite bound on dispatch work.
+ */
+export const EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT = tiered(2048, 512, 512);
+
+/** Omit all inline KV values when the matched audience exceeds this count. */
+export const EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS = 128;
+
+/**
+ * Largest inline KV value in serialized bytes. Larger values are omitted;
+ * deliveries retain the key metadata.
  */
 export const EVENTS_KV_VALUE_MAX_BYTES = 16 * 1024;
 
