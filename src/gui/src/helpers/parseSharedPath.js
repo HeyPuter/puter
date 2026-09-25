@@ -19,11 +19,22 @@
 
 /** The query parameter a share link arrives on. */
 export const SHARED_PATH_PARAM = 'shared';
+/** The account a share email went to; see `shared_link_account_step`. */
 export const SHARE_RECIPIENT_PARAM = 'user_uuid';
 
 // The uuid segment of a shared item's path; see the backend's `sharePathMask`.
 const UID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Put `params` in the address bar in place of the current query. */
+function replace_query (params, hash) {
+    const rest = params.toString();
+    window.history.replaceState(
+        null,
+        document.title,
+        `${window.location.pathname || '/'}${rest ? `?${rest}` : ''}${hash || ''}`,
+    );
+}
 
 /**
  * Take `?shared=` off the address bar so a reload doesn't act on it again.
@@ -34,44 +45,60 @@ export function clear_shared_param (hash = window.location.hash) {
     const params = new URLSearchParams(window.location.search);
     params.delete(SHARED_PATH_PARAM);
     params.delete(SHARE_RECIPIENT_PARAM);
-    const rest = params.toString();
-    window.history.replaceState(
-        null,
-        document.title,
-        `${window.location.pathname || '/'}${rest ? `?${rest}` : ''}${hash || ''}`,
-    );
+    replace_query(params, hash);
 }
 
 /**
- * The account named by a share-email link, or null for an ordinary or
- * hand-edited link.
- *
- * @param {URLSearchParams} params
- * @returns {string | null}
+ * Take the account hint off the page but keep the share, so the hint acts
+ * once: whichever account the next load lands on opens the link as itself.
  */
-export function sharedLinkRecipientUuid (params) {
-    if ( ! params.has(SHARED_PATH_PARAM) ) return null;
-    const recipientUuid = params.get(SHARE_RECIPIENT_PARAM);
-    return recipientUuid && UID_PATTERN.test(recipientUuid)
-        ? recipientUuid
-        : null;
+export function clear_share_recipient_param () {
+    window.url_query_params?.delete(SHARE_RECIPIENT_PARAM);
+    const params = new URLSearchParams(window.location.search);
+    if ( ! params.has(SHARE_RECIPIENT_PARAM) ) return;
+    params.delete(SHARE_RECIPIENT_PARAM);
+    replace_query(params, window.location.hash);
 }
 
 /**
- * Return the locally saved account named by a share-email link, when switching
- * away from the current account is necessary.
+ * The account a share email was sent to, or null. Only read alongside a share
+ * path the GUI would open, so a bare or hand-edited link names no one.
  *
  * @param {URLSearchParams} params
- * @param {{ uuid?: string } | null} currentUser
- * @param {Array<{ uuid?: string, auth_token?: string }>} loggedInUsers
- * @returns {{ uuid?: string, auth_token?: string } | null}
+ * @returns {string | null} the uuid, lowercased
  */
-export function sharedLinkAccount (params, currentUser, loggedInUsers) {
-    const recipientUuid = sharedLinkRecipientUuid(params);
-    if ( ! recipientUuid || recipientUuid === currentUser?.uuid ) return null;
-    return loggedInUsers.find(user =>
-        user.uuid === recipientUuid && Boolean(user.auth_token)
-    ) ?? null;
+export function shared_link_recipient_uuid (params) {
+    const shared = params.getAll(SHARED_PATH_PARAM);
+    if ( ! shared.some(value => parse_shared_path(value) !== null) ) return null;
+    const uuid = params.get(SHARE_RECIPIENT_PARAM);
+    return uuid && UID_PATTERN.test(uuid) ? uuid.toLowerCase() : null;
+}
+
+/**
+ * What a share email's account hint calls for when the page opens: switch to
+ * that account's saved session, ask whether to sign in to it, or nothing.
+ *
+ * Popups, embeds (`embedded`) and `action` flows act for whoever opened them,
+ * so a link must not change their account. A temporary session is left to the
+ * share link's own sign-in prompt.
+ *
+ * @returns {{ switch_to: object } | { ask: true } | null}
+ */
+export function shared_link_account_step ({
+    params,
+    action,
+    embedded,
+    current_user,
+    logged_in_users,
+}) {
+    if ( action || embedded ) return null;
+    const uuid = shared_link_recipient_uuid(params);
+    if ( ! uuid || uuid === current_user?.uuid?.toLowerCase() ) return null;
+    const saved = (logged_in_users ?? []).find(user =>
+        user?.uuid?.toLowerCase() === uuid && Boolean(user.auth_token));
+    if ( saved ) return { switch_to: saved };
+    if ( ! current_user || current_user.is_temp ) return null;
+    return { ask: true };
 }
 
 /**

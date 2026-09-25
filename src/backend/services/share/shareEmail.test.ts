@@ -590,8 +590,12 @@ describe('share email', () => {
         const href = openPuterHref(mail.html);
         expect(new URL(href!).searchParams.get('shared_app')).toBe(app.name);
         const masked = `/${owner.username}/${file.uid}/${file.name}`;
+        // Each item's link names the app and the recipient both.
         expect(mail.html).toContain(
-            `?shared=${encodeURIComponent(masked)}&shared_app=${app.name}`,
+            `?shared=${encodeURIComponent(masked)}&shared_app=${app.name}&user_uuid=${recipient.uuid}"`,
+        );
+        expect(new URL(href!).searchParams.get('user_uuid')).toBe(
+            recipient.uuid,
         );
 
         // The invite names the app too; with no links, no parameter to ride.
@@ -600,6 +604,8 @@ describe('share email', () => {
         const invite = await waitForMail({ to: invitee });
         expect(invite.html).toContain('via Mail App');
         expect(invite.html).not.toContain('shared_app=');
+        // An invitee has no account to name.
+        expect(invite.html).not.toContain('user_uuid=');
     });
 
     it('keeps the app off the button when the digest is not all its doing', async () => {

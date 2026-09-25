@@ -20,7 +20,7 @@
 import parse_shared_path, {
     SHARED_PATH_PARAM,
     SHARE_RECIPIENT_PARAM,
-    sharedLinkRecipientUuid,
+    shared_link_recipient_uuid,
 } from './parseSharedPath.js';
 
 /**
@@ -103,9 +103,9 @@ export const get_oidc_return_to = () => {
 
     const params = new URLSearchParams();
     for ( const value of shared ) params.append(SHARED_PATH_PARAM, value);
-    const recipientUuid = sharedLinkRecipientUuid(
+    const recipient_uuid = shared_link_recipient_uuid(
         new URLSearchParams(window.location.search ?? ''),
     );
-    if ( recipientUuid ) params.set(SHARE_RECIPIENT_PARAM, recipientUuid);
+    if ( recipient_uuid ) params.set(SHARE_RECIPIENT_PARAM, recipient_uuid);
     return `${path}?${params.toString()}`;
 };

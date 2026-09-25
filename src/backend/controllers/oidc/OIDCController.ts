@@ -114,10 +114,10 @@ function isWhitelistedReturnPath(path: string): boolean {
  * or the recipient returns to a bare Home with nothing to say what they were
  * sent.
  *
- * `shared` is the only parameter that makes the trip, and only values shaped
- * like the masked path the mail was built from — the value is user-visible
- * text, so a hand-edited one is refused rather than reflected back into the
- * browser.
+ * Only `shared` makes the trip, with values shaped like the masked path the
+ * mail was built from — the value is user-visible text, so a hand-edited one is
+ * refused rather than reflected back into the browser. The mail's one recipient
+ * hint (`user_uuid`) rides along when it is a single uuid.
  */
 function sharedReturnQuery(query: string): {
     paths: string[];

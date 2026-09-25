@@ -65,8 +65,8 @@ import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.
 import update_mouse_position from './helpers/updateMousePosition.js';
 import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
 import {
-    sharedLinkAccount,
-    sharedLinkRecipientUuid,
+    clear_share_recipient_param,
+    shared_link_account_step,
 } from './helpers/parseSharedPath.js';
 import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
@@ -87,32 +87,53 @@ import { resolveAPIOrigin } from './util/apiOrigin.js';
 import { deliversTokenToOpener, runsUserAppTokenExchange } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
-const postAuthActions = async (action) => {
-    const recipientUuid = sharedLinkRecipientUuid(
-        window.url_query_params,
-    );
-    const savedSharedLinkAccount = sharedLinkAccount(
-        window.url_query_params,
-        window.user,
-        window.logged_in_users,
-    );
-    if ( savedSharedLinkAccount ) {
-        await window.update_auth_data(
-            savedSharedLinkAccount.auth_token,
-            savedSharedLinkAccount,
-        );
+/**
+ * A share email names the account it went to. When another account is open,
+ * switch to the named one if it is saved here, or offer to sign in to it.
+ * The hint is dropped first, so whichever account the page lands on next
+ * opens the link as itself instead of being asked again.
+ *
+ * @returns {Promise<boolean>} true when the page is navigating away
+ */
+const follow_share_recipient = async (action) => {
+    const step = shared_link_account_step({
+        params: window.url_query_params,
+        action,
+        embedded: window.embedded_in_popup || window.is_embedded,
+        current_user: window.user,
+        logged_in_users: window.logged_in_users,
+    });
+    if ( ! step ) return false;
+    clear_share_recipient_param();
+
+    if ( step.switch_to ) {
+        await window.update_auth_data(step.switch_to.auth_token, step.switch_to);
+        window.onbeforeunload = null;
         window.location.reload();
-        return;
+        return true;
     }
-    if ( recipientUuid && recipientUuid !== window.user?.uuid ) {
-        await UIWindowSessionList({
-            reload_on_success: true,
-            cover_page: true,
-            has_head: false,
-            send_confirmation_code: true,
-        });
-        return;
-    }
+
+    const choice = await UIAlert({
+        message: i18n('shared_link_other_account'),
+        buttons: [
+            { label: i18n('shared_link_sign_in'), value: 'sign_in', type: 'primary' },
+            {
+                label: i18n('shared_link_continue_as', { username: window.user.username }, false),
+                value: 'continue',
+                type: 'secondary',
+            },
+        ],
+    });
+    if ( choice !== 'sign_in' ) return false;
+    // Reloads on success; closing it carries on as the current account.
+    return Boolean(await UIWindowLogin({
+        reload_on_success: true,
+        send_confirmation_code: true,
+    }));
+};
+
+const postAuthActions = async (action) => {
+    if ( await follow_share_recipient(action) ) return;
     // Set when a popup's user-app token exchange fails. The exchange is what
     // bootstraps the app row a permission grant is written against, so an
     // action that depends on it has to report failure rather than prompt.
