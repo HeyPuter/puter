@@ -446,8 +446,6 @@ describe('SystemController POST /contactUs', () => {
     });
 });
 
-// ── /contactUs attachments ──────────────────────────────────────────
-
 describe('SystemController POST /contactUs — attachments', () => {
     // A real PNG signature with a filler body; the sniffer only reads the
     // first eight bytes, and nothing downstream decodes the image.
@@ -665,7 +663,7 @@ describe('SystemController POST /contactUs — attachments', () => {
         expect(captured.headers.Connection).toBe('close');
     });
 
-    it('closes the connection when an upload breaks a limit mid-stream', async () => {
+    it('rejects an upload that breaks a limit mid-stream', async () => {
         const { call, captured } = await submitMultipart(
             [
                 { field: 'message', value: 'hi' },
@@ -679,7 +677,8 @@ describe('SystemController POST /contactUs — attachments', () => {
             { 'content-length': '' },
         );
         await expect(call).rejects.toMatchObject({ statusCode: 413 });
-        expect(captured.headers.Connection).toBe('close');
+        // The rest of the body is drained, so the connection can stay open.
+        expect(captured.headers.Connection).toBeUndefined();
     });
 });
 

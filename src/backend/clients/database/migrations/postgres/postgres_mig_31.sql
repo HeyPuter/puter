@@ -15,12 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Contact Us attachments. Mirrors SQLite migration 0087 / MySQL mysql_mig_42.
--- A JSON array of `{name, type, size}` recording what a submission carried,
--- NULL when it carried nothing. Metadata only — the files themselves ride the
--- support email; this column is what keeps an abusive submission attributable
--- after the mail has been dealt with.
---
--- Idempotent via IF NOT EXISTS.
+-- Mirrors SQLite migration 0087: Contact Us attachment metadata, a JSON array
+-- of `{name, type, size}` (NULL when none).
 
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS attachments text DEFAULT NULL;

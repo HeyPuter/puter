@@ -106,11 +106,7 @@ const CONTACT_MESSAGE_MAX_LENGTH = 100_000;
 /** UTF-8 worst case for {@link CONTACT_MESSAGE_MAX_LENGTH} UTF-16 code units. */
 const CONTACT_MESSAGE_MAX_BYTES = CONTACT_MESSAGE_MAX_LENGTH * 3;
 
-/**
- * Ceiling on a multipart Contact Us body: the attachment budget, the longest
- * message, and slack for part headers. The global JSON parser leaves multipart
- * bodies unread, so this is checked before any of the body is.
- */
+/** Largest valid multipart body: attachments, message, part-header slack. */
 const CONTACT_BODY_MAX_BYTES =
     MAX_TOTAL_ATTACHMENT_BYTES + CONTACT_MESSAGE_MAX_BYTES + 64 * 1024;
 
@@ -118,15 +114,8 @@ const isMultipart = (req) =>
     /^multipart\/form-data\b/i.test(req.headers?.['content-type'] ?? '');
 
 /**
- * Contact Us submissions are hand-typed by a person, and each one may now carry
- * megabytes of screenshots and screen recordings.
- *
- * - Per-user is the limit that matters: submissions require an authenticated
- *   actor, and ten in a quarter hour is already far past what reporting a bug
- *   takes.
- * - The per-IP backstop bounds how much a single machine can push through freshly
- *   minted accounts, which the per-user counter alone cannot see. Set well
- *   above what a shared office egress would ever legitimately produce.
+ * Per user, plus a per-IP backstop against one machine cycling fresh accounts.
+ * The IP limit sits well above what a shared office would send.
  */
 const CONTACT_US_LIMITS = [
     {
@@ -245,20 +234,17 @@ export class SystemController extends PuterController {
                         Number.isFinite(declaredLength) &&
                         declaredLength > CONTACT_BODY_MAX_BYTES
                     ) {
+                        // Don't read a body already known to be too large.
                         res.setHeader('Connection', 'close');
                         throw new HttpError(413, 'Request body is too large', {
                             legacyCode: 'bad_request',
                         });
                     }
-                    // Type, size and file name are all re-derived from the
-                    // received bytes — nothing the caller declared is used.
                     const submission = await readContactSubmission(req, {
                         maxMessageBytes: CONTACT_MESSAGE_MAX_BYTES,
+                        maxBodyBytes: CONTACT_BODY_MAX_BYTES,
                     });
                     if (!submission.ok) {
-                        // Reading stopped at the failure; close instead of
-                        // draining whatever the client is still sending.
-                        res.setHeader('Connection', 'close');
                         throw new HttpError(
                             submission.status,
                             submission.reason,
@@ -290,9 +276,8 @@ export class SystemController extends PuterController {
                     );
                 }
 
-                // Persist to feedback table for durability. Attachment payloads
-                // stay out of the row — the mail carries those; the column is
-                // the record that they were sent.
+                // Persist to feedback table for durability. Attachments are
+                // recorded by name and size only; the mail carries the bytes.
                 try {
                     await this.clients.db.write(
                         'INSERT INTO `feedback` (`user_id`, `message`, `attachments`) VALUES (?, ?, ?)',
@@ -322,10 +307,7 @@ export class SystemController extends PuterController {
                             text: attachments.length
                                 ? `${message}\n\n${attachmentSummary(attachments)}`
                                 : message,
-                            // `attachment` disposition keeps the mail client
-                            // from rendering these inline, and the file names
-                            // are the sanitized ones with a re-derived
-                            // extension — never what the sender typed.
+                            // Never rendered inline by the mail client.
                             attachments: attachments.map((a) => ({
                                 filename: a.filename,
                                 content: a.content,

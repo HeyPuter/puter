@@ -23,24 +23,9 @@ import type { Readable } from 'node:stream';
 import { sniffImageMime, sniffVideoMime } from './mediaSniff.js';
 
 /**
- * Validation for the screenshots and screen recordings people attach to the
- * Contact Us form. Everything here treats the submission as hostile: the caller
- * chooses the byte count, the file name and the claimed type, and the result is
- * emailed to a human at Puter who will open it.
- *
- * The posture, in order of what it stops:
- *
- * - **Volume** — a per-file cap, a per-submission total, and a count cap, each
- *   enforced while the multipart body streams in, so a request over any of them
- *   stops being read at the limit rather than after it is buffered.
- * - **Type** — the MIME type is sniffed from the payload and matched against an
- *   allow-list of images and videos. A declared type is never read, so it can't
- *   be used to smuggle anything past the list. `image/svg+xml` is deliberately
- *   absent: SVG carries script, and support tooling renders what it is sent.
- * - **File name** — the caller's name is reduced to a display label and the
- *   extension is re-derived from the sniffed type, so a payload can never
- *   arrive as `.html`/`.exe`, and a name can never carry the CR/LF or quoting
- *   characters that would break out of a `Content-Disposition` header.
+ * Screenshots and recordings attached to Contact Us, which end up in support's
+ * inbox. Type comes from the bytes and the file name is rebuilt, so nothing the
+ * sender declared reaches the mail.
  */
 
 /** Max files on one submission. */
@@ -50,9 +35,8 @@ export const MAX_ATTACHMENTS = 5;
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 /**
- * Max decoded size of all files on one submission. Bounded well under the 25 MB
- * message ceiling most mail providers enforce, since the outgoing mail carries
- * these base64-encoded (~4/3 the size) alongside the message body.
+ * Max size of all files on one submission; base64 in the mail stays under 25
+ * MB.
  */
 export const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 
@@ -60,10 +44,8 @@ export const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 export const MAX_ATTACHMENT_NAME_LENGTH = 80;
 
 /**
- * Sniffed MIME types we accept, and the extension each one is stored under.
- * Between them these cover what the platforms people report bugs from actually
- * produce: PNG/JPEG screenshots, GIF captures, and MP4/QuickTime/WebM screen
- * recordings.
+ * Accepted sniffed MIME types and the extension each is sent under. SVG is
+ * excluded: it carries script.
  */
 export const ATTACHMENT_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
     'image/png': 'png',
@@ -76,17 +58,15 @@ export const ATTACHMENT_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Characters stripped from a file name outright: C0/C1 controls (CR and LF
- * would let a name break out of the `Content-Disposition` header), the bidi
- * overrides and isolates that make `report.4pm.exe` render as `report.exe.mp4`,
- * and the quoting characters that header would otherwise have to escape.
+ * Stripped from file names: control characters (CR/LF could break out of
+ * `Content-Disposition`), bidi overrides that disguise an extension, and
+ * quotes.
  */
 const UNSAFE_NAME_CHARS_REGEX =
     /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069"'\\;]/g;
 
 const mb = (bytes: number): number => Math.round(bytes / (1024 * 1024));
-const tooLargeClause = (): string =>
-    `is too large (max ${mb(MAX_ATTACHMENT_BYTES)} MB per file)`;
+const TOO_LARGE_CLAUSE = `is too large (max ${mb(MAX_ATTACHMENT_BYTES)} MB per file)`;
 
 /** One validated attachment, in the shape nodemailer takes. */
 export interface ValidatedAttachment {
@@ -94,13 +74,11 @@ export interface ValidatedAttachment {
     filename: string;
     /** Sniffed, allow-listed MIME type. */
     contentType: string;
-    /** Decoded payload. */
     content: Buffer;
-    /** Decoded byte count (`content.length`, carried for metadata). */
     size: number;
 }
 
-/** What gets recorded alongside the feedback row — names and sizes, no bytes. */
+/** Stored on the feedback row in place of the payloads. */
 export interface AttachmentMetadata {
     name: string;
     type: string;
@@ -137,8 +115,7 @@ export function sanitizeAttachmentName(
             .replace(UNSAFE_NAME_CHARS_REGEX, '')
             // Drop the caller's extension — the real one is appended below.
             .replace(/\.[A-Za-z0-9]{1,10}$/, '')
-            // Leading dots would make the file hidden (and `..` traversable)
-            // if anyone ever writes it to disk.
+            // No hidden files or `..` if the name is ever written to disk.
             .replace(/^[.\s]+/, '')
             .replace(/\s+/g, ' ')
             .trim()
@@ -149,11 +126,7 @@ export function sanitizeAttachmentName(
     return `${base}.${extension}`;
 }
 
-/**
- * Sniff one received file against the allow-list and give it a safe name.
- * `index` is its position in the submission, used in error messages and the
- * fallback name.
- */
+/** Check a file's sniffed type against the allow-list; give it a safe name. */
 export function validateAttachment(
     bytes: Buffer,
     rawName: unknown,
@@ -183,20 +156,17 @@ export function validateAttachment(
 }
 
 /**
- * Read a `multipart/form-data` Contact Us submission: one `message` field and
- * up to {@link MAX_ATTACHMENTS} files under the `attachments` field name.
- *
- * Only decoded file bytes are held, and the per-file, total and count caps are
- * checked as parts arrive — the first one broken stops reading `req` and drops
- * what was buffered. On failure the rest of the body may still be in flight;
- * the caller should close the connection rather than drain it.
- *
- * `reason` is safe to return to the caller: it names the offending index and
- * the rule it broke, and never echoes caller input back.
+ * Read a multipart submission: one `message` field plus `attachments` files.
+ * Caps are enforced as parts arrive. On failure the rest of the body is
+ * discarded so the error still reaches the client, up to `maxBodyBytes`; past
+ * that the request is destroyed. `reason` never echoes caller input.
  */
 export function readContactSubmission(
     req: Readable & { headers: IncomingHttpHeaders },
-    { maxMessageBytes }: { maxMessageBytes: number },
+    {
+        maxMessageBytes,
+        maxBodyBytes,
+    }: { maxMessageBytes: number; maxBodyBytes: number },
 ): Promise<ContactSubmissionVerdict> {
     return new Promise((resolve) => {
         let parser: Busboy.Busboy;
@@ -205,8 +175,7 @@ export function readContactSubmission(
                 headers: req.headers,
                 // Browsers send non-ASCII file names as raw UTF-8.
                 defParamCharset: 'utf8',
-                // Busboy flags a part as over its size limit on reaching it,
-                // so each cap is one byte past the largest size allowed.
+                // Busboy trips a limit on reaching it, hence the + 1.
                 limits: {
                     fields: 1,
                     fieldSize: maxMessageBytes + 1,
@@ -234,6 +203,7 @@ export function readContactSubmission(
             settled = true;
             req.unpipe(parser);
             received.length = 0;
+            req.resume();
             resolve({ ok: false, status, reason });
         };
 
@@ -248,8 +218,8 @@ export function readContactSubmission(
         });
 
         parser.on('file', (name, stream, info) => {
-            // Busboy destroys an unfinished file stream with an error when the
-            // body ends early; unhandled, that error takes the process down.
+            // Busboy errors an unfinished file stream when the body ends
+            // early; unhandled, that crashes the process.
             stream.on('error', () =>
                 fail(400, 'attachment upload was interrupted'),
             );
@@ -269,7 +239,7 @@ export function readContactSubmission(
                 size: 0,
             };
             received.push(entry);
-            stream.on('limit', () => fail(413, `${label} ${tooLargeClause()}`));
+            stream.on('limit', () => fail(413, `${label} ${TOO_LARGE_CLAUSE}`));
             stream.on('data', (chunk: Buffer) => {
                 if (settled) return;
                 totalBytes += chunk.length;
@@ -311,6 +281,14 @@ export function readContactSubmission(
         });
 
         req.pipe(parser);
+
+        let bytesRead = 0;
+        req.on('data', (chunk: Buffer) => {
+            bytesRead += chunk.length;
+            if (bytesRead <= maxBodyBytes) return;
+            fail(413, 'request body is too large');
+            req.destroy();
+        });
     });
 }
 
@@ -325,11 +303,7 @@ export function attachmentMetadata(
     }));
 }
 
-/**
- * A manifest to append to the support email's body. Mail gateways strip
- * attachments, and without this the recipient has no way to tell a message that
- * arrived intact from one that lost its screenshots on the way.
- */
+/** Body manifest, so a recipient can tell if a gateway stripped the files. */
 export function attachmentSummary(attachments: ValidatedAttachment[]): string {
     const lines = attachments.map(
         (a) => `- ${a.filename} (${a.contentType}, ${formatBytes(a.size)})`,

@@ -17,10 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Client half of the Contact Us attachment rules. This is here to tell someone
-// their 40 MB recording is too big before they wait for it to upload — the
-// server re-derives every one of these decisions from the bytes it receives and
-// is the only thing actually enforcing them. Keep the limits in step with
+// Client-side Contact Us attachment checks, to fail fast before an upload. The
+// server enforces the real limits; keep these in step with
 // src/backend/util/contactAttachments.ts.
 
 /** Max files on one submission. */
@@ -33,10 +31,8 @@ export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 
 /**
- * Types the server's allow-list will accept. Used for the file picker's
- * `accept` filter and the pre-flight check; the server sniffs the payload
- * rather than believing `File.type`, so a mismatch here only ever costs a
- * clearer error message.
+ * Types the server accepts. It sniffs the bytes, so `File.type` here only
+ * decides which error message is shown.
  */
 export const ACCEPTED_ATTACHMENT_TYPES = [
     'image/png',

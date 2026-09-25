@@ -28,8 +28,7 @@ import UIWindow from './UIWindow.js';
 
 const MB = 1024 * 1024;
 
-// The limits each message spells out, so the numbers in the copy can't drift
-// from the ones being enforced.
+// Numbers interpolated into each error message, taken from the enforced limits.
 const ERROR_VALUES = {
     contact_us_attachment_too_many: [MAX_ATTACHMENTS],
     contact_us_attachment_too_large: [MAX_ATTACHMENT_BYTES / MB],
@@ -37,24 +36,15 @@ const ERROR_VALUES = {
 };
 
 /**
- * Puter's own Contact Us form — feedback, comments and bug reports, delivered
- * to support. Not to be confused with UIWindowAppFeedback, which sends feedback
- * to a third-party app's developer.
- *
- * Bug reports are the reason this form takes attachments: the ones worth
- * reporting are often the ones that need a screenshot or a recording to be
- * legible at all. Files are staged in memory and posted with the message as
- * multipart form data. The client-side checks in
- * helpers/contact_attachments.js are there to fail fast on an obviously
- * oversized file; the server re-derives type, size and file name from the bytes
- * and is what actually enforces the limits.
+ * Puter's own Contact Us form, delivered to support (UIWindowAppFeedback is the
+ * one for third-party apps). Attachments are posted as multipart form data; the
+ * client-side checks only fail fast, the server enforces the limits.
  */
 async function UIWindowFeedback (options) {
     return new Promise(async (resolve) => {
         options = options ?? {};
 
-        // Staged files, in the order they were added. Kept out of the DOM so
-        // the list survives re-rendering the chips.
+        // Staged files; kept out of the DOM so re-rendering chips keeps them.
         let attachments = [];
         let sending = false;
 
@@ -126,12 +116,12 @@ async function UIWindowFeedback (options) {
         const renderAttachments = () => {
             const $list = $(el_window).find('.feedback-attachment-list').empty();
             attachments.forEach((file, index) => {
-                const remove_label = i18n('contact_us_attachment_remove');
+                const removeLabel = i18n('contact_us_attachment_remove');
                 const $item = $(
                     '<li class="feedback-attachment">' +
                         `<span class="feedback-attachment-name" title="${html_encode(file.name)}">${html_encode(file.name)}</span>` +
                         `<span class="feedback-attachment-size">${html_encode(window.byte_format(file.size))}</span>` +
-                        `<button type="button" class="feedback-attachment-remove" aria-label="${remove_label}" title="${remove_label}">&times;</button>` +
+                        `<button type="button" class="feedback-attachment-remove" aria-label="${removeLabel}" title="${removeLabel}">&times;</button>` +
                     '</li>',
                 );
                 $item.find('.feedback-attachment-remove').on('click', () => {
@@ -153,9 +143,7 @@ async function UIWindowFeedback (options) {
             for ( const file of files ) {
                 const verdict = checkAttachment(file, attachments);
                 if ( ! verdict.ok ) {
-                    // Report the first thing that went wrong, but keep taking
-                    // the files that do fit — dropping a folder of mixed
-                    // content shouldn't discard the usable screenshots.
+                    // Report the first rejection but keep the files that fit.
                     rejection = rejection ?? verdict.error;
                     continue;
                 }
@@ -174,10 +162,7 @@ async function UIWindowFeedback (options) {
             this.value = '';
         });
 
-        // Drag and drop onto the form. UIWindow's own dragster handler sits on
-        // the window body — an ancestor — and only uploads to the filesystem
-        // for `is_dir` windows, so a drop caught here reaches this form first
-        // and goes no further.
+        // Caught here before UIWindow's body-level drop handler sees it.
         const $form = $(el_window).find('.feedback-form');
         $form.on('dragover dragenter', (e) => {
             e.preventDefault();

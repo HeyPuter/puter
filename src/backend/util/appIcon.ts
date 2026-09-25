@@ -23,8 +23,7 @@ import {
     sniffImageMime,
 } from './mediaSniff.js';
 
-// Re-exported because this module was the original home of the sniffer; the
-// implementation now lives in mediaSniff.js alongside the video counterpart.
+// Re-exported for existing importers.
 export { SVG_SNIFF_WINDOW, sniffImageMime };
 
 // Icon URLs come in a pair. `getAppIconUrl` builds the backend

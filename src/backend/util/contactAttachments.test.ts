@@ -100,10 +100,12 @@ const file = (data: Buffer, filename = 'shot.png'): Part => ({
     data,
 });
 
+const LIMITS = { maxMessageBytes: 1024, maxBodyBytes: 64 * 1024 * 1024 };
+
 const read = (parts: Part[], headers: Record<string, string> = HEADERS) =>
     readContactSubmission(
         Object.assign(Readable.from([multipart(parts)]), { headers }),
-        { maxMessageBytes: 1024 },
+        LIMITS,
     );
 
 const accepted = (attachment: ReturnType<typeof validateAttachment>) => {
@@ -279,11 +281,9 @@ describe('readContactSubmission — limits', () => {
         });
     });
 
-    it('stops reading the request at the first broken limit', async () => {
-        // Nothing past the oversized file is ever written, so resolving at
-        // all shows the reader gave up on the stream rather than draining it.
+    it('discards the rest of the body after a broken limit', async () => {
         const req = Object.assign(new PassThrough(), { headers: HEADERS });
-        const pending = readContactSubmission(req, { maxMessageBytes: 1024 });
+        const pending = readContactSubmission(req, LIMITS);
         const body = multipart([
             { field: 'message', value: 'hi' },
             file(png(MAX_ATTACHMENT_BYTES + 4096)),
@@ -293,7 +293,30 @@ describe('readContactSubmission — limits', () => {
             ok: false,
             status: 413,
         });
-        expect(req.listenerCount('data')).toBe(0);
+
+        // Drained to the end rather than cut off, so the error response can
+        // still be delivered.
+        const ended = new Promise((resolve) => req.once('end', resolve));
+        req.end(body.subarray(body.length - 1024));
+        await ended;
+        expect(req.readableEnded).toBe(true);
+    });
+
+    it('destroys a request that runs past the body budget', async () => {
+        const req = Object.assign(new PassThrough(), { headers: HEADERS });
+        const pending = readContactSubmission(req, {
+            ...LIMITS,
+            maxBodyBytes: 4096,
+        });
+        req.write(
+            multipart([{ field: 'message', value: 'hi' }, file(png(8192))]),
+        );
+        await expect(pending).resolves.toEqual({
+            ok: false,
+            status: 413,
+            reason: 'request body is too large',
+        });
+        expect(req.destroyed).toBe(true);
     });
 
     it('accepts a message exactly at the byte budget', async () => {
@@ -357,7 +380,7 @@ describe('readContactSubmission — malformed bodies', () => {
             Object.assign(Readable.from([body.subarray(0, 2048)]), {
                 headers: HEADERS,
             }),
-            { maxMessageBytes: 1024 },
+            LIMITS,
         );
         expect(result).toMatchObject({ ok: false, status: 400 });
     });

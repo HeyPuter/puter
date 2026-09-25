@@ -17,32 +17,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Content-based identification of user-supplied media, plus the strict base64
-// decoder that gets us from a wire payload to bytes worth sniffing. A MIME type
-// or a file extension supplied by a caller describes nothing — only the bytes
-// do — so every write path that accepts uploaded media resolves the type here.
+// Identify uploaded media by its bytes. A caller-supplied MIME type or file
+// extension is never trusted.
 
 const BASE64_CHARS_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /**
- * Cap on how far into a payload we look for the `<svg` root element. SVG is the
- * one recognized type without a fixed-offset magic number; a file that buries
- * its root past this much leading comment/PI text is not something we need to
- * accept.
+ * How far into a payload to look for an `<svg` root; SVG has no fixed magic
+ * number.
  */
 export const SVG_SNIFF_WINDOW = 8 * 1024;
 
-/**
- * How far into an EBML stream we look for the DocType string. The DocType
- * element lives in the EBML header, which precedes the first cluster and in
- * practice sits within the first few dozen bytes.
- */
+/** How far into an EBML header to look for the DocType string. */
 const EBML_SNIFF_WINDOW = 64;
 
 /**
- * ISO Base Media brands we treat as MP4 video. The same `ftyp` box fronts HEIF
- * images (`heic`, `mif1`), audio (`M4A `) and JPEG 2000, so the brand — not the
- * box — is what decides, and anything unlisted is left unidentified.
+ * ISO Base Media brands treated as MP4 video. HEIF, M4A audio and JPEG 2000
+ * share the `ftyp` box, so the brand decides.
  */
 const MP4_BRANDS = new Set([
     'avc1',
@@ -63,10 +54,8 @@ const MP4_BRANDS = new Set([
 ]);
 
 /**
- * Decode strict base64 — no whitespace, correct padding, and byte-for-byte
- * round-trip. `Buffer.from(s, 'base64')` silently skips characters it doesn't
- * recognise, so `iVBORw0KGgo=" onerror=alert(1)` decodes without complaint; the
- * round-trip is what rejects it.
+ * Decode base64 that round-trips byte for byte. `Buffer.from(s, 'base64')`
+ * silently skips characters outside the alphabet; the round-trip rejects them.
  */
 export function decodeStrictBase64(value: string): Buffer | null {
     if (!BASE64_CHARS_REGEX.test(value)) return null;
@@ -85,20 +74,14 @@ export function decodeStrictBase64(value: string): Buffer | null {
 function looksLikeSvg(bytes: Buffer): boolean {
     let head = bytes.subarray(0, SVG_SNIFF_WINDOW).toString('utf8');
     if (head.charCodeAt(0) === 0xfeff) head = head.slice(1);
-    // Must open as markup (rules out arbitrary text that merely mentions
-    // `<svg` somewhere), and must actually contain an `<svg` root.
+    // Must open as markup, not just mention `<svg` somewhere in text.
     if (!head.trimStart().startsWith('<')) return false;
     return /<svg[\s/>]/i.test(head);
 }
 
 /**
- * Identify image bytes by content, returning a canonical MIME type or null.
- * Signature-based: a MIME type that came in alongside the payload is caller
- * input and cannot be trusted to describe it.
- *
- * Recognizing a type is not the same as accepting it — `image/svg+xml` is
- * script-capable, so callers allow-list what they want rather than taking
- * whatever comes back.
+ * Canonical image MIME type for `bytes`, or null. Recognized is not accepted:
+ * this can return script-capable `image/svg+xml`, so callers allow-list.
  */
 export function sniffImageMime(bytes: Buffer): string | null {
     if (
@@ -138,10 +121,8 @@ export function sniffImageMime(bytes: Buffer): string | null {
 }
 
 /**
- * Identify video bytes by content, returning a canonical MIME type or null.
- * Covers what the platforms people report bugs from actually record: MP4
- * (Windows, Android), QuickTime (macOS/iOS screen recording) and WebM (Chrome's
- * MediaRecorder).
+ * Canonical video MIME type for `bytes` (MP4, QuickTime, WebM, Matroska), or
+ * null.
  */
 export function sniffVideoMime(bytes: Buffer): string | null {
     // ISO Base Media: a `ftyp` box at offset 4, major brand at offset 8.
@@ -153,8 +134,7 @@ export function sniffVideoMime(bytes: Buffer): string | null {
         if (brand === 'qt  ') return 'video/quicktime';
         return MP4_BRANDS.has(brand) ? 'video/mp4' : null;
     }
-    // EBML container. Matroska and WebM share the magic number and are told
-    // apart by the DocType string in the header.
+    // EBML: Matroska and WebM share the magic; the DocType tells them apart.
     if (
         bytes.length >= 4 &&
         bytes[0] === 0x1a &&

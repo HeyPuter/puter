@@ -15,11 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- The Contact Us form accepts screenshots and screen recordings. The files
--- themselves ride the support email; this column records what was sent —
--- a JSON array of `{name, type, size}`, NULL when the submission carried
--- nothing. Metadata only, deliberately: the row exists so an abusive
--- submission is still attributable after the mail has been dealt with, which
--- names and sizes answer and megabytes of payload in the database would not.
+-- Contact Us attachment metadata: a JSON array of `{name, type, size}`, NULL
+-- when none. The files themselves go out with the support email.
 
 ALTER TABLE `feedback` ADD COLUMN "attachments" TEXT DEFAULT NULL;

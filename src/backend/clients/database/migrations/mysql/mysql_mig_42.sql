@@ -15,14 +15,9 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Contact Us attachments. Mirrors SQLite migration 0087 / Postgres
--- postgres_mig_31. A JSON array of `{name, type, size}` recording what a
--- submission carried, NULL when it carried nothing. Metadata only — the files
--- themselves ride the support email; this column is what keeps an abusive
--- submission attributable after the mail has been dealt with.
---
--- MySQL has no `ADD COLUMN IF NOT EXISTS`, so the guard is a throwaway
--- procedure, as in mysql_mig_21.
+-- Mirrors SQLite migration 0087: Contact Us attachment metadata, a JSON array
+-- of `{name, type, size}` (NULL when none). Guarded by a throwaway procedure,
+-- as in mysql_mig_21.
 
 DROP PROCEDURE IF EXISTS _puter_add_feedback_attachments;
 DELIMITER //
