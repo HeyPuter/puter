@@ -17,15 +17,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import {
     MAX_ATTACHMENTS,
     MAX_ATTACHMENT_BYTES,
     MAX_TOTAL_ATTACHMENT_BYTES,
+    type ValidatedAttachment,
     attachmentMetadata,
     attachmentSummary,
+    readContactSubmission,
     sanitizeAttachmentName,
-    validateContactAttachments,
+    validateAttachment,
 } from './contactAttachments.js';
 
 // -- Fixtures --------------------------------------------------------
@@ -34,7 +37,10 @@ import {
 // disturbing the header the sniffer reads.
 
 const pad = (header: Buffer, size: number): Buffer =>
-    Buffer.concat([header, Buffer.alloc(Math.max(0, size - header.length), 0x61)]);
+    Buffer.concat([
+        header,
+        Buffer.alloc(Math.max(0, size - header.length), 0x61),
+    ]);
 
 const PNG_HEADER = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -57,25 +63,55 @@ const WEBM_HEADER = Buffer.concat([
     Buffer.from('\x42\x82\x84webm', 'latin1'),
 ]);
 
-const png = (size = 64): string => pad(PNG_HEADER, size).toString('base64');
-const b64 = (buf: Buffer): string => buf.toString('base64');
+const png = (size = 64): Buffer => pad(PNG_HEADER, size);
 
-describe('validateContactAttachments — accepted shapes', () => {
-    it('treats a missing or null field as no attachments', () => {
-        expect(validateContactAttachments(undefined)).toEqual({
-            ok: true,
-            attachments: [],
-        });
-        expect(validateContactAttachments(null)).toEqual({
-            ok: true,
-            attachments: [],
-        });
-        expect(validateContactAttachments([])).toEqual({
-            ok: true,
-            attachments: [],
-        });
-    });
+type Part =
+    | { field: string; value: string }
+    | { field: string; filename: string; data: Buffer };
 
+const BOUNDARY = '----contact-attachments-test';
+const HEADERS = {
+    'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
+};
+
+const multipart = (parts: Part[]): Buffer =>
+    Buffer.concat([
+        ...parts.flatMap((part) =>
+            'value' in part
+                ? [
+                      Buffer.from(
+                          `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${part.field}"\r\n\r\n${part.value}\r\n`,
+                      ),
+                  ]
+                : [
+                      Buffer.from(
+                          `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${part.field}"; filename="${part.filename}"\r\nContent-Type: image/png\r\n\r\n`,
+                      ),
+                      part.data,
+                      Buffer.from('\r\n'),
+                  ],
+        ),
+        Buffer.from(`--${BOUNDARY}--\r\n`),
+    ]);
+
+const file = (data: Buffer, filename = 'shot.png'): Part => ({
+    field: 'attachments',
+    filename,
+    data,
+});
+
+const read = (parts: Part[], headers: Record<string, string> = HEADERS) =>
+    readContactSubmission(
+        Object.assign(Readable.from([multipart(parts)]), { headers }),
+        { maxMessageBytes: 1024 },
+    );
+
+const accepted = (attachment: ReturnType<typeof validateAttachment>) => {
+    if (!attachment.ok) throw new Error(attachment.reason);
+    return attachment.attachment;
+};
+
+describe('validateAttachment — the type allow-list', () => {
     it.each([
         ['png', PNG_HEADER, 'image/png', 'png'],
         ['jpeg', JPEG_HEADER, 'image/jpeg', 'jpg'],
@@ -84,42 +120,23 @@ describe('validateContactAttachments — accepted shapes', () => {
         ['mp4', mp4('isom'), 'video/mp4', 'mp4'],
         ['quicktime', mp4('qt  '), 'video/quicktime', 'mov'],
         ['webm', WEBM_HEADER, 'video/webm', 'webm'],
-    ])('accepts %s and reports its sniffed type', (_label, header, mime, ext) => {
-        const result = validateContactAttachments([
-            { name: `capture.${ext}`, data: b64(pad(header, 64)) },
-        ]);
-        expect(result.ok).toBe(true);
-        if (!result.ok) return;
-        expect(result.attachments[0].contentType).toBe(mime);
-        expect(result.attachments[0].filename).toBe(`capture.${ext}`);
-        expect(result.attachments[0].size).toBe(64);
-    });
+    ])(
+        'accepts %s and reports its sniffed type',
+        (_label, header, mime, ext) => {
+            const attachment = accepted(
+                validateAttachment(pad(header, 64), `capture.${ext}`, 0),
+            );
+            expect(attachment.contentType).toBe(mime);
+            expect(attachment.filename).toBe(`capture.${ext}`);
+            expect(attachment.size).toBe(64);
+        },
+    );
 
-    it('tolerates line-wrapped base64', () => {
-        const wrapped = png(256).replace(/(.{40})/g, '$1\n');
-        const result = validateContactAttachments([
-            { name: 'a.png', data: wrapped },
-        ]);
-        expect(result.ok).toBe(true);
-    });
-
-    it('accepts exactly the maximum number of files', () => {
-        const result = validateContactAttachments(
-            Array.from({ length: MAX_ATTACHMENTS }, () => ({ data: png() })),
-        );
-        expect(result.ok).toBe(true);
-    });
-});
-
-describe('validateContactAttachments — the type allow-list', () => {
     it('rejects SVG, which is script-capable even though it is an image', () => {
         const svg = Buffer.from(
             '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
         );
-        const result = validateContactAttachments([
-            { name: 'x.png', data: b64(svg) },
-        ]);
-        expect(result).toMatchObject({
+        expect(validateAttachment(svg, 'x.png', 0)).toMatchObject({
             ok: false,
             reason: expect.stringContaining('not a supported image or video'),
         });
@@ -134,119 +151,228 @@ describe('validateContactAttachments — the type allow-list', () => {
         ['HEIC (an ISO container that is not video)', mp4('heic')],
         ['M4A audio (an ISO container that is not video)', mp4('M4A ')],
     ])('rejects %s', (_label, payload) => {
-        const result = validateContactAttachments([
-            { name: 'evidence.png', data: b64(pad(payload, 64)) },
-        ]);
-        expect(result.ok).toBe(false);
-    });
-
-    it('ignores any type the caller declares and uses the sniffed one', () => {
-        const result = validateContactAttachments([
-            { name: 'a.mp4', type: 'video/mp4', data: png() },
-        ]);
-        expect(result.ok).toBe(true);
-        if (!result.ok) return;
-        expect(result.attachments[0].contentType).toBe('image/png');
-        expect(result.attachments[0].filename).toBe('a.png');
-    });
-});
-
-describe('validateContactAttachments — size and count limits', () => {
-    it('rejects more files than the count cap', () => {
-        const result = validateContactAttachments(
-            Array.from({ length: MAX_ATTACHMENTS + 1 }, () => ({ data: png() })),
+        expect(validateAttachment(pad(payload, 64), 'evidence.png', 0).ok).toBe(
+            false,
         );
-        expect(result).toMatchObject({
-            ok: false,
-            reason: expect.stringContaining('too many attachments'),
-        });
     });
 
-    it('rejects a single file over the per-file cap', () => {
-        const result = validateContactAttachments([
-            { data: png(MAX_ATTACHMENT_BYTES + 1) },
-        ]);
-        expect(result).toMatchObject({
+    it('rejects an empty file', () => {
+        expect(validateAttachment(Buffer.alloc(0), 'a.png', 1)).toEqual({
             ok: false,
-            reason: expect.stringContaining('too large'),
-        });
-    });
-
-    it('rejects an oversized payload without decoding it', () => {
-        // Far past the cap; a length check has to catch this, not a decode.
-        const result = validateContactAttachments([
-            { data: 'A'.repeat(MAX_ATTACHMENT_BYTES * 2) },
-        ]);
-        expect(result).toMatchObject({
-            ok: false,
-            reason: expect.stringContaining('too large'),
-        });
-    });
-
-    it('rejects files that are individually fine but too large together', () => {
-        const each = Math.ceil(MAX_TOTAL_ATTACHMENT_BYTES / 2) + 1024;
-        const result = validateContactAttachments([
-            { data: png(each) },
-            { data: png(each) },
-        ]);
-        expect(result).toMatchObject({
-            ok: false,
-            reason: expect.stringContaining('in total'),
-        });
-    });
-});
-
-describe('validateContactAttachments — malformed entries', () => {
-    it.each([
-        ['a non-array field', 'nope' as unknown],
-        ['an object field', { data: png() } as unknown],
-    ])('rejects %s', (_label, value) => {
-        expect(validateContactAttachments(value)).toMatchObject({ ok: false });
-    });
-
-    it.each([
-        ['a string entry', 'AAAA'],
-        ['a null entry', null],
-        ['an array entry', ['AAAA']],
-    ])('rejects %s', (_label, entry) => {
-        expect(validateContactAttachments([entry])).toMatchObject({
-            ok: false,
-            reason: expect.stringContaining('must be an object'),
-        });
-    });
-
-    it.each([
-        ['missing data', {}],
-        ['empty data', { data: '' }],
-        ['non-string data', { data: 12345 }],
-    ])('rejects an entry with %s', (_label, entry) => {
-        expect(validateContactAttachments([entry])).toMatchObject({
-            ok: false,
-            reason: expect.stringContaining('missing base64'),
-        });
-    });
-
-    it('rejects base64 with characters smuggled past the alphabet', () => {
-        // Buffer.from(..., 'base64') silently drops the junk; the strict
-        // round-trip is what has to notice.
-        const result = validateContactAttachments([
-            { data: `${png()}" onerror=alert(1)` },
-        ]);
-        expect(result).toMatchObject({
-            ok: false,
-            reason: expect.stringContaining('not valid base64'),
+            reason: 'attachment 2 is empty',
         });
     });
 
     it('names the offending file without echoing caller input back', () => {
-        const result = validateContactAttachments([
-            { data: png() },
-            { name: '<img onerror=alert(1)>', data: b64(Buffer.from('nope!!')) },
+        const verdict = validateAttachment(
+            Buffer.from('nope!!'),
+            '<img onerror=alert(1)>',
+            1,
+        );
+        expect(verdict.ok).toBe(false);
+        if (verdict.ok) return;
+        expect(verdict.reason).toContain('attachment 2');
+        expect(verdict.reason).not.toContain('alert');
+    });
+});
+
+describe('readContactSubmission — accepted shapes', () => {
+    it('reads the message and files, typed from their bytes', async () => {
+        const result = await read([
+            { field: 'message', value: 'it broke' },
+            file(png(128), 'a.mp4'),
+            file(pad(mp4('isom'), 256), 'screen.mov'),
         ]);
-        expect(result.ok).toBe(false);
-        if (result.ok) return;
-        expect(result.reason).toContain('attachment 2');
-        expect(result.reason).not.toContain('alert');
+        expect(result).toMatchObject({ ok: true, message: 'it broke' });
+        if (!result.ok) return;
+        expect(
+            result.attachments.map(({ filename, contentType, size }) => ({
+                filename,
+                contentType,
+                size,
+            })),
+        ).toEqual([
+            { filename: 'a.png', contentType: 'image/png', size: 128 },
+            { filename: 'screen.mp4', contentType: 'video/mp4', size: 256 },
+        ]);
+        expect(result.attachments[0].content.equals(png(128))).toBe(true);
+    });
+
+    it('accepts a message with no files', async () => {
+        expect(await read([{ field: 'message', value: 'hi' }])).toEqual({
+            ok: true,
+            message: 'hi',
+            attachments: [],
+        });
+    });
+
+    it('leaves a missing message for the caller to reject', async () => {
+        const result = await read([file(png())]);
+        expect(result).toMatchObject({ ok: true, message: undefined });
+    });
+
+    it('accepts exactly the maximum number of files', async () => {
+        const result = await read([
+            { field: 'message', value: 'hi' },
+            ...Array.from({ length: MAX_ATTACHMENTS }, () => file(png())),
+        ]);
+        expect(result.ok).toBe(true);
+    });
+
+    it('accepts a file exactly at the per-file cap', async () => {
+        const result = await read([
+            { field: 'message', value: 'hi' },
+            file(png(MAX_ATTACHMENT_BYTES)),
+        ]);
+        expect(result.ok).toBe(true);
+    });
+
+    it('keeps non-ASCII file names intact', async () => {
+        const result = await read([
+            { field: 'message', value: 'hi' },
+            file(png(), 'captura de pantalla — día 3.png'),
+        ]);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.attachments[0].filename).toBe(
+            'captura de pantalla — día 3.png',
+        );
+    });
+});
+
+describe('readContactSubmission — limits', () => {
+    it('rejects more files than the count cap', async () => {
+        const result = await read([
+            { field: 'message', value: 'hi' },
+            ...Array.from({ length: MAX_ATTACHMENTS + 1 }, () => file(png())),
+        ]);
+        expect(result).toMatchObject({
+            ok: false,
+            status: 400,
+            reason: expect.stringContaining('too many attachments'),
+        });
+    });
+
+    it('rejects a single file over the per-file cap', async () => {
+        const result = await read([
+            { field: 'message', value: 'hi' },
+            file(png(MAX_ATTACHMENT_BYTES + 1)),
+        ]);
+        expect(result).toMatchObject({
+            ok: false,
+            status: 413,
+            reason: 'attachment 1 is too large (max 10 MB per file)',
+        });
+    });
+
+    it('rejects files that are individually fine but too large together', async () => {
+        const each = Math.ceil(MAX_TOTAL_ATTACHMENT_BYTES / 2) + 1024;
+        const result = await read([
+            { field: 'message', value: 'hi' },
+            file(png(each)),
+            file(png(each)),
+        ]);
+        expect(result).toMatchObject({
+            ok: false,
+            status: 413,
+            reason: expect.stringContaining('in total'),
+        });
+    });
+
+    it('stops reading the request at the first broken limit', async () => {
+        // Nothing past the oversized file is ever written, so resolving at
+        // all shows the reader gave up on the stream rather than draining it.
+        const req = Object.assign(new PassThrough(), { headers: HEADERS });
+        const pending = readContactSubmission(req, { maxMessageBytes: 1024 });
+        const body = multipart([
+            { field: 'message', value: 'hi' },
+            file(png(MAX_ATTACHMENT_BYTES + 4096)),
+        ]);
+        req.write(body.subarray(0, body.length - 1024));
+        await expect(pending).resolves.toMatchObject({
+            ok: false,
+            status: 413,
+        });
+        expect(req.listenerCount('data')).toBe(0);
+    });
+
+    it('accepts a message exactly at the byte budget', async () => {
+        const result = await read([
+            { field: 'message', value: 'x'.repeat(1024) },
+        ]);
+        expect(result.ok).toBe(true);
+    });
+
+    it('rejects a message past the byte budget', async () => {
+        const result = await read([
+            { field: 'message', value: 'x'.repeat(1025) },
+        ]);
+        expect(result).toMatchObject({
+            ok: false,
+            reason: expect.stringContaining('too long'),
+        });
+    });
+});
+
+describe('readContactSubmission — malformed bodies', () => {
+    it('rejects a content type without a boundary', async () => {
+        const result = await read([{ field: 'message', value: 'hi' }], {
+            'content-type': 'multipart/form-data',
+        });
+        expect(result).toMatchObject({
+            ok: false,
+            reason: 'malformed multipart body',
+        });
+    });
+
+    it.each([
+        ['an unknown text field', [{ field: 'note', value: 'x' }]],
+        [
+            'a duplicate message',
+            [
+                { field: 'message', value: 'a' },
+                { field: 'message', value: 'b' },
+            ],
+        ],
+        [
+            'a file under another field name',
+            [
+                { field: 'message', value: 'hi' },
+                { ...file(png()), field: 'file' },
+            ],
+        ],
+    ] as [string, Part[]][])('rejects %s', async (_label, parts) => {
+        expect(await read(parts)).toMatchObject({
+            ok: false,
+            reason: 'unexpected form field',
+        });
+    });
+
+    it('rejects a body cut off mid-file without throwing', async () => {
+        const body = multipart([
+            { field: 'message', value: 'hi' },
+            file(png(4096)),
+        ]);
+        const result = await readContactSubmission(
+            Object.assign(Readable.from([body.subarray(0, 2048)]), {
+                headers: HEADERS,
+            }),
+            { maxMessageBytes: 1024 },
+        );
+        expect(result).toMatchObject({ ok: false, status: 400 });
+    });
+
+    it('rejects a submission whose file is not an allowed type', async () => {
+        const result = await read([
+            { field: 'message', value: 'hi' },
+            file(png()),
+            file(Buffer.from('%PDF-1.7\nnonsense'), 'b.pdf'),
+        ]);
+        expect(result).toMatchObject({
+            ok: false,
+            status: 400,
+            reason: 'attachment 2 is not a supported image or video',
+        });
     });
 });
 
@@ -296,7 +422,9 @@ describe('sanitizeAttachmentName', () => {
         expect(sanitizeAttachmentName(undefined, 2, 'mp4')).toBe(
             'attachment-3.mp4',
         );
-        expect(sanitizeAttachmentName('   ', 0, 'png')).toBe('attachment-1.png');
+        expect(sanitizeAttachmentName('   ', 0, 'png')).toBe(
+            'attachment-1.png',
+        );
         expect(sanitizeAttachmentName(42, 0, 'png')).toBe('attachment-1.png');
     });
 
@@ -307,27 +435,19 @@ describe('sanitizeAttachmentName', () => {
 });
 
 describe('attachment reporting helpers', () => {
-    it('records names, types and sizes but never payloads', () => {
-        const result = validateContactAttachments([
-            { name: 'shot.png', data: png(128) },
-        ]);
-        expect(result.ok).toBe(true);
-        if (!result.ok) return;
+    const shot = (size: number): ValidatedAttachment =>
+        accepted(validateAttachment(png(size), 'shot.png', 0));
 
-        const meta = attachmentMetadata(result.attachments);
+    it('records names, types and sizes but never payloads', () => {
+        const meta = attachmentMetadata([shot(128)]);
         expect(meta).toEqual([
             { name: 'shot.png', type: 'image/png', size: 128 },
         ]);
-        expect(JSON.stringify(meta)).not.toContain('iVBOR');
+        expect(JSON.stringify(meta)).not.toContain('PNG');
     });
 
     it('summarizes what was attached for the email body', () => {
-        const result = validateContactAttachments([
-            { name: 'shot.png', data: png(2048) },
-        ]);
-        expect(result.ok).toBe(true);
-        if (!result.ok) return;
-        const summary = attachmentSummary(result.attachments);
+        const summary = attachmentSummary([shot(2048)]);
         expect(summary).toContain('Attachments (1)');
         expect(summary).toContain('shot.png');
         expect(summary).toContain('2.0 KB');

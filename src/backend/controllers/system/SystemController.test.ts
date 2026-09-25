@@ -18,6 +18,7 @@
  */
 
 import type { Request, RequestHandler, Response } from 'express';
+import { Readable } from 'node:stream';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
@@ -455,21 +456,50 @@ describe('SystemController POST /contactUs — attachments', () => {
             Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
             Buffer.alloc(size - 8, 0x61),
         ]);
-    const pngBase64 = (size = 64): string => pngBytes(size).toString('base64');
 
-    const submit = async (
-        body: Record<string, unknown>,
-        headers?: Record<string, string>,
+    type Part =
+        | { field: string; value: string }
+        | { field: string; filename: string; data: Buffer };
+
+    const BOUNDARY = '----contact-us-test';
+    const multipart = (parts: Part[]): Buffer =>
+        Buffer.concat([
+            ...parts.flatMap((part) =>
+                'value' in part
+                    ? [
+                          Buffer.from(
+                              `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${part.field}"\r\n\r\n${part.value}\r\n`,
+                          ),
+                      ]
+                    : [
+                          Buffer.from(
+                              `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${part.field}"; filename="${part.filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+                          ),
+                          part.data,
+                          Buffer.from('\r\n'),
+                      ],
+            ),
+            Buffer.from(`--${BOUNDARY}--\r\n`),
+        ]);
+
+    const submitMultipart = async (
+        parts: Part[],
+        headers: Record<string, string> = {},
     ) => {
         const { actor, userId } = await makeUser();
         const { res, captured } = makeRes();
-        const call = callRoute(
-            'post',
-            '/contactUs',
-            makeReq({ body, actor, headers }),
-            res,
-        );
-        return { call, captured, userId, actor };
+        const body = multipart(parts);
+        const req = Object.assign(Readable.from([body]), {
+            headers: {
+                'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
+                'content-length': String(body.length),
+                ...headers,
+            },
+            actor,
+            query: {},
+        }) as unknown as Request;
+        const call = callRoute('post', '/contactUs', req, res);
+        return { call, captured, userId };
     };
 
     const readAttachments = async (userId: number, message: string) => {
@@ -482,10 +512,14 @@ describe('SystemController POST /contactUs — attachments', () => {
 
     it('stores attachment metadata — names, types and sizes, no payloads', async () => {
         const message = `attached ${Math.random().toString(36).slice(2)}`;
-        const { call, captured, userId } = await submit({
-            message,
-            attachments: [{ name: 'repro-step-3.png', data: pngBase64(128) }],
-        });
+        const { call, captured, userId } = await submitMultipart([
+            { field: 'message', value: message },
+            {
+                field: 'attachments',
+                filename: 'repro-step-3.png',
+                data: pngBytes(128),
+            },
+        ]);
         await call;
         expect(captured.body).toEqual({});
 
@@ -501,12 +535,16 @@ describe('SystemController POST /contactUs — attachments', () => {
             .mockResolvedValue(null);
         try {
             const message = `attached ${Math.random().toString(36).slice(2)}`;
-            const { call } = await submit({
-                message,
+            const { call } = await submitMultipart([
+                { field: 'message', value: message },
                 // Declares .html, but the bytes are a PNG: the stored and
                 // emailed extension must follow the bytes.
-                attachments: [{ name: 'payload.html', data: pngBase64(64) }],
-            });
+                {
+                    field: 'attachments',
+                    filename: 'payload.html',
+                    data: pngBytes(64),
+                },
+            ]);
             await call;
 
             expect(sendRaw).toHaveBeenCalledTimes(1);
@@ -533,14 +571,17 @@ describe('SystemController POST /contactUs — attachments', () => {
         }
     });
 
-    it('sends no attachments array shape when none were supplied', async () => {
+    it('accepts a multipart submission with no files', async () => {
         const sendRaw = vi
             .spyOn(server.clients.email, 'sendRaw')
             .mockResolvedValue(null);
         try {
             const message = `plain ${Math.random().toString(36).slice(2)}`;
-            const { call } = await submit({ message });
+            const { call, captured } = await submitMultipart([
+                { field: 'message', value: message },
+            ]);
             await call;
+            expect(captured.body).toEqual({});
             const sent = sendRaw.mock.calls[0][0] as {
                 text: string;
                 attachments: unknown[];
@@ -552,33 +593,93 @@ describe('SystemController POST /contactUs — attachments', () => {
         }
     });
 
-    it.each([
-        ['a non-array field', 'not-an-array'],
-        ['too many files', Array.from({ length: 6 }, () => ({ data: 'AAAA' }))],
-        ['an unsupported type', [{ data: Buffer.from('%PDF-1.7 x').toString('base64') }]],
-        ['a script-capable SVG', [{ data: Buffer.from('<svg><script/></svg>').toString('base64') }]],
-        ['invalid base64', [{ data: 'not base64 at all!!' }]],
-        ['a missing payload', [{ name: 'a.png' }]],
-    ])('rejects %s with 400', async (_label, attachments) => {
-        const { call } = await submit({ message: 'hi', attachments });
-        await expect(call).rejects.toMatchObject({ statusCode: 400 });
+    it('rejects base64 attachments in a JSON body', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            callRoute(
+                'post',
+                '/contactUs',
+                makeReq({
+                    body: {
+                        message: 'hi',
+                        attachments: [{ data: pngBytes().toString('base64') }],
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('rejects a body whose declared length cannot possibly be valid', async () => {
-        const { call } = await submit(
-            { message: 'hi' },
+    it.each([
+        [
+            'too many files',
+            [
+                { field: 'message', value: 'hi' },
+                ...Array.from({ length: 6 }, (_, i) => ({
+                    field: 'attachments',
+                    filename: `${i}.png`,
+                    data: pngBytes(),
+                })),
+            ],
+        ],
+        [
+            'an unsupported type',
+            [
+                { field: 'message', value: 'hi' },
+                {
+                    field: 'attachments',
+                    filename: 'a.pdf',
+                    data: Buffer.from('%PDF-1.7 x'),
+                },
+            ],
+        ],
+        [
+            'a script-capable SVG',
+            [
+                { field: 'message', value: 'hi' },
+                {
+                    field: 'attachments',
+                    filename: 'a.svg',
+                    data: Buffer.from('<svg><script/></svg>'),
+                },
+            ],
+        ],
+        [
+            'a missing message',
+            [{ field: 'attachments', filename: 'a.png', data: pngBytes() }],
+        ],
+    ] as [string, Part[]][])('rejects %s with 400', async (_label, parts) => {
+        const { call, captured } = await submitMultipart(parts);
+        await expect(call).rejects.toMatchObject({ statusCode: 400 });
+        expect(captured.body).toBeUndefined();
+    });
+
+    it('refuses a body whose declared length is over budget before reading it', async () => {
+        const { call, captured } = await submitMultipart(
+            [{ field: 'message', value: 'hi' }],
             { 'content-length': String(64 * 1024 * 1024) },
         );
         await expect(call).rejects.toMatchObject({ statusCode: 413 });
+        expect(captured.headers.Connection).toBe('close');
     });
 
-    it('accepts a body whose declared length is within budget', async () => {
-        const { call, captured } = await submit(
-            { message: 'hi', attachments: [{ data: pngBase64() }] },
-            { 'content-length': '4096' },
+    it('closes the connection when an upload breaks a limit mid-stream', async () => {
+        const { call, captured } = await submitMultipart(
+            [
+                { field: 'message', value: 'hi' },
+                {
+                    field: 'attachments',
+                    filename: 'big.png',
+                    data: pngBytes(10 * 1024 * 1024 + 1),
+                },
+            ],
+            // Chunked uploads carry no length to check up front.
+            { 'content-length': '' },
         );
-        await call;
-        expect(captured.body).toEqual({});
+        await expect(call).rejects.toMatchObject({ statusCode: 413 });
+        expect(captured.headers.Connection).toBe('close');
     });
 });
 

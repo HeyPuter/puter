@@ -22,7 +22,6 @@ import {
     MAX_ATTACHMENTS,
     MAX_ATTACHMENT_BYTES,
     MAX_TOTAL_ATTACHMENT_BYTES,
-    base64FromDataUrl,
     checkAttachment,
 } from '../helpers/contact_attachments.js';
 import UIWindow from './UIWindow.js';
@@ -44,8 +43,8 @@ const ERROR_VALUES = {
  *
  * Bug reports are the reason this form takes attachments: the ones worth
  * reporting are often the ones that need a screenshot or a recording to be
- * legible at all. Files are staged in memory, read as base64 on submit, and
- * posted alongside the message. The client-side checks in
+ * legible at all. Files are staged in memory and posted with the message as
+ * multipart form data. The client-side checks in
  * helpers/contact_attachments.js are there to fail fast on an obviously
  * oversized file; the server re-derives type, size and file name from the bytes
  * and is what actually enforces the limits.
@@ -193,22 +192,6 @@ async function UIWindowFeedback (options) {
             addFiles(Array.from(e.originalEvent?.dataTransfer?.files ?? []));
         });
 
-        /**
-         * Read one staged file into the `{ name, data }` shape the endpoint
-         * takes. Rejects rather than sending a half-read file — a bug report
-         * missing the screenshot it refers to is worse than one that says so.
-         */
-        const readAttachment = (file) => new Promise((res, rej) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const data = base64FromDataUrl(reader.result);
-                if ( ! data ) return rej(new Error(`unreadable attachment: ${file.name}`));
-                res({ name: file.name, data });
-            };
-            reader.onerror = () => rej(reader.error ?? new Error('attachment read failed'));
-            reader.readAsDataURL(file);
-        });
-
         // -- Submit --------------------------------------------------------
 
         const setSending = (value) => {
@@ -229,18 +212,19 @@ async function UIWindowFeedback (options) {
             clearError();
             setSending(true);
             try {
-                const payload = { message };
-                if ( attachments.length ) {
-                    payload.attachments = await Promise.all(attachments.map(readAttachment));
+                const body = new FormData();
+                body.append('message', message);
+                for ( const file of attachments ) {
+                    body.append('attachments', file, file.name);
                 }
 
+                // No Content-Type: the browser sets it with the boundary.
                 const resp = await fetch(`${window.api_origin}/contactUs`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
                         'Authorization': `Bearer ${window.auth_token}`,
                     },
-                    body: JSON.stringify(payload),
+                    body,
                 });
                 if ( ! resp.ok ) {
                     showError(resp.status === 429 ? 'contact_us_rate_limited' : 'contact_us_error');

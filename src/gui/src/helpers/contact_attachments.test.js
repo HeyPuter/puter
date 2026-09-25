@@ -22,7 +22,6 @@ import {
     MAX_ATTACHMENTS,
     MAX_ATTACHMENT_BYTES,
     MAX_TOTAL_ATTACHMENT_BYTES,
-    base64FromDataUrl,
     checkAttachment,
 } from './contact_attachments.js';
 
@@ -84,19 +83,5 @@ describe('checkAttachment', () => {
         expect(checkAttachment(file({ size: half + 1 }), [file({ size: half })])).toEqual({
             ok: false, error: 'contact_us_attachment_total_too_large',
         });
-    });
-});
-
-describe('base64FromDataUrl', () => {
-    it('strips the prefix off a base64 data URL', () => {
-        expect(base64FromDataUrl('data:image/png;base64,iVBORw0KGgo=')).toBe('iVBORw0KGgo=');
-    });
-
-    it('returns null for anything that is not a base64 data URL', () => {
-        expect(base64FromDataUrl('data:image/png,rawtext')).toBeNull();
-        expect(base64FromDataUrl('data:image/png;base64,')).toBeNull();
-        expect(base64FromDataUrl('iVBORw0KGgo=')).toBeNull();
-        expect(base64FromDataUrl(null)).toBeNull();
-        expect(base64FromDataUrl(undefined)).toBeNull();
     });
 });

@@ -22,7 +22,7 @@ import {
     MAX_TOTAL_ATTACHMENT_BYTES,
     attachmentMetadata,
     attachmentSummary,
-    validateContactAttachments,
+    readContactSubmission,
 } from '../../util/contactAttachments.js';
 import { PuterController } from '../types.js';
 
@@ -103,18 +103,19 @@ const LSMOD_LIMIT = {
 /** Longest message the Contact Us form will carry, in characters. */
 const CONTACT_MESSAGE_MAX_LENGTH = 100_000;
 
+/** UTF-8 worst case for {@link CONTACT_MESSAGE_MAX_LENGTH} UTF-16 code units. */
+const CONTACT_MESSAGE_MAX_BYTES = CONTACT_MESSAGE_MAX_LENGTH * 3;
+
 /**
- * Ceiling on the whole Contact Us request body: the attachment budget once
- * base64 has inflated it by 4/3, plus the message, plus slack for the JSON
- * envelope and file names. Checked against `Content-Length` so a body that
- * cannot possibly be valid is refused before anything decodes it — the global
- * `express.json` limit is a fleet-wide backstop and far larger than what this
- * route has any business accepting.
+ * Ceiling on a multipart Contact Us body: the attachment budget, the longest
+ * message, and slack for part headers. The global JSON parser leaves multipart
+ * bodies unread, so this is checked before any of the body is.
  */
 const CONTACT_BODY_MAX_BYTES =
-    Math.ceil(MAX_TOTAL_ATTACHMENT_BYTES / 3) * 4 +
-    CONTACT_MESSAGE_MAX_LENGTH +
-    64 * 1024;
+    MAX_TOTAL_ATTACHMENT_BYTES + CONTACT_MESSAGE_MAX_BYTES + 64 * 1024;
+
+const isMultipart = (req) =>
+    /^multipart\/form-data\b/i.test(req.headers?.['content-type'] ?? '');
 
 /**
  * Contact Us submissions are hand-typed by a person, and each one may now carry
@@ -229,23 +230,53 @@ export class SystemController extends PuterController {
                 requireUserActor: true,
                 allowFullAccessToken: true,
                 rateLimit: CONTACT_US_LIMITS,
-                // Attachments make one request worth megabytes of parsing and
-                // outbound mail; a per-user rate limit still lets a client keep
-                // several of those in flight at once.
+                // Each in-flight request holds its attachments in memory until
+                // the mail is sent.
                 concurrent: { limit: 2, scope: 'contact-us', key: 'user' },
             },
             async (req, res) => {
-                const declaredLength = Number(req.headers?.['content-length']);
-                if (
-                    Number.isFinite(declaredLength) &&
-                    declaredLength > CONTACT_BODY_MAX_BYTES
-                ) {
-                    throw new HttpError(413, 'Request body is too large', {
-                        legacyCode: 'bad_request',
+                let message;
+                let attachments = [];
+                if (isMultipart(req)) {
+                    const declaredLength = Number(
+                        req.headers['content-length'],
+                    );
+                    if (
+                        Number.isFinite(declaredLength) &&
+                        declaredLength > CONTACT_BODY_MAX_BYTES
+                    ) {
+                        res.setHeader('Connection', 'close');
+                        throw new HttpError(413, 'Request body is too large', {
+                            legacyCode: 'bad_request',
+                        });
+                    }
+                    // Type, size and file name are all re-derived from the
+                    // received bytes — nothing the caller declared is used.
+                    const submission = await readContactSubmission(req, {
+                        maxMessageBytes: CONTACT_MESSAGE_MAX_BYTES,
                     });
+                    if (!submission.ok) {
+                        // Reading stopped at the failure; close instead of
+                        // draining whatever the client is still sending.
+                        res.setHeader('Connection', 'close');
+                        throw new HttpError(
+                            submission.status,
+                            submission.reason,
+                            { legacyCode: 'bad_request' },
+                        );
+                    }
+                    ({ message, attachments } = submission);
+                } else {
+                    message = req.body?.message;
+                    if (req.body?.attachments !== undefined) {
+                        throw new HttpError(
+                            400,
+                            '`attachments` must be sent as multipart/form-data',
+                            { legacyCode: 'bad_request' },
+                        );
+                    }
                 }
 
-                const { message, attachments: rawAttachments } = req.body ?? {};
                 if (!message || typeof message !== 'string') {
                     throw new HttpError(400, '`message` is required', {
                         legacyCode: 'bad_request',
@@ -258,16 +289,6 @@ export class SystemController extends PuterController {
                         { legacyCode: 'bad_request' },
                     );
                 }
-
-                // Type, size and file name are all re-derived from the decoded
-                // bytes here — nothing the caller declared about them is used.
-                const verdict = validateContactAttachments(rawAttachments);
-                if (!verdict.ok) {
-                    throw new HttpError(400, verdict.reason, {
-                        legacyCode: 'bad_request',
-                    });
-                }
-                const attachments = verdict.attachments;
 
                 // Persist to feedback table for durability. Attachment payloads
                 // stay out of the row — the mail carries those; the column is

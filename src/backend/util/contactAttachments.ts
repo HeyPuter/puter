@@ -17,11 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import {
-    decodeStrictBase64,
-    sniffImageMime,
-    sniffVideoMime,
-} from './mediaSniff.js';
+import Busboy from 'busboy';
+import type { IncomingHttpHeaders } from 'node:http';
+import type { Readable } from 'node:stream';
+import { sniffImageMime, sniffVideoMime } from './mediaSniff.js';
 
 /**
  * Validation for the screenshots and screen recordings people attach to the
@@ -32,7 +31,8 @@ import {
  * The posture, in order of what it stops:
  *
  * - **Volume** — a per-file cap, a per-submission total, and a count cap, each
- *   checked against decoded bytes rather than anything the caller declares.
+ *   enforced while the multipart body streams in, so a request over any of them
+ *   stops being read at the limit rather than after it is buffered.
  * - **Type** — the MIME type is sniffed from the payload and matched against an
  *   allow-list of images and videos. A declared type is never read, so it can't
  *   be used to smuggle anything past the list. `image/svg+xml` is deliberately
@@ -76,15 +76,6 @@ export const ATTACHMENT_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Ceiling on the encoded string we are willing to decode. Applied to the raw
- * field before any decoding so an oversized payload costs a length check rather
- * than a 10 MB allocation. Base64 is 4 characters per 3 bytes; the slack covers
- * padding and any line wrapping.
- */
-const MAX_ATTACHMENT_BASE64_CHARS =
-    Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 1024;
-
-/**
  * Characters stripped from a file name outright: C0/C1 controls (CR and LF
  * would let a name break out of the `Content-Disposition` header), the bidi
  * overrides and isolates that make `report.4pm.exe` render as `report.exe.mp4`,
@@ -116,9 +107,18 @@ export interface AttachmentMetadata {
     size: number;
 }
 
-export type ContactAttachmentsVerdict =
-    | { ok: true; attachments: ValidatedAttachment[] }
+export type AttachmentVerdict =
+    | { ok: true; attachment: ValidatedAttachment }
     | { ok: false; reason: string };
+
+export type ContactSubmissionVerdict =
+    | {
+          ok: true;
+          /** The `message` field as sent; the caller validates it. */
+          message: string | undefined;
+          attachments: ValidatedAttachment[];
+      }
+    | { ok: false; status: 400 | 413; reason: string };
 
 /**
  * Reduce a caller-supplied file name to a safe display label and give it the
@@ -150,94 +150,168 @@ export function sanitizeAttachmentName(
 }
 
 /**
- * Validate the `attachments` field of a Contact Us submission.
- *
- * Each entry is `{ name?: string, data: string }` where `data` is bare base64
- * (no `data:` prefix). Absent/null means "no attachments" and is not an error —
- * the field is optional.
- *
- * On failure the `reason` is safe to return to the caller: it names the
- * offending index and the rule it broke, and never echoes caller input back.
+ * Sniff one received file against the allow-list and give it a safe name.
+ * `index` is its position in the submission, used in error messages and the
+ * fallback name.
  */
-export function validateContactAttachments(
-    value: unknown,
-): ContactAttachmentsVerdict {
-    if (value === undefined || value === null) {
-        return { ok: true, attachments: [] };
+export function validateAttachment(
+    bytes: Buffer,
+    rawName: unknown,
+    index: number,
+): AttachmentVerdict {
+    const label = `attachment ${index + 1}`;
+    if (bytes.length === 0) {
+        return { ok: false, reason: `${label} is empty` };
     }
-    if (!Array.isArray(value)) {
-        return { ok: false, reason: '`attachments` must be an array' };
-    }
-    if (value.length > MAX_ATTACHMENTS) {
+    const sniffed = sniffImageMime(bytes) ?? sniffVideoMime(bytes);
+    const extension = sniffed ? ATTACHMENT_MIME_EXTENSIONS[sniffed] : undefined;
+    if (!sniffed || !extension) {
         return {
             ok: false,
-            reason: `too many attachments (max ${MAX_ATTACHMENTS})`,
+            reason: `${label} is not a supported image or video`,
         };
     }
-
-    const attachments: ValidatedAttachment[] = [];
-    let totalBytes = 0;
-
-    for (let i = 0; i < value.length; i++) {
-        const label = `attachment ${i + 1}`;
-        const entry = value[i];
-        if (
-            typeof entry !== 'object' ||
-            entry === null ||
-            Array.isArray(entry)
-        ) {
-            return { ok: false, reason: `${label} must be an object` };
-        }
-
-        const { name, data } = entry as { name?: unknown; data?: unknown };
-        if (typeof data !== 'string' || data.length === 0) {
-            return {
-                ok: false,
-                reason: `${label} is missing base64 \`data\``,
-            };
-        }
-        if (data.length > MAX_ATTACHMENT_BASE64_CHARS) {
-            return { ok: false, reason: `${label} ${tooLargeClause()}` };
-        }
-
-        // Line-wrapped base64 is tolerated, but only whitespace is stripped —
-        // any other character outside the alphabet fails the strict decode.
-        const bytes = decodeStrictBase64(data.replace(/\s+/g, ''));
-        if (!bytes) {
-            return { ok: false, reason: `${label} is not valid base64` };
-        }
-        if (bytes.length > MAX_ATTACHMENT_BYTES) {
-            return { ok: false, reason: `${label} ${tooLargeClause()}` };
-        }
-
-        totalBytes += bytes.length;
-        if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
-            return {
-                ok: false,
-                reason: `attachments are too large in total (max ${mb(MAX_TOTAL_ATTACHMENT_BYTES)} MB)`,
-            };
-        }
-
-        const sniffed = sniffImageMime(bytes) ?? sniffVideoMime(bytes);
-        const extension = sniffed
-            ? ATTACHMENT_MIME_EXTENSIONS[sniffed]
-            : undefined;
-        if (!sniffed || !extension) {
-            return {
-                ok: false,
-                reason: `${label} is not a supported image or video`,
-            };
-        }
-
-        attachments.push({
-            filename: sanitizeAttachmentName(name, i, extension),
+    return {
+        ok: true,
+        attachment: {
+            filename: sanitizeAttachmentName(rawName, index, extension),
             contentType: sniffed,
             content: bytes,
             size: bytes.length,
-        });
-    }
+        },
+    };
+}
 
-    return { ok: true, attachments };
+/**
+ * Read a `multipart/form-data` Contact Us submission: one `message` field and
+ * up to {@link MAX_ATTACHMENTS} files under the `attachments` field name.
+ *
+ * Only decoded file bytes are held, and the per-file, total and count caps are
+ * checked as parts arrive — the first one broken stops reading `req` and drops
+ * what was buffered. On failure the rest of the body may still be in flight;
+ * the caller should close the connection rather than drain it.
+ *
+ * `reason` is safe to return to the caller: it names the offending index and
+ * the rule it broke, and never echoes caller input back.
+ */
+export function readContactSubmission(
+    req: Readable & { headers: IncomingHttpHeaders },
+    { maxMessageBytes }: { maxMessageBytes: number },
+): Promise<ContactSubmissionVerdict> {
+    return new Promise((resolve) => {
+        let parser: Busboy.Busboy;
+        try {
+            parser = Busboy({
+                headers: req.headers,
+                // Browsers send non-ASCII file names as raw UTF-8.
+                defParamCharset: 'utf8',
+                // Busboy flags a part as over its size limit on reaching it,
+                // so each cap is one byte past the largest size allowed.
+                limits: {
+                    fields: 1,
+                    fieldSize: maxMessageBytes + 1,
+                    files: MAX_ATTACHMENTS,
+                    fileSize: MAX_ATTACHMENT_BYTES + 1,
+                },
+            });
+        } catch {
+            // Missing or malformed boundary.
+            resolve({
+                ok: false,
+                status: 400,
+                reason: 'malformed multipart body',
+            });
+            return;
+        }
+
+        let message: string | undefined;
+        const received: { name: string; chunks: Buffer[]; size: number }[] = [];
+        let totalBytes = 0;
+        let settled = false;
+
+        const fail = (status: 400 | 413, reason: string) => {
+            if (settled) return;
+            settled = true;
+            req.unpipe(parser);
+            received.length = 0;
+            resolve({ ok: false, status, reason });
+        };
+
+        parser.on('field', (name, value, info) => {
+            if (name !== 'message') {
+                return fail(400, 'unexpected form field');
+            }
+            if (info.valueTruncated) {
+                return fail(400, '`message` is too long');
+            }
+            message = value;
+        });
+
+        parser.on('file', (name, stream, info) => {
+            // Busboy destroys an unfinished file stream with an error when the
+            // body ends early; unhandled, that error takes the process down.
+            stream.on('error', () =>
+                fail(400, 'attachment upload was interrupted'),
+            );
+            if (settled) {
+                stream.resume();
+                return;
+            }
+            if (name !== 'attachments') {
+                stream.resume();
+                return fail(400, 'unexpected form field');
+            }
+
+            const label = `attachment ${received.length + 1}`;
+            const entry = {
+                name: info.filename,
+                chunks: [] as Buffer[],
+                size: 0,
+            };
+            received.push(entry);
+            stream.on('limit', () => fail(413, `${label} ${tooLargeClause()}`));
+            stream.on('data', (chunk: Buffer) => {
+                if (settled) return;
+                totalBytes += chunk.length;
+                if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+                    return fail(
+                        413,
+                        `attachments are too large in total (max ${mb(MAX_TOTAL_ATTACHMENT_BYTES)} MB)`,
+                    );
+                }
+                entry.chunks.push(chunk);
+                entry.size += chunk.length;
+            });
+        });
+
+        parser.on('fieldsLimit', () => fail(400, 'unexpected form field'));
+        parser.on('filesLimit', () =>
+            fail(400, `too many attachments (max ${MAX_ATTACHMENTS})`),
+        );
+        parser.on('error', () => fail(400, 'malformed multipart body'));
+        req.on('error', () => fail(400, 'attachment upload was interrupted'));
+
+        parser.on('close', () => {
+            if (settled) return;
+            settled = true;
+            const attachments: ValidatedAttachment[] = [];
+            for (const [i, entry] of received.entries()) {
+                const verdict = validateAttachment(
+                    Buffer.concat(entry.chunks, entry.size),
+                    entry.name,
+                    i,
+                );
+                if (verdict.ok === false) {
+                    resolve({ ok: false, status: 400, reason: verdict.reason });
+                    return;
+                }
+                attachments.push(verdict.attachment);
+            }
+            resolve({ ok: true, message, attachments });
+        });
+
+        req.pipe(parser);
+    });
 }
 
 /** Names and sizes for the stored feedback row — never the payloads. */

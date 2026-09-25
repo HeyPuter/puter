@@ -83,21 +83,3 @@ export function checkAttachment (file, existing) {
 
     return { ok: true };
 }
-
-/**
- * Strip the `data:<type>;base64,` prefix off a FileReader result, leaving the
- * bare base64 the endpoint expects. Returns null for anything that isn't a
- * base64 data URL — a reader that produced something else has nothing sendable
- * in it.
- *
- * @param {unknown} dataUrl
- * @returns {string|null}
- */
-export function base64FromDataUrl (dataUrl) {
-    if ( typeof dataUrl !== 'string' ) return null;
-    const comma = dataUrl.indexOf(',');
-    if ( comma < 0 ) return null;
-    if ( ! /^data:[^,]*;base64$/i.test(dataUrl.slice(0, comma)) ) return null;
-    const payload = dataUrl.slice(comma + 1);
-    return payload.length > 0 ? payload : null;
-}
