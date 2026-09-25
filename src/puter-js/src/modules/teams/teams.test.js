@@ -24,6 +24,7 @@ const TEAM = {
     handle: 'acme',
     isOwner: true,
     directoryEnabled: false,
+    require2fa: false,
     createdAt: '2026-01-01T00:00:00Z',
 };
 
@@ -327,6 +328,25 @@ describe('directory', () => {
         const res = await teams.update('t-1', { directoryEnabled: true });
         expect(call().body).toEqual({ directory_enabled: true });
         expect(res.directoryEnabled).toBe(true);
+    });
+
+    it('sends the 2FA rule as snake_case too, and reads it back', async () => {
+        routes({ 'PUT /teams/t-1': { ...TEAM_ROW, require_2fa: true } });
+        const res = await teams.update('t-1', { require2fa: true });
+        expect(call().body).toEqual({ require_2fa: true });
+        expect(res.require2fa).toBe(true);
+    });
+
+    it('resets a member second factor by username', async () => {
+        routes({ 'POST /teams/t-1/members/bob/2fa-reset': { success: true } });
+        await expect(teams.resetTwoFactor('t-1', 'bob')).resolves.toBeUndefined();
+        expect(call().route).toBe('/teams/t-1/members/bob/2fa-reset');
+    });
+
+    it('encodes a username into the 2FA reset path', async () => {
+        routes({ 'POST /teams/t-1/members/a%2Fb/2fa-reset': { success: true } });
+        await teams.resetTwoFactor('t-1', 'a/b');
+        expect(call().route).toBe('/teams/t-1/members/a%2Fb/2fa-reset');
     });
 });
 

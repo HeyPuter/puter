@@ -17,6 +17,7 @@ export function toTeam (row) {
         handle: /** @type {string | null} */ (row.handle ?? null),
         isOwner: row.is_owner === true,
         directoryEnabled: row.directory_enabled === true,
+        require2fa: row.require_2fa === true,
         createdAt: /** @type {string} */ (row.created_at),
     };
 }

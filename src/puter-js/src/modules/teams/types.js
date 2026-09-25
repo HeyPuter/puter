@@ -11,6 +11,7 @@
  * @property {string | null} handle The team's short handle, unique while it exists. `null` when unset.
  * @property {boolean} isOwner Whether the caller is the owner account of this team.
  * @property {boolean} directoryEnabled Whether apps acting for a member may read the member list
+ * @property {boolean} require2fa Whether the accounts this team provisioned must hold 2FA
  * through `Teams.listDirectory()`. Off unless the owner account turns it on.
  * @property {string} createdAt When the team was created, in `YYYY-MM-DDTHH:MM:SSZ` format.
  */
