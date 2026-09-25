@@ -4422,6 +4422,15 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
+        const seat = await this.stores.team.getOrgSeat(user.id);
+        if (seat && Number(seat.require_2fa) === 1) {
+            throw new HttpError(
+                409,
+                'Your team requires two-factor authentication, so it cannot be turned off.',
+                { legacyCode: 'conflict' },
+            );
+        }
+
         await this.clients.db.write(
             'UPDATE `user` SET `otp_enabled` = ?, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
             [this.clients.db.booleanValue(false), user.uuid],

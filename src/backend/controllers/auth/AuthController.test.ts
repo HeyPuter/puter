@@ -6853,6 +6853,45 @@ describe('AuthController 2FA flows', () => {
         expect(Boolean(after!.otp_enabled)).toBe(true);
     });
 
+    it('refuses to disable 2FA while the team requires it', async () => {
+        const owner = await makeUserAndActor({ otp_enabled: 1 });
+        const team = await server.services.team.createTeam(owner.user.id, {
+            name: 'Acme',
+        });
+        const seatName = `s_${uniq()}`;
+        await server.services.team.provisionAccount(team.uid, owner.user.id, {
+            username: seatName,
+        });
+        const seat = await server.stores.user.getByUsername(seatName);
+        const actor = {
+            user: {
+                id: seat!.id,
+                uuid: seat!.uuid,
+                username: seat!.username,
+                email: seat!.email ?? null,
+            },
+        } as Actor;
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'setup' } }),
+            makeRes(),
+        );
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'enable' } }),
+            makeRes(),
+        );
+        await server.services.team.updateTeam(team.uid, owner.user.id, {
+            require2fa: true,
+        });
+
+        await expect(
+            controller.handleDisable2fa(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 409 });
+        const after = await server.stores.user.getById(seat!.id, {
+            force: true,
+        });
+        expect(Boolean(after!.otp_enabled)).toBe(true);
+    });
+
     it('still refuses an ordinary account with an unconfirmed email', async () => {
         const { actor } = await makeUserAndActor({ email_confirmed: 0 });
         await controller.handleConfigure2fa(
