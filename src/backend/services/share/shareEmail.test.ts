@@ -276,7 +276,8 @@ describe('share email', () => {
         const confirmed = await post('/confirm-email', token, { code });
         expect(await confirmed.json()).toMatchObject({ email_confirmed: true });
 
-        return { username, email, token };
+        const row = await env.server.stores.user.getByUsername(username);
+        return { username, email, token, uuid: row!.uuid };
     };
 
     it('emails an invite to an address with no account', async () => {
@@ -366,7 +367,7 @@ describe('share email', () => {
         expect(openPuterHref(mail.html)).toBe(
             `${env.origin}/?shared=${encodeURIComponent(
                 `/${owner.username}/${first.uid}/${first.name}`,
-            )}`,
+            )}&user_uuid=${encodeURIComponent(recipient.uuid)}`,
         );
         expect(mail.html).toContain(recipient.username);
 
@@ -499,7 +500,7 @@ describe('share email', () => {
 
         const mail = await waitForMail({ to: recipient.email });
         const masked = `/${owner.username}/${file.uid}/${file.name}`;
-        const link = `?shared=${encodeURIComponent(masked)}`;
+        const link = `?shared=${encodeURIComponent(masked)}&user_uuid=${encodeURIComponent(recipient.uuid)}`;
         expect(mail.html).toContain(link);
         // Linked, not merely mentioned.
         expect(mail.html).toContain(`${link}"`);
@@ -589,8 +590,12 @@ describe('share email', () => {
         const href = openPuterHref(mail.html);
         expect(new URL(href!).searchParams.get('shared_app')).toBe(app.name);
         const masked = `/${owner.username}/${file.uid}/${file.name}`;
+        // Each item's link names the app and the recipient both.
         expect(mail.html).toContain(
-            `?shared=${encodeURIComponent(masked)}&shared_app=${app.name}`,
+            `?shared=${encodeURIComponent(masked)}&shared_app=${app.name}&user_uuid=${recipient.uuid}"`,
+        );
+        expect(new URL(href!).searchParams.get('user_uuid')).toBe(
+            recipient.uuid,
         );
 
         // The invite names the app too; with no links, no parameter to ride.
@@ -599,6 +604,8 @@ describe('share email', () => {
         const invite = await waitForMail({ to: invitee });
         expect(invite.html).toContain('via Mail App');
         expect(invite.html).not.toContain('shared_app=');
+        // An invitee has no account to name.
+        expect(invite.html).not.toContain('user_uuid=');
     });
 
     it('keeps the app off the button when the digest is not all its doing', async () => {
