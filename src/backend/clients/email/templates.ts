@@ -407,6 +407,22 @@ team activity, along with every sign-in to your account.</p>
 <p>Puter</p>
         `,
     },
+    team_2fa_reset: {
+        subject:
+            'Two-factor authentication was reset on your {{team_name}} account',
+        html: `
+<p>Hi there,</p>
+<p>An administrator of {{team_name}} reset two-factor authentication on your
+Puter account <b>{{username}}</b>, so you can set it up again from a device you
+still have. You have been signed out everywhere.</p>
+<p>Your password is unchanged. If your team requires two-factor authentication,
+you will be asked to enrol the next time you sign in.</p>
+<p>If you did not expect this, the record of who reset it and when is in your
+team activity, along with every sign-in to your account.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     enabled_2fa: {
         subject: '2FA Enabled on your Account',
         html: `

@@ -4308,6 +4308,8 @@ export class AuthController extends PuterController {
     @Post('/auth/configure-2fa/:action', {
         subdomain: 'api',
         requireUserActor: true,
+        // A member owing their team's 2FA reaches nothing else until this.
+        allowUnconfirmed: true,
         rateLimit: TWO_FACTOR_LIMIT,
     })
     async handleConfigure2fa(req: Request, res: Response): Promise<void> {
@@ -4362,7 +4364,9 @@ export class AuthController extends PuterController {
         }
 
         if (action === 'enable') {
-            if (!user.email_confirmed) {
+            // A seat has no email by design, so this would bar it forever.
+            const seat = await this.stores.team.getOrgSeat(user.id);
+            if (!user.email_confirmed && !seat) {
                 throw new HttpError(
                     403,
                     'Email must be confirmed before enabling 2FA.',
@@ -4417,6 +4421,15 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found', {
                 legacyCode: 'not_found',
             });
+
+        const seat = await this.stores.team.getOrgSeat(user.id);
+        if (seat && Number(seat.require_2fa) === 1) {
+            throw new HttpError(
+                409,
+                'Your team requires two-factor authentication, so it cannot be turned off.',
+                { legacyCode: 'conflict' },
+            );
+        }
 
         await this.clients.db.write(
             'UPDATE `user` SET `otp_enabled` = ?, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',

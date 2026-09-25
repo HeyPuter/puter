@@ -25,6 +25,7 @@ import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     assertNotSuspended,
+    assertTeam2fa,
     assertVerifiedAccount,
 } from '../../core/http/middleware/gates.js';
 import {
@@ -283,6 +284,7 @@ export class WebDAVController extends PuterController {
         // filesystem over the `dav` subdomain, bypassing the gates.
         assertNotSuspended(actor.user);
         assertVerifiedAccount(actor.user);
+        await assertTeam2fa(actor.user, this.stores.team);
 
         // The actor was absent when the auth probe ran, so anything that reads
         // it off the request or the context — shared-path masking, egress

@@ -13,6 +13,7 @@ import { listMembers } from './listMembers.js';
 import { listOwnAudit } from './listOwnAudit.js';
 import { resendActivation } from './resendActivation.js';
 import { resetPassword } from './resetPassword.js';
+import { resetTwoFactor } from './resetTwoFactor.js';
 import { update } from './update.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
@@ -23,7 +24,7 @@ import { update } from './update.js';
 const METHODS = [
     'create', 'list', 'get', 'update', 'delete',
     'listMembers', 'createMember', 'resendActivation',
-    'disableMember', 'enableMember', 'resetPassword', 'deleteMemberAccount',
+    'disableMember', 'enableMember', 'resetPassword', 'resetTwoFactor', 'deleteMemberAccount',
     'listAudit', 'listOwnAudit', 'listDirectory',
 ];
 
@@ -58,6 +59,7 @@ export class TeamsModule extends PuterModule {
     disableMember = disableMember;
     enableMember = enableMember;
     resetPassword = resetPassword;
+    resetTwoFactor = resetTwoFactor;
     deleteMemberAccount = deleteMemberAccount;
 
     listAudit = listAudit;
@@ -88,7 +90,8 @@ export class TeamsModule extends PuterModule {
  *     'puter' | 'authToken'
  *     | 'create' | 'get' | 'update' | 'delete'
  *     | 'createMember' | 'resendActivation'
- *     | 'disableMember' | 'enableMember' | 'resetPassword' | 'deleteMemberAccount'
+ *     | 'disableMember' | 'enableMember' | 'resetPassword' | 'resetTwoFactor'
+ *     | 'deleteMemberAccount'
  *     | 'listAudit' | 'listOwnAudit'
  * >} TeamsConstructor
  */

@@ -27,7 +27,12 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
+    | 'body'
+    | 'header'
+    | 'x-api-key'
+    | 'cookie'
+    | 'query'
+    | 'handshake';
 
 /** Express router methods plus the WebDAV verbs some endpoints use. */
 export type RouteMethod =
@@ -69,8 +74,9 @@ export type AccountGateUser = Partial<
         | 'requires_password_change'
         | 'phone'
         | 'card_fingerprint'
+        | 'otp_enabled'
     >
->;
+> & { id?: number };
 
 /** One rate-limit window. See `RouteOptions.rateLimit` for semantics. */
 export interface RouteRateLimit {
@@ -335,7 +341,9 @@ export type AuthRequired<O extends RouteOptions> = O extends {
                   ? true
                   : O extends {
                           requireSubscription:
-                              true | readonly string[] | string[];
+                              | true
+                              | readonly string[]
+                              | string[];
                       }
                     ? true
                     : O extends { requireReputation: string }

@@ -91,6 +91,13 @@ export const AUDIT_DELETE_ACCOUNT = 'delete_account';
 export const AUDIT_DIRECTORY_ON = 'directory_enabled';
 export const AUDIT_DIRECTORY_OFF = 'directory_disabled';
 
+/** Changes what every seat must hold to sign in, so it is recorded too. */
+export const AUDIT_2FA_ON = 'require_2fa_enabled';
+export const AUDIT_2FA_OFF = 'require_2fa_disabled';
+
+/** Its own action, never a side effect of a password reset. */
+export const AUDIT_RESET_2FA = 'reset_member_2fa';
+
 /** Not an audit row: synthesised from `sessions` for the member's own view. */
 export const SIGN_IN_ACTION = 'sign_in';
 
@@ -427,10 +434,14 @@ export class TeamService extends PuterService {
             name?: string;
             handle?: string | null;
             directoryEnabled?: boolean;
+            require2fa?: boolean;
         },
     ): Promise<TeamRow> {
         const before = await this.requireOwner(teamUid, actorUserId);
         if (changes.handle) await this.assertHandleUsable(changes.handle);
+        if (changes.require2fa === true) {
+            await this.#assertOwnerHas2fa(actorUserId);
+        }
 
         const team = await this.#asHttpErrors(() =>
             this.stores.team.update(teamUid, changes),
@@ -457,7 +468,55 @@ export class TeamService extends PuterService {
                     : AUDIT_DIRECTORY_OFF,
             });
         }
+
+        const required = Number(before.require_2fa) === 1;
+        if (
+            changes.require2fa !== undefined &&
+            changes.require2fa !== required
+        ) {
+            await this.stores.team.appendAudit({
+                teamId: team.id,
+                userId: actorUserId,
+                actorUserId,
+                action: changes.require2fa ? AUDIT_2FA_ON : AUDIT_2FA_OFF,
+            });
+            // The seat rows carry this flag, so a stale one would keep a
+            // member locked out after the owner turned the rule off.
+            await this.#bustSeatCaches(team);
+        }
         return team;
+    }
+
+    /** Turning the rule on without it would lock out the account doing so. */
+    async #assertOwnerHas2fa(actorUserId: number): Promise<void> {
+        const owner = await this.stores.user.getByProperty('id', actorUserId, {
+            force: true,
+        });
+        if (owner?.otp_enabled) return;
+        throw new HttpError(
+            409,
+            'Set up two-factor authentication on your own account before requiring it of the team.',
+            { legacyCode: 'conflict' },
+        );
+    }
+
+    /** Bounded by the seat cap, so no paging cap is needed. */
+    async #bustSeatCaches(team: TeamRow): Promise<void> {
+        let cursor: string | undefined;
+        for (let page = 0; page < 50; page++) {
+            const res = await this.stores.team.listMembers(team.uid, {
+                limit: 100,
+                ...(cursor ? { cursor } : {}),
+            });
+            for (const member of res.items) {
+                await this.stores.team.bustMembership(
+                    team.id,
+                    Number(member.user_id),
+                );
+            }
+            if (!res.cursor) return;
+            cursor = res.cursor;
+        }
     }
 
     /** Whether the owner opened the team to the apps its members use. */
@@ -998,6 +1057,47 @@ export class TeamService extends PuterService {
         await this.#dropSessions(targetUserId);
         await this.#notifyUser(user, 'team_password_reset', team);
         return { temporaryPassword };
+    }
+
+    /**
+     * Clears a seat's second factor so it can enrol again, for the member who
+     * lost both their authenticator and their recovery codes.
+     *
+     * Deliberately not part of `resetMemberPassword`, which leaves 2FA alone
+     * precisely so a password reset is not takeover. Together the two are, and
+     * for an account the team created and pays for that is the team's to do —
+     * but it has to be chosen, and recorded, rather than arrived at sideways.
+     */
+    async resetMemberTwoFactor(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+
+        if (!user.otp_enabled) {
+            throw new HttpError(409, 'That account has no 2FA to reset', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        // Recorded first, so a failed append cannot leave an unlogged reset.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_2FA,
+        });
+
+        await this.clients.db.write(
+            'UPDATE `user` SET `otp_enabled` = ?, `otp_secret` = NULL, ' +
+                '`otp_recovery_codes` = NULL WHERE `id` = ?',
+            [this.clients.db.booleanValue(false), targetUserId],
+        );
+        await this.stores.user.invalidateById(targetUserId);
+        await this.#dropSessions(targetUserId);
+        await this.#notifyUser(user, 'team_2fa_reset', team);
     }
 
     /**
