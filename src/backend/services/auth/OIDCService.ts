@@ -52,6 +52,8 @@ const STATE_EXPIRY_SEC = 600; // 10 minutes
 const POPUP_RETURN_EXPIRY_SEC = 300; // 5 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
+// Every `oidc-state` token shares one signing key; the payload says which job.
+const POPUP_RETURN_PURPOSE = 'popup-return';
 
 interface ProviderConfig {
     client_id: string;
@@ -260,17 +262,28 @@ export class OIDCService extends PuterService {
      * redirects the popup home.
      */
     signPopupReturn(payload: Record<string, unknown>): string {
-        return this.services.token.sign('oidc-state', payload, {
-            expiresIn: POPUP_RETURN_EXPIRY_SEC,
-        });
+        return this.services.token.sign(
+            'oidc-state',
+            { ...payload, purpose: POPUP_RETURN_PURPOSE },
+            { expiresIn: POPUP_RETURN_EXPIRY_SEC },
+        );
     }
 
     /** Verify a popup-return proof. Returns null on a bad or expired one. */
     verifyPopupReturn(token: string): Record<string, unknown> | null {
-        return this.verifyState(token);
+        const decoded = this.#verifySigned(token);
+        if (decoded?.purpose !== POPUP_RETURN_PURPOSE) return null;
+        return decoded;
     }
 
     verifyState(token: string): Record<string, unknown> | null {
+        const decoded = this.#verifySigned(token);
+        // An authorization state carries no purpose.
+        if (!decoded || decoded.purpose !== undefined) return null;
+        return decoded;
+    }
+
+    #verifySigned(token: string): Record<string, unknown> | null {
         try {
             return this.services.token.verify<Record<string, unknown>>(
                 'oidc-state',

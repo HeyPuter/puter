@@ -17,21 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { verifyOidcPopupReturn } from './popupOidcReturn.js';
 
 const OPENER = 'https://opener.test';
 
 /** Stand in for the verify endpoint. */
 const serverSays = (body, { ok = true } = {}) =>
-    vi.fn(async () => ({ ok, json: async () => body }));
+    vi.fn(async () => ({
+        ok,
+        json: async () => ({ action: 'sign-in', ...body }),
+    }));
 
-beforeEach(() => {
-    globalThis.window = { api_origin: 'https://api.test' };
-});
+const redeem = (proof, msgId) => verifyOidcPopupReturn(proof, msgId, 'sign-in');
 
 afterEach(() => {
-    delete globalThis.window;
     delete globalThis.fetch;
     vi.restoreAllMocks();
 });
@@ -43,9 +43,11 @@ describe('redeeming a proof', () => {
             msg_id: '7',
             oidc_login: true,
         });
-        await expect(verifyOidcPopupReturn('signed.blob.here', '7')).resolves.toEqual(
-            { opener_origin: OPENER, oidc_login: true, user_uuid: null },
-        );
+        await expect(redeem('signed.blob.here', '7')).resolves.toEqual({
+            opener_origin: OPENER,
+            oidc_login: true,
+            user_uuid: null,
+        });
     });
 
     it('passes through the account the proof is bound to', async () => {
@@ -55,9 +57,7 @@ describe('redeeming a proof', () => {
             oidc_login: true,
             user_uuid: 'user-A',
         });
-        await expect(
-            verifyOidcPopupReturn('signed.blob.here', '7'),
-        ).resolves.toEqual({
+        await expect(redeem('signed.blob.here', '7')).resolves.toEqual({
             opener_origin: OPENER,
             oidc_login: true,
             user_uuid: 'user-A',
@@ -65,11 +65,15 @@ describe('redeeming a proof', () => {
     });
 
     it('sends the proof to the verify endpoint', async () => {
-        const fetchMock = serverSays({ opener_origin: OPENER, oidc_login: true });
+        const fetchMock = serverSays({
+            opener_origin: OPENER,
+            oidc_login: true,
+        });
         globalThis.fetch = fetchMock;
-        await verifyOidcPopupReturn('signed.blob.here', null);
+        await redeem('signed.blob.here', null);
         const [url, init] = fetchMock.mock.calls[0];
-        expect(url).toBe('https://api.test/auth/oidc/verify-popup-return');
+        expect(url).toBe('/auth/oidc/verify-popup-return');
+        expect(init.credentials).toBe('include');
         expect(JSON.parse(init.body)).toEqual({
             opener_state: 'signed.blob.here',
         });
@@ -82,9 +86,7 @@ describe('redeeming a proof', () => {
             opener_origin: OPENER,
             oidc_login: false,
         });
-        await expect(
-            verifyOidcPopupReturn('signed.blob.here', null),
-        ).resolves.toEqual({
+        await expect(redeem('signed.blob.here', null)).resolves.toEqual({
             opener_origin: OPENER,
             oidc_login: false,
             user_uuid: null,
@@ -97,7 +99,7 @@ describe('refusing what the server did not attest', () => {
         // The attack shape: a crafted link naming an opener, with no OIDC round
         // trip behind it. Nothing is even asked of the server.
         globalThis.fetch = serverSays({ opener_origin: OPENER });
-        await expect(verifyOidcPopupReturn(null, '7')).resolves.toBeNull();
+        await expect(redeem(null, '7')).resolves.toBeNull();
         expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 
@@ -107,16 +109,15 @@ describe('refusing what the server did not attest', () => {
             { message: 'Invalid `opener_state`' },
             { ok: false },
         );
-        await expect(
-            verifyOidcPopupReturn('forged.blob', '7'),
-        ).resolves.toBeNull();
+        await expect(redeem('forged.blob', '7')).resolves.toBeNull();
     });
 
     it('yields nothing when the attested payload carries no origin', async () => {
-        globalThis.fetch = serverSays({ opener_origin: null, oidc_login: true });
-        await expect(
-            verifyOidcPopupReturn('signed.blob.here', '7'),
-        ).resolves.toBeNull();
+        globalThis.fetch = serverSays({
+            opener_origin: null,
+            oidc_login: true,
+        });
+        await expect(redeem('signed.blob.here', '7')).resolves.toBeNull();
     });
 
     it('ignores a proof minted for a different popup flow', async () => {
@@ -125,8 +126,21 @@ describe('refusing what the server did not attest', () => {
             msg_id: '7',
             oidc_login: true,
         });
+        await expect(redeem('signed.blob.here', '8')).resolves.toBeNull();
+    });
+
+    it('ignores a proof minted for a different popup action', async () => {
+        globalThis.fetch = serverSays({
+            opener_origin: OPENER,
+            msg_id: '7',
+            oidc_login: true,
+        });
         await expect(
-            verifyOidcPopupReturn('signed.blob.here', '8'),
+            verifyOidcPopupReturn(
+                'signed.blob.here',
+                '7',
+                'request-permission',
+            ),
         ).resolves.toBeNull();
     });
 
@@ -137,9 +151,7 @@ describe('refusing what the server did not attest', () => {
             msg_id: 7,
             oidc_login: true,
         });
-        await expect(
-            verifyOidcPopupReturn('signed.blob.here', '7'),
-        ).resolves.toBeTruthy();
+        await expect(redeem('signed.blob.here', '7')).resolves.toBeTruthy();
     });
 
     it('degrades to nothing when the endpoint is unreachable', async () => {
@@ -149,8 +161,6 @@ describe('refusing what the server did not attest', () => {
             throw new Error('network down');
         });
         vi.spyOn(console, 'error').mockImplementation(() => {});
-        await expect(
-            verifyOidcPopupReturn('signed.blob.here', '7'),
-        ).resolves.toBeNull();
+        await expect(redeem('signed.blob.here', '7')).resolves.toBeNull();
     });
 });

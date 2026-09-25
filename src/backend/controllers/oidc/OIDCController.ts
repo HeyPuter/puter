@@ -39,6 +39,14 @@ const REVALIDATION_EXPIRY_SEC = 300;
 const OIDC_NONCE_COOKIE_NAME = 'puter_oidc_nonce';
 const OIDC_NONCE_EXPIRY_SEC = 600;
 
+// Single-use, and binds a popup-return proof to the browser that earned it.
+// Expiry mirrors POPUP_RETURN_EXPIRY_SEC in OIDCService.
+const OIDC_POPUP_RETURN_COOKIE_NAME = 'puter_oidc_popup_return';
+const OIDC_POPUP_RETURN_EXPIRY_SEC = 300;
+
+// The popup branch below hard-codes this return target.
+const POPUP_RETURN_ACTION = 'sign-in';
+
 const OIDC_ERROR_REDIRECT_MAP: Record<string, Record<string, string>> = {
     login: { account_not_found: 'signup', other: 'login' },
     signup: { account_already_exists: 'login', other: 'signup' },
@@ -173,11 +181,8 @@ function buildErrorRedirectUrl(
     message: string,
     stateDecoded?: Record<string, unknown>,
     requestCode?: string,
-    // Signs the popup-return proof. Passed in because this is a module-level
-    // helper with no access to services; omitted by callers that have no
-    // state to attest (the proof is simply absent then, and the popup falls
-    // back to its browser-attested sources).
-    signPopupReturn?: (payload: Record<string, unknown>) => string,
+    // Omitted by callers with no state to attest.
+    mintPopupReturn?: (payload: Record<string, unknown>) => string,
 ): string {
     const targetFlow =
         OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
@@ -221,13 +226,15 @@ function buildErrorRedirectUrl(
         // Same reasoning as the success leg: the popup cannot tell a verified
         // `opener_origin` from a typed one, so attest it. The error leg is a
         // real return from the provider too — the flow failed, not the hop.
-        if (signPopupReturn) {
+        if (mintPopupReturn) {
             params.set(
                 'opener_state',
-                signPopupReturn({
+                mintPopupReturn({
                     opener_origin: stateDecoded?.opener_origin ?? null,
                     msg_id: stateDecoded?.msg_id ?? null,
                     oidc_login: false,
+                    // The popup checks this against the action it lands on.
+                    action: targetFlow,
                 }),
             );
         }
@@ -293,18 +300,21 @@ export class OIDCController extends PuterController {
         // A sign-in popup returning from a provider is told the opener's
         // origin and that a login completed. It cannot check either: the
         // values arrive as query parameters, and a URL built from a verified
-        // `state` looks exactly like one an attacker typed. The opener's
+        // `state` looks exactly like one anybody can type. The opener's
         // origin decides which app a token gets minted for, so the popup
         // redeems the signed proof here instead of believing the raw
         // parameters.
         //
+        // Served on the GUI origin too: the binding cookie is host-only.
+        //
         // Unauthenticated on purpose — it reveals nothing the caller did not
-        // already hand over, and a forged or expired proof yields nothing.
+        // already hand over, and a proof that isn't this browser's yields
+        // nothing.
 
         router.post(
             '/auth/oidc/verify-popup-return',
             {
-                subdomain: 'api',
+                subdomain: ['api', ''],
                 rateLimit: {
                     scope: 'oidc-verify-popup-return',
                     limit: 60,
@@ -319,14 +329,25 @@ export class OIDCController extends PuterController {
                     });
                 }
                 const decoded = this.services.oidc.verifyPopupReturn(proof);
-                if (!decoded) {
+                const cookieNonce =
+                    req.cookies?.[OIDC_POPUP_RETURN_COOKIE_NAME];
+
+                if (
+                    !decoded ||
+                    typeof decoded.nonce !== 'string' ||
+                    typeof cookieNonce !== 'string' ||
+                    !constantTimeEqual(cookieNonce, decoded.nonce)
+                ) {
                     throw new HttpError(400, 'Invalid `opener_state`', {
                         legacyCode: 'bad_request',
                     });
                 }
+                // Single-use; a rejected call must not burn the cookie.
+                res.clearCookie(OIDC_POPUP_RETURN_COOKIE_NAME, { path: '/' });
                 res.json({
                     opener_origin: decoded.opener_origin ?? null,
                     msg_id: decoded.msg_id ?? null,
+                    action: decoded.action ?? null,
                     oidc_login: decoded.oidc_login === true,
                     user_uuid: decoded.user_uuid ?? null,
                 });
@@ -430,7 +451,7 @@ export class OIDCController extends PuterController {
                         : null;
 
                 if (embeddedInPopup && msgId) {
-                    appRedirectUri = `${origin}/action/sign-in?embedded_in_popup=true&msg_id=${encodeURIComponent(msgId)}`;
+                    appRedirectUri = `${origin}/action/${POPUP_RETURN_ACTION}?embedded_in_popup=true&msg_id=${encodeURIComponent(msgId)}`;
                     if (openerOrigin) {
                         appRedirectUri += `&opener_origin=${encodeURIComponent(openerOrigin)}`;
                     }
@@ -557,7 +578,7 @@ export class OIDCController extends PuterController {
                         resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
-                        (p) => this.services.oidc.signPopupReturn(p),
+                        (p) => this.#mintPopupReturn(res, p),
                     ),
                 );
             }
@@ -576,7 +597,7 @@ export class OIDCController extends PuterController {
                         'account_suspended',
                         stateDecoded,
                         undefined,
-                        (p) => this.services.oidc.signPopupReturn(p),
+                        (p) => this.#mintPopupReturn(res, p),
                     ),
                 );
             }
@@ -624,7 +645,7 @@ export class OIDCController extends PuterController {
                         resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
-                        (p) => this.services.oidc.signPopupReturn(p),
+                        (p) => this.#mintPopupReturn(res, p),
                     ),
                 );
             }
@@ -640,7 +661,7 @@ export class OIDCController extends PuterController {
                         'account_suspended',
                         stateDecoded,
                         undefined,
-                        (p) => this.services.oidc.signPopupReturn(p),
+                        (p) => this.#mintPopupReturn(res, p),
                     ),
                 );
             }
@@ -756,6 +777,23 @@ if (window.opener) {
     }
 
     // -- Shared helpers ----------------------------------------------
+
+    /** Sign a popup-return proof, bound to this browser and this popup. */
+    #mintPopupReturn(res: Response, payload: Record<string, unknown>): string {
+        const nonce = crypto.randomBytes(32).toString('base64url');
+        res.cookie(OIDC_POPUP_RETURN_COOKIE_NAME, nonce, {
+            // Redeemed same-origin.
+            ...sessionCookieFlags(this.config, { crossSite: false }),
+            httpOnly: true,
+            maxAge: OIDC_POPUP_RETURN_EXPIRY_SEC * 1000,
+            path: '/',
+        });
+        return this.services.oidc.signPopupReturn({
+            action: POPUP_RETURN_ACTION,
+            ...payload,
+            nonce,
+        });
+    }
 
     /**
      * Resolve an OIDC callback to a Puter user. In order:
@@ -969,7 +1007,7 @@ if (window.opener) {
             target = appendQueryParam(
                 target,
                 'opener_state',
-                this.services.oidc.signPopupReturn({
+                this.#mintPopupReturn(res, {
                     opener_origin: stateDecoded.opener_origin ?? null,
                     msg_id: stateDecoded.msg_id ?? null,
                     oidc_login: true,
