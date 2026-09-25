@@ -198,6 +198,13 @@ export interface PermissionRewriter {
     id?: string;
     matches: (permission: string) => boolean;
     rewrite: (permission: string) => Promise<string> | string;
+    /**
+     * The rewrite resolves through state that can change after a grant. A
+     * user-app row written through it records the permission as asked, and
+     * revoking that permission removes the rows recorded under it instead of
+     * whatever it resolves to now.
+     */
+    recordSource?: boolean;
 }
 
 export interface ImplicatorCheckInput {

@@ -1309,6 +1309,13 @@ export class PermissionService extends PuterService {
         }
     }
 
+    /** See `PermissionRewriter.recordSource`. */
+    #recordsSource(permission: string): boolean {
+        return this.rewriters.some(
+            (rewriter) => rewriter.recordSource && rewriter.matches(permission),
+        );
+    }
+
     /**
      * What `grantUserAppPermission` checks before it writes: the rewrite that
      * decides what the row stores, and the width of the column it lands in.
@@ -1334,6 +1341,7 @@ export class PermissionService extends PuterService {
         extra: Record<string, unknown> = {},
         meta: GrantMeta = {},
     ): Promise<void> {
+        const grantedAs = this.#recordsSource(permission) ? permission : null;
         permission = await this.#rewriteForUserAppWrite(permission);
         this.assertGrantableFsPermission(permission);
         // Checked after the rewrite, because the rewrite is what decides how
@@ -1356,21 +1364,25 @@ export class PermissionService extends PuterService {
                 legacyCode: 'forbidden',
             });
 
-        // Skip redundant upserts (saves db roundtrip + cache invalidation)
-        if (
-            await this.stores.permission.hasUserAppPerm(
-                actor.user.id,
-                app.id,
-                permission,
-            )
-        )
+        // Only this layer writes `grantedAs`, so revoke can trust it.
+        const { grantedAs: _, ...rowExtra } = extra;
+        const [existing] = await this.stores.permission.readUserAppPerms(
+            actor.user.id,
+            app.id,
+            [permission],
+        );
+        // Skip redundant upserts (saves db roundtrip + cache invalidation),
+        // unless the row has yet to record what this grant was asked as.
+        if (existing && (!grantedAs || existing.extra?.grantedAs === grantedAs))
             return;
 
         await this.stores.permission.upsertUserAppPerm(
             actor.user.id,
             app.id,
             permission,
-            extra,
+            grantedAs
+                ? { ...existing?.extra, ...rowExtra, grantedAs }
+                : rowExtra,
         );
         this.stores.permission
             .auditUserAppPerm({
@@ -1399,8 +1411,13 @@ export class PermissionService extends PuterService {
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
+        const recordsSource = this.#recordsSource(permission);
         // The same rewrite the grant used, so this names the row it wrote.
-        permission = await this.#rewriteForUserAppWrite(permission);
+        // A recorded source is looked up as asked instead, since it may now
+        // resolve somewhere other than where the grant did.
+        let rewritten = recordsSource
+            ? null
+            : await this.#rewriteForUserAppWrite(permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app)
             throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
@@ -1411,20 +1428,40 @@ export class PermissionService extends PuterService {
                 legacyCode: 'forbidden',
             });
 
-        await this.stores.permission.deleteUserAppPerm(
-            actor.user.id,
-            app.id,
-            permission,
-        );
-        this.stores.permission
-            .auditUserAppPerm({
-                user_id: actor.user.id,
-                app_id: app.id,
-                permission,
-                action: 'revoke',
-                reason: meta.reason ?? 'revoked via PermissionService',
-            })
-            .catch(() => {});
+        let removed: string[] = [];
+        if (recordsSource) {
+            const rows =
+                await this.stores.permission.listUserAppPermsFromPrimary(
+                    actor.user.id,
+                    app.id,
+                );
+            removed = rows
+                .filter((row) => row.extra?.grantedAs === permission)
+                .map((row) => row.permission);
+        }
+        if (removed.length === 0) {
+            // Rows written before sources were recorded carry none, so they
+            // can only be found by what the permission resolves to now.
+            rewritten ??= await this.#rewriteForUserAppWrite(permission);
+            removed = [rewritten];
+        }
+
+        for (const removedPermission of removed) {
+            await this.stores.permission.deleteUserAppPerm(
+                actor.user.id,
+                app.id,
+                removedPermission,
+            );
+            this.stores.permission
+                .auditUserAppPerm({
+                    user_id: actor.user.id,
+                    app_id: app.id,
+                    permission: removedPermission,
+                    action: 'revoke',
+                    reason: meta.reason ?? 'revoked via PermissionService',
+                })
+                .catch(() => {});
+        }
 
         if (actor.user.uuid) {
             await this.#bumpAppUnderUserCacheGeneration(
@@ -1432,7 +1469,8 @@ export class PermissionService extends PuterService {
                 app.uid,
             );
         }
-        this.#announceRevoked(actor.user.id, app.uid, permission);
+        for (const removedPermission of removed)
+            this.#announceRevoked(actor.user.id, app.uid, removedPermission);
     }
 
     async revokeUserAppAll(

@@ -229,17 +229,70 @@ describe('ServerHealthService — default checks', () => {
         const { service, dbRead } = makeService({
             server_health: { db_liveness_latency_fail_ms: 10 },
         });
+        // Answered on a timer, so the event loop keeps turning while it waits.
+        dbRead.mockImplementation(
+            () =>
+                new Promise((resolve) =>
+                    setTimeout(() => resolve([{ ok: 1 }]), 50),
+                ),
+        );
+        service.onServerStart();
+        await runCycle();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(await uncachedStatus(service)).toEqual({
+            ok: false,
+            failed: ['database-liveness'],
+        });
+        service.onServerShutdown();
+    });
+
+    it('passes a slow probe when the event loop was blocked for the difference', async () => {
+        const { service, dbRead } = makeService({
+            server_health: { db_liveness_latency_fail_ms: 10 },
+        });
+        // A clock jump with no timer ticks in between is a blocked loop: 50ms
+        // gap, 40ms of it beyond the watch timer's own interval.
         dbRead.mockImplementation(async () => {
-            // Advance the fake clock so the measured latency crosses over.
             vi.setSystemTime(Date.now() + 50);
             return [{ ok: 1 }];
         });
         service.onServerStart();
         await runCycle();
-        expect(await service.getStatus()).toEqual({
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(await uncachedStatus(service)).toEqual({ ok: true });
+        expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining('event loop was blocked for 40ms'),
+        );
+        service.onServerShutdown();
+    });
+
+    it('still fails when the latency outlasts an event-loop stall', async () => {
+        const { service, dbRead } = makeService({
+            server_health: { db_liveness_latency_fail_ms: 10 },
+        });
+        // 30ms of waiting with the loop turning, then a 30ms stall.
+        dbRead.mockImplementation(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            vi.setSystemTime(Date.now() + 30);
+            return [{ ok: 1 }];
+        });
+        service.onServerStart();
+        await runCycle();
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(await uncachedStatus(service)).toEqual({
             ok: false,
             failed: ['database-liveness'],
         });
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('database-liveness'),
+            expect.objectContaining({
+                message: expect.stringContaining(
+                    'event loop blocked up to 20ms',
+                ),
+            }),
+        );
         service.onServerShutdown();
     });
 

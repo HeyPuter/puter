@@ -32,7 +32,9 @@ import { PUTER_KV_STORE_TABLE_NAME } from '../../stores/systemKv/tableDefinition
  *
  * - `database-liveness` — `SELECT 1 AS ok` through the normal read path (a
  *   read-replica where one is configured), latency-gated against
- *   `config.server_health.db_liveness_latency_fail_ms` (default 1500ms).
+ *   `config.server_health.db_liveness_latency_fail_ms` (default 1500ms). Time
+ *   this process spent with its event loop blocked is not counted against the
+ *   database; a probe slow only because of that passes with a warning.
  * - `socket-initialized` — socket.io must be attached. Only registered when
  *   SocketService is present (skipped for API-only deployments).
  *
@@ -78,6 +80,7 @@ const DEFAULT_DEPENDENCY_CHECK_INTERVAL_MS = 30 * SECOND;
 const DEFAULT_REDIS_LATENCY_FAIL_MS = 1 * SECOND;
 const DEFAULT_DYNAMO_LATENCY_FAIL_MS = 1500;
 const DEFAULT_S3_LATENCY_FAIL_MS = 2 * SECOND;
+const LOOP_WATCH_INTERVAL_MS = 10;
 const STATUS_CACHE_TTL_SECONDS = 5;
 const STATUS_CACHE_KEY = 'server-health:status';
 
@@ -91,6 +94,31 @@ const DEPENDENCY_GROUP = 'dependencies';
 const DYNAMO_PROBE_KEY = {
     namespace: 'server-health',
     key: 'liveness-probe',
+};
+
+/**
+ * Times the longest gap between ticks of a short timer, for as long as a probe
+ * runs. The gap still open when `stop` is called counts too, so a stall that
+ * ends just before the reply is read isn't missed. Returns ms blocked beyond
+ * the timer's own interval.
+ */
+const watchLoopStalls = (): (() => number) => {
+    const startedAt = Date.now();
+    let lastTick = startedAt;
+    let longest = 0;
+    const timer = setInterval(() => {
+        const now = Date.now();
+        longest = Math.max(longest, now - lastTick);
+        lastTick = now;
+        // A probe that never settles must not leave this running.
+        if (now - startedAt > CHECK_TIMEOUT_MS) clearInterval(timer);
+    }, LOOP_WATCH_INTERVAL_MS);
+    timer.unref?.();
+    return () => {
+        clearInterval(timer);
+        const gap = Math.max(longest, Date.now() - lastTick);
+        return Math.max(0, gap - LOOP_WATCH_INTERVAL_MS);
+    };
 };
 
 type CheckFn = () => Promise<unknown> | unknown;
@@ -312,19 +340,31 @@ export class ServerHealthService extends PuterService {
         const db = this.clients.db;
         if (db && typeof db.read === 'function') {
             this.addCheck('database-liveness', async () => {
+                const stopWatch = watchLoopStalls();
                 const startedAt = Date.now();
-                const rows = (await db.read('SELECT 1 AS ok')) as unknown[];
+                let rows: unknown[];
+                let blockedMs: number;
+                try {
+                    rows = (await db.read('SELECT 1 AS ok')) as unknown[];
+                } finally {
+                    blockedMs = stopWatch();
+                }
                 const durationMs = Date.now() - startedAt;
                 this.#stats.database_liveness_latency_ms = durationMs;
 
                 if (!Array.isArray(rows) || rows.length === 0) {
                     throw new Error('database liveness query returned no rows');
                 }
-                if (durationMs > latencyFailMs) {
-                    throw new Error(
-                        `database liveness latency ${durationMs}ms > threshold ${latencyFailMs}ms`,
+                if (durationMs <= latencyFailMs) return;
+                if (durationMs - blockedMs <= latencyFailMs) {
+                    console.warn(
+                        `[server-health] database-liveness took ${durationMs}ms, but the event loop was blocked for ${blockedMs}ms of it`,
                     );
+                    return;
                 }
+                throw new Error(
+                    `database liveness latency ${durationMs}ms > threshold ${latencyFailMs}ms (event loop blocked up to ${blockedMs}ms)`,
+                );
             });
         }
 

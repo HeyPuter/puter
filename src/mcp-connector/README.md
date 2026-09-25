@@ -216,6 +216,8 @@ If you use the OAuth flow (below), also set the sealing secret in production:
 wrangler secret put OAUTH_SECRET
 ```
 
+Rotating it invalidates every issued `client_id`, so clients have to register again.
+
 ## Authentication
 
 Two ways, both running as the caller — the Worker holds no credentials of its own:
@@ -226,8 +228,9 @@ Two ways, both running as the caller — the Worker holds no credentials of its 
    the Worker hands the client your Puter token. See
    [`src/oauth.js`](src/oauth.js). Under the hood it redirects to Puter's
    `?action=authme` page and catches the returned token on its `/oauth/callback`;
-   the short-lived flow/code blobs are AES-GCM sealed with `OAUTH_SECRET`, so the
-   Worker stays stateless.
+   the `client_id` (carrying its registered redirect URIs) and the short-lived
+   flow/code blobs are AES-GCM sealed with `OAUTH_SECRET`, so the Worker stays
+   stateless.
 2. **Bearer token** (copy/paste). Get it from a logged-in Puter browser tab's
    devtools console: `puter.authToken`. Treat it like a password. Pass it as an
    `Authorization: Bearer <token>` header (or the `.mcpb` token field).

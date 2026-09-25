@@ -152,13 +152,16 @@ export class AppPermissionService extends PuterService {
 
         // -- app-root-dir:<app_uid>:<mode> → fs:<root_uid>:<mode> -------
         // Only rewrites while a user-app permission row is being written or
-        // removed — `grantUserAppPermission` / `revokeUserAppPermission`, which
-        // both set the context flag (see PermissionService) precisely so the
-        // revoke names the row the grant wrote. During scans we return
+        // removed — `grantUserAppPermission` / `revokeUserAppPermission` set
+        // the context flag (see PermissionService). During scans we return
         // PERMISSION_FOR_NOTHING_IN_PARTICULAR so `check(actor, 'app-root-dir:…')`
         // never accidentally matches through the fs-permission path.
+        //
+        // An app's root can move after the grant, so the row records the
+        // pseudo-permission and revoke finds it by that, not by the new root.
         permissions.registerRewriter({
             id: 'app-root-dir-to-fs',
+            recordSource: true,
             matches: (permission: string) =>
                 permission.startsWith('app-root-dir:'),
             rewrite: async (permission: string): Promise<string> => {

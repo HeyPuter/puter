@@ -757,6 +757,21 @@ export class PermissionStore extends PuterStore {
         return all.some((row) => row.permission === permission);
     }
 
+    /**
+     * Every row this user granted this app, read from the primary past the row
+     * cache — for a write that must see a grant made moments before.
+     */
+    async listUserAppPermsFromPrimary(
+        userId: number,
+        appId: number,
+    ): Promise<LinkedUserAppPermRow[]> {
+        const rows = await this.clients.db.pread(
+            'SELECT * FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ?',
+            [userId, appId],
+        );
+        return rows.map((row) => this.#decodeExtra<LinkedUserAppPermRow>(row));
+    }
+
     async upsertUserAppPerm(
         userId: number,
         appId: number,
