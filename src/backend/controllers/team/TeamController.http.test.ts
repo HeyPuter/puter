@@ -1,0 +1,958 @@
+/**
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { makeActor } from '../../core/actor.js';
+import type { IConfig } from '../../types';
+import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+
+const randomHandle = () => `ws-${Math.random().toString(36).slice(2, 10)}`;
+
+describe('team endpoints over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        // The cap has its own suite; these tests need many teams.
+        env = await setupPuterTestEnv({
+            teams_enabled: true,
+            max_teams_per_user: 100,
+        } as IConfig);
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    const call = (
+        method: string,
+        path: string,
+        token: string,
+        body?: unknown,
+    ) =>
+        fetch(new URL(path, env.apiOrigin), {
+            method,
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${token}`,
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+
+    /** An app token acting for `owner`, minted the way the dashboard does. */
+    const makeAppToken = async (owner: { username: string }) => {
+        const user = await env.server.stores.user.getByUsername(
+            owner.username,
+        );
+        const actor = makeActor({ user: user! });
+        const app = await env.server.stores.app.create(
+            {
+                name: `team-http-app-${crypto.randomUUID()}`,
+                title: 'Team app',
+                index_url: `https://team-${crypto.randomUUID()}.test/`,
+            },
+            { ownerUserId: actor.user.id! },
+        );
+        return env.server.services.auth.getUserAppToken(actor, app.uid);
+    };
+
+    /** A scoped (non-full-access) access token for `owner`, carrying no app. */
+    const makeScopedToken = async (owner: {
+        username: string;
+        token: string;
+    }) => {
+        const user = await env.server.stores.user.getByUsername(
+            owner.username,
+        );
+        const anchor = `/${owner.username}/${crypto.randomUUID()}`;
+        await env.server.services.fs.mkdir(user!.id, {
+            path: anchor,
+            createMissingParents: true,
+        });
+        const entry = await env.server.stores.fsEntry.getEntryByPath(anchor);
+        const { actor } = await env.server.services.auth.authenticate(
+            owner.token,
+        );
+        return env.server.services.auth.createAccessToken(
+            actor!,
+            [[`fs:${entry!.uid}:list`]],
+            { label: 'teams-scope' },
+        );
+    };
+
+    /** A team owned by `user`, with one provisioned member. */
+    const makeTeam = async () => {
+        const res = await call('POST', '/teams', env.users.user.token, {
+            name: 'Acme',
+            handle: randomHandle(),
+        });
+        // Unasserted, a broken create means tests run on `/teams/undefined`.
+        expect(res.status).toBe(200);
+        const team = (await res.json()) as { uid: string };
+        expect(team.uid).toBeTruthy();
+
+        const username = `http_${Math.random().toString(36).slice(2, 9)}`;
+        const member = await call(
+            'POST',
+            `/teams/${team.uid}/members`,
+            env.users.user.token,
+            { username, email: `${username}@test.local` },
+        );
+        expect(member.status).toBe(200);
+        return { team, memberUsername: username };
+    };
+
+    // -- the owner-account gate --------------------------------------
+
+    it('creates a team and reports the caller as its owner', async () => {
+        const res = await call('POST', '/teams', env.users.user.token, {
+            name: 'Acme Design',
+            handle: randomHandle(),
+        });
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body).toMatchObject({ name: 'Acme Design', is_owner: true });
+        expect(body.uid).toMatch(/^[0-9a-f-]{36}$/u);
+        // `id` is internal and must not reach the wire.
+        expect(body).not.toHaveProperty('id');
+    });
+
+    it('returns 404, not 403, to a non-member', async () => {
+        const { team } = await makeTeam();
+
+        const res = await call(
+            'GET',
+            `/teams/${team.uid}`,
+            env.users.other.token,
+        );
+        // 403 would confirm the team exists.
+        expect(res.status).toBe(404);
+    });
+
+    it('refuses every administrative route to a member who is not the owner', async () => {
+        const { team, memberUsername } = await makeTeam();
+        // An activated seat: provisioning leaves the email unconfirmed, which
+        // `requireVerified` rejects, so an unactivated one cannot call at all.
+        const provisioned = await env.server.stores.user.getByUsername(
+            memberUsername,
+        );
+        await env.server.stores.user.update(provisioned!.id, {
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+            requires_password_change: 0,
+        });
+        const seat = await env.server.stores.user.getByUsername(memberUsername);
+        const { token } = await env.server.services.auth.createSessionToken(
+            seat!,
+        );
+
+        for (const [method, path] of [
+            ['PUT', `/teams/${team.uid}`],
+            ['DELETE', `/teams/${team.uid}`],
+            ['POST', `/teams/${team.uid}/members`],
+            ['GET', `/teams/${team.uid}/audit`],
+        ] as const) {
+            const res = await call(
+                method,
+                path,
+                token,
+                method === 'GET' ? undefined : { name: 'nope' },
+            );
+            expect(res.status, `${method} ${path}`).toBe(403);
+        }
+
+        // Still a member, so reads it is entitled to still work.
+        const readable = await call('GET', `/teams/${team.uid}`, token);
+        expect(readable.status).toBe(200);
+    });
+
+    // -- the org_owned guard ------------------------------------------
+
+    it('refuses the team owner as the target of a member route', async () => {
+        const { team } = await makeTeam();
+
+        const res = await call(
+            'POST',
+            `/teams/${team.uid}/members/${env.users.user.username}/disable`,
+            env.users.user.token,
+        );
+        expect(res.status).toBe(404);
+    });
+
+    it('deletes a seat over HTTP only once it is disabled', async () => {
+        const { team, memberUsername } = await makeTeam();
+        const path = `/teams/${team.uid}/members/${memberUsername}`;
+
+        const live = await call('DELETE', path, env.users.user.token);
+        expect(live.status).toBe(409);
+        expect(await live.json()).toMatchObject({
+            code: 'account_must_be_disabled_first',
+        });
+
+        await call('POST', `${path}/disable`, env.users.user.token);
+        const gone = await call('DELETE', path, env.users.user.token);
+
+        expect(gone.status).toBe(200);
+        expect(
+            await env.server.stores.user.getByUsername(memberUsername),
+        ).toBeFalsy();
+    });
+
+    // -- the directory ------------------------------------------------
+
+    it('keeps the directory shut until the team opts in', async () => {
+        const { team } = await makeTeam();
+
+        const before = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            env.users.user.token,
+        );
+        // 404, not 403: whether this is on is not an app's to probe for.
+        expect(before.status).toBe(404);
+
+        const on = await call('PUT', `/teams/${team.uid}`, env.users.user.token, {
+            directory_enabled: true,
+        });
+        expect(on.status).toBe(200);
+        expect(await on.json()).toMatchObject({ directory_enabled: true });
+
+        const after = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            env.users.user.token,
+        );
+        expect(after.status).toBe(200);
+        const body = (await after.json()) as { items: { username: string }[] };
+        expect(body.items.some((m) => m.username === env.users.user.username)).toBe(true);
+
+        // A scoped token was minted for one thing; a roster is not it.
+        const scoped = await makeScopedToken(env.users.user);
+        const narrow = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            typeof scoped === 'string' ? scoped : scoped.token,
+        );
+        expect(narrow.status).toBe(403);
+    });
+
+    it('refuses the directory to someone outside the team', async () => {
+        const { team } = await makeTeam();
+        await call('PUT', `/teams/${team.uid}`, env.users.user.token, {
+            directory_enabled: true,
+        });
+
+        const res = await call(
+            'GET',
+            `/teams/${team.uid}/directory`,
+            env.users.other.token,
+        );
+        expect(res.status).toBe(404);
+    });
+
+    // -- app actors, gated by the same opt-in as the directory --------
+    //
+    // Built through the service, not the wire: these routes share a
+    // rate-limit budget with the mutation tests above, and every HTTP
+    // create/update here would eat into that same window.
+
+    /** A team owned by `user`, created and toggled through the service. */
+    const makeServiceTeam = async () => {
+        const owner = (await env.server.stores.user.getByUsername(
+            env.users.user.username,
+        ))!;
+        const team = await env.server.services.team.createTeam(owner.id, {
+            name: 'Acme',
+            handle: randomHandle(),
+        });
+        return { team, ownerId: owner.id };
+    };
+
+    it('omits a team from an app token until the directory opts in', async () => {
+        const { team, ownerId } = await makeServiceTeam();
+        const appToken = await makeAppToken(env.users.user);
+
+        const before = await call('GET', '/teams', appToken);
+        expect(before.status).toBe(200);
+        const beforeBody = (await before.json()) as { items: { uid: string }[] };
+        expect(beforeBody.items.some((t) => t.uid === team.uid)).toBe(false);
+
+        await env.server.services.team.updateTeam(team.uid, ownerId, {
+            directoryEnabled: true,
+        });
+
+        const after = await call('GET', '/teams', appToken);
+        expect(after.status).toBe(200);
+        const afterBody = (await after.json()) as { items: { uid: string }[] };
+        expect(afterBody.items.some((t) => t.uid === team.uid)).toBe(true);
+    });
+
+    it('still lists a team to its owner session with the directory off', async () => {
+        const { team } = await makeServiceTeam();
+        const res = await call('GET', '/teams', env.users.user.token);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { items: { uid: string }[] };
+        expect(body.items.some((t) => t.uid === team.uid)).toBe(true);
+    });
+
+    it('lists a team to a full-access API token with the directory off', async () => {
+        const { team } = await makeServiceTeam();
+        const res = await call('GET', '/teams', env.users.user.apiToken);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { items: { uid: string }[] };
+        expect(body.items.some((t) => t.uid === team.uid)).toBe(true);
+    });
+
+    it('404s /members to an app token until the directory opts in, then gives usernames only', async () => {
+        const { team, ownerId } = await makeServiceTeam();
+        const username = `svc_${Math.random().toString(36).slice(2, 9)}`;
+        await env.server.services.team.provisionAccount(team.uid, ownerId, {
+            username,
+        });
+        const appToken = await makeAppToken(env.users.user);
+
+        const before = await call(
+            'GET',
+            `/teams/${team.uid}/members`,
+            appToken,
+        );
+        expect(before.status).toBe(404);
+        expect(await before.json()).toMatchObject({ code: 'team_not_found' });
+
+        await env.server.services.team.updateTeam(team.uid, ownerId, {
+            directoryEnabled: true,
+        });
+
+        const after = await call(
+            'GET',
+            `/teams/${team.uid}/members`,
+            appToken,
+        );
+        expect(after.status).toBe(200);
+        const body = (await after.json()) as {
+            items: Record<string, unknown>[];
+        };
+        expect(body.items.length).toBeGreaterThan(0);
+        // An app gets username only — no org_owned, created_at, or uuid.
+        for (const m of body.items) expect(Object.keys(m)).toEqual(['username']);
+    });
+
+    it('still refuses an app token on GET /teams/:uid', async () => {
+        const { team } = await makeServiceTeam();
+        const appToken = await makeAppToken(env.users.user);
+
+        const res = await call('GET', `/teams/${team.uid}`, appToken);
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ code: 'forbidden' });
+    });
+
+    it('excludes a never-activated or suspended seat from an app`s view of /members', async () => {
+        const { team, ownerId } = await makeServiceTeam();
+        const neverActivated = `svc_na_${Math.random().toString(36).slice(2, 9)}`;
+        await env.server.services.team.provisionAccount(team.uid, ownerId, {
+            username: neverActivated,
+        });
+        const suspendedUsername = `svc_su_${Math.random().toString(36).slice(2, 9)}`;
+        const suspended = await env.server.services.team.provisionAccount(
+            team.uid,
+            ownerId,
+            { username: suspendedUsername },
+        );
+        await env.server.services.team.disableMember(
+            team.uid,
+            ownerId,
+            suspended.userId,
+        );
+        await env.server.services.team.updateTeam(team.uid, ownerId, {
+            directoryEnabled: true,
+        });
+
+        const appToken = await makeAppToken(env.users.user);
+        const appView = await call(
+            'GET',
+            `/teams/${team.uid}/members`,
+            appToken,
+        );
+        expect(appView.status).toBe(200);
+        const appItems = (
+            (await appView.json()) as { items: Record<string, unknown>[] }
+        ).items;
+        for (const m of appItems) expect(Object.keys(m)).toEqual(['username']);
+        const appUsernames = appItems.map((m) => m.username);
+        expect(appUsernames).not.toContain(neverActivated);
+        expect(appUsernames).not.toContain(suspendedUsername);
+        // The owner's own seat is active, so it still shows.
+        expect(appUsernames).toContain(env.users.user.username);
+
+        // The owner's own session sees every seat regardless of status.
+        const ownerView = await call(
+            'GET',
+            `/teams/${team.uid}/members`,
+            env.users.user.token,
+        );
+        expect(ownerView.status).toBe(200);
+        const ownerUsernames = (
+            (await ownerView.json()) as { items: { username: string }[] }
+        ).items.map((m) => m.username);
+        expect(ownerUsernames).toContain(neverActivated);
+        expect(ownerUsernames).toContain(suspendedUsername);
+    });
+
+    it('gives a full-access API token the owner`s uuid on /members', async () => {
+        const { team } = await makeServiceTeam();
+        const res = await call(
+            'GET',
+            `/teams/${team.uid}/members`,
+            env.users.user.apiToken,
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            items: { username: string; uuid?: string }[];
+        };
+        const owner = body.items.find(
+            (m) => m.username === env.users.user.username,
+        );
+        expect(owner?.uuid).toEqual(expect.any(String));
+    });
+
+    it('refuses a scoped access token on GET /teams and /members', async () => {
+        const { team } = await makeServiceTeam();
+        const scoped = await makeScopedToken(env.users.user);
+
+        const teamsRes = await call('GET', '/teams', scoped);
+        expect(teamsRes.status).toBe(403);
+        expect(await teamsRes.json()).toMatchObject({ code: 'forbidden' });
+
+        const membersRes = await call(
+            'GET',
+            `/teams/${team.uid}/members`,
+            scoped,
+        );
+        expect(membersRes.status).toBe(403);
+        expect(await membersRes.json()).toMatchObject({ code: 'forbidden' });
+    });
+
+    it('lists members with org_owned distinguishing the owner', async () => {
+        const { team, memberUsername } = await makeTeam();
+
+        const res = await call(
+            'GET',
+            `/teams/${team.uid}/members`,
+            env.users.user.token,
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            items: { username: string; org_owned: boolean }[];
+        };
+        const owner = body.items.find(
+            (m) => m.username === env.users.user.username,
+        );
+        const member = body.items.find((m) => m.username === memberUsername);
+        expect(owner?.org_owned).toBe(false);
+        expect(member?.org_owned).toBe(true);
+    });
+
+    it('gives seat uuids to the owner and to nobody else', async () => {
+        // Built through the service, not the wire: provisioning shares a
+        // rate-limit budget with the seat tests below, and one more HTTP
+        // provision here 429s them.
+        const owner = (await env.server.stores.user.getByUsername(
+            env.users.user.username,
+        ))!;
+        const slug0 = Math.random().toString(36).slice(2, 9);
+        const team = await env.server.services.team.createTeam(owner.id, {
+            name: 'Acme',
+            handle: `uuidt-${slug0}`,
+        });
+        const memberUsername = `seat_${slug0}`;
+        await env.server.services.team.provisionAccount(team.uid, owner.id, {
+            username: memberUsername,
+        });
+
+        const owned = (await (
+            await call('GET', `/teams/${team.uid}/members`, env.users.user.token)
+        ).json()) as { items: { username: string; uuid?: string }[] };
+        const seat = owned.items.find((m) => m.username === memberUsername);
+        // Billing keys a seat's plan on this, so the owner cannot act without it.
+        expect(seat?.uuid).toEqual(expect.any(String));
+
+        // A throwaway member, not the shared fixture: joining a team is
+        // permanent and would follow `other` into every later test.
+        const slug = Math.random().toString(36).slice(2, 9);
+        const joiner = await env.server.stores.user.create({
+            username: `joiner_${slug}`,
+            uuid: crypto.randomUUID(),
+            password: 'hashed',
+            email: `joiner_${slug}@test.local`,
+        });
+        await env.server.stores.team.addMember(team.uid, joiner.id, {
+            orgOwned: false,
+        });
+        const { token } =
+            await env.server.services.auth.createSessionToken(joiner);
+
+        const seen = (await (
+            await call('GET', `/teams/${team.uid}/members`, token)
+        ).json()) as { items: { uuid?: string }[] };
+        expect(seen.items.length).toBeGreaterThan(0);
+        for (const m of seen.items) expect(m.uuid).toBeUndefined();
+    });
+
+    // -- provisioning over the wire -----------------------------------
+
+    it('never returns the activation link to the administrator', async () => {
+        const { team } = await makeTeam();
+        const username = `secret_${Math.random().toString(36).slice(2, 9)}`;
+
+        const res = await call(
+            'POST',
+            `/teams/${team.uid}/members`,
+            env.users.user.token,
+            { username, email: `${username}@test.local` },
+        );
+
+        expect(res.status).toBe(200);
+        const raw = JSON.stringify(await res.json());
+        // Emailed to the member; returning it would let an admin use it.
+        expect(raw).not.toContain('set-new-password');
+        expect(raw).not.toContain('token');
+    });
+
+    it('refuses a taken username and offers alternatives', async () => {
+        const { team } = await makeTeam();
+
+        const res = await call(
+            'POST',
+            `/teams/${team.uid}/members`,
+            env.users.user.token,
+            {
+                username: env.users.other.username,
+                email: 'taken@test.local',
+            },
+        );
+        expect(res.status).toBe(409);
+        const body = (await res.json()) as {
+            suggestions?: string[];
+            fields?: { suggestions?: string[] };
+        };
+        const suggestions = body.suggestions ?? body.fields?.suggestions ?? [];
+        expect(suggestions.length).toBeGreaterThan(0);
+        expect(suggestions).not.toContain(env.users.other.username);
+    });
+
+    // -- audit --------------------------------------------------------
+
+    it('exposes the team audit to the team owner only', async () => {
+        const { team } = await makeTeam();
+
+        const mine = await call(
+            'GET',
+            `/teams/${team.uid}/audit`,
+            env.users.user.token,
+        );
+        expect(mine.status).toBe(200);
+        const body = (await mine.json()) as { items: { action: string }[] };
+        expect(body.items.map((e) => e.action)).toContain('provision');
+
+        const theirs = await call(
+            'GET',
+            `/teams/${team.uid}/audit`,
+            env.users.other.token,
+        );
+        expect(theirs.status).toBe(404);
+    });
+
+    // -- sharing with a team -------------------------------------
+
+    it('names the team it shared with instead of an empty recipient', async () => {
+        const { team } = await makeTeam();
+        const file = `/${env.users.user.username}/Documents/label-${Math.random()
+            .toString(36)
+            .slice(2, 8)}.txt`;
+        const written = await call('POST', '/fs/write', env.users.user.token, {
+            fileMetadata: { path: file, size: 3, contentType: 'text/plain' },
+            fileContent: 'abc',
+        });
+        expect(written.status).toBe(200);
+
+        const shared = await call('POST', '/share', env.users.user.token, {
+            recipients: [{ team: team.uid }],
+            items: [file],
+            mode: 'read',
+        });
+        expect(shared.status).toBe(200);
+        const body = (await shared.json()) as {
+            results: { recipient: string; status: string }[];
+        };
+
+        expect(body.results[0].status).toBe('success');
+        // Echoes the identifier the caller named; '' would leave a client with
+        // nothing to render or to match its request against.
+        expect(body.results[0].recipient).toBe(team.uid);
+    });
+
+    it('shares with two teams rather than collapsing them into one', async () => {
+        const second = await call('POST', '/teams', env.users.user.token, {
+            name: 'Second',
+            handle: randomHandle(),
+        });
+        expect(second.status).toBe(200);
+        const teamB = (await second.json()) as { uid: string };
+        const { team: teamA } = await makeTeam();
+
+        const file = `/${env.users.user.username}/Documents/two-${Math.random()
+            .toString(36)
+            .slice(2, 8)}.txt`;
+        const written = await call('POST', '/fs/write', env.users.user.token, {
+            fileMetadata: { path: file, size: 3, contentType: 'text/plain' },
+            fileContent: 'abc',
+        });
+        const fileUid = ((await written.json()) as { fsEntry: { uid: string } })
+            .fsEntry.uid;
+
+        const shared = await call('POST', '/share', env.users.user.token, {
+            recipients: [{ team: teamA.uid }, { team: teamB.uid }],
+            items: [file],
+            mode: 'read',
+        });
+        expect(shared.status).toBe(200);
+        const body = (await shared.json()) as {
+            results: { recipient: string; status: string }[];
+        };
+
+        expect(body.results).toHaveLength(2);
+        expect(body.results.every((r) => r.status === 'success')).toBe(true);
+
+        // The response shape alone proves nothing: `results` is built from the
+        // request's pairs, so a collapsed pair still reports two successes with
+        // the right labels. Only the shares that exist afterwards show it.
+        const mine = await call(
+            'GET',
+            '/share/shared-by-me?limit=100',
+            env.users.user.token,
+        );
+        expect(mine.status).toBe(200);
+        const listing = (await mine.json()) as {
+            items: { uid_entry?: string; holder_team?: { uid: string } }[];
+        };
+        const holders = listing.items
+            .filter((i) => i.uid_entry === fileUid)
+            .map((i) => i.holder_team?.uid)
+            .filter(Boolean)
+            .sort();
+        expect(holders).toEqual([teamA.uid, teamB.uid].sort());
+    });
+
+    it('names the team by handle when the caller shared by handle', async () => {
+        const handle = randomHandle();
+        const res = await call('POST', '/teams', env.users.user.token, {
+            name: 'Byhandle',
+            handle,
+        });
+        expect(res.status).toBe(200);
+
+        const file = `/${env.users.user.username}/Documents/handle-${Math.random()
+            .toString(36)
+            .slice(2, 8)}.txt`;
+        await call('POST', '/fs/write', env.users.user.token, {
+            fileMetadata: { path: file, size: 3, contentType: 'text/plain' },
+            fileContent: 'abc',
+        });
+
+        const shared = await call('POST', '/share', env.users.user.token, {
+            recipients: [{ teamHandle: handle }],
+            items: [file],
+            mode: 'read',
+        });
+        expect(shared.status).toBe(200);
+        const body = (await shared.json()) as {
+            results: { recipient: string }[];
+        };
+        expect(body.results[0].recipient).toBe(handle);
+    });
+
+    it('gives a non-member 404 on the member view, not an empty page', async () => {
+        const { team } = await makeTeam();
+
+        const res = await call(
+            'GET',
+            `/teams/${team.uid}/audit/me`,
+            env.users.other.token,
+        );
+        expect(res.status).toBe(404);
+    });
+
+    // -- the forced-change gate ---------------------------------------
+
+    /**
+     * A seat that has signed in on its temporary password. Email confirmation
+     * is cleared first so the gate under test is the one that answers.
+     */
+    const signedInSeat = async (teamUid: string) => {
+        const username = `seat_${Math.random().toString(36).slice(2, 9)}`;
+        const res = await call(
+            'POST',
+            `/teams/${teamUid}/members`,
+            env.users.user.token,
+            { username, email: `${username}@test.local` },
+        );
+        expect(res.status).toBe(200);
+        const { temporary_password: password } = (await res.json()) as {
+            temporary_password: string;
+        };
+
+        const row = (await env.server.stores.user.getByUsername(username))!;
+        await env.server.stores.user.update(row.id, {
+            requires_email_confirmation: false,
+            email_confirmed: true,
+        });
+        await env.server.stores.user.invalidateById(row.id);
+
+        const fresh = (await env.server.stores.user.getById(row.id))!;
+        const { token } = await env.server.services.auth.createSessionToken(
+            fresh,
+            { user_agent: 'puter-test-seat' },
+        );
+        return { username, password, userId: row.id, token };
+    };
+
+    /** Cookie-credentialed on the GUI origin, as the user-protected gate insists. */
+    const changePassword = (token: string, password: string, next: string) =>
+        fetch(new URL('/user-protected/change-password', env.origin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${token}`,
+                cookie: `puter_auth_token=${token}`,
+            },
+            body: JSON.stringify({ password, new_pass: next }),
+        });
+
+    it('signs the seat in but refuses every authenticated route after that', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+
+        const res = await call('GET', '/teams', seat.token);
+        expect(res.status).toBe(403);
+        expect(await res.text()).toContain('password_change_required');
+    });
+
+    it('leaves change-password reachable, since it is what clears the gate', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+
+        const changed = await changePassword(
+            seat.token,
+            seat.password,
+            'chosen-by-the-member',
+        );
+        expect(changed.status).toBe(200);
+
+        const row = await env.server.stores.user.getByProperty(
+            'id',
+            seat.userId,
+            { force: true },
+        );
+        expect(Number(row?.requires_password_change)).toBe(0);
+        expect(row?.temp_password_expires_at ?? null).toBeNull();
+    });
+
+    it('admits the seat to the product once it has chosen a password', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        expect(
+            (await changePassword(seat.token, seat.password, 'my-own-password'))
+                .status,
+        ).toBe(200);
+
+        // The session that changed the password is the one that survives.
+        const res = await call('GET', '/teams', seat.token);
+        expect(res.status).toBe(200);
+    });
+
+    it('closes re-issue behind a seat that has activated', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await changePassword(seat.token, seat.password, 'a-password-of-mine');
+
+        const res = await call(
+            'POST',
+            `/teams/${team.uid}/members/${seat.username}/activation`,
+            env.users.user.token,
+        );
+        expect(res.status).toBe(409);
+    });
+
+    it('shows the member the reset and their own sign-in, and nothing else', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await changePassword(seat.token, seat.password, 'chosen-once-already');
+
+        const reset = await call(
+            'POST',
+            `/teams/${team.uid}/members/${seat.username}/password-reset`,
+            env.users.user.token,
+        );
+        expect(reset.status).toBe(200);
+        const { temporary_password: issued } = (await reset.json()) as {
+            temporary_password: string;
+        };
+
+        const { token } = await env.server.services.auth.createSessionToken(
+            (await env.server.stores.user.getById(seat.userId))!,
+            { user_agent: 'puter-test-seat' },
+        );
+        const mine = await call('GET', `/teams/${team.uid}/audit/me`, token);
+        // The seat owes a password change again, so its own view is all it reaches.
+        expect(mine.status).toBe(403);
+
+        const admin = await call(
+            'GET',
+            `/teams/${team.uid}/audit`,
+            env.users.user.token,
+        );
+        const body = (await admin.json()) as { items: { action: string }[] };
+        expect(body.items.map((e) => e.action)).toContain(
+            'reset_member_password',
+        );
+        expect(JSON.stringify(body)).not.toContain(issued);
+    });
+
+    it('shows an activated seat its own reset and sign-in over the wire', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await changePassword(seat.token, seat.password, 'the-one-i-picked');
+
+        const res = await call('GET', `/teams/${team.uid}/audit/me`, seat.token);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            items: {
+                action: string;
+                username: string | null;
+                ip: string | null;
+                user_agent: string | null;
+            }[];
+        };
+        expect(body.items.map((e) => e.action)).toContain('activate');
+
+        const tell = body.items.find((e) => e.action === 'sign_in');
+        expect(tell?.username).toBe(seat.username);
+        expect(tell?.user_agent).toBe('puter-test-seat');
+        // Only their own; the team owner's entries are not theirs to read.
+        expect(
+            body.items.every((e) => e.username === seat.username),
+        ).toBe(true);
+    });
+
+    it('refuses a temporary password that was never used in time', async () => {
+        const { team } = await makeTeam();
+        const seat = await signedInSeat(team.uid);
+        await env.server.stores.user.update(seat.userId, {
+            temp_password_expires_at: Math.floor(Date.now() / 1000) - 1,
+        });
+        await env.server.stores.user.invalidateById(seat.userId);
+
+        const res = await fetch(new URL('/login', env.origin), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                username: seat.username,
+                password: seat.password,
+            }),
+        });
+        expect(res.status).toBe(401);
+        expect(await res.text()).toContain('temporary_password_expired');
+    });
+});
+
+describe('team endpoints with teams_enabled off', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv({ teams_enabled: false } as IConfig);
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    it('404s every team route, so no team code is reachable', async () => {
+        // Real team: 200 with the flag on, so a 404 means no route.
+        const owner = await env.server.stores.user.getByUsername(
+            env.users.user.username,
+        );
+        const team = await env.server.stores.team.create({
+            ownerUserId: owner!.id,
+            name: 'Unreachable',
+            handle: `off-${Math.random().toString(36).slice(2, 8)}`,
+        });
+        await env.server.stores.team.addMember(team.uid, owner!.id, {
+            orgOwned: false,
+        });
+
+        const paths: [string, string][] = [
+            ['POST', '/teams'],
+            ['GET', '/teams'],
+            ['GET', `/teams/${team.uid}`],
+            ['PUT', `/teams/${team.uid}`],
+            ['DELETE', `/teams/${team.uid}`],
+            ['GET', `/teams/${team.uid}/members`],
+            ['POST', `/teams/${team.uid}/members`],
+            ['GET', `/teams/${team.uid}/audit`],
+            ['GET', `/teams/${team.uid}/audit/me`],
+        ];
+
+        for (const [method, path] of paths) {
+            const res = await fetch(new URL(path, env.apiOrigin), {
+                method,
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${env.users.user.token}`,
+                },
+                ...(method === 'POST' || method === 'PUT'
+                    ? { body: JSON.stringify({ name: 'x' }) }
+                    : {}),
+            });
+            expect(res.status, `${method} ${path}`).toBe(404);
+
+            // Ours would carry a team legacyCode; the framework's does not.
+            const body = await res.text();
+            expect(body, `${method} ${path}`).not.toContain('team_not_found');
+            expect(body, `${method} ${path}`).not.toContain(
+                'not_the_team_owner',
+            );
+        }
+    });
+
+    it('registers no team routes at all with the flag off', async () => {
+        // The controller exists and is constructed; only its routes are absent.
+        const controller = env.server.controllers.team as unknown as {
+            isEnabled?: () => boolean;
+        };
+        expect(controller).toBeTruthy();
+        expect(controller.isEnabled?.()).toBe(false);
+    });
+
+    it('leaves the schema inert rather than absent', async () => {
+        // The flag gates reachability, not DDL.
+        await expect(
+            env.server.stores.team.getByHandle('no-such-team'),
+        ).resolves.toBeNull();
+    });
+});

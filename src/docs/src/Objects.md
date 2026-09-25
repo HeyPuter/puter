@@ -12,6 +12,10 @@ Various object types and classes that represent different entities in the Puter 
 - **[ChatResponse](/Objects/chatresponse/)** - Represents an AI chat response
 - **[ChatResponseChunk](/Objects/chatresponsechunk/)** - Represents a chunk of streaming chat response data
 - **[DetailedAppUsage](/Objects/detailedappusage/)** - Represents detailed resource usage statistics for a specific application
+- **[EmailListPage](/Objects/emaillistpage/)** - Represents one page of mailbox listing results
+- **[EmailMessage](/Objects/emailmessage/)** - Represents a fully parsed message from the user's mailbox
+- **[EmailMessageAttachment](/Objects/emailmessageattachment/)** - Represents one attachment of a parsed message, bytes included
+- **[EmailSummary](/Objects/emailsummary/)** - Represents one message in a mailbox listing
 - **[FSItem](/Objects/fsitem/)** - Represents a file or directory
 - **[KVPair](/Objects/kvpair/)** - Represents a key-value pair
 - **[MonthlyUsage](/Objects/monthlyusage/)** - Represents user's monthly resource usage information

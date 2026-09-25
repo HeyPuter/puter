@@ -1,0 +1,38 @@
+<html>
+<body>
+    <button id="go">Generate</button>
+    <p id="status"></p>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        const status = document.getElementById('status');
+
+        document.getElementById('go').addEventListener('click', async () => {
+            const started = Date.now();
+            const ticker = setInterval(() => {
+                status.textContent = `Generating... ${Math.round((Date.now() - started) / 1000)}s`;
+            }, 1000);
+
+            try {
+                // No model given: the default Veo 3.1 Lite is used
+                const video = await puter.ai.txt2vid("A lighthouse in a storm, waves crashing, dramatic lighting", {
+                    seconds: 4
+                });
+                status.textContent = 'Done';
+                document.body.appendChild(video);
+            } catch (err) {
+                if (err.errorCode === 'moderation_flagged') {
+                    status.textContent = 'The content filter refused this prompt. Try rewording it.';
+                } else if (err.code === 'insufficient_funds') {
+                    status.textContent = 'Not enough credits for this clip.';
+                } else if (err.code === 'upstream_timeout') {
+                    status.textContent = 'The provider took too long. Try again with a shorter clip.';
+                } else {
+                    status.textContent = `Failed: ${err.message} (${err.code})`;
+                }
+            } finally {
+                clearInterval(ticker);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -23,28 +23,15 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { kv } from '../../../../util/kvSingleton.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import {
+    contextLengthRetryParams,
+    isContextLengthError,
+} from '../../utils/contextLimit.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
-const TOGETHER_AI_CHAT_COST_MAP = {
+const TOGETHER_AI_CHAT_COST_MAP: Record<string, string> = {
     prompt_tokens: 'input',
     completion_tokens: 'output',
-};
-
-/**
- * Whether the SDK rejected a request because the prompt plus the requested
- * output exceeds the model's context window. Unlike the OpenAI SDK, Together's
- * `APIError.error` is the whole response body, so the provider message sits one
- * level deeper; `message` is the stringified body and covers older shapes.
- */
-const isContextLengthError = (e: unknown) => {
-    const err = e as {
-        error?: { error?: { message?: string } };
-        message?: string;
-    };
-    const message = err?.error?.error?.message ?? err?.message;
-    return (
-        typeof message === 'string' &&
-        message.includes('maximum context length')
-    );
 };
 
 export class TogetherAIProvider implements IChatProvider {
@@ -55,8 +42,11 @@ export class TogetherAIProvider implements IChatProvider {
     #kvKey = 'togetherai:models';
 
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
+        // The SDK default is one minute, which long non-streaming
+        // completions exceed; match the ten minutes the other providers get.
         this.#together = new Together({
             apiKey: config.apiKey,
+            timeout: 10 * 60 * 1000,
         });
         this.#meteringService = meteringService;
     }
@@ -102,9 +92,9 @@ export class TogetherAIProvider implements IChatProvider {
                         ),
                     },
                     // Together only reports a context length. The driver caps
-                    // output at max_tokens minus an estimated input count, and
-                    // that estimate runs low — reserve headroom so a short
-                    // prompt doesn't ask for more than the context allows.
+                    // output at max_tokens minus an estimated input count, which
+                    // runs low on whitespace-poor prompts — reserve headroom so
+                    // the cap doesn't overshoot the context as often.
                     max_tokens: model.context_length
                         ? Math.floor(model.context_length * 0.95)
                         : 8000,
@@ -112,34 +102,12 @@ export class TogetherAIProvider implements IChatProvider {
             }
         }
 
-        models.push({
-            id: 'model-fallback-test-1',
-            name: 'Model Fallback Test 1',
-            context: 1000,
-            costs_currency: 'usd-cents',
-            input_cost_key: 'input',
-            output_cost_key: 'output',
-            costs: {
-                tokens: 1_000_000,
-                prompt_tokens: 10,
-                completion_tokens: 10,
-            },
-            max_tokens: 1000,
-        });
         kv.set(this.#kvKey, models, { EX: 15 * 60 });
         return models;
     }
 
     async list() {
-        const models = await this.models();
-        const modelIds: string[] = [];
-        for (const model of models) {
-            modelIds.push(model.id);
-            if (model.aliases) {
-                modelIds.push(...model.aliases);
-            }
-        }
-        return modelIds;
+        return modelLookupNames(await this.models());
     }
 
     async complete({
@@ -150,10 +118,6 @@ export class TogetherAIProvider implements IChatProvider {
         max_tokens,
         temperature,
     }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
-        if (model === 'model-fallback-test-1') {
-            throw new Error('Model Fallback Test 1');
-        }
-
         const actor = Context.get('actor');
         const models = await this.models();
         const modelLower = model.toLowerCase();
@@ -184,13 +148,17 @@ export class TogetherAIProvider implements IChatProvider {
             completion =
                 await this.#together.chat.completions.create(completionParams);
         } catch (e: unknown) {
-            // An overestimated max_tokens makes Together reject the request
-            // outright rather than truncating. The user can afford the query
-            // either way, so retry once without the cap.
+            // Together rejects an overlarge max_tokens outright rather than
+            // truncating. Retry under the room the window leaves, still
+            // bounded by the cap the credit gate set.
             if (!isContextLengthError(e)) throw e;
-            delete completionParams.max_tokens;
+            const retryParams = contextLengthRetryParams(completionParams, {
+                error: e,
+                contextWindow: modelUsed.context,
+            });
+            if (!retryParams) throw e;
             completion =
-                await this.#together.chat.completions.create(completionParams);
+                await this.#together.chat.completions.create(retryParams);
         }
 
         return OpenAIUtil.handle_completion_output({

@@ -44,7 +44,15 @@ pass one explicitly unless you really mean "page someone".
   event; the 429 is the whole signal, and alarming on it only produces noise
   proportional to traffic. An *upstream provider* rate-limiting us is the
   opposite case and still alarms (`upstream_rate_limited`, `info`) — that one
-  is not something we chose.
+  is not something we chose. The exception is a free model: nothing is billed,
+  nothing is actionable, and the throttling is the price of the model, so the
+  AI chat driver marks those `noAlarm` and only paid models still record.
+
+`noAlarm` is the code-level mute: an `HttpError` carrying it skips the
+terminal gate entirely, no matter its status or code. It is for failures the
+call site *already knows* are expected and traffic-proportional — reach for it
+there, not as a way to quiet an alarm you haven't diagnosed
+(`severityOverrides` below is the knob for that).
 
 An extension whose signals are all one tier can default its own local
 `raiseAlarm` helper to that tier instead of repeating it at every call site —
@@ -70,6 +78,11 @@ this.clients.alarm.create(alarmId, message, fields, 'critical', {
 
 The HTTP error handler uses it: its id is route + error signature, so a hot
 loop of the same crash is one incident with N occurrences instead of N pages.
+Dedup and Slack's repeat throttle mean a responder sees only the latest
+occurrence, so the handler attaches the `HttpError`'s `fields` to the alarm as
+`details` — put what a responder needs (which upstreams failed, and how)
+there. Everything in `fields` is also returned to the client in the response
+body, so it has to be safe to show the caller.
 Reach for it anywhere else only when the id is that specific — otherwise a
 per-request alarm can flood the pager.
 
@@ -113,7 +126,14 @@ config always has the last word.
 
 ### Repeat throttling
 
-The chat transport won't repost the same alarm id within
+Two levels, and they stack.
+
+The client itself backs off before a repeat is reported at all: every
+occurrence is reported up to a small burst, then one per interval. A fault
+recurring hundreds of times a second still counts every occurrence, but it
+does not write a log line or build an alert payload for each one.
+
+Below that, the chat transport won't repost the same alarm id within
 `repeatThrottleMs` (default 15 minutes). The first occurrence always posts,
 and the next one that gets through reports how many piled up in between —
 so a hot loop reads as one message with a count, not a wall of them.

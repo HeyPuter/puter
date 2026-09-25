@@ -50,12 +50,15 @@ export type PreludeChannel =
 export type PreludeDeliveryChannel = PreludeChannel | 'silent' | 'voice';
 /**
  * Default per-SMS cost ceiling (EUR). Countries whose Prelude SMS rate exceeds
- * this — or that have no SMS channel — are not offered phone verification. The
- * cap covers every realistic revenue market (priciest are Germany €0.0598 and
- * Saudi Arabia €0.0638) while excluding the expensive, high-fraud long tail.
- * Override per-deployment with `config.prelude.maxSmsCostEur`.
+ * this — or that have no SMS channel — are not offered phone verification.
+ * Raised from €0.07 to €0.20: the old cap sat only marginally above the
+ * priciest revenue markets (Germany €0.0598, Saudi Arabia €0.0638), so any rate
+ * drift silently withdrew the phone gate from a real market — and the abuse
+ * harness now routes far more legitimate signups into the SMS band, where an
+ * unavailable gate is a dead end rather than a mild inconvenience. Override
+ * per-deployment with `config.prelude.maxSmsCostEur`.
  */
-const DEFAULT_MAX_SMS_COST_EUR = 0.07;
+const DEFAULT_MAX_SMS_COST_EUR = 0.2;
 
 /** Status returned by Prelude when creating/retrying a verification. */
 export type PreludeCreateStatus =

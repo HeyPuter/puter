@@ -24,6 +24,7 @@ import { PuterService } from '../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { AppIconService } from '../appIcon/AppIconService.js';
+import type { ProfileService } from '../profile/ProfileService.js';
 import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
 import { UNLIMITED_SUBSCRIPTION } from '../metering/consts.js';
 
@@ -77,6 +78,10 @@ export class DefaultUserService extends PuterService {
             await (
                 this.services.appIcon as AppIconService
             ).ensureIconsDirectory();
+            // Same for the profiles directory + subdomain.
+            await (
+                this.services.profile as ProfileService
+            ).ensureProfilesDirectory();
         } else {
             const metadata = (user.metadata ?? {}) as Record<string, unknown>;
             const stashed = metadata.tmp_password;

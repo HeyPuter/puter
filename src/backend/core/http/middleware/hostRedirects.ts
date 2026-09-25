@@ -22,6 +22,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { IConfig } from '../../../types';
 import { assertNormalized } from '../../../services/fs/resolveNode.js';
+import { HttpError } from '../HttpError';
 
 /** Native-app subdomains served via `nativeAppStatic`. */
 const NATIVE_APP_SUBDOMAINS = [
@@ -39,8 +40,7 @@ const NATIVE_APPS_WITH_DIST = new Set(['docs', 'developer']);
 
 /**
  * Subdomains that v2 serves itself. Anything NOT in this set that lives on the
- * root domain is treated as a user-defined site and redirected to the static
- * hosting domain.
+ * root domain is treated as a user-defined site and rejected with a 404.
  *
  * Kept as a plain Set so `has()` is O(1); order doesn't matter.
  */
@@ -69,22 +69,23 @@ export const createWwwRedirect = (config: IConfig): RequestHandler => {
 };
 
 /**
- * Redirects user-defined subdomains on the main domain to the static hosting
- * domain. `foo.puter.com/bar?x=1` → `302 foo.puter.site/bar?x=1`.
+ * Rejects user-defined subdomains on the main domain with a 404
+ * (`foo.puter.com/...`). User sites are served only from the static hosting
+ * domain; the main domain must not act as an alias for them.
  *
  * Passes through when:
  *
  * - No active subdomain (root)
  * - Active subdomain is reserved (api, js, native apps, …)
+ * - Host is on one of the hosting domains (they may nest under `config.domain`)
  * - Host doesn't end in `config.domain` (custom domains, other hosts)
- * - `static_hosting_domain` isn't configured
+ * - `static_hosting_domain` isn't configured (no separate hosting domain)
  */
-export const createUserSubdomainRedirect = (
+export const createUserSubdomainNotFound = (
     config: IConfig,
 ): RequestHandler => {
     const domain = (config.domain ?? '').toLowerCase();
-    const target = (config.static_hosting_domain ?? '').toLowerCase();
-    if (!domain || !target) {
+    if (!domain || !config.static_hosting_domain) {
         return (_req, _res, next) => next();
     }
 
@@ -113,10 +114,7 @@ export const createUserSubdomainRedirect = (
         }
         if (!host.endsWith(domain)) return next();
 
-        // host ends in domain — swap the domain suffix for the hosting one,
-        // preserving the subdomain prefix and any port.
-        const newHost = host.slice(0, host.length - domain.length) + target;
-        res.redirect(302, `${req.protocol}://${newHost}${req.originalUrl}`);
+        next(new HttpError(404, 'Not Found', { legacyCode: 'not_found' }));
     };
 };
 

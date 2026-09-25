@@ -17,381 +17,746 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// import type { Request, Response } from 'express';
-// import { HttpError } from '../../core/http/HttpError.js';
-import type { PuterRouter } from '../../core/http/PuterRouter.js';
+import type { Request, Response } from 'express';
+import type { Actor } from '../../core/actor.js';
+import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import type {
+    ResolvedShare,
+    ShareRecipient,
+    ShareTarget,
+} from '../../services/share/ShareService.js';
+import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { toClientShare } from './clientShare.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
+import { SHARE_LIMIT, SHARE_LIST_LIMIT } from './limits.js';
 
-// const SHARE_TOKEN_TYPE = 'share';
-// const SHARE_TOKEN_EXPIRY = '14d';
+/** Distinct (holder, item) pairs run together; see the note on grouping below. */
+const SHARE_CONCURRENCY = 8;
+const LIST_LIMIT_CAP = 200;
+
+/** `appUid` value asking for the grants no app issued. App uids are uuids. */
+const NO_APP = 'none';
 
 /**
- * Share link endpoints — check, apply, and request access to pending shares.
- * The main `POST /share` creation endpoint is also here.
- *
- * Shares are permission grants addressed to an email. When the recipient
- * doesn't have a Puter account yet, the share row lives in the `share` table
- * until they sign up and apply it. When they DO have an account, permissions
- * are granted immediately and no row is stored.
+ * Caps on one request's fan-out. Recipients matter most: that number is how
+ * many people a single call can reach, so it stays small by default and only
+ * moves by configuration.
  */
+export const DEFAULT_MAX_RECIPIENTS = 10;
+export const DEFAULT_MAX_ITEMS = 50;
+
+/**
+ * A success carries the created share; a failure carries why. `pending` is an
+ * invite: recorded, but not access anyone holds yet.
+ */
+interface ShareOutcome {
+    recipient: string;
+    status: 'success' | 'error' | 'pending';
+    path?: string;
+    uid?: string;
+    mode?: string;
+    uid_entry?: string;
+    is_dir?: boolean;
+    issuer?: string | null;
+    holder?: string | null;
+    created_at?: unknown;
+    message?: string;
+    code?: string;
+}
+
+/**
+ * Sharing endpoints. `ShareService` owns the semantics; this layer parses
+ * input, bounds fan-out, and shapes responses.
+ *
+ * Apps and tokens are admitted rather than gated out, because `ShareService`
+ * bounds them properly: authority to share comes from the user behind the
+ * actor, and the actor must additionally reach the node in its own right. An
+ * app therefore shares its own AppData and the files it was given, and nothing
+ * else its user happens to own.
+ */
+@Controller('/share')
 export class ShareController extends PuterController {
-    registerRoutes(_router: PuterRouter): void {
-        // const api = { subdomain: 'api' } as const;
-        // router.post('/sharelink/check', api, this.#check);
-        // router.post(
-        //     '/sharelink/apply',
-        //     { ...api, requireAuth: true },
-        //     this.#apply,
-        // );
-        // router.post(
-        //     '/sharelink/request',
-        //     { ...api, requireAuth: true },
-        //     this.#request,
-        // );
-        // router.post('/share', { ...api, requireAuth: true }, this.#share);
+    /**
+     * POST /share — grant `mode` on one or more items to one or more
+     * recipients. Partial success is the contract: each pair reports its own
+     * outcome and the envelope summarizes.
+     *
+     * Handing out access is the one share surface that reaches other people, so
+     * it asks for a verified phone or card first; withdrawing and listing never
+     * do — a caller must always be able to see and undo what it shared.
+     */
+    @Post('', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireAnyVerified: ['phone', 'card'],
+        rateLimit: SHARE_LIMIT,
+    })
+    async createShares(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        const recipients = this.#recipients(body);
+        const items = this.#items(body, actor);
+        const mode = typeof body.mode === 'string' ? body.mode : 'read';
+
+        // Every (recipient, item) pair is a distinct (holder, entry) key, so
+        // they can run together. Two writes to the *same* pair could not —
+        // setUserUser is a read-modify-write, and a duplicated invite races
+        // itself into two pending rows — so duplicates in the request execute
+        // once and every original position reports that one outcome.
+        const pairs = recipients.flatMap((recipient) =>
+            items.map((item) => ({ recipient, item })),
+        );
+        const { unique, indexOf } = this.#dedupePairs(pairs);
+
+        const settledUnique = await runWithConcurrencyLimitSettled(
+            unique,
+            SHARE_CONCURRENCY,
+            async ({ recipient, item }) => {
+                const share = await this.services.share.share(actor, {
+                    ...item,
+                    recipient,
+                    mode: mode as never,
+                });
+                return share;
+            },
+        );
+        const settled = indexOf.map((i) => settledUnique[i]);
+
+        const results: ShareOutcome[] = await Promise.all(
+            settled.map(async (outcome, index) => {
+                const { recipient, item } = pairs[index];
+                const label = this.#recipientLabel(recipient);
+                if (outcome.status === 'fulfilled') {
+                    // The whole share, not just an acknowledgement, so a caller
+                    // needn't re-read to learn what it created.
+                    const share = outcome.value as ResolvedShare;
+                    return {
+                        ...(await this.#toClientShare(share)),
+                        recipient: label,
+                        status: share.pending ? 'pending' : 'success',
+                    };
+                }
+                return {
+                    recipient: label,
+                    ...(item.path ? { path: item.path } : {}),
+                    status: 'error',
+                    ...this.#errorShape(outcome.reason),
+                };
+            }),
+        );
+
+        // Off the response path: a share that landed must not be reported as
+        // failed because telling the recipient didn't. Fanned out from the
+        // unique outcomes, so a duplicated pair is not counted twice.
+        void this.services.shareNotification.notifyShared(
+            actor,
+            settledUnique
+                .filter((o) => o.status === 'fulfilled')
+                .map((o) => (o as PromiseFulfilledResult<ResolvedShare>).value),
+        );
+
+        const succeeded = results.filter((r) => r.status !== 'error').length;
+        res.json({
+            status:
+                succeeded === results.length
+                    ? 'success'
+                    : succeeded > 0
+                      ? 'mixed'
+                      : 'aborted',
+            results,
+        });
     }
 
-    // // -- POST /sharelink/check ---------------------------------------
-    // // Public — verify a share token from an email link.
+    /**
+     * POST /share/revoke — withdraw recipients' access to items. Same fan-out
+     * contract as POST /share: every (recipient, item) pair is its own revoke
+     * with its own outcome. Silently dropping pairs after the first would leave
+     * access standing that the caller believes is gone.
+     */
+    @Post('/revoke', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async revokeShare(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        const recipients = this.#recipients(body);
+        const items = this.#items(body, actor);
 
-    // #check = async (req: Request, res: Response): Promise<void> => {
-    //     const token = req.body?.token;
-    //     if (typeof token !== 'string' || token.length === 0) {
-    //         throw new HttpError(400, 'Missing `token`');
-    //     }
+        const pairs = recipients.flatMap((recipient) =>
+            items.map((item) => ({ recipient, item })),
+        );
+        const { unique, indexOf } = this.#dedupePairs(pairs);
 
-    //     let decoded: { uid?: string; type?: string };
-    //     try {
-    //         decoded = this.services.token.verify(SHARE_TOKEN_TYPE, token);
-    //     } catch {
-    //         throw new HttpError(400, 'Invalid or expired share token');
-    //     }
-    //     if (decoded.type !== `token:${SHARE_TOKEN_TYPE}` || !decoded.uid) {
-    //         throw new HttpError(400, 'Invalid share token');
-    //     }
+        const settledUnique = await runWithConcurrencyLimitSettled(
+            unique,
+            SHARE_CONCURRENCY,
+            ({ recipient, item }) =>
+                this.services.share.unshare(actor, { ...item, recipient }),
+        );
+        const settled = indexOf.map((i) => settledUnique[i]);
 
-    //     const share = await this.stores.share.getByUid(decoded.uid);
-    //     if (!share) throw new HttpError(404, 'Share not found or expired');
+        // Totalled over the unique outcomes: a pair listed twice revoked its
+        // grants once.
+        const revoked = settledUnique.reduce(
+            (total, outcome) =>
+                outcome.status === 'fulfilled'
+                    ? total + outcome.value.revoked
+                    : total,
+            0,
+        );
+        const results: ShareOutcome[] = settled.map((outcome, index) => {
+            const { recipient, item } = pairs[index];
+            const label = this.#recipientLabel(recipient);
+            if (outcome.status === 'fulfilled') {
+                return {
+                    recipient: label,
+                    ...(item.path ? { path: item.path } : {}),
+                    ...(item.uid ? { uid: item.uid } : {}),
+                    status: 'success',
+                };
+            }
+            return {
+                recipient: label,
+                ...(item.path ? { path: item.path } : {}),
+                ...(item.uid ? { uid: item.uid } : {}),
+                status: 'error',
+                ...this.#errorShape(outcome.reason),
+            };
+        });
 
-    //     res.json({
-    //         $: 'api:share',
-    //         uid: share.uid,
-    //         email: share.recipient_email,
-    //     });
-    // };
+        const succeeded = results.filter((r) => r.status === 'success').length;
+        res.json({
+            status:
+                succeeded === results.length
+                    ? 'success'
+                    : succeeded > 0
+                      ? 'mixed'
+                      : 'aborted',
+            revoked,
+            results,
+        });
+    }
 
-    // // -- POST /sharelink/apply ---------------------------------------
-    // // Auth required — apply a pending share's permissions to the caller.
+    /**
+     * GET /share/shared-with-me — paginated listing of what others have shared
+     * with the caller.
+     */
+    @Get('/shared-with-me', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listSharedWithMe(req: Request, res: Response): Promise<void> {
+        await this.#listSharePage(req, res, (actor, opts) =>
+            this.services.share.listSharedWithMe(actor, opts),
+        );
+    }
 
-    // #apply = async (req: Request, res: Response): Promise<void> => {
-    //     const uid = req.body?.uid;
-    //     if (typeof uid !== 'string') throw new HttpError(400, 'Missing `uid`');
+    /**
+     * GET /share/shared-by-me — paginated listing of everything the caller has
+     * shared out. `GET /share/shares` answers this for one item at a time,
+     * which cannot answer it at all for a caller who doesn't know what to ask
+     * about.
+     *
+     * `appUid` narrows to one app's grants, or to `none` for the ones the user
+     * made themselves. An app token is bound to its own app regardless, so it
+     * only ever sees what it issued.
+     */
+    @Get('/shared-by-me', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listSharedByMe(req: Request, res: Response): Promise<void> {
+        const appUid = this.#appUidFilter(this.#query(req));
+        await this.#listSharePage(req, res, (actor, opts) =>
+            this.services.share.listSharedByMe(actor, { ...opts, appUid }),
+        );
+    }
 
-    //     const actor = req.actor;
-    //     if (!actor?.user) throw new HttpError(401, 'Unauthorized');
+    /**
+     * Parse-and-shape shared by the paginated share listings, so the two cannot
+     * drift: same query contract in, same envelope out.
+     */
+    async #listSharePage(
+        req: Request,
+        res: Response,
+        list: (
+            actor: Actor,
+            opts: { limit?: number; cursor?: string; includeTotal?: boolean },
+        ) => Promise<{
+            items: ResolvedShare[];
+            cursor?: string;
+            total?: number;
+        }>,
+    ): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
 
-    //     const share = await this.stores.share.getByUid(uid);
-    //     if (!share) throw new HttpError(404, 'Share not found or expired');
+        const page = await list(actor, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
 
-    //     // Issuer must still exist
-    //     const issuer = await this.stores.user.getById(share.issuer_user_id);
-    //     if (!issuer)
-    //         throw new HttpError(410, 'Share expired — issuer account gone');
+        res.json({
+            items: await Promise.all(
+                page.items.map((share) => this.#toClientShare(share)),
+            ),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
 
-    //     // Email must be confirmed
-    //     if (
-    //         actor.user.requires_email_confirmation &&
-    //         !actor.user.email_confirmed
-    //     ) {
-    //         throw new HttpError(
-    //             403,
-    //             'Please confirm your email before applying shares',
-    //         );
-    //     }
+    /**
+     * GET /share/shared-by-me/apps — which apps hold shares the caller made,
+     * with a count each. The way into `appUid` for someone who doesn't know
+     * which apps to ask about; the group with a null `appUid` is what they
+     * shared themselves.
+     */
+    @Get('/shared-by-me/apps', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listSharedByMeApps(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
 
-    //     // Recipient email must match
-    //     if (
-    //         !actor.user.email ||
-    //         actor.user.email.toLowerCase() !==
-    //             share.recipient_email.toLowerCase()
-    //     ) {
-    //         throw new HttpError(
-    //             403,
-    //             'This share was sent to a different email address',
-    //         );
-    //     }
+        const page = await this.services.share.listSharedByMeApps(actor, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
 
-    //     // Grant each permission
-    //     const issuerActor = {
-    //         user: {
-    //             id: issuer.id,
-    //             uuid: issuer.uuid,
-    //             username: issuer.username,
-    //             email: issuer.email ?? null,
-    //             suspended: false,
-    //             email_confirmed: true,
-    //             requires_email_confirmation: false,
-    //         },
-    //     } as import('../../core/actor.js').Actor;
-    //     const data = (share.data ?? {}) as {
-    //         permissions?: Array<{
-    //             permission: string;
-    //             extra?: Record<string, unknown>;
-    //         }>;
-    //     };
-    //     for (const perm of data.permissions ?? []) {
-    //         try {
-    //             await this.services.permission.grantUserUserPermission(
-    //                 issuerActor,
-    //                 actor.user.username ?? '',
-    //                 perm.permission,
-    //                 perm.extra ?? {},
-    //             );
-    //         } catch (err) {
-    //             console.warn('[share] grant failed for', perm.permission, err);
-    //         }
-    //     }
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
 
-    //     // Share consumed — delete it
-    //     await this.stores.share.deleteByUid(uid);
+    /**
+     * DELETE /share/shared-by-me/:uid — withdraw one listed share, scoped to
+     * that row's issuer.
+     *
+     * An uid outside the caller's view — another account's, or another app's to
+     * an app — answers 404 like one that names nothing, so this can't be used
+     * to learn which. Within their view, the revoke's own rules answer: lapsed
+     * authority gets the ACL's error, a grant already withdrawn elsewhere
+     * reports `revoked: 0`.
+     */
+    @Delete('/shared-by-me/:uid', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async revokeSharedByMe(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const uid = String(req.params.uid ?? '');
+        const { revoked } = await this.services.share.revokeSharedByMe(
+            actor,
+            uid,
+        );
+        res.json({ uid, revoked });
+    }
 
-    //     res.json({ $: 'api:status-report', status: 'success' });
-    // };
+    /** GET /share/shares — who can reach one item. */
+    @Get('/shares', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listSharesOf(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
+        const target: ShareTarget = {};
+        if (typeof query.uid === 'string') target.uid = query.uid;
+        if (typeof query.path === 'string')
+            target.path = expandTildePath(query.path, actor.user?.username);
+        if (!target.uid && !target.path) {
+            throw new HttpError(400, 'one of `uid` or `path` is required', {
+                legacyCode: 'bad_request',
+            });
+        }
 
-    // // -- POST /sharelink/request -------------------------------------
-    // // Auth required — notify the issuer that someone is requesting access.
+        const shares = await this.services.share.listSharesOf(actor, target);
+        res.json({
+            items: await Promise.all(
+                shares.map((share) => this.#toClientShare(share)),
+            ),
+        });
+    }
 
-    // #request = async (req: Request, res: Response): Promise<void> => {
-    //     const uid = req.body?.uid;
-    //     if (typeof uid !== 'string') throw new HttpError(400, 'Missing `uid`');
+    /**
+     * GET /share/audit — when a grant was made, by whom, and under which app.
+     *
+     * With `uid` or `path`, the trail of everything granted on that item, for
+     * whoever may manage it; with neither, the trail of what the caller
+     * granted. Rows outlive the grants they describe, so this still answers
+     * after a revoke.
+     */
+    @Get('/audit', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listGrantAudit(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
+        const target: ShareTarget = {};
+        if (typeof query.uid === 'string') target.uid = query.uid;
+        if (typeof query.path === 'string')
+            target.path = expandTildePath(query.path, actor.user?.username);
 
-    //     const actor = req.actor;
-    //     if (!actor?.user) throw new HttpError(401, 'Unauthorized');
+        const page = await this.services.share.listGrantAudit(actor, target, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
 
-    //     const share = await this.stores.share.getByUid(uid);
-    //     if (!share) throw new HttpError(404, 'Share not found or expired');
+        res.json({
+            items: page.items.map((entry) => ({
+                action: entry.action,
+                permission: entry.permission,
+                entryUid: entry.entryUid,
+                mode: entry.mode,
+                issuer: entry.issuer.username,
+                holder: entry.holder.username,
+                appUid: entry.appUid,
+                createdAt: entry.createdAt,
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
 
-    //     const issuer = await this.stores.user.getById(share.issuer_user_id);
-    //     if (!issuer)
-    //         throw new HttpError(410, 'Share expired — issuer account gone');
+    // -- Blocking -----------------------------------------------------
+    // User sessions only: a block list is a safety control, not an app's to touch.
 
-    //     // If caller IS the intended recipient (confirmed email matches),
-    //     // they should just /apply instead.
-    //     if (
-    //         actor.user.email_confirmed &&
-    //         actor.user.email?.toLowerCase() ===
-    //             share.recipient_email.toLowerCase()
-    //     ) {
-    //         throw new HttpError(
-    //             400,
-    //             'You are the intended recipient — use /sharelink/apply instead',
-    //         );
-    //     }
+    /**
+     * GET /share/blocks — who the caller is refusing shares from, and whether
+     * they are refusing everyone.
+     */
+    @Get('/blocks', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listBlocks(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { all, items } =
+            await this.services.share.listBlockedSenders(actor);
+        res.json({
+            all,
+            items: items.map((item) => ({
+                username: item.username,
+                created_at: item.createdAt,
+            })),
+        });
+    }
 
-    //     // Notify the issuer
-    //     if (this.services.notification) {
-    //         await this.services.notification.notify([issuer.id], {
-    //             source: 'sharing',
-    //             title: `User ${actor.user.username} is trying to open a share you sent to ${share.recipient_email}`,
-    //             template: 'user-requesting-share',
-    //             fields: {
-    //                 username: actor.user.username,
-    //                 intended_recipient: share.recipient_email,
-    //                 permissions:
-    //                     (share.data as Record<string, unknown>)?.permissions ??
-    //                     [],
-    //             },
-    //         });
-    //     }
+    /**
+     * POST /share/blocks — stop accepting shares. `{ all: true }` refuses
+     * everyone; `{ username }` refuses one person. Idempotent either way:
+     * blocking twice is the state the caller asked for.
+     *
+     * Access already granted is untouched — `POST /share/revoke` is what
+     * withdraws that.
+     */
+    @Post('/blocks', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async createBlock(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        if (this.#isBlockAll(body)) {
+            const { all } = await this.services.share.setBlockAllSenders(
+                actor,
+                true,
+            );
+            res.json({ all, blocked: true });
+            return;
+        }
+        const { username, created } = await this.services.share.blockSender(
+            actor,
+            this.#username(body),
+        );
+        res.json({ username, blocked: true, created });
+    }
 
-    //     res.json({ $: 'api:status-report', status: 'success' });
-    // };
+    /**
+     * DELETE /share/blocks — accept shares again. `{ all: true }` lifts the
+     * blanket refusal, leaving the per-sender list as it was.
+     */
+    @Delete('/blocks', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async deleteBlock(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        if (this.#isBlockAll(body)) {
+            const { all } = await this.services.share.setBlockAllSenders(
+                actor,
+                false,
+            );
+            res.json({ all, blocked: false });
+            return;
+        }
+        const { username, unblocked } = await this.services.share.unblockSender(
+            actor,
+            this.#username(body),
+        );
+        res.json({ username, blocked: false, unblocked });
+    }
 
-    // // -- POST /share -------------------------------------------------
-    // // Auth required — create shares for recipients (users or emails).
+    // -- Helpers ------------------------------------------------------
 
-    // #share = async (req: Request, res: Response): Promise<void> => {
-    //     const actor = req.actor;
-    //     if (!actor?.user) throw new HttpError(401, 'Unauthorized');
+    /**
+     * Collapse repeated (recipient, item) pairs to one execution. `indexOf`
+     * maps every original position onto its unique pair, so a request that
+     * names the same pair twice still gets a result in both positions — the
+     * same result, which is the truth of what happened.
+     */
+    #dedupePairs<T extends { recipient: ShareRecipient; item: ShareTarget }>(
+        pairs: T[],
+    ): { unique: T[]; indexOf: number[] } {
+        const unique: T[] = [];
+        const seen = new Map<string, number>();
+        const indexOf = pairs.map((pair) => {
+            // Every recipient field, or two teams key alike and collapse
+            // into one -- the second reporting the first's outcome as its own.
+            const key = JSON.stringify([
+                pair.recipient.email ?? null,
+                pair.recipient.username ?? null,
+                pair.recipient.team ?? null,
+                pair.recipient.teamHandle ?? null,
+                pair.item.uid ?? null,
+                pair.item.path ?? null,
+            ]);
+            let at = seen.get(key);
+            if (at === undefined) {
+                at = unique.length;
+                seen.set(key, at);
+                unique.push(pair);
+            }
+            return at;
+        });
+        return { unique, indexOf };
+    }
 
-    //     const body = req.body ?? {};
-    //     let recipients = body.recipients;
-    //     let shares = body.shares;
-    //     const dryRun = !!body.dry_run;
+    /**
+     * Whether this call is about the blanket switch rather than one person.
+     * Only the literal `true` counts, so a client sending `all: false`
+     * alongside a username still means the username.
+     */
+    #isBlockAll(body: Record<string, unknown>): boolean {
+        return body.all === true;
+    }
 
-    //     if (!recipients) throw new HttpError(400, 'Missing `recipients`');
-    //     if (!shares) throw new HttpError(400, 'Missing `shares`');
-    //     if (!Array.isArray(recipients)) recipients = [recipients];
-    //     if (!Array.isArray(shares)) shares = [shares];
+    #username(body: Record<string, unknown>): string {
+        const username =
+            typeof body.username === 'string' ? body.username.trim() : '';
+        if (!username) {
+            throw new HttpError(400, '`username` is required', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return username;
+    }
 
-    //     // Build the permissions list from share declarations.
-    //     const permissions = this.#resolvePermissions(shares as unknown[]);
+    #toClientShare(share: ResolvedShare) {
+        return toClientShare(this.clients.event, share);
+    }
 
-    //     const recipientResults: unknown[] = [];
+    #requireActor(req: Request): Actor {
+        const actor = req.actor;
+        if (!actor?.user)
+            throw new HttpError(401, 'Unauthorized', {
+                legacyCode: 'unauthorized',
+            });
+        return actor;
+    }
 
-    //     for (const recipient of recipients as unknown[]) {
-    //         const recipientStr =
-    //             typeof recipient === 'string' ? recipient.trim() : '';
-    //         if (!recipientStr) {
-    //             recipientResults.push({
-    //                 $: 'error',
-    //                 message: 'empty recipient',
-    //             });
-    //             continue;
-    //         }
+    #body(req: Request): Record<string, unknown> {
+        const body = req.body;
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            throw new HttpError(400, 'body must be an object', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return body as Record<string, unknown>;
+    }
 
-    //         try {
-    //             // Try username first
-    //             const targetUser =
-    //                 (await this.stores.user.getByUsername(recipientStr)) ??
-    //                 (recipientStr.includes('@')
-    //                     ? await this.stores.user.getByEmail(recipientStr)
-    //                     : null);
+    #query(req: Request): Record<string, unknown> {
+        return (req.query ?? {}) as Record<string, unknown>;
+    }
 
-    //             if (targetUser) {
-    //                 // Direct grant — user exists
-    //                 if (!dryRun) {
-    //                     for (const perm of permissions) {
-    //                         try {
-    //                             await this.services.permission.grantUserUserPermission(
-    //                                 actor,
-    //                                 targetUser.username ?? '',
-    //                                 perm.permission,
-    //                                 perm.extra ?? {},
-    //                             );
-    //                         } catch (err) {
-    //                             console.warn(
-    //                                 '[share] grant to user failed',
-    //                                 perm.permission,
-    //                                 err,
-    //                             );
-    //                         }
-    //                     }
+    /**
+     * The app a listing is narrowed to: an uid, `null` for the grants no app
+     * issued, or undefined for all of them. `NO_APP` is the drill-in for the
+     * group the summary reports with a null `appUid`.
+     *
+     * Malformed input is refused rather than read as "unscoped": a duplicated
+     * query param arrives as an array and an empty string names nothing, and a
+     * caller who believes they filtered must not silently receive everything.
+     */
+    #appUidFilter(query: Record<string, unknown>): string | null | undefined {
+        const value = query.appUid;
+        if (value === undefined) return undefined;
+        if (typeof value !== 'string' || value === '') {
+            throw new HttpError(400, '`appUid` must be a single app uid', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return value === NO_APP ? null : value;
+    }
 
-    //                     // Notify
-    //                     if (this.services.notification) {
-    //                         await this.services.notification.notify(
-    //                             [targetUser.id],
-    //                             {
-    //                                 source: 'sharing',
-    //                                 title: `${actor.user.username} shared items with you`,
-    //                                 template: 'file-shared-with-you',
-    //                                 fields: {
-    //                                     username: actor.user.username,
-    //                                     permissions: permissions.map(
-    //                                         (p) => p.permission,
-    //                                     ),
-    //                                 },
-    //                             },
-    //                         );
-    //                     }
-    //                 }
-    //                 recipientResults.push({
-    //                     $: 'api:status-report',
-    //                     status: 'success',
-    //                 });
-    //             } else if (recipientStr.includes('@')) {
-    //                 // Email recipient — store pending share
-    //                 if (!dryRun) {
-    //                     const share = await this.stores.share.create({
-    //                         issuerUserId: actor.user.id,
-    //                         recipientEmail: recipientStr.toLowerCase(),
-    //                         data: {
-    //                             permissions,
-    //                             metadata: body.metadata ?? {},
-    //                         },
-    //                     });
+    /** Echoes back the identifier the caller named, so results are matchable. */
+    #recipientLabel(recipient: ShareRecipient): string {
+        if (recipient.anyone) return 'anyone';
+        return (
+            recipient.email ??
+            recipient.username ??
+            recipient.teamHandle ??
+            recipient.team ??
+            ''
+        );
+    }
 
-    //                     // Sign a share token (14-day expiry)
-    //                     const token = this.services.token.sign(
-    //                         SHARE_TOKEN_TYPE,
-    //                         {
-    //                             type: `token:${SHARE_TOKEN_TYPE}`,
-    //                             uid: share.uid,
-    //                         },
-    //                         { expiresIn: SHARE_TOKEN_EXPIRY },
-    //                     );
+    #recipients(body: Record<string, unknown>): ShareRecipient[] {
+        const raw = body.recipients ?? body.recipient;
+        const list = Array.isArray(raw) ? raw : [raw];
+        const out: ShareRecipient[] = [];
+        for (const entry of list) {
+            if (typeof entry === 'string') {
+                const value = entry.trim();
+                if (!value) continue;
+                out.push(
+                    value.includes('@')
+                        ? { email: value }
+                        : { username: value },
+                );
+                continue;
+            }
+            if (entry && typeof entry === 'object') {
+                const rec = entry as Record<string, unknown>;
+                // Object form only, and the literal `true`: nothing typed into
+                // a people field can become "everyone".
+                if (rec.anyone === true) {
+                    out.push({ anyone: true });
+                    continue;
+                }
+                const email =
+                    typeof rec.email === 'string' ? rec.email.trim() : '';
+                const username =
+                    typeof rec.username === 'string' ? rec.username.trim() : '';
+                const team =
+                    typeof rec.team === 'string' ? rec.team.trim() : '';
+                const teamHandle =
+                    typeof rec.teamHandle === 'string'
+                        ? rec.teamHandle.trim()
+                        : '';
+                // Ambiguous rather than a precedence rule to memorise.
+                if (team && teamHandle) {
+                    throw new HttpError(
+                        400,
+                        'pass `team` or `teamHandle`, not both',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                if (team || teamHandle) {
+                    out.push(team ? { team } : { teamHandle });
+                    continue;
+                }
+                if (email || username) {
+                    out.push(email ? { email } : { username });
+                }
+            }
+        }
+        if (out.length === 0) {
+            throw new HttpError(400, '`recipients` is required', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const max = this.config.share_max_recipients ?? DEFAULT_MAX_RECIPIENTS;
+        if (out.length > max) {
+            throw new HttpError(400, `at most ${max} recipients per request`, {
+                legacyCode: 'too_many_recipients',
+            });
+        }
+        return out;
+    }
 
-    //                     // Email the share link
-    //                     const origin = `https://${this.config.domain ?? 'puter.com'}`;
-    //                     try {
-    //                         await this.clients.email.sendRaw({
-    //                             to: recipientStr,
-    //                             subject: `${actor.user.username} shared something with you on Puter`,
-    //                             html: `<p>${actor.user.username} shared items with you.</p><p><a href="${origin}?share_token=${encodeURIComponent(token)}">Click here to accept</a></p>`,
-    //                         });
-    //                     } catch (err) {
-    //                         console.warn('[share] email send failed', err);
-    //                     }
-    //                 }
-    //                 recipientResults.push({
-    //                     $: 'api:status-report',
-    //                     status: 'success',
-    //                 });
-    //             } else {
-    //                 recipientResults.push({
-    //                     $: 'error',
-    //                     message: 'User not found',
-    //                 });
-    //             }
-    //         } catch (err) {
-    //             recipientResults.push({ $: 'error', message: String(err) });
-    //         }
-    //     }
+    #items(body: Record<string, unknown>, actor: Actor): ShareTarget[] {
+        const username = actor.user?.username;
+        const raw = body.items ?? body.item ?? body.path ?? body.uid;
+        const list = Array.isArray(raw) ? raw : [raw];
+        const out: ShareTarget[] = [];
+        for (const entry of list) {
+            if (typeof entry === 'string') {
+                const value = entry.trim();
+                if (!value) continue;
+                // Tilde-rooted strings are paths, as the legacy FS routes treat them.
+                const isPath = value.startsWith('/') || value.startsWith('~');
+                out.push(
+                    isPath
+                        ? { path: expandTildePath(value, username) }
+                        : { uid: value },
+                );
+                continue;
+            }
+            if (entry && typeof entry === 'object') {
+                const item = entry as Record<string, unknown>;
+                const path =
+                    typeof item.path === 'string'
+                        ? expandTildePath(item.path, username)
+                        : '';
+                const uid = typeof item.uid === 'string' ? item.uid : '';
+                if (path || uid) out.push(path ? { path } : { uid });
+            }
+        }
+        if (out.length === 0) {
+            throw new HttpError(400, '`items` is required', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const max = this.config.share_max_items ?? DEFAULT_MAX_ITEMS;
+        if (out.length > max) {
+            throw new HttpError(400, `at most ${max} items per request`, {
+                legacyCode: 'too_many_items',
+            });
+        }
+        return out;
+    }
 
-    //     const allOk = recipientResults.every(
-    //         (r: unknown) => (r as Record<string, unknown>).status === 'success',
-    //     );
-    //     const anyOk = recipientResults.some(
-    //         (r: unknown) => (r as Record<string, unknown>).status === 'success',
-    //     );
-
-    //     res.json({
-    //         $: 'api:share',
-    //         $version: 'v0.0.0',
-    //         status: allOk ? 'success' : anyOk ? 'mixed' : 'aborted',
-    //         recipients: recipientResults,
-    //         ...(dryRun ? { dry_run: true } : {}),
-    //     });
-    // };
-
-    // // -- Helpers ------------------------------------------------------
-
-    // /**
-    //  * Convert share declarations into a flat permission list.
-    //  * Supports `fs-share` ({ path, access }) and `app-share` ({ uid, name }).
-    //  */
-    // #resolvePermissions(
-    //     shares: unknown[],
-    // ): Array<{ permission: string; extra?: Record<string, unknown> }> {
-    //     const perms: Array<{
-    //         permission: string;
-    //         extra?: Record<string, unknown>;
-    //     }> = [];
-
-    //     for (const share of shares) {
-    //         if (!share || typeof share !== 'object') continue;
-    //         const s = share as Record<string, unknown>;
-
-    //         if (s.$ === 'fs-share' || s.type === 'fs-share' || s.path) {
-    //             const path = String(s.path ?? '');
-    //             const access = String(s.access ?? 'read');
-    //             if (path) {
-    //                 perms.push({ permission: `fs:${path}:${access}` });
-    //             }
-    //         } else if (
-    //             s.$ === 'app-share' ||
-    //             s.type === 'app-share' ||
-    //             s.uid ||
-    //             s.name
-    //         ) {
-    //             const appUid = String(s.uid ?? s.name ?? '');
-    //             if (appUid) {
-    //                 perms.push({ permission: `app:uid#${appUid}:access` });
-    //             }
-    //         }
-    //     }
-
-    //     return perms;
-    // }
+    /**
+     * Report a failure without widening what the caller already knew. The
+     * service already decides 404-vs-403; anything unrecognized becomes a
+     * generic error rather than leaking an internal message.
+     */
+    #errorShape(reason: unknown): { message: string; code?: string } {
+        if (!isHttpError(reason) || reason.statusCode >= 500) {
+            return { message: 'Request failed' };
+        }
+        const code = reason.legacyCode ?? reason.code;
+        return {
+            message: reason.message || 'Request failed',
+            ...(code ? { code } : {}),
+        };
+    }
 }

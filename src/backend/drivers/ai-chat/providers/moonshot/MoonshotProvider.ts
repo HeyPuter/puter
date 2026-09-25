@@ -27,8 +27,9 @@ import type {
     ICompleteArguments,
 } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { inlineHttpImageUrls } from './imageHandling.js';
+import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { MOONSHOT_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 export class MoonshotProvider implements IChatProvider {
     #openai: OpenAI;
@@ -52,15 +53,7 @@ export class MoonshotProvider implements IChatProvider {
     }
 
     async list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     async complete({

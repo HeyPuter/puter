@@ -47,6 +47,7 @@ import { withTestActor } from '../integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import {
     clearUnhealthyRoutes,
+    isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
 
@@ -128,6 +129,10 @@ const OPENROUTER_CATALOG = [
     'deepseek/deepseek-v4-pro',
     'deepseek-ai/deepseek-v4-pro',
     'google/gemini-2.5-flash',
+    // OpenRouter really does carry Muse Spark under Meta's own id, which is
+    // also the alias the Meta provider publishes — the two have to land in
+    // one bucket rather than becoming separate models.
+    'meta/muse-spark-1.2',
 ].map((id) => ({
     id,
     name: `${id} (via OpenRouter)`,
@@ -158,6 +163,7 @@ beforeAll(async () => {
             providers: {
                 gemini: { apiKey: 'test-key' },
                 deepseek: { apiKey: 'test-key' },
+                meta: { apiKey: 'test-key' },
                 infron: { apiKey: 'test-key' },
                 openrouter: { apiKey: 'test-key' },
                 ollama: { enabled: false },
@@ -196,8 +202,11 @@ afterAll(async () => {
  * reject is what makes the whole chain observable: the driver records every
  * attempt on the thrown error, and `attempts[0]` is who it chose first.
  */
-const attemptsFor = async (model: string) => {
-    createMock.mockRejectedValue(new Error('upstream down'));
+const attemptsFor = async (
+    model: string,
+    thrown: unknown = new Error('upstream down'),
+) => {
+    createMock.mockRejectedValue(thrown);
     let caught: HttpError | undefined;
     try {
         await withTestActor(() =>
@@ -250,6 +259,26 @@ describe('ChatCompletionDriver gemini routing', () => {
     });
 });
 
+describe('ChatCompletionDriver muse spark routing', () => {
+    it('serves Muse Spark from Meta, with OpenRouter only as fallback', async () => {
+        const attempts = await attemptsFor('muse-spark-1.2');
+
+        expect(attempts[0]).toMatchObject({
+            provider: 'meta',
+            model: 'muse-spark-1.2',
+        });
+        expect(attempts[1]).toMatchObject({
+            provider: 'openrouter',
+            model: 'openrouter:meta/muse-spark-1.2',
+        });
+    });
+
+    it('routes the vendor-qualified alias to Meta too', async () => {
+        const attempts = await attemptsFor('meta/muse-spark-1.2');
+        expect(attempts[0].provider).toBe('meta');
+    });
+});
+
 describe('ChatCompletionDriver duplicate-model fallback', () => {
     // deepseek-v4-pro is served directly by DeepSeek, by Infron, and twice by
     // OpenRouter (two upstream orgs) — four routes in one bucket.
@@ -293,6 +322,73 @@ describe('ChatCompletionDriver duplicate-model fallback', () => {
     });
 });
 
+// Each attempt in a fallback chain is a whole completion at that model's
+// prices, so each one has to clear the credit gate on its own. The chain used
+// to re-check with a nominal 1-microcent amount, which any account with a
+// fraction of a credit left passed — three attempts could cost three times
+// what the balance allowed.
+describe('ChatCompletionDriver credit gate across the fallback chain', () => {
+    it('runs the full gate once per attempt, not a nominal re-check', async () => {
+        // Observed, not stubbed — the counter that shows each attempt did a
+        // real balance read of its own.
+        const remaining = vi.spyOn(
+            server.services.metering,
+            'getRemainingUsage',
+        );
+
+        const attempts = await attemptsFor('deepseek-v4-pro');
+
+        expect(attempts).toHaveLength(3);
+        // The balance is read for each attempt because each one's
+        // affordability and output cap are decided at that model's prices
+        // against what's actually left.
+        expect(remaining.mock.calls.length).toBeGreaterThanOrEqual(
+            attempts.length,
+        );
+        remaining.mockRestore();
+    });
+
+    it('aborts the chain when the balance runs out mid-fallback', async () => {
+        const actor = {
+            user: {
+                uuid: `routing-gate-${Math.random().toString(36).slice(2)}`,
+                username: 'routing-gate-user',
+                email: 'routing-gate@test.com',
+            },
+        } as never;
+        const metering = server.services.metering;
+
+        // The first attempt fails upstream, and while it does, a "parallel
+        // request" spends the rest of the month's allowance — real usage
+        // rows, not a stubbed balance — so the next attempt's gate reads an
+        // account with nothing left.
+        createMock.mockImplementation(async () => {
+            const { remaining } = await metering.getAllowedUsage(actor);
+            await metering.incrementUsage(
+                actor,
+                'test:parallel-spend',
+                1,
+                remaining,
+            );
+            throw new Error('upstream down');
+        });
+
+        await expect(
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'deepseek-v4-pro',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 402,
+            legacyCode: 'insufficient_funds',
+        });
+    });
+});
+
 describe('ChatCompletionDriver unhealthy-route skipping', () => {
     it('skips a route marked by an earlier failure and serves the next one', async () => {
         markRouteUnhealthy('deepseek', 'deepseek-v4-pro');
@@ -312,6 +408,74 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         expect(next[0].provider).not.toBe('deepseek');
     });
 
+    it('marks a credit-exhausted 402 route unhealthy for the next caller', async () => {
+        const first = await attemptsFor(
+            'deepseek-v4-pro',
+            Object.assign(
+                new Error(
+                    'Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+                ),
+                { status: 402 },
+            ),
+        );
+        const next = await attemptsFor('deepseek-v4-pro');
+
+        expect(next[0]).not.toMatchObject({
+            provider: first[0]!.provider,
+            model: first[0]!.model,
+        });
+    });
+
+    it('classifies differing credit-exhaustion statuses as one exhausted chain', async () => {
+        createMock
+            .mockRejectedValueOnce(
+                Object.assign(
+                    new Error(
+                        'Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+                    ),
+                    { status: 402 },
+                ),
+            )
+            .mockRejectedValueOnce(
+                Object.assign(
+                    new Error(
+                        'Your current credits have been used up and we are unable to process further requests. Please visit https://openrouter.ai/settings/credits to add credits.',
+                    ),
+                    { status: 403 },
+                ),
+            )
+            .mockRejectedValueOnce(
+                Object.assign(
+                    new Error(
+                        'Free model requires Team balance greater than $4.999999. (request id: 20260921210512505339070jYB)',
+                    ),
+                    { status: 429 },
+                ),
+            );
+
+        const err = await withTestActor(() =>
+            driver
+                .complete({
+                    model: 'deepseek-v4-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                })
+                .catch((e: unknown) => e as HttpError),
+        );
+
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
+        const attempts = (
+            err as unknown as {
+                fields: { attempts: Array<{ status?: number }> };
+            }
+        ).fields.attempts;
+        expect(attempts.map((attempt) => attempt.status)).toEqual([
+            402, 403, 429,
+        ]);
+    });
+
     it('still serves a marked route when it is the only one left', async () => {
         // gemini-2.5-flash-image-preview has a single route; marking it must
         // degrade to trying it anyway rather than failing with no attempt.
@@ -325,5 +489,78 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         );
 
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
+    });
+
+    it('marks a route only for failures that indict the route, not the request', async () => {
+        const complete = () =>
+            withTestActor(() =>
+                driver.complete({
+                    model: 'deepseek-v4-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ).catch(() => undefined);
+
+        // A 400 is the upstream judging this prompt; the next caller's may
+        // be fine, so the route stays in rotation.
+        createMock.mockRejectedValue(
+            Object.assign(new Error('invalid request'), { status: 400 }),
+        );
+        await complete();
+        expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(false);
+
+        // A 503 says the route itself is down and is remembered.
+        createMock.mockRejectedValue(
+            Object.assign(new Error('service unavailable'), { status: 503 }),
+        );
+        await complete();
+        expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
+    });
+});
+
+// A transport timeout carries no status, so the classifier used to lump a
+// chain of them in with "our bug" and page. It is the provider's pace.
+describe('ChatCompletionDriver timeout classification across the chain', () => {
+    // Shaped like the Stainless SDKs' timeout: no status, only the class.
+    class APIConnectionTimeoutError extends Error {
+        constructor() {
+            super('Request timed out.');
+        }
+    }
+
+    const completeShared = () =>
+        withTestActor(() =>
+            driver.complete({
+                model: 'deepseek-v4-pro',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+    it('returns 504 upstream_timeout when every route timed out', async () => {
+        createMock.mockRejectedValue(new APIConnectionTimeoutError());
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+        const attempts = (
+            err as unknown as { fields: { attempts: { timedOut?: boolean }[] } }
+        ).fields.attempts;
+        expect(attempts.length).toBeGreaterThan(1);
+        expect(attempts.every((a) => a.timedOut === true)).toBe(true);
+    });
+
+    it('counts a timed-out route as an upstream signal, so a mixed chain is not a 500', async () => {
+        createMock
+            .mockRejectedValueOnce(new APIConnectionTimeoutError())
+            .mockRejectedValue(new Error('upstream down'));
+
+        const err = await completeShared();
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
+        });
     });
 });

@@ -3,22 +3,35 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import net from 'node:net';
+import type { Request, RequestHandler, Response } from 'express';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { HttpError } from './core/http/HttpError.ts';
+import { extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
 import { allocateEphemeralPort, setupTestServer } from './testUtil.ts';
 import type { IConfig } from './types';
@@ -38,10 +51,11 @@ const rawRequest = (
     port: number,
     path: string,
     headers: Record<string, string> = {},
+    method = 'GET',
 ): Promise<RawResponse> =>
     new Promise((resolve, reject) => {
         const req = http.request(
-            { host: '127.0.0.1', port, path, method: 'GET', headers },
+            { host: '127.0.0.1', port, path, method, headers },
             (res) => {
                 let body = '';
                 res.setEncoding('utf8');
@@ -91,8 +105,11 @@ describe('PuterServer host header validation', () => {
         await server?.shutdown();
     });
 
-    const request = (path: string, headers: Record<string, string> = {}) =>
-        rawRequest(port, path, headers);
+    const request = (
+        path: string,
+        headers: Record<string, string> = {},
+        method = 'GET',
+    ) => rawRequest(port, path, headers, method);
 
     it('accepts the configured main domain and its subdomains', async () => {
         for (const host of [
@@ -183,6 +200,98 @@ describe('PuterServer host header validation', () => {
         );
     });
 
+    it('lets the dav subdomain answer its own OPTIONS', async () => {
+        // A DAV client opens a mount with OPTIONS and reads `DAV:` to decide
+        // the host speaks WebDAV at all. The blanket preflight reply is a bare
+        // 200 with no such header, which makes macOS abandon the mount before
+        // it ever sends credentials — so this request has to reach the
+        // controller instead.
+        const res = await request(
+            '/some-user',
+            { host: `dav.puter.localhost:${port}` },
+            'OPTIONS',
+        );
+        expect(res.headers['dav']).toContain('1');
+        expect(res.headers['dav']).toContain('2');
+    });
+
+    // The DAV controller declares one route per verb, so these check what only
+    // a real server can: that express materializes the WebDAV verbs, that the
+    // catch-all matches the root collection as well as deep paths, and that it
+    // stays on the `dav` subdomain.
+    it('routes every WebDAV verb on the dav subdomain, root included', async () => {
+        const dav = { host: `dav.puter.localhost:${port}` };
+        for (const [method, path] of [
+            ['PROPFIND', '/'],
+            ['PROPFIND', '/some-user/Documents'],
+            ['PROPPATCH', '/some-user/a.txt'],
+            ['MKCOL', '/some-user/new-folder'],
+            ['LOCK', '/some-user/a.txt'],
+            // Not a verb the controller implements; the catch-all that answers
+            // 405 has to authenticate first, like every other route.
+            ['SEARCH', '/some-user'],
+        ] as const) {
+            const res = await request(path, dav, method);
+            // Unauthenticated, so the reply is the auth challenge — what
+            // matters is that it came from the DAV controller and not from the
+            // 404 handler.
+            expect(res.status, `${method} ${path}`).toBe(401);
+            expect(res.headers['www-authenticate']).toContain('Basic');
+        }
+    });
+
+    it('leaves WebDAV verbs on other hosts alone', async () => {
+        // The DAV catch-all matches any path, so the subdomain gate is the only
+        // thing keeping it off the main domain.
+        const res = await request(
+            '/',
+            { host: `puter.localhost:${port}` },
+            'PROPFIND',
+        );
+        expect(res.status).not.toBe(401);
+        expect(res.status).not.toBe(405);
+        expect(res.headers['www-authenticate']).toBeUndefined();
+    });
+
+    it('answers a browser CORS preflight on the dav subdomain', async () => {
+        // Browsers send this credential-less probe before any cross-origin DAV
+        // verb and abandon the request unless it comes back 2xx.
+        const res = await request(
+            '/some-user/.vscode/settings.json',
+            {
+                host: `dav.puter.localhost:${port}`,
+                origin: 'https://code.puter.localhost',
+                'access-control-request-method': 'PROPFIND',
+                'access-control-request-headers': 'authorization,depth',
+            },
+            'OPTIONS',
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers['dav']).toContain('1');
+        expect(res.headers['access-control-max-age']).toBe('86400');
+        expect(String(res.headers['access-control-allow-headers'])).toContain(
+            'Depth',
+        );
+        expect(res.headers['access-control-allow-origin']).toBe(
+            'https://code.puter.localhost',
+        );
+        // A browser client reads ETags and lock tokens off the reply, so they
+        // have to be exposed to it.
+        expect(String(res.headers['access-control-expose-headers'])).toContain(
+            'ETag',
+        );
+    });
+
+    it('still short-circuits OPTIONS preflight off the dav subdomain', async () => {
+        const res = await request(
+            '/some-path',
+            { host: `api.puter.localhost:${port}` },
+            'OPTIONS',
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers['dav']).toBeUndefined();
+    });
+
     it('pins X-Frame-Options on the main domain only', async () => {
         const main = await request('/healthcheck', {
             host: 'puter.localhost',
@@ -209,6 +318,65 @@ describe('PuterServer host header validation', () => {
         } finally {
             server.clients.event.off('ip.validate', handler as never);
         }
+    });
+});
+
+/**
+ * Express reads subdomains relative to a fixed label count, so a root domain
+ * deeper than two labels is the case that breaks: `puter` reads as an active
+ * subdomain of the root origin itself, which bounces every root request into
+ * the user-subdomain 404.
+ */
+describe('PuterServer subdomain routing on a multi-label root domain', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.example.localhost',
+                origin: `http://puter.example.localhost:${port}`,
+                api_base_url: `http://api.puter.example.localhost:${port}`,
+                static_hosting_domain: 'site.puter.example.localhost',
+                static_hosting_domain_alt: 'host.puter.example.localhost',
+                private_app_hosting_domain: 'app.puter.example.localhost',
+                private_app_hosting_domain_alt: 'dev.puter.example.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    // Host headers here carry no port: the gate under test compares the
+    // host against `domain`, which is how it arrives from a proxy in practice.
+    it('serves the root origin instead of treating it as a user subdomain', async () => {
+        const res = await rawRequest(port, '/', {
+            host: 'puter.example.localhost',
+        });
+        expect(res.status).not.toBe(404);
+        expect(res.headers.location).toBeUndefined();
+    });
+
+    it('still 404s a user subdomain of that domain', async () => {
+        const res = await rawRequest(port, '/some/path', {
+            host: 'alice.puter.example.localhost',
+        });
+        expect(res.status).toBe(404);
+        expect(res.headers.location).toBeUndefined();
+    });
+
+    it('still recognizes reserved subdomains of that domain', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: 'api.puter.example.localhost',
+            origin: 'https://third-party.example',
+        });
+        expect(res.headers.location).toBeUndefined();
+        expect(res.headers['access-control-allow-credentials']).toBe('true');
     });
 });
 
@@ -248,5 +416,304 @@ describe('PuterServer host header validation — permissive modes', () => {
             host: '127-0-0-1.nip.io',
         });
         expect(res.status).toBe(200);
+    });
+});
+
+/**
+ * A route option is a declaration, so a malformed one has to be a boot failure
+ * naming the route: the alternative is a gate that reads as "subscribers only"
+ * to whoever edits the file next while admitting everybody. Extension routes
+ * run through the same materializer as controller routes, which makes them the
+ * cheap way to drive it.
+ */
+describe('PuterServer route option validation', () => {
+    const noop = (() => undefined) as unknown as RequestHandler;
+
+    afterEach(() => {
+        extensionStore.routeHandlers.length = 0;
+    });
+
+    it('refuses to boot on a requireSubscription that names nothing', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/plan-gated',
+            options: { requireSubscription: [] },
+            handler: noop,
+        });
+
+        await expect(setupTestServer()).rejects.toThrow(
+            /route GET \/plan-gated: requireSubscription: expected at least one subscription id/,
+        );
+    });
+
+    it('refuses to boot on a requireReputation that names no tier', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/reputation-gated',
+            options: { requireReputation: '  ' },
+            handler: noop,
+        });
+
+        await expect(setupTestServer()).rejects.toThrow(
+            /route GET \/reputation-gated: requireReputation: expected a non-empty tier name/,
+        );
+    });
+
+    it('boots with the requirement switched off, and leaves the route open', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/plan-open',
+            options: { requireSubscription: false },
+            handler: ((_req: Request, res: Response) =>
+                res.json({ ok: true })) as unknown as RequestHandler,
+        });
+
+        const listenPort = await allocateEphemeralPort();
+        const server = await setupTestServer(
+            {
+                port: listenPort,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${listenPort}`,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+        try {
+            // `false` declares nothing: no plan gate, and no auth gate
+            // dragged in behind it.
+            const res = await rawRequest(listenPort, '/plan-open', {
+                host: 'puter.localhost',
+            });
+            expect(res.status).toBe(200);
+        } finally {
+            await server.shutdown();
+        }
+    });
+});
+
+/**
+ * Dedup and repeat throttling mean a responder sees only an alarm's latest
+ * occurrence, so what a thrower attached in `fields` has to travel with each
+ * one — and a plain Error has to keep raising the same alarm without it.
+ */
+describe('PuterServer HTTP alarm gate', () => {
+    let server: PuterServer;
+    let port: number;
+
+    const attempts = [
+        { model: 'm', provider: 'a', error: 'boom' },
+        { model: 'm', provider: 'b', status: 502, error: 'bad gateway' },
+    ];
+
+    beforeAll(async () => {
+        extensionStore.routeHandlers.push(
+            {
+                method: 'get',
+                path: '/explode',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(500, 'All providers failed', {
+                        legacyCode: 'internal_error',
+                        // Same names as the gate's own fields, which must
+                        // stay the HTTP status and the thrown error.
+                        fields: { attempts, status: 'theirs', error: 'theirs' },
+                    });
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
+                path: '/plain',
+                options: {},
+                handler: (() => {
+                    throw new Error('kaboom');
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
+                path: '/credits-exhausted',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(503, 'AI provider out of credits', {
+                        legacyCode: 'upstream_credits_exhausted',
+                        fields: {
+                            attempts: [
+                                {
+                                    model: 'm',
+                                    provider: 'a',
+                                    status: 402,
+                                    error: 'Insufficient credits.',
+                                },
+                            ],
+                        },
+                    });
+                }) as unknown as RequestHandler,
+            },
+        );
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.routeHandlers.length = 0;
+        await server?.shutdown();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const raisedFor = async (path: string, status = 500) => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = await rawRequest(port, path, { host: 'puter.localhost' });
+        expect(res.status).toBe(status);
+        const raised = alarm.mock.calls.find((c) =>
+            String(c[0]).startsWith(`http_${status}:GET:${path}:`),
+        );
+        expect(raised).toBeTruthy();
+        return {
+            id: raised![0] as string,
+            fields: raised![2] as Record<string, unknown>,
+            severity: raised![3] as string,
+        };
+    };
+
+    it("attaches an HttpError's fields as `details` without touching its own", async () => {
+        const { id, fields } = await raisedFor('/explode');
+        expect(id).toBe(
+            'http_500:GET:/explode:internal_error:All providers failed',
+        );
+        expect(fields.details).toEqual({
+            attempts,
+            status: 'theirs',
+            error: 'theirs',
+        });
+        expect(fields.status).toBe(500);
+        expect(fields.error).toBeInstanceOf(HttpError);
+    });
+
+    it('raises the same alarm for a plain Error, with no details', async () => {
+        const { id, fields } = await raisedFor('/plain');
+        expect(id).toBe('http_500:GET:/plain:kaboom');
+        expect(fields.status).toBe(500);
+        expect(fields.error).toBeInstanceOf(Error);
+        expect(fields).not.toHaveProperty('details');
+    });
+
+    it('raises a warning when an upstream account is out of credits', async () => {
+        const { id, fields, severity } = await raisedFor(
+            '/credits-exhausted',
+            503,
+        );
+        expect(id).toBe(
+            'http_503:GET:/credits-exhausted:upstream_credits_exhausted:AI provider out of credits',
+        );
+        expect(severity).toBe('warning');
+        expect(fields.details).toEqual({
+            attempts: [
+                {
+                    model: 'm',
+                    provider: 'a',
+                    status: 402,
+                    error: 'Insufficient credits.',
+                },
+            ],
+        });
+    });
+});
+
+/**
+ * A proxy in front pools upstream connections, so this server closing an idle
+ * one first surfaces as a 502 to its clients. Run with a short timeout so the
+ * close is observable; what matters is that the configured value reaches the
+ * socket at all.
+ */
+describe('PuterServer keep-alive timeout', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            { port, keep_alive_timeout: 300 } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('closes an idle keep-alive connection at the configured timeout', async () => {
+        const socket = net.connect(port, '127.0.0.1');
+        await new Promise<void>((resolve, reject) => {
+            socket.once('connect', resolve);
+            socket.once('error', reject);
+        });
+        socket.write(
+            'GET /healthcheck HTTP/1.1\r\nHost: puter.localhost\r\n\r\n',
+        );
+        await new Promise<void>((resolve) => socket.once('data', resolve));
+
+        let timer: NodeJS.Timeout;
+        const closed = await Promise.race([
+            new Promise<boolean>((resolve) =>
+                socket.once('close', () => resolve(true)),
+            ),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), 3000);
+            }),
+        ]);
+        clearTimeout(timer!);
+        socket.destroy();
+        expect(closed).toBe(true);
+    });
+});
+
+/**
+ * Each layer's `onServerShutdown` has to run while the layers beneath it (the
+ * ones it writes through) are still up, so teardown goes top-down: drivers,
+ * controllers, services, stores, clients — the reverse of construction order.
+ */
+describe('PuterServer shutdown order', () => {
+    it('tears layers down top-down: drivers, controllers, services, stores, clients', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+
+        const order: string[] = [];
+        const probe = (label: string) => ({
+            onServerShutdown: () => {
+                order.push(label);
+            },
+        });
+        (server.drivers as Record<string, unknown>).shutdownOrderProbe =
+            probe('driver');
+        (server.controllers as Record<string, unknown>).shutdownOrderProbe =
+            probe('controller');
+        (server.services as Record<string, unknown>).shutdownOrderProbe =
+            probe('service');
+        (server.stores as Record<string, unknown>).shutdownOrderProbe =
+            probe('store');
+        (server.clients as Record<string, unknown>).shutdownOrderProbe =
+            probe('client');
+
+        await server.shutdown();
+
+        expect(order).toEqual([
+            'driver',
+            'controller',
+            'service',
+            'store',
+            'client',
+        ]);
     });
 });

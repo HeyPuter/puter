@@ -84,6 +84,16 @@ function signaturesEqual(provided: string, expected: string): boolean {
 }
 
 /**
+ * Lifetime for a signature over an entry the signer doesn't own.
+ *
+ * `verifySignature` checks the signature and expiry, never the ACL, so a URL
+ * handed to a recipient keeps working after their access is revoked. This is
+ * what bounds that window; the durable fix is a per-entry signature epoch the
+ * owner can bump.
+ */
+export const NON_OWNER_SIGNATURE_TTL_SECONDS = 60 * 60;
+
+/**
  * Produce a signed-URL object. The default `expires` timestamp uses a
  * ~317k-year TTL (effectively permanent) — existing clients depend on that
  * default; callers that want shorter-lived signatures can pass their own

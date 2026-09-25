@@ -1,6 +1,6 @@
 ---
 title: puter.fs.rename()
-description: Rename files or directories in Puter file system.
+description: Rename files or directories in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 

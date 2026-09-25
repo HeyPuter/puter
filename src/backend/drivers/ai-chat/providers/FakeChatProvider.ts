@@ -20,7 +20,12 @@
 import dedent from 'dedent';
 import { LoremIpsum } from 'lorem-ipsum';
 import { AIChatStream } from '../utils/Streaming.js';
-import { IChatProvider, ICompleteArguments, PuterMessage } from '../types.js';
+import {
+    IChatModel,
+    IChatProvider,
+    ICompleteArguments,
+    PuterMessage,
+} from '../types.js';
 
 export class FakeChatProvider implements IChatProvider {
     checkModeration(_text: string) {
@@ -31,7 +36,9 @@ export class FakeChatProvider implements IChatProvider {
         return 'fake';
     }
 
-    async models() {
+    // Annotated (rather than inferred) so test mocks of this method accept
+    // any IChatModel field, not just the ones the fake catalog happens to use.
+    async models(): Promise<IChatModel[]> {
         return [
             {
                 id: 'fake',

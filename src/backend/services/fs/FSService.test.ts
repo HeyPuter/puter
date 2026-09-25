@@ -19,6 +19,7 @@
  */
 
 import { Readable } from 'node:stream';
+import { CreateBucketCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
@@ -37,6 +38,7 @@ import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionHelpers.js';
 import { setupTestServer } from '../../testUtil.js';
+import type { IConfig } from '../../types.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSService } from './FSService.js';
 import { UNLIMITED_STORAGE_ALLOWANCE } from './FSService.js';
@@ -167,6 +169,26 @@ const entryAt = (user: TestUser, path: string) =>
         skipCache: true,
     });
 
+/**
+ * Every `setupTestServer()` shares one cache mock and sqlite reuses numeric
+ * user ids across fresh in-memory databases, so a prior describe block's
+ * leftover leases for "user 5" can bleed into a later one's own user 5. Quota
+ * tests that mint a fresh owner call this to start it with a clean reservation
+ * state.
+ */
+const clearUploadReservations = async (
+    testServer: PuterServer,
+    ownerId: number,
+): Promise<void> => {
+    const redis = testServer.clients.redis as unknown as {
+        del: (...keys: string[]) => Promise<number>;
+    };
+    await redis.del(
+        `prodfsv2:upload-reservations:{${ownerId}}`,
+        `prodfsv2:upload-reservation-totals:{${ownerId}}`,
+    );
+};
+
 describe('FSService write input validation', () => {
     let user: TestUser;
     beforeAll(async () => {
@@ -192,8 +214,14 @@ describe('FSService write input validation', () => {
         expect(error.legacyCode).toBe('cannot_write_to_root');
     });
 
-    it('rejects a negative or unparseable size', async () => {
-        for (const size of [-1, Number.NaN, 'abc']) {
+    it('rejects a negative, non-finite, or unparseable size', async () => {
+        for (const size of [
+            -1,
+            Number.NaN,
+            'abc',
+            Number.POSITIVE_INFINITY,
+            Number.NEGATIVE_INFINITY,
+        ]) {
             const error = await caught(() =>
                 fs.write(user.userId, {
                     fileMetadata: {
@@ -206,6 +234,22 @@ describe('FSService write input validation', () => {
             expect(error.statusCode).toBe(400);
             expect(error.message).toBe('Invalid file size');
         }
+    });
+
+    // A declared size of Infinity would otherwise become an unbounded lease
+    // (clamped, but still a hole worth closing at the door): reject it before
+    // any reservation is ever taken.
+    it('rejects a non-finite declared size on a signed upload before reserving anything', async () => {
+        const error = await caught(() =>
+            fs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/infinite.bin`,
+                    size: Number.POSITIVE_INFINITY,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(error.message).toBe('Invalid file size');
     });
 
     it('normalizes a trailing slash and a missing leading slash', async () => {
@@ -495,6 +539,36 @@ describe('FSService overwrite and dedupe resolution', () => {
         expect(await readBack(second)).toBe('bbbbb');
     });
 
+    it('keeps an overwrite in the bucket the entry already lives in', async () => {
+        const first = await writeFile(
+            user,
+            `${user.home}/Documents/pinned.txt`,
+            'first',
+        );
+        // A row whose content lives in another region's bucket — e.g. the
+        // owner uploaded it through a server in that region.
+        await server.clients.s3
+            .get('eu-central-1')
+            .send(new CreateBucketCommand({ Bucket: 'far-bucket' }));
+        await server.clients.db.write(
+            'UPDATE fsentries SET bucket = ?, bucket_region = ? WHERE uuid = ?',
+            ['far-bucket', 'eu-central-1', first.uuid],
+        );
+
+        const second = await writeFile(
+            user,
+            `${user.home}/Documents/pinned.txt`,
+            'second',
+            { overwrite: true },
+        );
+
+        // Uploading to this server's bucket instead would repoint the row
+        // and strand the original object in the old bucket.
+        expect(second.bucket).toBe('far-bucket');
+        expect(second.bucketRegion).toBe('eu-central-1');
+        expect(await readBack(second)).toBe('second');
+    });
+
     it('dedupes into an unused " (n)" name, skipping names already taken', async () => {
         await writeFile(user, `${user.home}/Documents/d.txt`, 'a');
         await writeFile(user, `${user.home}/Documents/d (1).txt`, 'a');
@@ -570,6 +644,7 @@ describe('FSService storage allowance', () => {
             limitedServer.stores.user,
             created,
         );
+        await clearUploadReservations(limitedServer, created.id);
         const home = `/${username}`;
         return {
             userId: created.id,
@@ -625,6 +700,37 @@ describe('FSService storage allowance', () => {
         const user = await quotaUser(64);
         await expect(
             user.write('raised.txt', 'x'.repeat(65), 1024),
+        ).resolves.toMatchObject({ wasOverwrite: false });
+    });
+
+    it("judges a write into another user's tree by that owner's allowance", async () => {
+        const owner = await quotaUser(8);
+        const writer = await quotaUser(1024);
+
+        // The override comes off the ACTING user's row — a roomy writer must
+        // not raise a full owner's cap when writing into the owner's tree
+        // (e.g. through a shared folder).
+        const error = await caught(() =>
+            limitedFs.write(
+                writer.userId,
+                {
+                    fileMetadata: {
+                        path: `${owner.home}/Documents/big.txt`,
+                        size: 16,
+                        contentType: 'text/plain',
+                    },
+                    fileContent: 'x'.repeat(16),
+                },
+                undefined,
+                1024,
+            ),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+
+        // The same override still applies to the writer's own tree.
+        await expect(
+            writer.write('big.txt', 'x'.repeat(16), 1024),
         ).resolves.toMatchObject({ wasOverwrite: false });
     });
 
@@ -868,6 +974,509 @@ describe('FSService storage allowance', () => {
             ]),
         );
         expect(error.statusCode).toBe(413);
+    });
+
+    // -- Pending signed uploads count against the allowance ------------
+
+    it('counts a still-pending signed upload against the next start', async () => {
+        const user = await quotaUser(64);
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/pending-1.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/pending-2.txt`,
+                    size: 40,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+    });
+
+    it('rejects the excess of a parallel burst of starts instead of admitting all of it', async () => {
+        const user = await quotaUser(100);
+        const results = await Promise.allSettled(
+            Array.from({ length: 10 }, (_, i) =>
+                limitedFs.startUrlWrite(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/burst-${i}.txt`,
+                        size: 30,
+                    },
+                }),
+            ),
+        );
+        const fulfilled = results.filter(
+            (result) => result.status === 'fulfilled',
+        );
+        const rejected = results.filter(
+            (result): result is PromiseRejectedResult =>
+                result.status === 'rejected',
+        );
+        expect(fulfilled).toHaveLength(3);
+        for (const result of rejected) {
+            expect(result.reason).toMatchObject({
+                statusCode: 413,
+                legacyCode: 'storage_limit_reached',
+            });
+        }
+    });
+
+    it('judges a parallel burst of batch starts together', async () => {
+        const user = await quotaUser(100);
+        const results = await Promise.allSettled(
+            Array.from({ length: 4 }, (_, i) =>
+                limitedFs.batchStartUrlWrites(user.userId, [
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/pbatch-${i}-a.txt`,
+                            size: 20,
+                        },
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/pbatch-${i}-b.txt`,
+                            size: 20,
+                        },
+                    },
+                ]),
+            ),
+        );
+        expect(
+            results.filter((result) => result.status === 'fulfilled'),
+        ).toHaveLength(2);
+    });
+
+    it('reserves a multipart start’s declared size and rejects a second that no longer fits', async () => {
+        const maxSingle = limitedFs.getMaxSingleUploadSize();
+        const user = await quotaUser(maxSingle * 3);
+        const first = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/mp-1.bin`,
+                size: maxSingle * 2,
+            },
+            uploadMode: 'multipart',
+        });
+        expect(first.uploadMode).toBe('multipart');
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/mp-2.bin`,
+                    size: maxSingle * 2,
+                },
+                uploadMode: 'multipart',
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        await limitedFs.abortUrlWrite(user.userId, first.sessionId);
+    });
+
+    it('settles on completion so the next start sees exact committed usage', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/settle.txt`,
+                size: 40,
+            },
+        });
+        await fetch(started.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        await limitedFs.completeUrlWrite(user.userId, {
+            uploadId: started.sessionId,
+        });
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/after-1.txt`,
+                    size: 20,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/after-2.txt`,
+                    size: 10,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+    });
+
+    it('settles a batch completion the same way', async () => {
+        const user = await quotaUser(64);
+        const [started] = await limitedFs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bsettle.txt`,
+                    size: 40,
+                },
+            },
+        ]);
+        await fetch(started!.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        await limitedFs.batchCompleteUrlWrite(user.userId, [
+            { uploadId: started!.sessionId },
+        ]);
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bafter-1.txt`,
+                    size: 20,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bafter-2.txt`,
+                    size: 10,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+    });
+
+    it('a start that only fits once settled bytes are excluded still passes', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/exact-1.txt`,
+                size: 40,
+            },
+        });
+        await fetch(started.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        await limitedFs.completeUrlWrite(user.userId, {
+            uploadId: started.sessionId,
+        });
+
+        // Fast path double-counts here: curr(40) + settled(40) + 24 > 64.
+        // Only the primary re-check — which excludes settled bytes already
+        // reflected in curr — lets this through.
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/exact-2.txt`,
+                    size: 24,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('abort releases the reservation for reuse', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/abort-1.txt`,
+                size: 40,
+            },
+        });
+        await limitedFs.abortUrlWrite(user.userId, started.sessionId);
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/abort-2.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('abort of an overwrite session also releases its reservation', async () => {
+        const user = await quotaUser(64);
+        await user.write('overwrite-abort.txt', 'kept');
+
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/overwrite-abort.txt`,
+                size: 40,
+                overwrite: true,
+            },
+        });
+        await limitedFs.abortUrlWrite(user.userId, started.sessionId);
+
+        await expect(
+            limitedServer.stores.uploadReservation.outstanding(user.userId),
+        ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+    });
+
+    it('a failed pending-row write releases its reservation', async () => {
+        const user = await quotaUser(64);
+        const createPendingEntry = vi
+            .spyOn(limitedServer.stores.fsEntry, 'createPendingEntry')
+            .mockRejectedValueOnce(new Error('pending row write failed'));
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/reserve-fail-1.txt`,
+                    size: 40,
+                },
+            }),
+        ).rejects.toThrow('pending row write failed');
+        createPendingEntry.mockRestore();
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/reserve-fail-2.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('a refused completion releases its reservation', async () => {
+        const user = await quotaUser(64);
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/refuse-release.txt`,
+                size: 40,
+            },
+        });
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        await expect(
+            limitedFs.completeUrlWrite(user.userId, {
+                uploadId: started.sessionId,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        await expect(
+            limitedServer.stores.uploadReservation.outstanding(user.userId),
+        ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/refuse-release-2.txt`,
+                    size: 40,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        consoleWarn.mockRestore();
+    });
+
+    it('a refused batch item releases only its own lease', async () => {
+        const user = await quotaUser(64);
+        const responses = await limitedFs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-a.txt`,
+                    size: 30,
+                },
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-b.txt`,
+                    size: 30,
+                },
+            },
+        ]);
+        await fetch(responses[0]!.url!, {
+            method: 'PUT',
+            body: 'x'.repeat(30),
+        });
+        // No PUT for responses[1] — refused, its lease is released.
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        await expect(
+            limitedFs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: responses[0]!.sessionId },
+                { uploadId: responses[1]!.sessionId },
+            ]),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // a's 30-byte lease is still held (nothing committed): 30 + 40 > 64.
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-c.txt`,
+                    size: 40,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        // Only b's 30-byte lease was released: 30 + 30 still fits in 64.
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/batch-lease-d.txt`,
+                    size: 30,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        consoleWarn.mockRestore();
+    });
+
+    it('a pending signed upload counts against a direct write too', async () => {
+        const user = await quotaUser(64);
+        await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/write-block.txt`,
+                size: 40,
+            },
+        });
+
+        const error = await caught(() =>
+            limitedFs.write(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/direct.txt`,
+                    size: 40,
+                },
+                fileContent: 'x'.repeat(40),
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+    });
+
+    it('an overwrite only reserves the size it adds beyond what it replaces', async () => {
+        const user = await quotaUser(64);
+        const path = `${user.home}/Documents/overwrite-target.txt`;
+        await limitedFs.write(user.userId, {
+            fileMetadata: { path, size: 40 },
+            fileContent: 'x'.repeat(40),
+        });
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: { path, size: 50, overwrite: true },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/overwrite-new-20.txt`,
+                    size: 20,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/overwrite-new-14.txt`,
+                    size: 14,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+    });
+
+    it('an unlimited override reserves nothing', async () => {
+        const user = await quotaUser(64);
+        await limitedFs.startUrlWrite(
+            user.userId,
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/unlimited.txt`,
+                    size: 100,
+                },
+            },
+            UNLIMITED_STORAGE_ALLOWANCE,
+        );
+
+        expect(
+            await limitedServer.stores.uploadReservation.outstanding(
+                user.userId,
+            ),
+        ).toEqual({ activeBytes: 0, settledBytes: 0 });
+    });
+
+    // Filling 10,000 real leases through the cache mock is slow — well past
+    // the default test timeout.
+    it('maps a refused reservation to the existing too-many-requests shape', async () => {
+        const service = limitedFs.constructor as typeof FSService;
+        const cap = service.MAX_PENDING_UPLOADS_PER_OWNER;
+        service.MAX_PENDING_UPLOADS_PER_OWNER = 5;
+        try {
+            const user = await quotaUser(64);
+            const leases = Array.from({ length: 5 }, () => ({
+                sessionId: uuidv4(),
+                bytes: 1,
+                deadline: Date.now() + 60_000,
+            }));
+            const filled = await limitedServer.stores.uploadReservation.take(
+                user.userId,
+                leases,
+                5,
+            );
+            expect(filled).toMatchObject({ added: true });
+
+            const error = await caught(() =>
+                limitedFs.startUrlWrite(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/capped.txt`,
+                        size: 1,
+                    },
+                }),
+            );
+            expect(error.statusCode).toBe(429);
+            expect(error.legacyCode).toBe('too_many_requests');
+        } finally {
+            service.MAX_PENDING_UPLOADS_PER_OWNER = cap;
+        }
+    });
+
+    it('fails open when the cache errors: usage alone still gates a 413', async () => {
+        const user = await quotaUser(64);
+        // Trigger lazy script registration before spying on the command.
+        const warm = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/warmup.txt`,
+                size: 1,
+            },
+        });
+        await limitedFs.abortUrlWrite(user.userId, warm.sessionId);
+
+        const redis = limitedServer.clients.redis as unknown as {
+            uploadReservationTake: () => Promise<unknown>;
+        };
+        const spy = vi
+            .spyOn(redis, 'uploadReservationTake')
+            .mockRejectedValue(new Error('cache down'));
+
+        await expect(
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/fail-open-ok.txt`,
+                    size: 30,
+                },
+            }),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/fail-open-over.txt`,
+                    size: 80,
+                },
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+
+        spy.mockRestore();
     });
 });
 
@@ -1157,12 +1766,210 @@ describe('FSService signed (direct-to-S3) writes', () => {
         expect(await readBack(completed.fsEntry)).toBe('hello world');
     });
 
-    it('keeps the declared size when the object was never uploaded', async () => {
+    it('refuses to complete a single upload whose object never arrived', async () => {
         const response = await start(`${user.home}/Documents/nobytes.txt`);
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(error.legacyCode).toBe('bad_request');
+        expect(error.message).toBe('Upload content was not received');
+
+        const session = await server.stores.fsEntry.getPendingEntryBySessionId(
+            response.sessionId,
+        );
+        expect(session?.status).toBe('failed');
+        expect(session?.failureReason).toBe('Upload content was not received');
+        expect(await entryAt(user, '/Documents/nobytes.txt')).toBeNull();
+
+        // Replaying the completion keeps answering the same way.
+        const replayed = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(replayed.statusCode).toBe(400);
+        expect(replayed.legacyCode).toBe('bad_request');
+
+        consoleWarn.mockRestore();
+    });
+
+    it('keeps the declared size when the size check itself fails', async () => {
+        const response = await start(`${user.home}/Documents/head-fails.txt`);
+        // The object actually landed (11 bytes) but the confirming HEAD is
+        // about to fail transiently — the declared 5 must survive, not 11.
+        await fetch(response.url!, { method: 'PUT', body: 'hello world' });
+        const headObjectSize = vi
+            .spyOn(server.stores.s3Object, 'headObjectSize')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('service unavailable'), {
+                    name: 'Unknown',
+                    $metadata: { httpStatusCode: 503 },
+                }),
+            );
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
         const completed = await fs.completeUrlWrite(user.userId, {
             uploadId: response.sessionId,
         });
         expect(completed.fsEntry.size).toBe(5);
+
+        headObjectSize.mockRestore();
+        consoleWarn.mockRestore();
+    });
+
+    it('completes a zero-byte upload that actually PUT empty content', async () => {
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/zero.txt`,
+                size: 0,
+                contentType: 'text/plain',
+            },
+        });
+        await fetch(response.url!, { method: 'PUT', body: '' });
+
+        const completed = await fs.completeUrlWrite(user.userId, {
+            uploadId: response.sessionId,
+        });
+        expect(completed.fsEntry.size).toBe(0);
+        expect(await readBack(completed.fsEntry)).toBe('');
+    });
+
+    it('refuses a zero-byte upload with no PUT at all', async () => {
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/zero-missing.txt`,
+                size: 0,
+                contentType: 'text/plain',
+            },
+        });
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(error.statusCode).toBe(400);
+
+        consoleWarn.mockRestore();
+    });
+
+    it('completes an overwrite with no new PUT by keeping the existing bytes', async () => {
+        const path = `${user.home}/Documents/overwrite-lenient.txt`;
+        await writeFile(user, path, 'original');
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 999, overwrite: true },
+        });
+        // No PUT — the overwrite session reuses the existing entry's object
+        // key, so the confirming HEAD finds the old bytes still there.
+        const completed = await fs.completeUrlWrite(user.userId, {
+            uploadId: response.sessionId,
+        });
+        expect(completed.wasOverwrite).toBe(true);
+        expect(completed.fsEntry.size).toBe(Buffer.byteLength('original'));
+        expect(await readBack(completed.fsEntry)).toBe('original');
+    });
+
+    it('abort of an overwrite session leaves the live file readable', async () => {
+        const path = `${user.home}/Documents/abort-overwrite.txt`;
+        await writeFile(user, path, 'kept');
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 40, overwrite: true },
+        });
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+
+        expect(deleteObject).not.toHaveBeenCalled();
+        const stillThere = await entryAt(
+            user,
+            '/Documents/abort-overwrite.txt',
+        );
+        expect(stillThere).not.toBeNull();
+        expect(await readBack(stillThere!)).toBe('kept');
+        const session = await server.stores.fsEntry.getPendingEntryBySessionId(
+            response.sessionId,
+        );
+        expect(session?.status).toBe('aborted');
+
+        deleteObject.mockRestore();
+    });
+
+    it('abort of an overwrite leaves the object under a touch-created target', async () => {
+        const path = `${user.home}/Documents/touch-overwrite-abort.txt`;
+        const touched = await fs.touch(user.userId, { path });
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 40, overwrite: true },
+        });
+        // The entry still exists, so its key is left alone even though it
+        // had no object of its own; a later overwrite reuses the key.
+        expect(response.objectKey).toBe(touched.uuid);
+        await fetch(response.url!, { method: 'PUT', body: 'x'.repeat(40) });
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+
+        expect(deleteObject).not.toHaveBeenCalled();
+        const stillThere = await entryAt(
+            user,
+            '/Documents/touch-overwrite-abort.txt',
+        );
+        expect(stillThere).not.toBeNull();
+        expect(await readBack(stillThere!)).toBe('');
+
+        deleteObject.mockRestore();
+    });
+
+    it('abort of an overwrite deletes the object once the target has been removed', async () => {
+        const path = `${user.home}/Documents/overwrite-target-gone.txt`;
+        const original = await writeFile(user, path, 'original');
+
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: { path, size: 40, overwrite: true },
+        });
+        // The target is removed out from under the pending session.
+        await fs.remove(user.userId, { entry: original });
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+
+        expect(deleteObject).toHaveBeenCalledWith(
+            response.bucket,
+            response.objectKey,
+            response.bucketRegion,
+        );
+
+        deleteObject.mockRestore();
+    });
+
+    it('abort after completion leaves the committed file readable and the session completed', async () => {
+        const response = await start(
+            `${user.home}/Documents/abort-after-complete.txt`,
+        );
+        await fetch(response.url!, { method: 'PUT', body: 'hello' });
+        const completed = await fs.completeUrlWrite(user.userId, {
+            uploadId: response.sessionId,
+        });
+
+        const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+        expect(deleteObject).not.toHaveBeenCalled();
+
+        expect(await readBack(completed.fsEntry)).toBe('hello');
+        const session = await server.stores.fsEntry.getPendingEntryBySessionId(
+            response.sessionId,
+        );
+        expect(session?.status).toBe('completed');
+
+        deleteObject.mockRestore();
     });
 
     it('creates a directory entry instead of an upload session', async () => {
@@ -1209,6 +2016,25 @@ describe('FSService signed (direct-to-S3) writes', () => {
         await fs.abortUrlWrite(user.userId, response.sessionId);
     });
 
+    it('keeps a zero-byte write single even when multipart is requested', async () => {
+        // Multipart on a zero declared size is how a caller reaches for a part
+        // URL carrying no size limit, against a quota check that saw nothing.
+        const response = await fs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/empty.bin`,
+                size: 0,
+                contentType: 'application/octet-stream',
+            },
+            uploadMode: 'multipart',
+        });
+
+        expect(response.uploadMode).toBe('single');
+        expect(response.multipartUploadId).toBeFalsy();
+        expect(response.multipartPartUrls).toBeFalsy();
+
+        await fs.abortUrlWrite(user.userId, response.sessionId);
+    });
+
     it('aborts the multipart upload when the pending row cannot be written', async () => {
         const abort = vi.spyOn(server.stores.s3Object, 'abortMutipartUpload');
         const createPendingEntry = vi
@@ -1245,6 +2071,7 @@ describe('FSService signed (direct-to-S3) writes', () => {
         expect(foreign.statusCode).toBe(403);
         expect(foreign.legacyCode).toBe('forbidden');
 
+        await fetch(response.url!, { method: 'PUT', body: '12345' });
         await fs.completeUrlWrite(user.userId, {
             uploadId: response.sessionId,
         });
@@ -1660,6 +2487,7 @@ describe('FSService batch signed writes', () => {
         );
         expect(foreign.statusCode).toBe(403);
 
+        await fetch(response.url!, { method: 'PUT', body: 'x' });
         await fs.batchCompleteUrlWrite(user.userId, [
             { uploadId: response.sessionId },
         ]);
@@ -1735,6 +2563,137 @@ describe('FSService batch signed writes', () => {
                 responses[0]!.objectKey,
             )
             .catch(() => undefined);
+    });
+
+    it('refuses a batch with an unreceived item, failing only that item', async () => {
+        const responses = await fs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-recv-a.txt`,
+                    size: 2,
+                },
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-recv-b.txt`,
+                    size: 2,
+                },
+            },
+        ]);
+        await fetch(responses[0]!.url!, { method: 'PUT', body: 'ab' });
+        // No PUT for responses[1] — its object never arrives.
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: responses[0]!.sessionId },
+                { uploadId: responses[1]!.sessionId },
+            ]),
+        );
+        expect(error.statusCode).toBe(400);
+
+        const sessionA = await server.stores.fsEntry.getPendingEntryBySessionId(
+            responses[0]!.sessionId,
+        );
+        const sessionB = await server.stores.fsEntry.getPendingEntryBySessionId(
+            responses[1]!.sessionId,
+        );
+        expect(sessionA?.status).toBe('pending');
+        expect(sessionB?.status).toBe('failed');
+        expect(sessionB?.failureReason).toBe('Upload content was not received');
+        expect(await entryAt(user, '/Documents/bc-recv-a.txt')).toBeNull();
+        expect(await entryAt(user, '/Documents/bc-recv-b.txt')).toBeNull();
+
+        // The untouched sibling can still be completed on its own.
+        const completedA = await fs.completeUrlWrite(user.userId, {
+            uploadId: responses[0]!.sessionId,
+        });
+        expect(completedA.fsEntry.size).toBe(2);
+
+        const stillRefusedB = await caught(() =>
+            fs.completeUrlWrite(user.userId, {
+                uploadId: responses[1]!.sessionId,
+            }),
+        );
+        expect(stillRefusedB.statusCode).toBe(400);
+
+        consoleWarn.mockRestore();
+    });
+
+    it('checks single-part objects before completing any multipart upload', async () => {
+        const totalSize = fs.getMaxSingleUploadSize() * 2;
+        const responses = await fs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-order-mp.bin`,
+                    size: totalSize,
+                },
+                uploadMode: 'multipart',
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/bc-order-single.txt`,
+                    size: 5,
+                },
+            },
+        ]);
+        const multipart = responses[0]!;
+        const partSize = multipart.multipartPartSize!;
+        // Really PUT every part and carry real ETags — a fake/omitted parts
+        // array would already 400 before completeMultipartUpload is ever
+        // reached, which wouldn't prove anything about ordering. This way,
+        // completeMultipartUpload would actually succeed if it ran, so
+        // it not being called only holds if the single-item probe below
+        // genuinely runs first.
+        const uploadedParts: { partNumber: number; etag: string }[] = [];
+        for (const { partNumber, url } of multipart.multipartPartUrls!) {
+            const offset = (partNumber - 1) * partSize;
+            const bodySize = Math.min(partSize, totalSize - offset);
+            const uploaded = await fetch(url, {
+                method: 'PUT',
+                body: 'x'.repeat(bodySize),
+            });
+            uploadedParts.push({
+                partNumber,
+                etag: uploaded.headers.get('etag')!,
+            });
+        }
+        // No PUT for the single item — it's what must be caught before the
+        // (otherwise-successful) multipart completion is ever attempted.
+        const completeMultipartUpload = vi.spyOn(
+            server.stores.s3Object,
+            'completeMultipartUpload',
+        );
+        const consoleWarn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() =>
+            fs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: multipart.sessionId, parts: uploadedParts },
+                { uploadId: responses[1]!.sessionId },
+            ]),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(completeMultipartUpload).not.toHaveBeenCalled();
+        expect(
+            (
+                await server.stores.fsEntry.getPendingEntryBySessionId(
+                    multipart.sessionId,
+                )
+            )?.status,
+        ).toBe('pending');
+
+        completeMultipartUpload.mockRestore();
+        consoleWarn.mockRestore();
+        await server.stores.s3Object.abortMutipartUpload(
+            multipart.multipartUploadId!,
+            multipart.bucketRegion,
+            multipart.bucket,
+            multipart.objectKey,
+        );
     });
 });
 
@@ -1838,6 +2797,111 @@ describe('FSService reads', () => {
         expect(await entryAt(user, '/Documents/broken.txt')).not.toBeNull();
 
         getObjectStream.mockRestore();
+    });
+
+    it('keeps the row when a second look finds the object', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/flaky-read.txt`,
+            'still here',
+        );
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('no such key'), { name: 'NoSuchKey' }),
+            );
+        const consoleError = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() => fs.readContent(entry));
+        expect(error.statusCode).toBe(404);
+
+        // The confirming HEAD found the object still there, so the row and
+        // its bytes survive the spurious first miss.
+        expect(await entryAt(user, '/Documents/flaky-read.txt')).not.toBeNull();
+        expect(await readBack(entry)).toBe('still here');
+
+        getObjectStream.mockRestore();
+        consoleError.mockRestore();
+    });
+
+    it('keeps the row when the entry has no recorded region', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/no-region.txt`,
+            'x',
+        );
+        // Actually delete the backing object first: if the missing-region
+        // guard didn't short-circuit, a confirming HEAD would genuinely find
+        // it gone and delete the row.
+        await server.stores.s3Object.deleteObject(
+            entry.bucket!,
+            entry.uuid,
+            entry.bucketRegion!,
+        );
+        await server.clients.db.write(
+            'UPDATE fsentries SET bucket_region = NULL WHERE uuid = ?',
+            [entry.uuid],
+        );
+        const noRegionEntry = (await entryAt(
+            user,
+            '/Documents/no-region.txt',
+        ))!;
+
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('no such key'), { name: 'NoSuchKey' }),
+            );
+        const headObjectSize = vi.spyOn(
+            server.stores.s3Object,
+            'headObjectSize',
+        );
+        const consoleError = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() => fs.readContent(noRegionEntry));
+        expect(error.statusCode).toBe(404);
+        // With no recorded region there is nowhere safe to confirm from, so
+        // the guard short-circuits before ever probing — the row survives
+        // even though the object is genuinely gone.
+        expect(headObjectSize).not.toHaveBeenCalled();
+        expect(await entryAt(user, '/Documents/no-region.txt')).not.toBeNull();
+
+        getObjectStream.mockRestore();
+        headObjectSize.mockRestore();
+        consoleError.mockRestore();
+    });
+
+    it('keeps the row when the confirming look fails', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/confirm-fails.txt`,
+            'x',
+        );
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('no such key'), { name: 'NoSuchKey' }),
+            );
+        const headObjectSize = vi
+            .spyOn(server.stores.s3Object, 'headObjectSize')
+            .mockRejectedValueOnce(new Error('connection reset'));
+        const consoleError = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+
+        const error = await caught(() => fs.readContent(entry));
+        expect(error.statusCode).toBe(404);
+        expect(
+            await entryAt(user, '/Documents/confirm-fails.txt'),
+        ).not.toBeNull();
+
+        getObjectStream.mockRestore();
+        headObjectSize.mockRestore();
+        consoleError.mockRestore();
     });
 
     it('lists, counts and searches a directory tree', async () => {
@@ -2111,11 +3175,55 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             `${user.home}/Documents/before.txt`,
             'x',
         );
-        const renamed = await fs.rename(entry, 'after.txt');
+        const renamed = await fs.rename(user.userId, entry, 'after.txt');
 
         expect(renamed.name).toBe('after.txt');
         expect(renamed.path).toBe(`${user.home}/Documents/after.txt`);
         expect(await entryAt(user, '/Documents/before.txt')).toBeNull();
+    });
+
+    it('rename returns the new path even when the replica lags behind the update', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/stale-rename.txt`,
+            'x',
+        );
+
+        const db = server.clients.db;
+        const staleRows = (await db.read(
+            'SELECT * FROM fsentries WHERE uuid = ?',
+            [entry.uuid],
+        )) as Array<Record<string, unknown>>;
+        for (const row of staleRows) row.subdomains_agg = null;
+
+        const originalTryHardRead = (Object.getPrototypeOf(db) as typeof db)
+            .tryHardRead;
+        const tryHardReadSpy = vi
+            .spyOn(db, 'tryHardRead')
+            .mockImplementation(async (query: string, params: unknown[] = []) => {
+                if (
+                    query.includes('WHERE uuid = ? LIMIT 1') &&
+                    params[0] === entry.uuid
+                ) {
+                    return staleRows;
+                }
+                return originalTryHardRead.call(db, query, params);
+            });
+        try {
+
+            const renamed = await fs.rename(
+                user.userId,
+                entry,
+                'stale-rename-2.txt',
+            );
+
+            expect(renamed.path).toBe(
+                `${user.home}/Documents/stale-rename-2.txt`,
+            );
+
+        } finally {
+            tryHardReadSpy.mockRestore();
+        }
     });
 
     it('rewrites descendant paths when a directory is renamed', async () => {
@@ -2124,7 +3232,7 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         });
         await writeFile(user, `${user.home}/Documents/olddir/inner.txt`, 'x');
 
-        await fs.rename(dir, 'newdir');
+        await fs.rename(user.userId, dir, 'newdir');
 
         expect(
             await entryAt(user, '/Documents/newdir/inner.txt'),
@@ -2140,18 +3248,37 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         );
         await writeFile(user, `${user.home}/Documents/taken.txt`, 'x');
 
-        expect((await caught(() => fs.rename(entry, 'a/b'))).message).toBe(
-            'Name cannot contain a slash',
-        );
-        expect((await caught(() => fs.rename(entry, '   '))).message).toBe(
-            'Name cannot be empty',
-        );
         expect(
-            (await caught(() => fs.rename(entry, 'taken.txt'))).statusCode,
+            (await caught(() => fs.rename(user.userId, entry, 'a/b'))).message,
+        ).toBe('Name cannot contain a slash');
+        expect(
+            (await caught(() => fs.rename(user.userId, entry, '   '))).message,
+        ).toBe('Name cannot be empty');
+        expect(
+            (await caught(() => fs.rename(user.userId, entry, 'taken.txt')))
+                .statusCode,
         ).toBe(409);
 
         // Renaming to the current name is a no-op that returns the same row.
-        await expect(fs.rename(entry, 'ren.txt')).resolves.toBe(entry);
+        await expect(fs.rename(user.userId, entry, 'ren.txt')).resolves.toBe(
+            entry,
+        );
+    });
+
+    it("refuses to rename another user's entry without write on it", async () => {
+        const other = await makeUser();
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/theirs.txt`,
+            'x',
+        );
+
+        // Unlike remove/move, rename only needs `write` on the entry itself —
+        // but a caller holding nothing at all is still turned away.
+        await expect(
+            fs.rename(other.userId, entry, 'renamed.txt'),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(await entryAt(user, '/Documents/theirs.txt')).not.toBeNull();
     });
 
     it('creates a shortcut, conflicts on a taken name and dedupes on request', async () => {
@@ -2344,6 +3471,65 @@ describe('FSService remove', () => {
     });
 });
 
+describe('FSService home directory guard', () => {
+    // A home free to be renamed or moved can be parked on a name another
+    // account later claims, and from then on both trees resolve at one path —
+    // whichever row has the lower id answers, and new entries there inherit
+    // ITS owner. Only `renameUserHome` writes a home's name.
+    it('refuses to rename a home directory', async () => {
+        const user = await makeUser();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        ))!;
+
+        const error = await caught(() =>
+            fs.rename(user.userId, root, 'some-other-name'),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(error.message).toContain('home directory');
+        const unchanged = await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        );
+        expect(unchanged?.path).toBe(user.home);
+    });
+
+    it('refuses to move a home directory into another tree', async () => {
+        const user = await makeUser();
+        const other = await makeUser();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        ))!;
+        const destination = (await entryAt(other, '/Documents'))!;
+
+        const error = await caught(() =>
+            runWithContext({ actor: user.actor }, () =>
+                fs.move(user.userId, {
+                    source: root,
+                    destinationParent: destination,
+                }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        const unchanged = await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        );
+        expect(unchanged?.path).toBe(user.home);
+    });
+
+    it('still renames an ordinary directory at the top of a home', async () => {
+        const user = await makeUser();
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/notahome`,
+        });
+
+        const renamed = await fs.rename(user.userId, dir, 'renamed');
+
+        expect(renamed.path).toBe(`${user.home}/renamed`);
+    });
+});
+
 describe('FSService move', () => {
     let user: TestUser;
     beforeAll(async () => {
@@ -2383,6 +3569,53 @@ describe('FSService move', () => {
 
         expect(moved.path).toBe(`${user.home}/Desktop/moveddir`);
         expect(await entryAt(user, '/Desktop/moveddir/in.txt')).not.toBeNull();
+    });
+
+    it('refuses a name that would steer the move out of the destination', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/steer.txt`,
+            'x',
+        );
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        for (const newName of ['../Documents/pwned.txt', 'a/b.txt', '..']) {
+            const error = await caught(() =>
+                fs.move(user.userId, {
+                    source: entry,
+                    destinationParent: destination,
+                    newName,
+                }),
+            );
+            expect(error.statusCode).toBe(400);
+        }
+        expect(await entryAt(user, '/Documents/steer.txt')).not.toBeNull();
+    });
+
+    it('deletes descendants a different user owns', async () => {
+        // Rows predating the one-owner-per-subtree invariant: an app writing
+        // into another user's AppData used to stamp itself as the owner. The
+        // walk has to reach them, or the parent's deletion orphans them.
+        const other = await makeUser();
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/mixed`,
+        });
+        await writeFile(user, `${user.home}/Documents/mixed/mine.txt`, 'x');
+        const foreign = await writeFile(
+            user,
+            `${user.home}/Documents/mixed/theirs.txt`,
+            'x',
+        );
+        await server.clients.db.write(
+            'UPDATE `fsentries` SET `user_id` = ? WHERE `uuid` = ?',
+            [other.userId, foreign.uuid],
+        );
+
+        await fs.remove(user.userId, { entry: dir, recursive: true });
+
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(foreign.uuid),
+        ).toBeNull();
     });
 
     it('refuses to move another user’s entry', async () => {
@@ -2707,7 +3940,7 @@ describe('FSService copy', () => {
         expect(first.path).toBe(`${user.home}/Desktop/phantom.txt`);
 
         // Renaming the occupant frees the path...
-        await fs.rename(first, 'phantom-renamed.txt');
+        await fs.rename(user.userId, first, 'phantom-renamed.txt');
 
         // ...so an immediate re-copy must succeed. A stale path-cache entry
         // for the old name used to surface a phantom conflict here — and a
@@ -2743,6 +3976,776 @@ describe('FSService copy', () => {
         expect(await entryAt(user, '/Documents/cp-ghost.txt')).toBeNull();
 
         consoleError.mockRestore();
+    });
+});
+
+describe('FSService copy event dispatch', () => {
+    let eventsServer: PuterServer;
+    let eventsFs: FSService;
+    let user: TestUser;
+
+    beforeAll(async () => {
+        eventsServer = await setupTestServer({
+            events: { enabled: true },
+        } as unknown as IConfig);
+        eventsFs = eventsServer.services.fs as unknown as FSService;
+        const username = `fsev-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await eventsServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            eventsServer.clients.db,
+            eventsServer.stores.user,
+            created,
+        );
+        const refreshed = (await eventsServer.stores.user.getById(
+            created.id,
+        ))!;
+        user = {
+            userId: refreshed.id,
+            username: refreshed.username,
+            uuid: refreshed.uuid,
+            home: `/${refreshed.username}`,
+            actor: {
+                user: {
+                    id: refreshed.id,
+                    uuid: refreshed.uuid,
+                    username: refreshed.username,
+                    email: refreshed.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            },
+        };
+    });
+
+    afterAll(async () => {
+        await eventsServer?.shutdown();
+    });
+
+    const eventsWriteFile = async (
+        path: string,
+        content: string,
+    ): Promise<FSEntry> => {
+        const result = await eventsFs.write(user.userId, {
+            fileMetadata: {
+                path,
+                size: Buffer.byteLength(content),
+                contentType: 'text/plain',
+            },
+            fileContent: content,
+        });
+        return result.fsEntry;
+    };
+
+    const eventsEntryAt = (path: string) =>
+        eventsServer.stores.fsEntry.getEntryByPath(`${user.home}${path}`, {
+            useTryHardRead: true,
+            skipCache: true,
+        });
+
+    type AncestorChainLike = Array<{ uid: string; path: string }>;
+
+    // Fresh capture per test: the dispatch is fire-and-forget, so `dispatched`
+    // fills in asynchronously and every caller must restore its own spies.
+    const captureDispatches = () => {
+        const dispatched: Array<{
+            key: string;
+            path: string;
+            uid: string;
+            ancestors: AncestorChainLike;
+        }> = [];
+        const dispatchSpy = vi
+            .spyOn(eventsServer.services.events, 'dispatchFs')
+            .mockImplementation(async (key, entry, options) => {
+                dispatched.push({
+                    key,
+                    path: entry.path,
+                    uid: entry.uid,
+                    ancestors: [...((await options?.ancestors?.()) ?? [])],
+                });
+                return true;
+            });
+        const walkSpy = vi.spyOn(eventsFs, 'getAncestorChain');
+        return {
+            dispatched,
+            walkSpy,
+            restore: () => {
+                dispatchSpy.mockRestore();
+                walkSpy.mockRestore();
+            },
+        };
+    };
+
+    it('publishes a copied file as a create', async () => {
+        const source = await eventsWriteFile(
+            `${user.home}/Documents/cpev-file.txt`,
+            'x',
+        );
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            const copy = await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(1));
+            expect(dispatched[0]).toMatchObject({
+                key: 'fs.create.file',
+                path: copy.path,
+                uid: copy.uid,
+            });
+            expect(dispatched[0].ancestors[0]).toEqual({
+                uid: copy.uid,
+                path: copy.path,
+            });
+            expect(
+                dispatched[0].ancestors.some(
+                    (a) => a.uid === destination.uid,
+                ),
+            ).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+
+    it('publishes every entry a directory copy creates', async () => {
+        await eventsFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cpev/sub`,
+            createMissingParents: true,
+        });
+        await eventsWriteFile(`${user.home}/Documents/cpev/a.txt`, 'a');
+        await eventsWriteFile(`${user.home}/Documents/cpev/sub/b.txt`, 'b');
+        const source = (await eventsEntryAt('/Documents/cpev'))!;
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                newName: 'cpev-copy',
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(4));
+            expect(dispatched.map((d) => d.key).sort()).toEqual([
+                'fs.create.directory',
+                'fs.create.directory',
+                'fs.create.file',
+                'fs.create.file',
+            ]);
+            // The source tree itself never publishes — only what the copy made.
+            expect(
+                dispatched.every((d) => !d.path.startsWith(source.path)),
+            ).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+
+    it('walks the destination ancestors once for a whole tree', async () => {
+        await eventsFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cpev2/sub`,
+            createMissingParents: true,
+        });
+        await eventsWriteFile(`${user.home}/Documents/cpev2/a.txt`, 'a');
+        await eventsWriteFile(`${user.home}/Documents/cpev2/sub/b.txt`, 'b');
+        const source = (await eventsEntryAt('/Documents/cpev2'))!;
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, walkSpy, restore } = captureDispatches();
+        try {
+            await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                newName: 'cpev2-copy',
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(4));
+            expect(walkSpy).toHaveBeenCalledTimes(1);
+            expect(walkSpy.mock.calls[0]?.[0]).toBe(destination.path);
+
+            const nested = dispatched.find((d) =>
+                d.path.endsWith('/cpev2-copy/sub/b.txt'),
+            )!;
+            const destinationChain =
+                await eventsFs.getAncestorChain(destination.path);
+            expect(nested.ancestors.map((a) => a.path)).toEqual([
+                `${user.home}/Desktop/cpev2-copy/sub/b.txt`,
+                `${user.home}/Desktop/cpev2-copy/sub`,
+                `${user.home}/Desktop/cpev2-copy`,
+                ...destinationChain.map((a) => a.path),
+            ]);
+        } finally {
+            restore();
+        }
+    });
+
+    it('publishes an empty-file clone as a create', async () => {
+        const source = await eventsFs.touch(user.userId, {
+            path: `${user.home}/Documents/cpev-empty.txt`,
+        });
+        const destination = (await eventsEntryAt('/Desktop'))!;
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            const copy = await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: false,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(1));
+            expect(dispatched[0]).toMatchObject({
+                key: 'fs.create.file',
+                path: copy.path,
+                uid: copy.uid,
+            });
+        } finally {
+            restore();
+        }
+    });
+
+    it('leaves a copied shortcut and symlink unpublished', async () => {
+        const documents = (await eventsEntryAt('/Documents'))!;
+        const destination = (await eventsEntryAt('/Desktop'))!;
+        const target = await eventsWriteFile(
+            `${user.home}/Documents/cpev-link-target.txt`,
+            'x',
+        );
+        const shortcut = await eventsFs.mkshortcut(user.userId, {
+            parent: documents,
+            name: 'cpev-shortcut',
+            target,
+        });
+        const symlink = await eventsServer.stores.fsEntry.createNonFileEntry({
+            userId: user.userId,
+            parent: documents,
+            name: 'cpev-symlink',
+            kind: 'symlink',
+            symlinkPath: `${user.home}/Documents/cpev-link-target.txt`,
+        });
+
+        const { dispatched, restore } = captureDispatches();
+        try {
+            await eventsFs.copy(user.userId, {
+                source: shortcut,
+                destinationParent: destination,
+                overwrite: false,
+            });
+            await eventsFs.copy(user.userId, {
+                source: symlink,
+                destinationParent: destination,
+                overwrite: false,
+            });
+
+            // Drain the microtask/nextTick queue so a stray dispatch has
+            // somewhere to land before asserting none arrived.
+            await new Promise((resolve) => setImmediate(resolve));
+            expect(dispatched).toEqual([]);
+        } finally {
+            restore();
+        }
+    });
+
+    it('completes the copy when the dispatcher throws', async () => {
+        const source = await eventsWriteFile(
+            `${user.home}/Documents/cpev-throws.txt`,
+            'x',
+        );
+        const destination = (await eventsEntryAt('/Desktop'))!;
+        const dispatchSpy = vi
+            .spyOn(eventsServer.services.events, 'dispatchFs')
+            .mockImplementation(() => {
+                throw new Error('dispatcher is down');
+            });
+
+        try {
+            const copy = await eventsFs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: false,
+            });
+            expect(copy.path).toBe(`${user.home}/Desktop/cpev-throws.txt`);
+            await expect(
+                eventsServer.stores.fsEntry.getEntryByPath(copy.path),
+            ).resolves.toMatchObject({ uuid: copy.uuid });
+        } finally {
+            dispatchSpy.mockRestore();
+        }
+    });
+});
+
+describe('FSService restructuring a shared tree', () => {
+    let owner: TestUser;
+    let holder: TestUser;
+    let shared: FSEntry;
+
+    const shareWrite = (entry: FSEntry) =>
+        server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: entry.path,
+                resolveAncestors: () => fs.getAncestorChain(entry.path),
+            },
+            'write',
+        );
+
+    const asHolder = <T>(run: () => Promise<T>): Promise<T> =>
+        runWithContext({ actor: holder.actor }, run);
+
+    const stillThere = async (path: string) =>
+        (await server.stores.fsEntry.getEntryByPath(path, {
+            skipCache: true,
+        })) !== null;
+
+    beforeAll(async () => {
+        owner = await makeUser();
+        holder = await makeUser();
+        shared = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Contents`,
+        });
+        await shareWrite(shared);
+    });
+
+    it('lets a recipient delete a file inside the shared folder', async () => {
+        const file = await writeFile(owner, `${shared.path}/gone.txt`, 'x');
+
+        await asHolder(() => fs.remove(holder.userId, { entry: file }));
+
+        expect(await stillThere(file.path)).toBe(false);
+    });
+
+    it('lets a recipient delete a subfolder of the shared folder', async () => {
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub`,
+        });
+        await writeFile(owner, `${sub.path}/deep.txt`, 'x');
+
+        await asHolder(() =>
+            fs.remove(holder.userId, { entry: sub, recursive: true }),
+        );
+
+        expect(await stillThere(sub.path)).toBe(false);
+        expect(await stillThere(`${sub.path}/deep.txt`)).toBe(false);
+    });
+
+    it('lets a recipient rename a file inside the shared folder', async () => {
+        const file = await writeFile(owner, `${shared.path}/before.txt`, 'x');
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, file, 'after.txt'),
+        );
+
+        expect(renamed.path).toBe(`${shared.path}/after.txt`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('sends a recipient-trashed item to the owner’s trash, still owned by the owner', async () => {
+        const file = await writeFile(owner, `${shared.path}/trashed.txt`, 'x');
+        const ownerTrash = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Trash`,
+        ))!;
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: ownerTrash,
+                newName: file.uuid,
+            }),
+        );
+
+        expect(moved.path).toBe(`${owner.home}/Trash/${file.uuid}`);
+        expect(moved.userId).toBe(owner.userId);
+        expect(await stillThere(file.path)).toBe(false);
+    });
+
+    it('puts a trashed item beyond the recipient’s reach', async () => {
+        const file = await writeFile(owner, `${shared.path}/hidden.txt`, 'x');
+        const ownerTrash = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Trash`,
+        ))!;
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: ownerTrash,
+                newName: file.uuid,
+            }),
+        );
+
+        const reachable = await server.services.acl.check(
+            holder.actor,
+            {
+                path: moved.path,
+                resolveAncestors: () => fs.getAncestorChain(moved.path),
+            },
+            'see',
+        );
+        expect(reachable).toBe(false);
+    });
+
+    it('refuses to let a recipient delete the shared folder itself', async () => {
+        const error = await caught(() =>
+            asHolder(() =>
+                fs.remove(holder.userId, { entry: shared, recursive: true }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(error.legacyCode).toBe('forbidden');
+        expect(await stillThere(shared.path)).toBe(true);
+    });
+
+    it('lets a recipient rename a subfolder inside the shared folder', async () => {
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub-to-rename`,
+        });
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, sub, 'sub-renamed'),
+        );
+
+        expect(renamed.path).toBe(`${shared.path}/sub-renamed`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('refuses to let a recipient rename the shared FOLDER itself', async () => {
+        // A folder's name is structure the owner's subtree hangs off — only
+        // a directly-shared FILE is renameable by its recipient.
+        const error = await caught(() =>
+            asHolder(() => fs.rename(holder.userId, shared, 'Renamed')),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(shared.path)).toBe(true);
+    });
+
+    it('lets a recipient rename a file shared directly with them', async () => {
+        const file = await writeFile(owner, `${owner.home}/direct.txt`, 'x');
+        await shareWrite(file);
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, file, 'mine.txt'),
+        );
+
+        expect(renamed.path).toBe(`${owner.home}/mine.txt`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('refuses rename to a recipient who holds only read', async () => {
+        const file = await writeFile(
+            owner,
+            `${owner.home}/lookdonttouch.txt`,
+            'x',
+        );
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: file.path,
+                resolveAncestors: () => fs.getAncestorChain(file.path),
+            },
+            'read',
+        );
+
+        const error = await caught(() =>
+            asHolder(() => fs.rename(holder.userId, file, 'touched.txt')),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(file.path)).toBe(true);
+    });
+
+    it('refuses a stranger with no share at all', async () => {
+        const stranger = await makeUser();
+        const file = await writeFile(owner, `${shared.path}/private.txt`, 'x');
+
+        const error = await caught(() =>
+            runWithContext({ actor: stranger.actor }, () =>
+                fs.remove(stranger.userId, { entry: file }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(file.path)).toBe(true);
+    });
+});
+
+describe('FSService ownership in a shared tree', () => {
+    let owner: TestUser;
+    let holder: TestUser;
+    let shared: FSEntry;
+
+    const asHolder = <T>(run: () => Promise<T>): Promise<T> =>
+        runWithContext({ actor: holder.actor }, run);
+
+    beforeAll(async () => {
+        owner = await makeUser();
+        holder = await makeUser();
+        shared = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Team`,
+        });
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () => fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+    });
+
+    it('gives a folder the recipient creates to the folder owner', async () => {
+        const created = await asHolder(() =>
+            fs.mkdir(holder.userId, { path: `${shared.path}/from-holder` }),
+        );
+
+        expect(created.userId).toBe(owner.userId);
+    });
+
+    it('gives a file the recipient writes to the folder owner', async () => {
+        const created = await asHolder(() =>
+            fs.write(holder.userId, {
+                fileMetadata: {
+                    path: `${shared.path}/note.txt`,
+                    size: 1,
+                    contentType: 'text/plain',
+                },
+                fileContent: 'x',
+            }),
+        );
+
+        expect(created.fsEntry.userId).toBe(owner.userId);
+    });
+
+    it('gives a file the recipient touches to the folder owner', async () => {
+        const created = await asHolder(() =>
+            fs.touch(holder.userId, { path: `${shared.path}/touched.txt` }),
+        );
+
+        expect(created.userId).toBe(owner.userId);
+    });
+
+    it('gives intermediate directories to the folder owner', async () => {
+        await asHolder(() =>
+            fs.write(holder.userId, {
+                fileMetadata: {
+                    path: `${shared.path}/a/b/deep.txt`,
+                    size: 1,
+                    contentType: 'text/plain',
+                    createMissingParents: true,
+                },
+                fileContent: 'x',
+            }),
+        );
+
+        const a = await server.stores.fsEntry.getEntryByPath(
+            `${shared.path}/a`,
+        );
+        const b = await server.stores.fsEntry.getEntryByPath(
+            `${shared.path}/a/b`,
+        );
+        expect(a?.userId).toBe(owner.userId);
+        expect(b?.userId).toBe(owner.userId);
+    });
+
+    it('gives a copy the recipient makes to the folder owner', async () => {
+        const source = await writeFile(
+            holder,
+            `${holder.home}/Documents/mine.txt`,
+            'x',
+        );
+
+        const copy = await asHolder(() =>
+            fs.copy(holder.userId, {
+                source,
+                destinationParent: shared,
+                newName: 'copied.txt',
+            }),
+        );
+
+        expect(copy.userId).toBe(owner.userId);
+        // The original stays where it was, with its own owner.
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(source.path))?.userId,
+        ).toBe(holder.userId);
+    });
+
+    it('hands over an entry the recipient moves in, subtree and all', async () => {
+        const dir = await fs.mkdir(holder.userId, {
+            path: `${holder.home}/Documents/handover`,
+        });
+        await writeFile(
+            holder,
+            `${holder.home}/Documents/handover/inside.txt`,
+            'x',
+        );
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, { source: dir, destinationParent: shared }),
+        );
+
+        expect(moved.userId).toBe(owner.userId);
+        const inside = await server.stores.fsEntry.getEntryByPath(
+            `${shared.path}/handover/inside.txt`,
+            { skipCache: true },
+        );
+        expect(inside?.userId).toBe(owner.userId);
+    });
+});
+
+describe('FSService storage allowance in a shared tree', () => {
+    let limitedServer: PuterServer;
+    let limitedFs: FSService;
+
+    beforeAll(async () => {
+        limitedServer = await setupTestServer({
+            is_storage_limited: true,
+        } as never);
+        limitedFs = limitedServer.services.fs as unknown as FSService;
+    });
+
+    afterAll(async () => {
+        await limitedServer?.shutdown();
+    });
+
+    const quotaUser = async (freeStorage: number) => {
+        const username = `fsqs-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await limitedServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: freeStorage,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            limitedServer.clients.db,
+            limitedServer.stores.user,
+            created,
+        );
+        const refreshed = (await limitedServer.stores.user.getById(
+            created.id,
+        ))!;
+        await clearUploadReservations(limitedServer, refreshed.id);
+        return {
+            userId: refreshed.id,
+            home: `/${username}`,
+            actor: {
+                user: {
+                    id: refreshed.id,
+                    uuid: refreshed.uuid,
+                    username: refreshed.username,
+                    email: refreshed.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            } as Actor,
+        };
+    };
+
+    it('charges the folder owner, so their limit stops the writer', async () => {
+        const owner = await quotaUser(64);
+        const holder = await quotaUser(10 * 1024 * 1024);
+        const shared = await limitedFs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Tight`,
+        });
+        await limitedServer.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () => limitedFs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        const body = 'x'.repeat(4096);
+        const error = await caught(() =>
+            runWithContext({ actor: holder.actor }, () =>
+                limitedFs.write(holder.userId, {
+                    fileMetadata: {
+                        path: `${shared.path}/big.txt`,
+                        size: body.length,
+                    },
+                    fileContent: body,
+                }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+        // The same write into the writer's own roomy home still goes through,
+        // so it was the owner's limit that stopped it, not a blanket refusal.
+        await runWithContext({ actor: holder.actor }, () =>
+            limitedFs.write(holder.userId, {
+                fileMetadata: {
+                    path: `${holder.home}/Documents/big.txt`,
+                    size: body.length,
+                },
+                fileContent: body,
+            }),
+        );
+    });
+
+    it('counts a collaborator’s pending signed upload against the folder owner', async () => {
+        const owner = await quotaUser(64);
+        const holder = await quotaUser(10 * 1024 * 1024);
+        const shared = await limitedFs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/TightSigned`,
+        });
+        await limitedServer.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () => limitedFs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        await runWithContext({ actor: holder.actor }, () =>
+            limitedFs.startUrlWrite(holder.userId, {
+                fileMetadata: { path: `${shared.path}/big.bin`, size: 40 },
+            }),
+        );
+
+        const error = await caught(() =>
+            runWithContext({ actor: owner.actor }, () =>
+                limitedFs.startUrlWrite(owner.userId, {
+                    fileMetadata: {
+                        path: `${owner.home}/Documents/own.bin`,
+                        size: 40,
+                    },
+                }),
+            ),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+
+        // Unaffected: it was the owner's limit that stopped the write above,
+        // not a blanket refusal of the holder.
+        await expect(
+            runWithContext({ actor: holder.actor }, () =>
+                limitedFs.startUrlWrite(holder.userId, {
+                    fileMetadata: {
+                        path: `${holder.home}/Documents/own.bin`,
+                        size: 40,
+                    },
+                }),
+            ),
+        ).resolves.toMatchObject({ uploadMode: 'single' });
     });
 });
 
@@ -2830,6 +4833,26 @@ describe('FSService permission rules', () => {
         );
         expect(error.statusCode).toBe(404);
         expect(error.legacyCode).toBe('subject_does_not_exist');
+    });
+
+    // The old raw `split('fs:')` dropped the mode and stripped the trailing `fs`, resolving this to a bare `fs:<home_uuid>` that subsumes every mode.
+    it('does not let an embedded fs: escalate a scoped grant to a bare one', async () => {
+        const error = await caught(() =>
+            server.services.permission.rewritePermission(
+                `fs:${user.home}fs:junk:read`,
+            ),
+        );
+        expect(error.statusCode).toBe(404);
+        expect(error.legacyCode).toBe('subject_does_not_exist');
+    });
+
+    it('keeps the mode when a later component contains fs:', async () => {
+        // `fs` in the mode position is data, not a delimiter: the path resolves and the mode is preserved, never collapsed to bare.
+        await expect(
+            server.services.permission.rewritePermission(
+                `fs:${file.path}:fs:read`,
+            ),
+        ).resolves.toBe(`fs:${file.uuid}:fs:read`);
     });
 
     it('leaves uuid-addressed and non-fs permissions untouched', async () => {
@@ -2931,6 +4954,81 @@ describe('FSService permission rules', () => {
             `fs:${file.uuid}:write`,
         );
         expect(higher).not.toContain(`fs:${file.uuid}:read`);
+    });
+
+    it('lets a manage grant answer a write on the narrowest mode', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:write`,
+        );
+        expect(higher).toContain(`manage:fs:${file.uuid}`);
+    });
+
+    it('never offers the bare entry as a parent of a moded permission', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:write`,
+        );
+        expect(higher).not.toContain(`fs:${file.uuid}`);
+    });
+
+    it('refuses to grant an entry with no mode', async () => {
+        const stranger = await makeUser();
+        for (const specifier of [file.path, file.uuid]) {
+            const error = await caught(() =>
+                server.services.permission.grantUserUserPermission(
+                    user.actor,
+                    stranger.username,
+                    `fs:${specifier}`,
+                ),
+            );
+            expect(error.statusCode).toBe(400);
+            expect(error.legacyCode).toBe('bad_request');
+        }
+    });
+
+    // A row an earlier bug could still have written: it names the entry and no
+    // mode, so the parent walk once let it answer read, write and delete.
+    it('resolves nothing for a stored permission with no mode', async () => {
+        const app = (await server.stores.app.create(
+            {
+                name: `perm-${uuidv4()}`,
+                title: 'FS permission test',
+                index_url: 'https://perm.test/',
+            },
+            { ownerUserId: user.userId },
+        )) as { id: number; uid: string };
+        const appActor = makeActor({
+            user: user.actor.user,
+            app: { uid: app.uid, id: app.id },
+        });
+
+        await server.stores.permission.upsertUserAppPerm(
+            user.userId,
+            app.id,
+            `fs:${file.uuid}`,
+            {},
+        );
+
+        for (const mode of ['see', 'list', 'read', 'write']) {
+            await expect(
+                server.services.permission.check(
+                    appActor,
+                    `fs:${file.uuid}:${mode}`,
+                ),
+            ).resolves.toBe(false);
+        }
+
+        // The same row with a mode on it still resolves, and only that far.
+        await server.services.permission.grantUserAppPermission(
+            user.actor,
+            app.uid,
+            `fs:${file.uuid}:read`,
+        );
+        await expect(
+            server.services.permission.check(appActor, `fs:${file.uuid}:read`),
+        ).resolves.toBe(true);
+        await expect(
+            server.services.permission.check(appActor, `fs:${file.uuid}:write`),
+        ).resolves.toBe(false);
     });
 });
 
@@ -3081,7 +5179,9 @@ describe('FSService — cross-app AppData access', () => {
             asCalendar(() => fs.remove(owner.userId, { entry: contactsFile })),
         ).rejects.toMatchObject({ statusCode: 403 });
         await expect(
-            asCalendar(() => fs.rename(contactsFile, 'renamed.json')),
+            asCalendar(() =>
+                fs.rename(owner.userId, contactsFile, 'renamed.json'),
+            ),
         ).rejects.toMatchObject({ statusCode: 403 });
 
         const desktop = (await server.stores.fsEntry.getEntryByPath(
@@ -3110,7 +5210,7 @@ describe('FSService — cross-app AppData access', () => {
     it('allows rename once the delete class is granted', async () => {
         await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
         const renamed = await asCalendar(() =>
-            fs.rename(contactsFile, 'renamed.json'),
+            fs.rename(owner.userId, contactsFile, 'renamed.json'),
         );
         expect(renamed.name).toBe('renamed.json');
     });
@@ -3168,5 +5268,140 @@ describe('FSService — cross-app AppData access', () => {
         expect(
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();
+    });
+});
+
+describe('FSService home-region placement', () => {
+    let regionServer: PuterServer;
+    let regionFs: FSService;
+
+    // A deployment that knows about two nodes. `node-far` is the home region
+    // under test; `node-here` stands in for this node's own bucket, which is
+    // configured separately below so the two are distinguishable.
+    beforeAll(async () => {
+        regionServer = await setupTestServer({
+            s3_bucket: 'puter-local',
+            s3_region: 'us-west-2',
+            servers: {
+                'node-far': {
+                    bucket: 'puter-far',
+                    bucketRegion: 'eu-central-1',
+                },
+                'node-here': {
+                    bucket: 'puter-local',
+                    bucketRegion: 'us-west-2',
+                },
+            },
+        } as never);
+        regionFs = regionServer.services.fs as unknown as FSService;
+        await regionServer.clients.s3
+            .get('eu-central-1')
+            .send(new CreateBucketCommand({ Bucket: 'puter-far' }));
+    });
+
+    afterAll(async () => {
+        await regionServer?.shutdown();
+    });
+
+    const regionUser = async () => {
+        const username = `fsr-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await regionServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            regionServer.clients.db,
+            regionServer.stores.user,
+            created,
+        );
+        return { userId: created.id, home: `/${username}` };
+    };
+
+    const writeIn = async (
+        user: { userId: number; home: string },
+        name: string,
+        body: string,
+        homeRegion?: string,
+        extra: Record<string, unknown> = {},
+    ) => {
+        const { fsEntry } = await regionFs.write(
+            user.userId,
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/${name}`,
+                    size: Buffer.byteLength(body),
+                    contentType: 'text/plain',
+                    ...extra,
+                },
+                fileContent: body,
+            },
+            undefined,
+            undefined,
+            homeRegion,
+        );
+        return fsEntry;
+    };
+
+    const readFrom = async (entry: FSEntry): Promise<string> => {
+        const result = await regionFs.readContent(entry, {});
+        const chunks: Buffer[] = [];
+        for await (const chunk of result.body) chunks.push(Buffer.from(chunk));
+        return Buffer.concat(chunks).toString();
+    };
+
+    it("stores a write in the home region's bucket and reads it back", async () => {
+        const user = await regionUser();
+        const entry = await writeIn(user, 'mail.eml', 'hello', 'node-far');
+
+        expect(entry.bucket).toBe('puter-far');
+        expect(entry.bucketRegion).toBe('eu-central-1');
+        // The row is what reads resolve from, so a foreign bucket has to be
+        // readable through the ordinary path.
+        expect(await readFrom(entry)).toBe('hello');
+    });
+
+    it('falls back to this server’s bucket for a region it does not know', async () => {
+        const user = await regionUser();
+        // A node id this deployment's config says nothing about.
+        const entry = await writeIn(user, 'unmapped.eml', 'hi', 'node-absent');
+
+        expect(entry.bucket).toBe('puter-local');
+        expect(entry.bucketRegion).toBe('us-west-2');
+        expect(await readFrom(entry)).toBe('hi');
+    });
+
+    it('places a write with no home region exactly as before', async () => {
+        const user = await regionUser();
+        const entry = await writeIn(user, 'plain.txt', 'unchanged');
+
+        expect(entry.bucket).toBe('puter-local');
+        expect(entry.bucketRegion).toBe('us-west-2');
+    });
+
+    it('keeps an overwrite where the row already points, home region or not', async () => {
+        const user = await regionUser();
+        const first = await writeIn(user, 'pinned.eml', 'first', 'node-far');
+        expect(first.bucket).toBe('puter-far');
+
+        // The entry outranks the hint: moving the bytes would repoint the row
+        // and strand the original object.
+        const second = await writeIn(
+            user,
+            'pinned.eml',
+            'second',
+            'node-here',
+            {
+                overwrite: true,
+            },
+        );
+
+        expect(second.uuid).toBe(first.uuid);
+        expect(second.bucket).toBe('puter-far');
+        expect(second.bucketRegion).toBe('eu-central-1');
+        expect(await readFrom(second)).toBe('second');
     });
 });

@@ -1,30 +1,32 @@
 import { HttpError } from '@heyputer/backend/src/core/http';
+import { mediaUrlOf, unsupportedMediaTextPart } from './mediaParts.js';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 /**
- * Process input messages from Puter's normalized format to OpenAI's format
- * May make changes in-place.
+ * Process input messages from Puter's normalized format to OpenAI's format May
+ * make changes in-place.
  *
- * @param {Array<Message>} messages - array of normalized messages
- * @returns {Array<Message>} - array of messages in OpenAI format
+ * @param {Message[]} messages - Array of normalized messages
+ * @returns {Message[]} - Array of messages in OpenAI format
  */
 export const process_input_messages = async (messages) => {
     for (const msg of messages) {
@@ -91,7 +93,50 @@ export const process_input_messages_responses_api = async (messages) => {
     // collapsing the whole message into a single compaction item and dropping
     // the rest of its content.
     const expanded = [];
-    for (const msg of messages) {
+    for (let msg of messages) {
+        // Round-tripped reasoning artifacts become standalone `reasoning`
+        // input items — the shape the Responses API expects them back in —
+        // and precede the message they were attached to, same as compaction.
+        // `reasoning`/`refusal`/`normalized` are output-only fields the input
+        // schema rejects, and a caller replaying a normalized message carries
+        // them along with the details.
+        if (msg && typeof msg === 'object') {
+            const details = msg.reasoning_details;
+            if (
+                details !== undefined ||
+                msg.reasoning !== undefined ||
+                msg.refusal !== undefined ||
+                msg.normalized !== undefined
+            ) {
+                // Rebind to a stripped copy rather than deleting: the driver
+                // reuses this same array across fallback attempts, and these
+                // objects belong to the caller.
+                const {
+                    reasoning_details: _details,
+                    reasoning: _reasoning,
+                    refusal: _refusal,
+                    normalized: _normalized,
+                    ...rest
+                } = msg;
+                msg = rest;
+            }
+            if (Array.isArray(details)) {
+                for (const block of details) {
+                    if (!block || block.type !== 'reasoning') continue;
+                    expanded.push({
+                        type: 'reasoning',
+                        ...(block.id !== undefined ? { id: block.id } : {}),
+                        ...(block.encrypted_content !== undefined
+                            ? { encrypted_content: block.encrypted_content }
+                            : {}),
+                        summary: Array.isArray(block.summary)
+                            ? block.summary
+                            : [],
+                    });
+                }
+            }
+        }
+
         if (msg && Array.isArray(msg.content)) {
             const compactionBlocks = msg.content.filter(
                 (c) => c && c.type === 'compaction',
@@ -115,7 +160,21 @@ export const process_input_messages_responses_api = async (messages) => {
         }
         expanded.push(msg);
     }
-    messages = expanded;
+    // Copy-on-write from here on: the rewrites below are Responses-specific and
+    // the driver reuses these message objects on fallback to Chat Completions
+    // routes.
+    messages = expanded.map((msg) => {
+        if (!msg || typeof msg !== 'object') return msg;
+        if (!Array.isArray(msg.content)) return { ...msg };
+        return {
+            ...msg,
+            content: msg.content.map((part) =>
+                part && typeof part === 'object' && !Array.isArray(part)
+                    ? { ...part }
+                    : part,
+            ),
+        };
+    });
 
     for (const msg of messages) {
         const content_as_string = (content) => {
@@ -157,12 +216,36 @@ export const process_input_messages_responses_api = async (messages) => {
 
         const content = msg.content;
 
-        for (const o of content) {
-            if (o['image_url'] && !o.type) {
-                o.type = 'image_url';
+        for (let i = 0; i < content.length; i++) {
+            const o = content[i];
+            if (!o || typeof o !== 'object') continue;
+            // Responses wants `input_image` with a bare string URL and `detail`
+            // beside it; it rejects the Chat Completions `image_url` part.
+            if (o.type === 'image_url' || (o.image_url && !o.type)) {
+                const url = mediaUrlOf(o.image_url);
+                const detail =
+                    (o.image_url && typeof o.image_url === 'object'
+                        ? o.image_url.detail
+                        : undefined) ?? o.detail;
+                const {
+                    type: _type,
+                    image_url: _imageUrl,
+                    detail: _detail,
+                    ...rest
+                } = o;
+                content[i] = {
+                    ...rest,
+                    type: 'input_image',
+                    detail: detail ?? 'auto',
+                    ...(url !== undefined ? { image_url: url } : {}),
+                };
+                continue;
             }
-            if (o['video_url'] && !o.type) {
-                o.type = 'video_url';
+            // The Responses API has no video input item.
+            if (o.type === 'video_url' || (o.video_url && !o.type)) {
+                content[i] = unsupportedMediaTextPart(
+                    'video input is not supported by this model',
+                );
             }
         }
 
@@ -264,6 +347,40 @@ export const extractMeteredUsage = (usage) => {
     };
 };
 
+// Renames one object's DeepSeek-wire `reasoning_content` to the `reasoning`
+// key Puter exposes, without clobbering an existing `reasoning`.
+const renameReasoningContent = (obj) => {
+    if (obj.reasoning === undefined && obj.reasoning_content !== undefined) {
+        obj.reasoning = obj.reasoning_content;
+    }
+    // Dropped even when `reasoning` already won: a provider sending both
+    // means the same thing twice, and the vendor key is the one Puter does not
+    // expose. Pinned by BytePlusProvider.test.ts / ZAIProvider.test.ts, whose
+    // fixtures name the value 'should-be-dropped'.
+    delete obj.reasoning_content;
+};
+
+/**
+ * Normalize a non-streaming completion result whose provider follows the
+ * DeepSeek wire convention (`reasoning_content` on the message and content
+ * parts) to Puter's `reasoning` key. The streaming path already does this in
+ * create_chat_stream_handler.
+ */
+export const normalizeReasoningContent = (result) => {
+    if (!result || typeof result !== 'object') return;
+    if (!('message' in result) || !result.message) return;
+
+    const message = result.message;
+    renameReasoningContent(message);
+
+    if (!Array.isArray(message.content)) return;
+    for (const part of message.content) {
+        if (part && typeof part === 'object' && !Array.isArray(part)) {
+            renameReasoningContent(part);
+        }
+    }
+};
+
 export const create_chat_stream_handler =
     ({ deviations, completion, usage_calculator }) =>
     async ({ chatStream }) => {
@@ -357,10 +474,22 @@ export const create_chat_stream_handler =
         }
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-        const usage = usage_calculator({
-            usage: last_usage,
-            extra_content: last_extra_content,
-        });
+        // No usage chunk means there is nothing to meter from — reaching into
+        // a null usage object here used to throw, which took down a response
+        // the upstream had already produced *and* skipped its billing. Leave
+        // the usage undefined instead; the driver charges an estimate for a
+        // stream that produced output nobody reported.
+        const usage = last_usage
+            ? usage_calculator({
+                  usage: last_usage,
+                  extra_content: last_extra_content,
+              })
+            : undefined;
+        // The calculator just metered. Reported here, not only via `end`:
+        // a throw in the block flushes below (a malformed tool-call payload,
+        // say) must not leave a metered stream looking unmetered — the driver
+        // would charge its estimate on top.
+        chatStream.reportUsage(usage);
 
         if (mode === 'text') textblock.end();
         if (mode === 'tool') toolblock.end();
@@ -393,6 +522,25 @@ export const create_chat_stream_handler_responses_api =
         for await (const chunk of completion) {
             if (chunk.type === 'response.output_text.delta') {
                 textblock.addText(chunk.delta);
+                continue;
+            }
+
+            // Reasoning summaries stream as their own delta events; route
+            // them to the same `reasoning` channel the chat-completions
+            // handler uses for Deepseek/OpenRouter, so a streamed reasoning
+            // model reads identically whichever API served it.
+            if (chunk.type === 'response.reasoning_summary_text.delta') {
+                textblock.addReasoning(chunk.delta);
+                continue;
+            }
+
+            // Each summary part is a separate delta stream; separate them with
+            // a blank line, matching the non-stream handler's join.
+            if (
+                chunk.type === 'response.reasoning_summary_part.added' &&
+                chunk.summary_index > 0
+            ) {
+                textblock.addReasoning('\n\n');
                 continue;
             }
 
@@ -433,7 +581,13 @@ export const create_chat_stream_handler_responses_api =
         }
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-        const usage = usage_calculator({ usage: last_usage });
+        // Missing usage is left undefined rather than fed to the calculator —
+        // see the sibling handler above, including why usage is reported
+        // before the block flushes.
+        const usage = last_usage
+            ? usage_calculator({ usage: last_usage })
+            : undefined;
+        chatStream.reportUsage(usage);
 
         if (mode === 'text') textblock.end();
         if (mode === 'tool') toolblock.end();
@@ -443,7 +597,13 @@ export const create_chat_stream_handler_responses_api =
     };
 
 export const handle_completion_output = async (
-    /** @type {Record<string,unknown> & {usage_calculator:(args: {usage: import("openai/resources/completions.mjs").CompletionUsage})=> unknown }}*/
+    /**
+     * @type {Record<string, unknown> & {
+     *     usage_calculator: (args: {
+     *         usage: import('openai/resources/completions.mjs').CompletionUsage;
+     *     }) => unknown;
+     * }}
+     */
     { deviations, stream, completion, moderate, usage_calculator, finally_fn },
 ) => {
     deviations = Object.assign(
@@ -470,17 +630,10 @@ export const handle_completion_output = async (
 
     if (finally_fn) await finally_fn();
 
-    // We need to moderate the completion too
-    const mod_text = completion.choices[0].message.content;
-    if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-            });
-        }
-    }
-
+    // Metered before moderation: the completion exists and the upstream has
+    // billed us for it whether or not we go on to withhold it, and running
+    // the moderation gate first meant a flagged completion was served to
+    // nobody and charged to nobody.
     const ret = completion.choices[0];
     const completion_usage = deviations.coerce_completion_usage(completion);
     ret.usage = usage_calculator
@@ -492,14 +645,42 @@ export const handle_completion_output = async (
               input_tokens: completion_usage.prompt_tokens,
               output_tokens: completion_usage.completion_tokens,
           };
+
+    // Providers following the DeepSeek wire convention return
+    // `reasoning_content`; expose it as Puter's `reasoning` key here so every
+    // provider's message carries the same attribute (the streaming path does
+    // the equivalent rename on deltas).
+    normalizeReasoningContent(ret);
+
+    const mod_text = completion.choices[0].message.content;
+    if (moderate && mod_text !== null) {
+        const moderation_result = await moderate(mod_text);
+        if (moderation_result.flagged) {
+            // `code` tells the driver this is a refusal of a completion that
+            // was produced and charged, not a route failure — retrying it on
+            // a fallback provider would bill the account again for another
+            // completion the user will never see.
+            throw new HttpError(400, 'message is not allowed', {
+                legacyCode: 'bad_request',
+                code: 'moderation_flagged',
+            });
+        }
+    }
+
     return ret;
 };
 
 /**
- *
  * @param {object} params
- * @param {(args: {usage: import("openai/resources/completions.mjs").CompletionUsage})=> unknown } params.usage_calculator
- * @returns
+ * @param {Record<string, unknown>} [params.deviations]
+ * @param {boolean} [params.stream]
+ * @param {any} params.completion
+ * @param {((text: string) => Promise<{ flagged: boolean }>) | undefined} [params.moderate]
+ * @param {(args: {
+ *     usage: import('openai/resources/completions.mjs').CompletionUsage;
+ * }) => unknown} params.usage_calculator
+ * @param {() => Promise<void>} [params.finally_fn]
+ * @returns {ReturnType<import('../types').IChatProvider['complete']>}
  */
 export const handle_completion_output_responses_api = async ({
     deviations,
@@ -559,23 +740,45 @@ export const handle_completion_output_responses_api = async ({
         });
     }
 
-    // We need to moderate the completion too
-    const mod_text = completion.output_text;
-    if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-            });
-        }
-    }
+    // Reasoning models return `reasoning` output items; their human-readable
+    // text only exists when the caller requested summaries via
+    // `reasoning: { summary: ... }` (raw chain-of-thought is never returned).
+    const reasoningItems = output.filter((item) => item?.type === 'reasoning');
+    const reasoningText = reasoningItems
+        .flatMap((item) => (Array.isArray(item.summary) ? item.summary : []))
+        .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+        .filter(Boolean)
+        .join('\n\n');
+
+    // The item `id` and `encrypted_content` are what let a caller replay a
+    // reasoning turn into the next request; they are opaque to us and would
+    // otherwise be lost, so they ride `reasoning_details` verbatim — the same
+    // round-trip contract as the `compaction` artifact below and as the
+    // Anthropic thinking blocks the coercer preserves.
+    const reasoningDetails = reasoningItems
+        .filter(
+            (item) =>
+                item.id !== undefined || item.encrypted_content !== undefined,
+        )
+        .map((item) => ({
+            type: 'reasoning',
+            ...(item.id !== undefined ? { id: item.id } : {}),
+            ...(item.encrypted_content !== undefined
+                ? { encrypted_content: item.encrypted_content }
+                : {}),
+            ...(Array.isArray(item.summary) ? { summary: item.summary } : {}),
+        }));
 
     const ret = {
-        finish_reason: 'stop',
+        finish_reason: responseToolCalls.length ? 'tool_calls' : 'stop',
         index: 0,
         message: {
             content: completion.output_text,
-            reasoning: null, // Fix later to add proper reasoning
+            // String-or-absent, matching every other provider's `reasoning`.
+            ...(reasoningText ? { reasoning: reasoningText } : {}),
+            ...(reasoningDetails.length
+                ? { reasoning_details: reasoningDetails }
+                : {}),
             refusal: null,
             role: 'assistant',
             ...(responseToolCalls.length
@@ -599,6 +802,9 @@ export const handle_completion_output_responses_api = async ({
 
     delete ret.type;
 
+    // Metered before moderation, same as the sibling handler above: the
+    // completion exists and the upstream has billed us for it whether or not
+    // we go on to withhold it.
     ret.usage = usage_calculator
         ? usage_calculator({
               ...completion,
@@ -608,5 +814,17 @@ export const handle_completion_output_responses_api = async ({
               input_tokens: completion.usage.input_tokens,
               output_tokens: completion.usage.output_tokens,
           };
+
+    const mod_text = completion.output_text;
+    if (moderate && mod_text !== null) {
+        const moderation_result = await moderate(mod_text);
+        if (moderation_result.flagged) {
+            throw new HttpError(400, 'message is not allowed', {
+                legacyCode: 'bad_request',
+                code: 'moderation_flagged',
+            });
+        }
+    }
+
     return ret;
 };

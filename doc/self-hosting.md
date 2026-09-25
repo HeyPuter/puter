@@ -122,6 +122,10 @@ cat > puter/config/config.json <<EOF
         "ollama": { "enabled": false }
     },
 
+    "meteringEnforcement": {
+        "subscriptions": false
+    },
+
     "trust_proxy": 1
 }
 EOF
@@ -136,6 +140,7 @@ Why these knobs:
 - `database.migrationPaths` — Puter applies the bundled MySQL/MariaDB schema on boot. The migration files are idempotent, so it is safe to leave this configured across restarts.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
 - `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
+- `meteringEnforcement.subscriptions: false` — a few surfaces (the OpenAI/Anthropic-compatible AI endpoints) are declared paid-plan-only. A self-hosted install has no paid plans, so every account sits on the free policy and those routes would answer `402 subscription_required` for everyone. Turning the plan gates off opens them; nothing else about metering changes.
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
 - `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
 - `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. Caddy routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
@@ -295,6 +300,18 @@ Used for password resets, email confirmation, and notifications. Without it thos
 
 To require email confirmation before login, also set `"strict_email_verification_required": true`.
 
+To read the mail yourself instead of sending it, point the transport at a local SMTP sink — [MailHog](https://github.com/mailhog/MailHog) catches everything and serves it at `http://localhost:8025`. Publish both ports; a container that only exposes them is unreachable from the host:
+
+```sh
+docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog
+```
+
+```json
+"email": { "from": "\"Puter\" <no-reply@puter.localhost>", "host": "127.0.0.1", "port": 1025, "secure": false, "ignoreTLS": true }
+```
+
+Share email is on once a transport exists: a recipient who already has an account is emailed as well as notified in-app, and they opt out with the unsubscribe link the mail carries. Set `"share_email_notifications": false` to keep those in the app only — an address with no account is still emailed, since there is nothing else to reach them with.
+
 ### Sign in with Google (or another OIDC provider)
 
 ```json
@@ -391,6 +408,12 @@ Every account then resolves to an unlimited policy. Usage is still recorded, so
 the dashboard still shows what is being consumed; nothing is ever refused for
 lack of budget.
 
+For API testing, you can also set `"unlimitedMetering": true` in your
+ignored runtime config: `puter/config/config.json` for Docker, or the repository's
+`config.json` for `npm start`. Merge it into the existing config and restart Puter.
+This includes guest accounts and applies to the whole local instance. Keep normal
+metering settings when testing budget or subscription enforcement.
+
 To keep the budgets but stop them blocking anything — recording only:
 
 ```json
@@ -400,6 +423,17 @@ To keep the budgets but stop them blocking anything — recording only:
 Calls driven by a deployed worker are exempt from enforcement by default,
 because a worker has no prompt to show and nobody watching it fail. Set
 `"meteringEnforcement": { "workers": true }` to include them.
+
+Monthly usage records expire on their own once they're old enough to be of no
+further use — `meteringRetentionMonths` full months past the month they
+belong to, 3 by default. Set it to `0` to keep every month's records forever:
+
+```json
+"meteringRetentionMonths": 6
+```
+
+Changing it, including to `0`, applies to records first written after the
+change; records already stamped keep their expiry.
 
 ### Captcha on signup / login
 
@@ -471,11 +505,35 @@ For GPU acceleration (NVIDIA), uncomment the `deploy:` block under the `ollama` 
 
 ## Building from source instead of pulling
 
-If you want to test local Dockerfile changes against the full stack, uncomment the `build:` block in [docker-compose.yml](../docker-compose.yml) under the `puter` service, change `pull_policy: always` → `pull_policy: never`, then:
+To run a local build against the full stack, use a source checkout and complete
+the configuration steps above. Create `docker-compose.override.yml` in the
+repository root, next to [docker-compose.yml](../docker-compose.yml):
+
+```yaml
+services:
+  puter:
+    pull_policy: never
+    build:
+      context: .
+```
+
+If that file already exists, merge these settings into its `puter` service.
+Compose loads and merges the override automatically. `build.context: .` selects
+this checkout, and `pull_policy: never` prevents pulling the published Puter image.
+
+Use this override for local build settings instead of editing `docker-compose.yml`.
+The override is ignored by Git, keeping local configuration out of pull requests
+and avoiding conflicts in the shared Compose file when pulling updates.
+
+From the repository root, build and start the stack:
 
 ```bash
 docker compose up -d --build
 ```
+
+Run the same command after changing or pulling source code to rebuild the image.
+To return to the published image, remove the local build settings (or the override
+file if those are its only settings), then run `docker compose up -d`.
 
 ---
 

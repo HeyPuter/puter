@@ -45,12 +45,19 @@ import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
+import {
+    clampStoredNumber,
+    isRepairableMarshallError,
+    repairForMarshall,
+} from './marshallRepair.js';
 
 const LOCAL_DYNAMO_MEMORY_PREFIX = ':memory:';
 const localDynaliteEndpointPromises = new Map<string, Promise<string>>();
 const MAX_BATCH_WRITE_ITEMS = 25;
 const MAX_BATCH_WRITE_RETRIES = 8;
 const BATCH_WRITE_RETRY_BASE_MS = 25;
+const MAX_BATCH_GET_RETRIES = 8;
+const BATCH_GET_RETRY_BASE_MS = 25;
 
 // In-memory mode gives each DDBClient its own unique key, which keys
 // into a fresh dynalite server. This is what test parallelism needs:
@@ -114,6 +121,49 @@ const sleep = async (ms: number) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
+// One caller writing an out-of-range number usually keeps doing it, so the
+// warning is per-target and throttled rather than one line per write.
+const REPAIR_WARNING_INTERVAL_MS = 60_000;
+const lastRepairWarningAt = new Map<string, number>();
+
+const warnRepaired = (target: string, message: string): void => {
+    const now = Date.now();
+    const lastWarnedAt = lastRepairWarningAt.get(target) ?? 0;
+    if (now - lastWarnedAt < REPAIR_WARNING_INTERVAL_MS) return;
+
+    lastRepairWarningAt.set(target, now);
+    console.warn(
+        `[ddb] clamped an out-of-range value in ${target}: ${message}`,
+    );
+};
+
+/**
+ * Send a write, and if the payload was rejected while being encoded for a value
+ * the store cannot represent, clamp it and send it once more.
+ *
+ * Nothing is inspected on the way in: the payload of a successful write is
+ * never walked, so this costs one `try` on the hot path. The repair only runs
+ * on the failure, and only retries when it actually changed something —
+ * otherwise the original error stands.
+ */
+const sendRepairingValues = async <TPayload, TResult>(
+    payload: TPayload,
+    send: (payload: TPayload) => Promise<TResult>,
+    describe: () => string,
+): Promise<TResult> => {
+    try {
+        return await send(payload);
+    } catch (error) {
+        if (!isRepairableMarshallError(error)) throw error;
+
+        const repaired = repairForMarshall(payload);
+        if (!repaired.changed) throw error;
+
+        warnRepaired(describe(), (error as Error).message);
+        return send(repaired.value as TPayload);
+    }
+};
+
 export class DDBClient extends PuterClient {
     #documentClient: DynamoDBDocumentClient | null = null;
     #localInitPromise: Promise<void> | null = null;
@@ -171,16 +221,24 @@ export class DDBClient extends PuterClient {
 
     @Span('ddb.put', (table: string) => ({ 'db.table': table }))
     async put<T extends Record<string, unknown>>(table: string, item: T) {
-        const command = new PutCommand({
-            TableName: table,
-            Item: item,
-            ReturnConsumedCapacity: 'TOTAL',
-        });
-
         const client = await this.#getDocumentClient();
-        return client.send(command);
+        return sendRepairingValues(
+            item,
+            (itemToWrite) =>
+                client.send(
+                    new PutCommand({
+                        TableName: table,
+                        Item: itemToWrite,
+                        ReturnConsumedCapacity: 'TOTAL',
+                    }),
+                ),
+            () => `a put to ${table}`,
+        );
     }
 
+    // UnprocessedKeys retried with capped exponential backoff, same posture as
+    // #batchWrite's UnprocessedItems: a batch this size can be throttled or
+    // partially served, and the caller shouldn't have to know that.
     @Span('ddb.batchGet', (params: unknown[]) => ({
         'db.batch_size': params.length,
     }))
@@ -197,31 +255,121 @@ export class DDBClient extends PuterClient {
             {} as Record<string, Record<string, unknown>[]>,
         );
 
-        const requestItems: BatchGetCommandInput['RequestItems'] =
-            Object.entries(allRequestItemsPerTable).reduce(
-                (acc, [table, keyList]) => {
-                    acc[table] = {
-                        Keys: keyList,
-                        ConsistentRead: consistentRead,
-                    };
-                    return acc;
-                },
-                {} as NonNullable<BatchGetCommandInput['RequestItems']>,
-            );
-
-        const command = new BatchGetCommand({
-            RequestItems: requestItems,
-            ReturnConsumedCapacity: 'TOTAL',
-        });
+        let requestItems: BatchGetCommandInput['RequestItems'] = Object.entries(
+            allRequestItemsPerTable,
+        ).reduce(
+            (acc, [table, keyList]) => {
+                acc[table] = {
+                    Keys: keyList,
+                    ConsistentRead: consistentRead,
+                };
+                return acc;
+            },
+            {} as NonNullable<BatchGetCommandInput['RequestItems']>,
+        );
 
         const client = await this.#getDocumentClient();
-        return client.send(command);
+        const responsesByTable = new Map<string, Record<string, unknown>[]>();
+        const consumedCapacityByTable = new Map<string, number>();
+
+        for (let attempt = 0; attempt <= MAX_BATCH_GET_RETRIES; attempt++) {
+            if (Object.keys(requestItems).length === 0) break;
+
+            const response = await client.send(
+                new BatchGetCommand({
+                    RequestItems: requestItems,
+                    ReturnConsumedCapacity: 'TOTAL',
+                }),
+            );
+
+            for (const [table, items] of Object.entries(
+                response.Responses ?? {},
+            )) {
+                const existing = responsesByTable.get(table) ?? [];
+                existing.push(...items);
+                responsesByTable.set(table, existing);
+            }
+            for (const entry of response.ConsumedCapacity ?? []) {
+                if (!entry.TableName) continue;
+                consumedCapacityByTable.set(
+                    entry.TableName,
+                    (consumedCapacityByTable.get(entry.TableName) ?? 0) +
+                        Number(entry.CapacityUnits ?? 0),
+                );
+            }
+
+            const unprocessedKeys = response.UnprocessedKeys ?? {};
+            if (Object.keys(unprocessedKeys).length === 0) {
+                requestItems = {};
+                break;
+            }
+
+            requestItems = unprocessedKeys as NonNullable<
+                BatchGetCommandInput['RequestItems']
+            >;
+            if (attempt < MAX_BATCH_GET_RETRIES) {
+                const delayMs = Math.min(
+                    1000,
+                    BATCH_GET_RETRY_BASE_MS * 2 ** attempt,
+                );
+                await sleep(delayMs);
+            }
+        }
+
+        if (Object.keys(requestItems).length > 0) {
+            throw new HttpError(
+                400,
+                'Failed to batch get all items from DynamoDB',
+                { legacyCode: 'bad_request' },
+            );
+        }
+
+        return {
+            Responses: Object.fromEntries(responsesByTable),
+            ConsumedCapacity: Array.from(consumedCapacityByTable.entries()).map(
+                ([TableName, CapacityUnits]) => ({
+                    TableName,
+                    CapacityUnits,
+                }),
+            ),
+        };
     }
 
     @Span('ddb.batchPut', (params: unknown[]) => ({
         'db.batch_size': params.length,
     }))
     async batchPut(params: { table: string; item: Record<string, unknown> }[]) {
+        return this.#batchWrite(
+            params.map(({ table, item }) => ({
+                table,
+                request: { PutRequest: { Item: item } },
+            })),
+        );
+    }
+
+    @Span('ddb.batchDel', (params: unknown[]) => ({
+        'db.batch_size': params.length,
+    }))
+    async batchDel(params: { table: string; key: Record<string, unknown> }[]) {
+        return this.#batchWrite(
+            params.map(({ table, key }) => ({
+                table,
+                request: { DeleteRequest: { Key: key } },
+            })),
+        );
+    }
+
+    // Shared BatchWriteItem plumbing for batchPut/batchDel: 25-item chunks,
+    // UnprocessedItems retried with capped exponential backoff, consumed
+    // capacity accumulated per table across every request.
+    async #batchWrite(
+        params: {
+            table: string;
+            request: NonNullable<
+                BatchWriteCommandInput['RequestItems']
+            >[string][number];
+        }[],
+    ) {
         const consumedCapacityByTable = new Map<string, number>();
         if (params.length === 0) {
             return { ConsumedCapacity: [] };
@@ -258,11 +406,7 @@ export class DDBClient extends PuterClient {
             let requestItems = chunk.reduce(
                 (acc, curr) => {
                     const tableRequests = acc[curr.table] ?? [];
-                    tableRequests.push({
-                        PutRequest: {
-                            Item: curr.item,
-                        },
-                    });
+                    tableRequests.push(curr.request);
                     acc[curr.table] = tableRequests;
                     return acc;
                 },
@@ -278,11 +422,17 @@ export class DDBClient extends PuterClient {
                     break;
                 }
 
-                const response = await client.send(
-                    new BatchWriteCommand({
-                        RequestItems: requestItems,
-                        ReturnConsumedCapacity: 'TOTAL',
-                    }),
+                const response = await sendRepairingValues(
+                    requestItems,
+                    (itemsToWrite) =>
+                        client.send(
+                            new BatchWriteCommand({
+                                RequestItems: itemsToWrite,
+                                ReturnConsumedCapacity: 'TOTAL',
+                            }),
+                        ),
+                    () =>
+                        `a batch write to ${Object.keys(requestItems).join(', ')}`,
                 );
                 accumulateConsumedCapacity(
                     response.ConsumedCapacity as
@@ -328,11 +478,18 @@ export class DDBClient extends PuterClient {
     }
 
     @Span('ddb.del', (table: string) => ({ 'db.table': table }))
-    async del<T extends Record<string, unknown>>(table: string, key: T) {
+    async del<T extends Record<string, unknown>>(
+        table: string,
+        key: T,
+        opts?: { returnOld?: boolean },
+    ) {
         const command = new DeleteCommand({
             TableName: table,
             Key: key,
             ReturnConsumedCapacity: 'TOTAL',
+            // ALL_OLD makes the delete an atomic claim: exactly one caller
+            // gets the attributes back.
+            ...(opts?.returnOld ? { ReturnValues: 'ALL_OLD' as const } : {}),
         });
 
         const client = await this.#getDocumentClient();
@@ -348,6 +505,7 @@ export class DDBClient extends PuterClient {
         index = '',
         consistentRead = false,
         options?: {
+            scanIndexForward?: boolean;
             beginsWith?: { key: string; value: string };
             select?: 'COUNT';
             filter?: {
@@ -404,6 +562,9 @@ export class DDBClient extends PuterClient {
                 ? { FilterExpression: options.filter.expression }
                 : {}),
             ...(options?.select ? { Select: options.select } : {}),
+            ...(options?.scanIndexForward !== undefined
+                ? { ScanIndexForward: options.scanIndexForward }
+                : {}),
             ReturnConsumedCapacity: 'TOTAL',
         });
 
@@ -418,25 +579,36 @@ export class DDBClient extends PuterClient {
         expression: string,
         expressionValues?: Record<string, unknown>,
         expressionNames?: Record<string, string>,
+        options?: { condition?: string },
     ) {
         const hasValues =
             !!expressionValues && Object.keys(expressionValues).length > 0;
         const hasNames =
             !!expressionNames && Object.keys(expressionNames).length > 0;
-        const command = new UpdateCommand({
-            TableName: table,
-            Key: key,
-            UpdateExpression: expression,
-            ...(hasValues
-                ? { ExpressionAttributeValues: expressionValues }
-                : {}),
-            ...(hasNames ? { ExpressionAttributeNames: expressionNames } : {}),
-            ReturnValues: 'ALL_NEW',
-            ReturnConsumedCapacity: 'TOTAL',
-        });
-
         const client = await this.#getDocumentClient();
-        return client.send(command);
+        return sendRepairingValues(
+            expressionValues,
+            (valuesToWrite) =>
+                client.send(
+                    new UpdateCommand({
+                        TableName: table,
+                        Key: key,
+                        UpdateExpression: expression,
+                        ...(hasValues
+                            ? { ExpressionAttributeValues: valuesToWrite }
+                            : {}),
+                        ...(hasNames
+                            ? { ExpressionAttributeNames: expressionNames }
+                            : {}),
+                        ...(options?.condition
+                            ? { ConditionExpression: options.condition }
+                            : {}),
+                        ReturnValues: 'ALL_NEW',
+                        ReturnConsumedCapacity: 'TOTAL',
+                    }),
+                ),
+            () => `an update to ${table}`,
+        );
     }
 
     async createTableIfNotExists(
@@ -538,6 +710,9 @@ export class DDBClient extends PuterClient {
             marshallOptions: {
                 removeUndefinedValues: true,
             },
+            unmarshallOptions: {
+                wrapNumbers: clampStoredNumber,
+            },
         });
     }
 
@@ -564,6 +739,9 @@ export class DDBClient extends PuterClient {
         this.#documentClient = DynamoDBDocumentClient.from(ddbClient, {
             marshallOptions: {
                 removeUndefinedValues: true,
+            },
+            unmarshallOptions: {
+                wrapNumbers: clampStoredNumber,
             },
         });
     }

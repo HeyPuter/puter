@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import check_password_strength from '../helpers/check_password_strength.js';
+import check_password_strength from '../helpers/checkPasswordStrength.js';
 import { openRevalidatePopup } from '../util/openid.js';
+import { fetchWithSessionCookieRetry, isSessionAuthError } from '../util/sessionAuth.js';
 import UIWindow from './UIWindow.js';
 
 async function UIWindowChangePassword (options) {
@@ -156,8 +157,9 @@ async function UIWindowChangePassword (options) {
             await myOpenRevalidatePopup();
 
             const res = await doSubmit({ new_password });
-            const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+            const data = await res.json().catch(() => ({}));
             if ( res.ok ) onSuccess();
+            else if ( isSessionAuthError(res, data) ) onReauthRequired(data);
             else onError(data.message || 'Request failed');
             return;
         }
@@ -167,24 +169,36 @@ async function UIWindowChangePassword (options) {
         $(el_window).find('.current-password, .new-password, .confirm-new-password').attr('disabled', true);
 
         let res = await doSubmit({ current_password, new_password });
-        const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({}));
 
         if ( res.ok ) {
             onSuccess();
             return;
         }
+        if ( isSessionAuthError(res, data) ) {
+            onReauthRequired(data);
+            return;
+        }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
             await myOpenRevalidatePopup(data.revalidate_url);
-            const r = await doSubmit();
-            if ( r.ok ) onSuccess();
-            else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
+            const r = await doSubmit({ new_password });
+            if ( r.ok ) {
+                onSuccess();
+                return;
+            }
+            const d = await r.json().catch(() => ({}));
+            if ( isSessionAuthError(r, d) ) onReauthRequired(d);
+            else onError(d.message || 'Request failed');
             return;
         }
         onError(data.message || res.statusText || 'Request failed');
     });
 
-    function doSubmit ({ new_password, current_password }) {
-        return fetch(apiUrl, {
+    function doSubmit ({ new_password, current_password } = {}) {
+        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie).
+        // On a 401 caused by a missing/bad cookie the wrapper mints the cookie
+        // from the GUI bearer token via /session/sync-cookie and retries once.
+        const send = () => fetch(apiUrl, {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -193,6 +207,7 @@ async function UIWindowChangePassword (options) {
                 new_pass: new_password,
             }),
         });
+        return fetchWithSessionCookieRetry(send, { origin, authToken: window.auth_token });
     }
 
     function onError (message) {
@@ -200,6 +215,14 @@ async function UIWindowChangePassword (options) {
         $(el_window).find('.form-error-msg').fadeIn();
         $(el_window).find('.change-password-btn').removeClass('disabled');
         $(el_window).find('.current-password, .new-password, .confirm-new-password').attr('disabled', false);
+    }
+
+    // Session cookie is absent and couldn't be minted from the bearer
+    // token — force the sign-in flow so it gets set, then the user can
+    // retry the change.
+    function onReauthRequired (data) {
+        onError(i18n('reauth_required_message'));
+        window.handleReauthRequired({ reason: data.reason, auth_id: data.auth_id });
     }
 
     function onSuccess () {

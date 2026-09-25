@@ -30,7 +30,7 @@ const BASE64_CHARS_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
  * its root past this much leading comment/PI text is not something we need to
  * accept.
  */
-const SVG_SNIFF_WINDOW = 8 * 1024;
+export const SVG_SNIFF_WINDOW = 8 * 1024;
 
 /**
  * How far into an EBML stream we look for the DocType string. The DocType

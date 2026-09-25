@@ -74,6 +74,15 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
+// The http→data-URL inliner does real fetches; stub it and assert on calls.
+const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
+    inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
+}));
+
+vi.mock('../../utils/inlineImages.js', () => ({
+    inlineHttpImageUrls: inlineHttpImageUrlsMock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -170,6 +179,19 @@ describe('GeminiChatProvider model catalog', () => {
         }
         expect(ids).toContain('gemini-2.5-flash');
         expect(ids).toContain('google/gemini-2.5-flash');
+    });
+
+    // The assertion above is blind to duplicates: toContain passes just as
+    // happily on a doubled id, and a doubled id is not hypothetical here --
+    // gemini-3.7-flash was once declared twice with two different cache
+    // prices. Catalog-wide uniqueness is enforced for every provider in
+    // providers/modelCatalogs.test.ts; this checks the other end, that the
+    // provider actually routes through the deduplicating helper rather than
+    // flattening the catalog itself.
+    it('list() emits every id exactly once', async () => {
+        const { provider } = makeProvider();
+        const ids = await provider.list();
+        expect(ids).toHaveLength(new Set(ids).size);
     });
 });
 
@@ -288,6 +310,53 @@ describe('GeminiChatProvider.complete request shape', () => {
     });
 });
 
+// -- Image inlining --------------------------------------------------
+
+describe('GeminiChatProvider.complete image inlining', () => {
+    const baseCompletion = {
+        choices: [
+            {
+                message: { content: 'Dog', role: 'assistant' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+
+    it('runs http image URLs through the inliner before the request is shaped', async () => {
+        inlineHttpImageUrlsMock.mockClear();
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'What animal is this?' },
+                    {
+                        type: 'image_url',
+                        image_url: { url: 'https://cdn.test/doge.jpeg' },
+                    },
+                ],
+            },
+        ];
+
+        await withTestActor(() =>
+            provider.complete({ model: 'gemini-3.5-flash', messages }),
+        );
+
+        // Gemini 3.1+ returns a bodiless 400 for http URLs on Google's
+        // OpenAI-compatible endpoint; the inliner turns them into data URLs,
+        // which every Gemini model accepts.
+        expect(inlineHttpImageUrlsMock).toHaveBeenCalledTimes(1);
+        expect(inlineHttpImageUrlsMock.mock.calls[0]![0]).toBe(messages);
+        // And it runs before the OpenAI-shape pass, so what it rewrites is
+        // what gets typed and sent.
+        expect(inlineHttpImageUrlsMock.mock.invocationCallOrder[0]).toBeLessThan(
+            createMock.mock.invocationCallOrder[0]!,
+        );
+    });
+});
+
 // ── Model resolution ────────────────────────────────────────────────
 
 describe('GeminiChatProvider model resolution', () => {
@@ -400,46 +469,51 @@ describe('GeminiChatProvider.complete non-stream output', () => {
     });
 
     it('bills cached tokens at the input rate when the model prices no cache read', async () => {
-        // gemini-2.0-flash-lite's catalogue entry has no cached_tokens rate.
-        // Cached tokens are subtracted out of prompt_tokens, so pricing them
-        // at zero bills them nowhere.
+        // Every shipped entry currently prices cache reads, so drop the rate
+        // off one for this call. Cached tokens are subtracted out of
+        // prompt_tokens, so pricing them at zero bills them nowhere.
         const lite = GEMINI_MODELS.find(
-            (m) => m.id === 'gemini-2.0-flash-lite',
+            (m) => m.id === 'gemini-3.1-flash-lite',
         )!;
-        expect(lite.costs.cached_tokens).toBeUndefined();
+        const cachedRate = lite.costs.cached_tokens;
+        delete lite.costs.cached_tokens;
 
-        const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce({
-            choices: [
-                {
-                    message: { content: 'cached', role: 'assistant' },
-                    finish_reason: 'stop',
+        try {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: { content: 'cached', role: 'assistant' },
+                        finish_reason: 'stop',
+                    },
+                ],
+                usage: {
+                    prompt_tokens: 3000,
+                    completion_tokens: 40,
+                    prompt_tokens_details: { cached_tokens: 2900 },
                 },
-            ],
-            usage: {
-                prompt_tokens: 3000,
-                completion_tokens: 40,
-                prompt_tokens_details: { cached_tokens: 2900 },
-            },
-        });
+            });
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'gemini-2.0-flash-lite',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'gemini-3.1-flash-lite',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
 
-        const [, , , overrides] = recordSpy.mock.calls[0]!;
-        const inputRate = Number(lite.costs.prompt_tokens);
-        expect(overrides).toMatchObject({
-            prompt_tokens: (3000 - 2900) * inputRate,
-            completion_tokens: 40 * Number(lite.costs.completion_tokens),
-            cached_tokens: 2900 * inputRate,
-        });
-        expect(
-            (overrides as Record<string, number>).cached_tokens,
-        ).toBeGreaterThan(0);
+            const [, , , overrides] = recordSpy.mock.calls[0]!;
+            const inputRate = Number(lite.costs.prompt_tokens);
+            expect(overrides).toMatchObject({
+                prompt_tokens: (3000 - 2900) * inputRate,
+                completion_tokens: 40 * Number(lite.costs.completion_tokens),
+                cached_tokens: 2900 * inputRate,
+            });
+            expect(
+                (overrides as Record<string, number>).cached_tokens,
+            ).toBeGreaterThan(0);
+        } finally {
+            lite.costs.cached_tokens = cachedRate;
+        }
     });
 
     it('zeroes cached_tokens when prompt_tokens_details is missing', async () => {
@@ -643,9 +717,9 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
         // generation; without its own rate the fee fell through to the input
         // token rate, which is several orders of magnitude below list.
         const lite = GEMINI_MODELS.find(
-            (m) => m.id === 'gemini-2.0-flash-lite',
+            (m) => m.id === 'gemini-3.1-flash-lite',
         )!;
-        expect(lite.costs.grounding_requests).toBe(3_500_000);
+        expect(lite.costs.grounding_requests).toBe(1_400_000);
 
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce({
@@ -666,7 +740,7 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gemini-2.0-flash-lite',
+                model: 'gemini-3.1-flash-lite',
                 messages: [{ role: 'user', content: 'search for foo' }],
             }),
         );

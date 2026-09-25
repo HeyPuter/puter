@@ -331,6 +331,55 @@ describe('LegacyFSController inline routes', () => {
         expect(entry).not.toHaveProperty('owner_user_id');
     });
 
+    it('pairs a recent app icon with a direct subdomain URL at the asked size', async () => {
+        const { actor, userId } = await makeUser();
+        const app = (await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; name: string }>
+        )(
+            {
+                name: `recent-${uuidv4()}`,
+                title: 'Recent App',
+                index_url: 'https://recent.example.test/',
+                // An http(s) icon column is what the resize pipeline leaves
+                // behind, so the sized PNG is on the icons subdomain.
+                icon: 'https://api.puter.com/app-icon/x',
+            },
+            { ownerUserId: userId },
+        ))!;
+        await server.clients.db.write(
+            'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
+            [app.uid, userId, Math.floor(Date.now() / 1000)],
+        );
+
+        const runWithIconSize = async (query: Record<string, unknown>) => {
+            const { res, captured } = makeRes();
+            await routeHandler('get', '/get-launch-apps')(
+                makeReq({ actor, query }),
+                res,
+                (() => {}) as never,
+            );
+            const body = captured.body as {
+                recent: Array<Record<string, unknown>>;
+            };
+            return body.recent.find((item) => item.uuid === app.uid)!;
+        };
+
+        const { protocol, static_hosting_domain } = controller.config;
+        const base = `${protocol}://puter-app-icons.${static_hosting_domain}`;
+
+        expect((await runWithIconSize({ icon_size: '64' })).iconCdnUrl).toBe(
+            `${base}/${app.uid}-64.png`,
+        );
+        // An unusable size falls back to the default rather than pointing at a
+        // file the pipeline never wrote.
+        expect((await runWithIconSize({ icon_size: '65' })).iconCdnUrl).toBe(
+            `${base}/${app.uid}-256.png`,
+        );
+    });
+
     it('reports a zero cache timestamp when unauthenticated', async () => {
         const { res, captured } = makeRes();
         await routeHandler('get', '/cache/last-change-timestamp')(

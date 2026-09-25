@@ -21,7 +21,7 @@ import type { RequestHandler } from 'express';
 import type { IConfig } from '../../../types';
 import {
     assertActorHasCredits,
-    type CreditMeteringLike,
+    type CreditMetering,
 } from '../../../services/metering/enforcement.js';
 import '../expressAugmentation';
 
@@ -38,7 +38,7 @@ import '../expressAugmentation';
  * affordable on routes that are called hundreds of times a minute.
  */
 export const requireCreditsGate = (
-    metering: CreditMeteringLike | undefined,
+    metering: CreditMetering | undefined,
     config: IConfig,
 ): RequestHandler => {
     return (req, _res, next) => {

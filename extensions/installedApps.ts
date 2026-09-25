@@ -2,7 +2,10 @@ import type { Request, Response } from 'express';
 import { Context } from '@heyputer/backend/src/core';
 import { HttpError } from '@heyputer/backend/src/core/http';
 import { extension } from '@heyputer/backend/src/extensions';
-import { getAppIconUrl } from '@heyputer/backend/src/util/appIcon.js';
+import {
+    getAppIconCdnUrl,
+    getAppIconUrl,
+} from '@heyputer/backend/src/util/appIcon.js';
 
 const clients = extension.import('client');
 
@@ -73,6 +76,8 @@ export const handleInstalledApps = async (
             return {
                 ...rest,
                 iconUrl: getAppIconUrl(app, { apiBaseUrl }),
+                // Direct subdomain URL for the client to try before iconUrl.
+                iconCdnUrl: getAppIconCdnUrl(app, extension.config),
                 external,
             };
         }),

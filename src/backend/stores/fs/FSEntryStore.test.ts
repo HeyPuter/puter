@@ -24,6 +24,7 @@ import { configContainer } from '../../exports.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types';
+import { encodeCursor } from '../../util/pagination.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSEntry, FSEntryCreateInput } from './FSEntry.js';
 import { FSEntryStore } from './FSEntryStore.js';
@@ -986,6 +987,95 @@ describe('FSEntryStore timestamps and updates', () => {
             thumbnail: 'data:image/png;base64,BB',
         });
     });
+
+    it('updateEntry returns and caches the primary row when the replica lags', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/stale.txt`);
+
+        // Pre-update row, captured before the patch — stands in for what a
+        // lagging replica would still be serving.
+        const staleRows = (await server.clients.db.read(
+            'SELECT * FROM fsentries WHERE uuid = ?',
+            [file.uuid],
+        )) as Array<Record<string, unknown>>;
+        for (const row of staleRows) row.subdomains_agg = null;
+
+        const db = server.clients.db;
+        const originalTryHardRead = (Object.getPrototypeOf(db) as typeof db)
+            .tryHardRead;
+        const tryHardReadSpy = vi
+            .spyOn(db, 'tryHardRead')
+            .mockImplementation(async (query: string, params: unknown[] = []) => {
+                if (
+                    query.includes('WHERE uuid = ? LIMIT 1') &&
+                    params[0] === file.uuid
+                ) {
+                    return staleRows;
+                }
+                return originalTryHardRead.call(db, query, params);
+            });
+        try {
+
+            const newPath = `${user.home}/Documents/renamed.txt`;
+            const updated = await store.updateEntry(file.uuid, {
+                name: 'renamed.txt',
+                path: newPath,
+            });
+
+            expect(updated.name).toBe('renamed.txt');
+            expect(updated.path).toBe(newPath);
+            await expect(store.getEntryByUuid(file.uuid)).resolves.toMatchObject({
+                path: newPath,
+            });
+            expect(tryHardReadSpy).not.toHaveBeenCalled();
+
+        } finally {
+            tryHardReadSpy.mockRestore();
+        }
+    });
+
+    it('updateEntryThumbnailByUuidForUser returns the primary thumbnail when the replica lags', async () => {
+        const owner = await makeUser();
+        const file = await createFile(
+            owner,
+            `${owner.home}/Documents/stale-thumb.txt`,
+        );
+
+        const staleRows = (await server.clients.db.read(
+            'SELECT * FROM fsentries WHERE uuid = ?',
+            [file.uuid],
+        )) as Array<Record<string, unknown>>;
+        for (const row of staleRows) row.subdomains_agg = null;
+
+        const db = server.clients.db;
+        const originalTryHardRead = (Object.getPrototypeOf(db) as typeof db)
+            .tryHardRead;
+        const tryHardReadSpy = vi
+            .spyOn(db, 'tryHardRead')
+            .mockImplementation(async (query: string, params: unknown[] = []) => {
+                if (
+                    query.includes('AND user_id = ?') &&
+                    params[0] === file.uuid
+                ) {
+                    return staleRows;
+                }
+                return originalTryHardRead.call(db, query, params);
+            });
+        try {
+
+            const updated = await store.updateEntryThumbnailByUuidForUser(
+                owner.userId,
+                file.uuid,
+                'data:image/png;base64,NEW',
+            );
+
+            expect(updated.thumbnail).toBe('data:image/png;base64,NEW');
+            expect(tryHardReadSpy).not.toHaveBeenCalled();
+
+        } finally {
+            tryHardReadSpy.mockRestore();
+        }
+    });
 });
 
 describe('FSEntryStore listing and pagination', () => {
@@ -1127,10 +1217,7 @@ describe('FSEntryStore listing and pagination', () => {
     });
 
     it('lists and counts descendants, refusing to walk from root', async () => {
-        const descendants = await store.listDescendantsByPath(
-            user.userId,
-            parent.path,
-        );
+        const descendants = await store.listDescendantsByPath(parent.path);
         expect(descendants.map((entry) => entry.name).sort()).toEqual([
             'a.txt',
             'b.txt',
@@ -1142,9 +1229,7 @@ describe('FSEntryStore listing and pagination', () => {
             store.countDescendantsByPath(user.userId, parent.path),
         ).resolves.toBe(5);
 
-        const rootList = await caught(() =>
-            store.listDescendantsByPath(user.userId, '/'),
-        );
+        const rootList = await caught(() => store.listDescendantsByPath('/'));
         expect(rootList.statusCode).toBe(400);
         await expect(
             store.countDescendantsByPath(user.userId, '/'),
@@ -1182,6 +1267,92 @@ describe('FSEntryStore listing and pagination', () => {
             store.listDescendantsPage(user.userId, '/', { maxDepth: 1 }),
         );
         expect(rootPage.statusCode).toBe(400);
+    });
+
+    it('sorts a descendant page by the requested field', async () => {
+        // Sizes: a=30, b=20, c=10, sub=null (a directory), sub/deep=5. The
+        // sort spans the whole subtree, so a nested entry sorts among the
+        // entries above it.
+        const bySize = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            { maxDepth: 5, sortBy: 'size', sortOrder: 'desc' },
+        );
+        expect(bySize.entries.map((entry) => entry.name)).toEqual([
+            'a.txt',
+            'b.txt',
+            'c.txt',
+            'deep.txt',
+            'sub',
+        ]);
+
+        // A name sort is path order: names alone would interleave depths.
+        const byName = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            { maxDepth: 5, sortBy: 'name' },
+        );
+        expect(byName.entries.map((entry) => entry.name)).toEqual([
+            'a.txt',
+            'b.txt',
+            'c.txt',
+            'sub',
+            'deep.txt',
+        ]);
+    });
+
+    it('pages a sorted descendant listing without dupes or gaps', async () => {
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        do {
+            const page = await store.listDescendantsPage(
+                user.userId,
+                parent.path,
+                {
+                    maxDepth: 5,
+                    limit: 2,
+                    sortBy: 'size',
+                    sortOrder: 'desc',
+                    cursor,
+                },
+            );
+            seen.push(...page.entries.map((entry) => entry.name));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(seen).toEqual(['a.txt', 'b.txt', 'c.txt', 'deep.txt', 'sub']);
+    });
+
+    it('pins the sort to the descendant cursor', async () => {
+        const first = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            { maxDepth: 5, limit: 1, sortBy: 'size' },
+        );
+        const mismatch = await caught(() =>
+            store.listDescendantsPage(user.userId, parent.path, {
+                maxDepth: 5,
+                limit: 1,
+                sortBy: 'modified',
+                cursor: first.cursor,
+            }),
+        );
+        expect(mismatch.statusCode).toBe(400);
+        expect(mismatch.message).toBe('cursor does not match requested sort');
+
+        // Cursors minted before the sort was honored carried only a path.
+        const legacy = await store.listDescendantsPage(
+            user.userId,
+            parent.path,
+            {
+                maxDepth: 5,
+                cursor: encodeCursor({ p: `${parent.path}/b.txt` }),
+            },
+        );
+        expect(legacy.entries.map((entry) => entry.name)).toEqual([
+            'c.txt',
+            'sub',
+            'deep.txt',
+        ]);
     });
 
     it('counts descendants to a depth', async () => {
@@ -1286,6 +1457,110 @@ describe('FSEntryStore home and prefix rewrites', () => {
         await expect(
             store.renameUserHome(9_999_999, 'nobody'),
         ).resolves.toBeNull();
+    });
+
+    it('refuses to heal a home onto a path another user holds', async () => {
+        const occupant = await makeUser();
+        const mover = await makeUser();
+
+        const conflict = await caught(() =>
+            store.renameUserHome(mover.userId, occupant.username),
+        );
+        expect(conflict.statusCode).toBe(409);
+
+        // The mover's home is untouched — no second row at that path.
+        const root = await store.getRootEntryForUser(mover.userId);
+        expect(root?.path).toBe(mover.home);
+    });
+
+    it('reports a home path conflict only for a foreign owner', async () => {
+        const owner = await makeUser();
+
+        const foreign = await store.findHomePathConflict(owner.username);
+        expect(foreign?.userId).toBe(owner.userId);
+
+        await expect(
+            store.findHomePathConflict(owner.username, owner.userId),
+        ).resolves.toBeNull();
+        await expect(
+            store.findHomePathConflict('nobody-has-this-name'),
+        ).resolves.toBeNull();
+    });
+
+    it('reports a descendant conflict only when opted in, and escapes LIKE wildcards', async () => {
+        const owner = await makeUser();
+        const freeName = `free_${Math.random().toString(36).slice(2, 8)}`;
+        // A row left dangling under a name nobody owns — the shape a partial
+        // cascade or a user-scoped cleanup leaves behind.
+        const docs = (await store.getEntryByPath(`${owner.home}/Documents`))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${freeName}/Documents`, docs.id],
+        );
+        await store.invalidateEntryCacheByUuid(docs.uuid);
+
+        const foreign = await store.findHomePathConflict(freeName, undefined, {
+            includeDescendants: true,
+        });
+        expect(foreign?.userId).toBe(owner.userId);
+
+        // The name's own owner is excluded, same as the exact-path check.
+        await expect(
+            store.findHomePathConflict(freeName, owner.userId, {
+                includeDescendants: true,
+            }),
+        ).resolves.toBeNull();
+
+        // Without the flag, a descendant-only conflict is invisible — the
+        // exact-path check this call used to be stays unchanged.
+        await expect(
+            store.findHomePathConflict(freeName),
+        ).resolves.toBeNull();
+
+        // `_` in a username is a LIKE wildcard; an unescaped pattern for
+        // `free_abc` would also match `/freexabc/...`.
+        const decoy = await makeUser();
+        const decoyDocs = (await store.getEntryByPath(
+            `${decoy.home}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            ['/freexabc/Documents', decoyDocs.id],
+        );
+        await store.invalidateEntryCacheByUuid(decoyDocs.uuid);
+        await expect(
+            store.findHomePathConflict('free_abc', undefined, {
+                includeDescendants: true,
+            }),
+        ).resolves.toBeNull();
+    });
+
+    it('heals a home onto its own username even when a foreign row sits underneath', async () => {
+        const mover = await makeUser();
+        const root = (await store.getRootEntryForUser(mover.userId))!;
+        const drifted = `${mover.username}-drift`;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [`/${drifted}`, drifted, root.id],
+        );
+        await store.invalidateEntryCacheByUuid(root.uuid);
+
+        // A stranger's row left dangling right where the heal needs to land —
+        // renameUserHome's own check must stay exact-path, or the healed
+        // account could never reclaim its own name.
+        const stranger = await makeUser();
+        const leftover = await createFile(
+            stranger,
+            `${stranger.home}/Documents/leftover.txt`,
+        );
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${mover.username}/Documents/leftover.txt`, leftover.id],
+        );
+        await store.invalidateEntryCacheByUuid(leftover.uuid);
+
+        const healed = await store.renameUserHome(mover.userId, mover.username);
+        expect(healed?.path).toBe(`/${mover.username}`);
     });
 
     it('rewrites a path prefix and reports how many rows moved', async () => {

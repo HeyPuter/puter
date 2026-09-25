@@ -120,7 +120,8 @@
  * large directories.
  * @property {string | null} [cursor] Opaque continuation cursor from a previous page.
  * @property {boolean} [includeTotal] Include a `total` count of every entry across all pages.
- * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`.
+ * @property {'name' | 'modified' | 'type' | 'size'} [sortBy] Sort field. Default is `name`. With
+ * `recursive`, a `name` sort orders by full path.
  * @property {'asc' | 'desc'} [sortOrder] Sort direction. Default is `asc`.
  * @property {boolean} [recursive] Whether to also list the contents of subdirectories. Defaults to
  * `false`.
@@ -164,6 +165,8 @@
  * @property {boolean} [returnPermissions] Whether to return permission information. Defaults to `false`.
  * @property {boolean} [returnVersions] Whether to return version information. Defaults to `false`.
  * @property {boolean} [returnSize] Whether to return size information. Defaults to `false`.
+ * @property {boolean} [returnShares] Whether to return who the item is shared with, as a `shares`
+ * array on the result. Empty unless you can manage the item. Defaults to `false`.
  */
 
 /**
@@ -173,7 +176,33 @@
  */
 
 /**
+ * What `stat()` and `readdir()` return: an item plus the sharing state only
+ * those two report. `is_shared` is null for items the caller does not own.
+ *
+ * @typedef {FSItem & { is_shared?: boolean | null }} FSItemRead
+ */
+
+/**
+ * A `stat()` result with `returnShares` set.
+ *
+ * @typedef {FSItemRead & { shares: Share[] }} FSItemWithShares
+ */
+
+/**
+ * @typedef {Object} ThumbnailGeneratorContext
+ * @property {(file: File) => Promise<string | undefined>} defaultGenerator Built-in browser image generator.
+ * @property {AbortSignal} [signal] Aborted when upload preparation is cancelled.
+ */
+
+/**
+ * @typedef {(file: File, context: ThumbnailGeneratorContext) => string | undefined | Promise<string | undefined>} ThumbnailGenerator
+ */
+
+/**
  * @typedef {Object} UploadOptionsOwn
+ * @property {boolean} [generateThumbnails] Generate browser image thumbnails before uploading. Defaults to `false`.
+ * @property {ThumbnailGenerator} [thumbnailGenerator] Overrides image generation; return `undefined` to skip.
+ * @property {string} [thumbnail] Thumbnail data URL or URL, used when no generated thumbnail is returned.
  * @property {boolean} [overwrite] Whether to overwrite the destination file if it already exists.
  * Defaults to `false`.
  * @property {boolean} [dedupeName] Whether to deduplicate the file name if it already exists. Defaults
@@ -268,6 +297,150 @@
  *     | File
  *     | string
  *     | unknown[]} UploadItems
+ */
+
+/**
+ * How much access a share grants. Stronger modes imply the weaker ones, so
+ * `write` also allows reading, and `manage` — the strongest — allows
+ * everything `write` does plus re-sharing the item with other people.
+ *
+ * @typedef {'see' | 'list' | 'read' | 'write' | 'manage'} ShareMode
+ */
+
+/**
+ * Who a share is for. Give an `email` or a `username`; a bare string is read
+ * as an email when it contains `@` and a username otherwise.
+ *
+ * A team is named by `team` (uid) or `teamHandle`, never as a bare
+ * string -- that spelling already means an email or a username. `{ anyone:
+ * true }` is anyone with the link: every signed-in account that can name the
+ * item, at `read` or `write`. Only the item's owner may set it, and only on a
+ * paid plan; the link stops working while the owner has none.
+ *
+ * @typedef {string | { email?: string, username?: string, team?: string, teamHandle?: string, anyone?: true }} ShareRecipient
+ */
+
+/**
+ * One live share.
+ *
+ * @typedef {Object} Share
+ * @property {string} uid Identifier for this share.
+ * @property {ShareMode} mode Access the recipient has.
+ * @property {string} path Path of the shared item.
+ * @property {string} entryUid UID of the shared item.
+ * @property {boolean} isDir Whether the shared item is a directory.
+ * @property {string | null} name The item's name. Not set by `getShares()`,
+ * which describes access to an item the caller already named.
+ * @property {string | null} type The item's content type, or `'folder'`. Only
+ * set by the listings, `listShared()` and `listSharedByMe()`.
+ * @property {string | null} thumbnail URL of the item's thumbnail, if it has
+ * one. Only set by the listings, `listShared()` and `listSharedByMe()`.
+ * @property {string | null} owner Username of the item's owner. Only set by
+ * the listings, `listShared()` and `listSharedByMe()`.
+ * @property {string | null} issuer Username of whoever granted it.
+ * @property {string | null} holder Username of whoever received it. Null for a
+ * team share (see `holderTeam`) and for a link share (see `anyone`), neither
+ * of which has an individual holder.
+ * @property {{ uid: string, name: string | null, handle: string | null }} [holderTeam]
+ * The team this was shared with, when it was shared with one.
+ * @property {boolean} [anyone] True when this is the item's "anyone with the
+ * link" share: every signed-in account that names the item gets `mode`, while
+ * the owner's plan covers link sharing.
+ * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
+ * @property {string | null} [issuedByApp] UID of the app that asked for this
+ * share, or `null` when a person made it directly.
+ * @property {boolean} [pending] True when the recipient's email has no
+ * confirmed account yet. The share is recorded but grants nothing until they
+ * create an account with that address and confirm it.
+ * @property {string | null} [recipientEmail] Address a pending share was sent
+ * to. Only set when `pending`.
+ * @property {number} modified Last-modified time of the item, unix seconds.
+ * @property {number | null} size Size of the item in bytes; null for a directory.
+ * @property {boolean} [isNew] Whether the call created access that did not exist
+ * before. Set by `share()` only; a listing leaves it undefined.
+ */
+
+/**
+ * @typedef {Object} ShareOptionsOwn
+ * @property {string} [path] Item to share. Relative paths resolve against the
+ * app's root directory.
+ * @property {string} [uid] Item to share, by UID. Use instead of `path`.
+ * @property {string[]} [paths] Several items to share in one call.
+ * @property {ShareRecipient | ShareRecipient[]} [recipient] Who to share with.
+ * @property {ShareRecipient | ShareRecipient[]} [recipients] Alias for
+ * `recipient`.
+ * @property {ShareMode} [mode] Access to grant. Defaults to `'read'`.
+ */
+
+/**
+ * @typedef {ShareOptionsOwn & RequestCallbacks<Share[]>} ShareOptions
+ */
+
+/**
+ * @typedef {Object} UnshareOptionsOwn
+ * @property {string} [path] Item to stop sharing.
+ * @property {string} [uid] Item to stop sharing, by UID.
+ * @property {ShareRecipient} [recipient] Who to withdraw access from. Pass
+ * yourself to leave a share someone else granted you.
+ */
+
+/**
+ * @typedef {UnshareOptionsOwn & RequestCallbacks<{ revoked: number }>} UnshareOptions
+ */
+
+/**
+ * @typedef {Object} ListSharedOptionsOwn
+ * @property {number} [limit] Maximum shares per page.
+ * @property {string} [cursor] Continuation token from a previous page.
+ * @property {boolean} [includeTotal] Include the total count in the response.
+ */
+
+/**
+ * @typedef {ListSharedOptionsOwn & RequestCallbacks<SharePage>} ListSharedOptions
+ */
+
+/**
+ * @typedef {Object} ListSharedByMeOptionsOwn
+ * @property {string} [appUid] Narrow to the shares one app issued in your
+ * name, or `'none'` for the ones you made yourself.
+ */
+
+/**
+ * @typedef {ListSharedOptionsOwn & ListSharedByMeOptionsOwn &
+ * RequestCallbacks<SharePage>} ListSharedByMeOptions
+ */
+
+/**
+ * A page of shares. `cursor` is present only while more pages remain, so
+ * iterate until it is absent rather than counting items.
+ *
+ * @typedef {Object} SharePage
+ * @property {Share[]} items
+ * @property {string} [cursor]
+ * @property {number} [total]
+ */
+
+/**
+ * @typedef {Object} GetSharesOptionsOwn
+ * @property {string} [path] Item to inspect.
+ * @property {string} [uid] Item to inspect, by UID.
+ */
+
+/**
+ * @typedef {GetSharesOptionsOwn & RequestCallbacks<Share[]>} GetSharesOptions
+ */
+
+/**
+ * @typedef {Object} GetShareLinkOptionsOwn
+ * @property {string} [path] The file. Required when passing options as the only argument, unless
+ * `uid` is given.
+ * @property {string} [uid] The file, by UID. Can be used instead of `path`.
+ * @property {string} [appName] Name of the app the link opens the file with. Defaults to the app
+ * the code runs in.
+ */
+
+/**
+ * @typedef {GetShareLinkOptionsOwn & RequestCallbacks<string>} GetShareLinkOptions
  */
 
 export {};

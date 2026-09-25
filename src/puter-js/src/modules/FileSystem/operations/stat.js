@@ -1,24 +1,33 @@
 import { dedupe } from '../../../lib/networkUtils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { fsRequest, parseOperationArgs } from './scaffold.js';
+import { toShare } from './shareUtil.js';
 
 /** @typedef {import('../types.js').StatOptions} StatOptions */
-/** @typedef {import('../../FSItem.js').FSItem} FSItem */
+/** @typedef {import('../types.js').FSItemRead} FSItemRead */
+/** @typedef {import('../types.js').FSItemWithShares} FSItemWithShares */
 
 /**
  * @typedef {{
- *   (options: StatOptions): Promise<FSItem>,
+ *   (options: StatOptions & { returnShares: true }): Promise<FSItemWithShares>,
+ *   (options: StatOptions): Promise<FSItemRead>,
+ *   (
+ *     path: string,
+ *     options: StatOptions & { returnShares: true },
+ *     success?: (value: FSItemWithShares) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<FSItemWithShares>,
  *   (
  *     path: string,
  *     options?: StatOptions,
- *     success?: (value: FSItem) => void,
+ *     success?: (value: FSItemRead) => void,
  *     error?: (reason: unknown) => void,
- *   ): Promise<FSItem>,
+ *   ): Promise<FSItemRead>,
  *   (
  *     path: string,
- *     success: (value: FSItem) => void,
+ *     success: (value: FSItemRead) => void,
  *     error?: (reason: unknown) => void,
- *   ): Promise<FSItem>,
+ *   ): Promise<FSItemRead>,
  * }} StatOperation
  */
 
@@ -34,7 +43,7 @@ const MAX_CACHE_SIZE = 20 * 1024 * 1024;
  *
  * @this {import('../index.js').PuterJSFileSystemModule}
  * @param {...unknown} args
- * @returns {Promise<FSItem>}
+ * @returns {Promise<FSItemRead>}
  */
 const statImpl = async function (...args) {
     const options = parseOperationArgs(args, ['path']);
@@ -50,7 +59,7 @@ const statImpl = async function (...args) {
         cacheKey = `item:${ options.path}`;
     }
 
-    if ( options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize ) {
+    if ( options.consistency === 'eventual' && !options.returnSubdomains && !options.returnPermissions && !options.returnVersions && !options.returnSize && !options.returnShares ) {
         const cachedResult = await puter._cache.get(cacheKey);
         if ( cachedResult ) {
             return cachedResult;
@@ -65,6 +74,7 @@ const statImpl = async function (...args) {
         returnPermissions: options.returnPermissions,
         returnVersions: options.returnVersions,
         returnSize: options.returnSize,
+        returnShares: options.returnShares,
         consistency: options.consistency,
     });
 
@@ -80,6 +90,7 @@ const statImpl = async function (...args) {
         body.return_permissions = options.returnPermissions;
         body.return_versions = options.returnVersions;
         body.return_size = options.returnSize;
+        body.return_shares = options.returnShares;
         body.auth_token = this.authToken;
 
         return fsRequest.call(this, {
@@ -90,7 +101,11 @@ const statImpl = async function (...args) {
             success: options.success,
             error: options.error,
             transform: (result) => {
-                if ( JSON.stringify(result).length <= MAX_CACHE_SIZE ) {
+                if ( Array.isArray(result?.shares) ) {
+                    result.shares = result.shares.map(toShare);
+                }
+                // Not cached — a later plain stat must not serve share data.
+                if ( ! options.returnShares && JSON.stringify(result).length <= MAX_CACHE_SIZE ) {
                     puter._cache.set(cacheKey, result);
                 }
                 return result;

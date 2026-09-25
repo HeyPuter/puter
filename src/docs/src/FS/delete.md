@@ -1,6 +1,6 @@
 ---
 title: puter.fs.delete()
-description: Deletes a file or directory in Puter file system.
+description: Deletes a file or directory in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 
@@ -32,6 +32,10 @@ The options for the `delete` operation. The following options are supported:
 ## Return value
 
 A `Promise` that will resolve when the file or directory is deleted.
+
+Deleting an item withdraws every [share](/FS/share/) on it and on everything
+inside it, links and unclaimed invites included. Moving an item to Trash counts
+as deleting it here, and restoring it does not bring the shares back.
 
 ## Examples
 

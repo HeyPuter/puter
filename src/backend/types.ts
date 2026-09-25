@@ -29,24 +29,13 @@ export interface IDynamoConfig {
     aws?: IAWSCredentials;
     endpoint?: string;
     /**
-     * Filesystem path for the local dynalite store. Defaults to
-     * `./volatile/runtime/puter-ddb`. Pass `':memory:'` (or set `inMemory:
-     * true`) to run dynalite without persistence — the recommended setup for
-     * unit/integration tests.
+     * Local dynalite store path. Default `./volatile/runtime/puter-ddb`;
+     * `':memory:'` for tests.
      */
     path?: string;
-    /**
-     * Run dynalite in-memory with no on-disk state. Equivalent to `path:
-     * ':memory:'`. Intended for tests so each suite gets a pristine in-process
-     * DynamoDB.
-     */
+    /** Same as `path: ':memory:'`. */
     inMemory?: boolean;
-    /**
-     * Create required tables on startup if they don't exist. Off by default
-     * because real-AWS deployments provision tables externally (Terraform /
-     * IaC). Set to `true` when pointing at a local DynamoDB emulator so
-     * self-hosters don't have to bootstrap by hand.
-     */
+    /** Create missing tables at startup. Off by default; for local emulators. */
     bootstrapTables?: boolean;
 }
 
@@ -55,60 +44,41 @@ export interface IRedisConfig {
         host: string;
         port: number;
     }>;
-    /**
-     * Use TLS for cluster connections. Defaults to `true` (matches prod
-     * ElastiCache). Set `false` for self-host plain-TCP Valkey/Redis.
-     */
+    /** Default `true`; set `false` for plain-TCP Valkey/Redis. */
     tls?: boolean;
     /**
-     * Use ioredis-mock instead of a real Redis cluster — fully in-process, no
-     * network. Defaults to `true` when `startupNodes` is empty (so tests with
-     * no redis config get a mock for free). Intended for unit/integration
-     * tests.
+     * Use ioredis-mock in-process. Defaults to `true` when `startupNodes` is
+     * empty.
      */
     useMock?: boolean;
 }
 
 /**
- * Redis-backed read cache in front of the KV store's point reads (`get`, and
- * the per-key half of a batch `get`). Off unless `enabled` is set.
- *
- * Only user/app namespaces are cached; internal state under the system
- * namespace is always read through, as are consistent reads.
- *
- * Turning the cache off does not clear what it already holds. Entries stop
- * being read but also stop being invalidated, so a disable followed by a
- * re-enable inside `ttlSeconds` can serve values written in between — wait out
- * `ttlSeconds` before switching back on.
+ * Redis read cache in front of KV point reads for user/app namespaces. Off
+ * unless `enabled`. Disabling does not clear entries, so wait out `ttlSeconds`
+ * before re-enabling or stale values can be served.
  */
 export interface IKvCacheConfig {
-    /** Master switch. Default false. */
+    /** Default false. */
     enabled?: boolean;
     /** Seconds a cached value is served for. Default 60. */
     ttlSeconds?: number;
-    /**
-     * Seconds a cached absence is served for. Shorter than `ttlSeconds` because
-     * a key that doesn't exist yet is the one most likely to appear. Default
-     * 10.
-     */
+    /** Seconds a cached absence is served for. Default 10. */
     missTtlSeconds?: number;
     /**
      * Seconds after a write during which that key's reads bypass the cache.
-     * Must comfortably exceed how long a mutation takes to become visible to
-     * every reader, or a read that raced the write can re-cache the old value.
-     * Default 5.
+     * Must exceed mutation visibility lag or a racing read re-caches the old
+     * value. Default 5.
      */
     blockSeconds?: number;
     /**
-     * Largest cached entry, in bytes of serialized envelope. Bigger values are
-     * read through — they earn the least per byte of cache memory. Default
+     * Largest cached entry in bytes; bigger values are read through. Default
      * 32768.
      */
     maxEntryBytes?: number;
     /**
-     * Milliseconds invalidations accumulate for before one broadcast carries
-     * them all. Local invalidation is always immediate; this only batches the
-     * message to peers. 0 sends one per write. Default 250.
+     * Milliseconds to batch peer invalidation broadcasts; 0 sends per write.
+     * Default 250.
      */
     broadcastCoalesceMs?: number;
 }
@@ -342,6 +312,22 @@ export interface IPeersConfig {
         cloudflare_turn_api_token?: string;
         /** Credential TTL in seconds. Default 86400. */
         ttl?: number;
+    };
+    /**
+     * Relay access for guests of an authenticated host, who mint credentials
+     * against a signed grant instead of an account of their own.
+     */
+    guest_turn?: {
+        /**
+         * HMAC key for guest grants. Absent disables the guest routes with a
+         * 503 — a deployment opts into guest relay access by setting this. Must
+         * not be shared with any other secret.
+         */
+        grant_secret?: string;
+        /** Grant lifetime in seconds. Default 3600. */
+        grant_ttl?: number;
+        /** Guest credential TTL in seconds, clamped to `turn.ttl`. Default 3600. */
+        credential_ttl?: number;
     };
     /** Shared secret for the internal `/turn/ingest-usage` endpoint. */
     internal_auth_secret?: string;
@@ -604,60 +590,35 @@ export interface IDevWatcherConfig {
 }
 
 /**
- * Complete shape of Puter's root config. Everything is optional here —
- * mandatory fields (only `port` + `extensions`) are pulled out of the
- * `Partial<...>` below and listed after it.
- *
- * When adding a new config field, declare it here with a doc comment so there's
- * a single discoverable reference for every config-driven switch.
- *
- * One value, one location: each setting lives at exactly one key. There are no
- * legacy aliases or fallback paths — older configs that relied on them need to
- * migrate.
+ * Root config. Only `port` and `extensions` are mandatory; they are added in
+ * `IConfig` below. Every config field is declared here with a doc comment so
+ * this is the one reference. Each setting has exactly one key, no aliases.
  */
 interface IConfigOptional {
     // -- Environment / identity --------------------------------------
 
-    /**
-     * Environment marker. `dev` disables blocked-email checks, opens
-     * auto-browser, etc.
-     */
+    /** `dev` disables blocked-email checks, opens the browser, etc. */
     env: 'dev' | 'prod';
-    /**
-     * Free-form name of the config profile (e.g. `oss-default`). Surfaced in
-     * logs.
-     */
+    /** Config profile name (e.g. `oss-default`), surfaced in logs. */
     config_name: string;
     /**
-     * Console output format. `json` replaces the global console so every call
-     * emits one structured JSON line (`level`, `timestamp`, `msg`, and the
-     * active `traceId`) — one event per call, so a line-oriented log collector
-     * can't split stack traces across events, and level filtering works. `text`
-     * (the default) leaves console output human-readable for local/dev.
+     * `json` emits one structured line per console call (`level`, `timestamp`,
+     * `msg`, `traceId`); `text` (default) stays human-readable.
      */
     log_format: 'json' | 'text';
     /**
-     * Keep serving after an uncaught exception instead of exiting. Uncaught
-     * exceptions are always logged either way; this only decides whether one
-     * ends the process. Default: false, matching Node's own behavior. Set it
-     * where losing the node costs more than running a possibly-degraded one — a
-     * small pool behind a health check that replaces bad nodes anyway.
+     * Keep serving after an uncaught exception instead of exiting. Default
+     * false. For nodes behind a health check that replaces bad ones anyway.
      */
     keep_alive_on_uncaught: boolean;
     /** Server version. Falls back to `npm_package_version`. */
     version: string;
-    /**
-     * Stable identity for this server node. Enables pager alerts + graceful
-     * shutdown delay.
-     */
+    /** Stable node identity. Enables pager alerts and graceful shutdown delay. */
     serverId: string;
 
     // -- Networking / URLs -------------------------------------------
 
-    /**
-     * Protocol used for the externally-visible origin ('http' or 'https').
-     * Default: 'http'.
-     */
+    /** Externally-visible protocol. Default 'http'. */
     protocol: string;
     /** Primary domain for Puter (e.g., `puter.localhost`, `puter.com`). */
     domain: string;
@@ -666,6 +627,32 @@ interface IConfigOptional {
      * this to the public port.
      */
     pub_port: number;
+    /**
+     * Idle keep-alive timeout for the HTTP server, in ms. Must stay above the
+     * idle timeout of any proxy in front of it, or the proxy reuses connections
+     * this server has already closed. Default 620000.
+     */
+    keep_alive_timeout: number;
+    /**
+     * Teams and teams. Off means `/teams` 404s and the schema is inert, so the
+     * tables can ship to production before anything can create a team. It is
+     * also the backout: turning it off removes the feature without touching
+     * data.
+     */
+    teams_enabled: boolean;
+    /** Live teams one user may own. Default 1. */
+    max_teams_per_user?: number;
+    /** Seats a team whose owner pays nothing may provision. Default 4. */
+    max_seats_per_team_free?: number;
+    /** Seats a paying owner's team may provision. Default 40. */
+    max_seats_per_team_paid?: number;
+    /** One flat cap whatever the owner pays; overrides both of the above. */
+    max_seats_per_team?: number;
+    /**
+     * Only these email domains may enter the teams surface; members of an
+     * existing team always pass. Unset means everyone.
+     */
+    teams_allowed_email_domains?: string[];
     /**
      * Fully-qualified externally-visible URL (protocol + domain + port).
      * Computed from `protocol`/`domain`/`pub_port` if unset.
@@ -684,6 +671,21 @@ interface IConfigOptional {
     private_app_hosting_domain: string;
     /** Alt private app hosting domain. */
     private_app_hosting_domain_alt: string;
+    /**
+     * Content-Security-Policy applied to active documents served from hosted
+     * sites. Unset means no header at all, which is the default: hosted sites
+     * are arbitrary third-party apps, so an enforcing policy has to be rolled
+     * out with evidence rather than switched on blind.
+     * `RECOMMENDED_HOSTING_CSP` in `middleware/puterSite.ts` is the suggested
+     * value.
+     */
+    hosting_csp?: string;
+    /**
+     * Send `hosting_csp` as `Content-Security-Policy-Report-Only` instead of
+     * enforcing it. Cannot break a page, so it is the safe first step when
+     * introducing a policy.
+     */
+    hosting_csp_report_only?: boolean;
     /**
      * Groups of equivalent app index_url hosts. Each group lists hosts that
      * should resolve to the same canonical app: `appUidFromOrigin` looks up any
@@ -789,24 +791,37 @@ interface IConfigOptional {
     /**
      * Let a user who keeps getting blocked on SMS phone verification fall back
      * to credit-card verification, which clears the phone gate (and the card
-     * gate too, when one is set). Off by default.
+     * gate too, when one is set).
      *
-     * The fallback opens after `after_attempts` SMS _send_ attempts inside the
-     * send rate-limit window — successful sends count too, so a user who
-     * receives codes fine can still choose the card path after that many
-     * requests. This trades the phone signal for a card signal; it does NOT
-     * guarantee SMS actually failed. Once open, the fallback stays open for 24
-     * hours so the user can finish the card flow. Requires a payments extension
-     * to run the actual card check.
+     * The fallback opens once the user has made `after_attempts` SMS _send_
+     * attempts inside the send rate-limit window, which by default means only
+     * after they have used up the window's entire send allowance — the card
+     * option is an escape hatch for a phone that isn't working, not a choice
+     * offered alongside a working SMS flow. Successful sends count too, so this
+     * trades the phone signal for a card signal; it does NOT guarantee SMS
+     * actually failed. Once open, the fallback stays open for 24 hours so the
+     * user can finish the card flow. Requires a payments extension to run the
+     * actual card check.
      */
     phone_verification_card_fallback: {
-        enabled: boolean;
+        /**
+         * Tri-state. Set it and that wins, either way — this is the opt-out.
+         * Omit it and the fallback is on wherever both gates it bridges
+         * actually work: an SMS provider is configured _and_ an installed
+         * extension reports card verification enabled. On a build with no card
+         * gate behind it the fallback stays off, since taking the offer there
+         * could only strand the user.
+         */
+        enabled?: boolean;
         /**
          * SMS send attempts (within the send rate-limit window) before the card
-         * fallback opens. Defaults to 2 when omitted. Values above the send
-         * route's rate limit (10/hour) are clamped down to it — requests past
-         * the route limit never reach the attempt counter, so a higher
-         * threshold could never be crossed.
+         * fallback opens. Defaults to the send route's full rate limit
+         * (10/hour), i.e. the fallback appears only once the user is out of SMS
+         * attempts. Values above that limit are clamped down to it — requests
+         * past the route limit never reach the attempt counter, so a higher
+         * threshold could never be crossed. Lower it (e.g. 2) to reach the card
+         * path without burning the whole allowance, which is mainly useful for
+         * QA.
          */
         after_attempts?: number;
     };
@@ -830,6 +845,65 @@ interface IConfigOptional {
     /** When true, ACL grants read/list/see on `/<user>/Public` to any actor. */
     enable_public_folders: boolean;
 
+    /**
+     * Whether a recipient who already has an account is emailed about a share
+     * as well as notified in-app. **On unless set to false**; recipients
+     * decline with the unsubscribe link the mail carries, or by blocking a
+     * sender. An invite to an address with no account is emailed regardless.
+     */
+    share_email_notifications?: boolean;
+
+    /**
+     * Ceiling on how many shares one user may create per UTC day. An abuse
+     * bound, not an accounting one — it exists so a script can't blanket other
+     * accounts with unwanted items and the notifications that follow. Omit to
+     * use the built-in default.
+     */
+    share_daily_limit?: number;
+
+    /**
+     * How often a share may interrupt its recipient — the notification pushed
+     * to their screen and the email that goes with it. The share itself is
+     * never refused for being over budget; only the announcement is dropped.
+     *
+     * Both axes are needed: the pair bounds hold one sharer back, and the
+     * recipient bounds are what stop many senders from burying one person
+     * between them. Omit any field for the built-in default; a non-positive
+     * value removes that bound.
+     */
+    share_notify_limits?: {
+        /**
+         * Quiet period after one sharer reaches a recipient, in seconds. Also
+         * how long their notification keeps absorbing new shares.
+         */
+        pairWindowSeconds?: number;
+        /** Interruptions one sharer may cause a recipient per day. */
+        pairDaily?: number;
+        /** Interruptions a recipient may receive per hour, from anyone. */
+        recipientHourly?: number;
+        /** Same, per day. */
+        recipientDaily?: number;
+        /**
+         * How long emails to one recipient are held and merged into a single
+         * digest, in seconds. Default 90; non-positive sends immediately.
+         */
+        emailBatchSeconds?: number;
+    };
+
+    /**
+     * Ceiling on recipients, and on items, in a single share request. Bounds
+     * the fan-out one call can trigger; the daily limit bounds the total.
+     */
+    share_max_recipients?: number;
+    share_max_items?: number;
+
+    /**
+     * How long a notification is kept, in days from creation — the mailbox is
+     * not an archive, so acknowledged or not, a row past this goes. Omit it, or
+     * set 0, and nothing is ever swept.
+     */
+    notificationRetentionDays?: number;
+
     // -- Storage / S3 ------------------------------------------------
 
     /** S3 storage config (local fauxqs or remote). */
@@ -840,6 +914,12 @@ interface IConfigOptional {
     s3_region: string;
     /** Fallback AWS region. */
     region: string;
+    /**
+     * Where each node stores files, keyed by node id - the same ids `user.home`
+     * names. A write may pass one to place its bytes there; absent, or absent
+     * an entry, every write uses `s3_bucket` / `s3_region`.
+     */
+    servers?: Record<string, { bucket: string; bucketRegion: string }>;
     /** Default storage capacity per user (bytes). */
     storage_capacity: number;
     /** When false, storage is effectively unlimited (bounded by device space). */
@@ -985,44 +1065,155 @@ interface IConfigOptional {
      */
     meteringUsageBufferFlushMs?: number;
     /**
+     * How many full months past its own a monthly metering record is kept
+     * before it expires, on top of the month it belongs to. Unset defaults to
+     * 3; `0` keeps records forever.
+     */
+    meteringRetentionMonths?: number;
+    /**
      * Whether recorded usage is also enforced: an account with nothing left of
      * its budget is turned away from the operations that spend it (file
      * transfers, KV calls) with a 402. Metadata reads and deletions stay open,
      * as does serving a hosted site — those bytes are billed to the account
      * hosting it but requested by visitors who have no say in its balance.
      *
-     * - `enabled` — defaults to on. The switch to reach for if enforcement is
-     *   turning away traffic it shouldn't; usage is still recorded either way.
+     * - `enabled` — defaults to on, and covers the plan gates below as well. The
+     *   switch to reach for if enforcement is turning away traffic it
+     *   shouldn't; usage is still recorded either way.
      * - `workers` — extend enforcement to worker-driven calls. Off by default: a
      *   worker has no prompt to show and nobody watching, so being cut off
      *   presents as a program that started failing.
+     * - `subscriptions` — whether surfaces that declare a plan requirement
+     *   (`requireSubscription`) enforce it. Defaults to on, and off wherever no
+     *   paid plan exists to be on (self-hosted installs ship it off). Turning
+     *   it off opens those surfaces to every account without unpicking the
+     *   declarations; `enabled: false` turns it off along with everything
+     *   else.
      */
     meteringEnforcement?: {
         enabled?: boolean;
         workers?: boolean;
+        subscriptions?: boolean;
     };
+
+    /**
+     * Reputation gating: what the tiers named by `requireReputation` on a route
+     * or a driver method actually take.
+     *
+     * - `enabled` — the one switch that stops every declared gate enforcing,
+     *   without unpicking the declarations. Defaults to on, which by itself
+     *   gates nothing: a tier only bites once `tiers` gives it a score.
+     * - `tiers` — tier name → the minimum score (0-100) an account needs to pass
+     *   it. The numbers live here rather than in the declarations because what
+     *   counts as trusted enough is a per-deployment call, retuned far more
+     *   often than the surfaces it protects. A tier with no entry is inert: an
+     *   install that doesn't score its accounts must not turn traffic away on a
+     *   score it never computed.
+     */
+    reputationGate?: {
+        enabled?: boolean;
+        tiers?: Record<string, number>;
+    };
+
+    /**
+     * The verified-factor requirement some routes declare
+     * (`requireAnyVerified`: a verified phone or card). `enabled: false` is the
+     * one switch that stops every declared gate enforcing without unpicking the
+     * declarations — for an SMS provider outage, say. Defaults to on; a
+     * deployment that can verify neither factor gates nothing regardless.
+     */
+    verifiedFactorGate?: {
+        enabled?: boolean;
+    };
+
+    /**
+     * Whether a user profile is public only while its owner is on a paid plan.
+     * `enabled: false` makes every profile public; a deployment with plan gates
+     * switched off (`meteringEnforcement.subscriptions`) already does. Defaults
+     * to on.
+     */
+    profileGate?: {
+        enabled?: boolean;
+    };
+
+    /**
+     * Subscribable events over filesystem and key-value changes.
+     *
+     * - `enabled` — the master switch for the whole surface. Absent means off:
+     *   the dispatch hooks short-circuit on a boolean before resolving
+     *   anything, and the subscribe verbs reject with `events_disabled`. An
+     *   install that has never heard of events pays nothing on its write path.
+     * - `crossAppKv` — whether a subscription may name another app's KV
+     *   namespace. Absent means off, and subscribing to one rejects with
+     *   `events_cross_app_disabled`: a standing cross-app push leans entirely
+     *   on revocation settling, so it turns on only once that has run on the
+     *   simpler surface. The gate itself is enforced either way.
+     * - `notificationsFoldIn` — whether notification delivery runs through events
+     *   dispatch. Absent means off, and `enabled` gates it: the fold-in has
+     *   nowhere to dispatch from with the surface itself switched off. The
+     *   socket wire is identical either way — the flag decides which layer
+     *   produced the delivery, not what the desktop receives.
+     * - `kvHandles` — whether one user may hand another a watchable region of
+     *   their key-value namespace. Absent means off: minting and subscribing
+     *   through a handle both reject with `events_kv_handles_disabled`, and a
+     *   handle row already made stops delivering. Nothing on the write path
+     *   reads it.
+     * - `workerRuntime` — whether publishing handlers deploys a per-app events
+     *   worker and delivery invokes it. Absent means off: publish stores rows
+     *   and nothing is deployed, and the invoker keeps its null resolver, so
+     *   worker-target deliveries stay retriable until something answers.
+     * - `forwardSession` — whether `onLocal` (session) subscriptions are
+     *   forwarded across regions. On unless set to `false`, which holds back
+     *   the per-token remote-watch index: a write in another region then never
+     *   reaches a session subscription here. Durable (`onPersistent`)
+     *   subscriptions and the rest of the addressed channel are unaffected
+     *   either way.
+     */
+    events?: {
+        enabled?: boolean;
+        crossAppKv?: boolean;
+        notificationsFoldIn?: boolean;
+        kvHandles?: boolean;
+        workerRuntime?: boolean;
+        forwardSession?: boolean;
+        /** How long a handler has to answer an invocation. Default 30 s. */
+        invokeTimeoutMs?: number;
+        /**
+         * Dispatch namespace events workers are deployed into. Must not be the
+         * one the public worker dispatcher serves — that namespace is reachable
+         * at `<script>.puter.work`, and an events worker must not be. No
+         * default: deploys refuse rather than land somewhere public.
+         */
+        workerNamespace?: string;
+        /**
+         * Where the events dispatcher answers `POST /invoke` — its own
+         * hostname, since it carries no zone route. Unset means invocations
+         * have nowhere to go and stay retriable.
+         */
+        dispatcherUrl?: string;
+        /**
+         * Shared secret between this backend and the events dispatcher, in both
+         * directions, and the master the per-script invoke keys derive from.
+         * Rotating it rotates every key at the next deploy.
+         */
+        internalSecret?: string;
+    };
+
+    /**
+     * Display multiplier converting metered amounts into the "credits" clients
+     * show. Applied server-side by the usage-reporting endpoints, so raw
+     * metered amounts never leave the API; purely presentational, so it can
+     * change without a data migration. No default — when unset, the endpoints
+     * report raw amounts and clients render dollars.
+     */
+    creditMultiplier?: number;
 }
 
 /**
- * Extension-augmentable config surface. Extensions add their own config keys
- * via TypeScript declaration merging:
- *
- *     declare module '@heyputer/backend/types' {
- *         interface IExtensionConfig {
- *             myExtension?: { foo: string };
- *         }
- *     }
- *
- * Augmentations flow into `IConfig`, which is what `this.config` /
- * `extension.config` are typed as everywhere.
+ * Extension-augmentable config keys, declaration-merged from
+ * `@heyputer/backend/types`; see `IExtensionClientInstances` for the pattern.
  */
 export interface IExtensionConfig {
-    /**
-     * Open index signature so config reads of extension-only keys return
-     * `unknown` (not a type error). Extensions that declare-merge concrete keys
-     * (`myExt?: { foo: string }`) override this for the named key — the
-     * concrete property type wins over the index signature.
-     */
     [key: string]: unknown;
 }
 

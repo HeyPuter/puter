@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HttpError } from '@heyputer/backend/src/core/http';
+
 export const normalize_json_schema = (schema) => {
     if (!schema) return schema;
 
@@ -137,6 +139,15 @@ export const make_openai_tools = (tools) => {
 export const make_claude_tools = (tools) => {
     if (!tools) return undefined;
     return tools.map((tool) => {
+        // A TypeError here carries no status, so it is read as a provider
+        // failure and marks the route unhealthy for everyone.
+        if (!tool?.function) {
+            throw new HttpError(
+                400,
+                "each tool must have a 'function' property",
+                { legacyCode: 'bad_request' },
+            );
+        }
         const { name, description, parameters } = tool.function;
         return {
             name,

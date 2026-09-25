@@ -21,10 +21,12 @@ Listen to an event from the target app. Possible events are:
 #### `off(eventName, handler)`
 Remove an event listener added with `on(eventName, handler)`.
 
-#### `postMessage(message)`
+#### `postMessage(message, transfer)`
 Send a message to the target app. Think of it as a more limited version of [`window.postMessage()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage). `message` can be anything that [`window.postMessage()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage) would accept for its `message` parameter.
 
-If the target app is not using the SDK, or the connection is not open, then nothing will happen.
+`transfer` is optional, and is an array of [transferable objects](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects) — an `ArrayBuffer`, `MessagePort`, `ReadableStream`, `ImageBitmap`, and so on. Each one is *moved* to the target app instead of being copied, and becomes unusable in the sending app. Every object you list must also appear somewhere inside `message`, because that is where the target app reads it from. An options object, `postMessage(message, { transfer })`, is accepted as well.
+
+If the target app is not using the SDK, or the connection is not open, then nothing will happen — and nothing is transferred.
 
 #### `close()`
 Attempt to close the target app. If you do not have permission to close it, or the target app is already closed, then nothing will happen.
@@ -156,3 +158,65 @@ In this example, a parent app (with the name `traffic-light`) launches three chi
 </html>
 ```
 
+### Transferring data instead of copying it
+
+Large binary data — a decoded image, an audio buffer, a file you just read — is copied every time it crosses `postMessage()`. Listing it in `transfer` hands the memory over instead: nothing is copied, and the buffer is gone from the sending app afterwards.
+
+This example sends a one-megabyte buffer to a child app, which sends it straight back after filling in a byte.
+
+```html
+<html>
+<head>
+    <title>Parent app</title>
+</head>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        const child = await puter.ui.launchApp('child');
+
+        child.on('message', msg => {
+            console.log('Got the buffer back:', msg.buffer.byteLength, 'bytes');
+            console.log('First byte:', new Uint8Array(msg.buffer)[0]);
+        });
+
+        const buffer = new ArrayBuffer(1024 * 1024);
+
+        // `buffer` is inside the message *and* in the transfer list.
+        child.postMessage({ buffer }, [buffer]);
+
+        // It now belongs to the child app, so there is nothing left here.
+        console.log(buffer.byteLength); // 0
+    </script>
+</body>
+</html>
+
+<!------------------->
+
+<html>
+<head>
+    <title>Child app</title>
+</head>
+<body>
+<script src="https://js.puter.com/v2/"></script>
+<script>
+    const parent = puter.ui.parentApp();
+
+    parent.on('message', msg => {
+        const bytes = new Uint8Array(msg.buffer);
+        bytes[0] = 42;
+
+        // Send it back the same way, without copying it again.
+        parent.postMessage({ buffer: msg.buffer }, [msg.buffer]);
+    });
+</script>
+</body>
+</html>
+```
+
+A `MessagePort` can be transferred the same way, which gives the two apps a direct channel that no longer goes through `AppConnection`:
+
+```js
+const channel = new MessageChannel();
+channel.port1.onmessage = e => console.log('from the child:', e.data);
+child.postMessage({ port: channel.port2 }, [channel.port2]);
+```

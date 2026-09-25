@@ -18,9 +18,9 @@
  */
 
 import download from './helpers/download.js';
-import item_icon from './helpers/item_icon.js';
+import item_icon from './helpers/itemIcon.js';
 import socialLink from './helpers/socialLink.js';
-import update_mouse_position from './helpers/update_mouse_position.js';
+import update_mouse_position from './helpers/updateMousePosition.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
 import UIContextMenu from './UI/UIContextMenu.js';
@@ -37,6 +37,7 @@ import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
+import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
 import { createFeedbackDialogGuard } from './util/feedbackDialogGuard.js';
@@ -142,6 +143,9 @@ const ipc_listener = async (event, handled) => {
         const ipc_context = {
             caller: {
                 process: process,
+                // The frame's origin as it is now (the message's), for
+                // handlers that must know who they are acting for.
+                origin: event.origin,
                 app: {
                     appInstanceID: event.data.appInstanceID,
                     iframe,
@@ -229,6 +233,45 @@ const ipc_listener = async (event, handled) => {
             original_msg_id: msg_id,
             msg: 'requestEmailConfirmationResponded',
             response: email_confirm_resp,
+        }, '*');
+    }
+    //--------------------------------------------------------
+    // requestVerificationGate
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'requestVerificationGate' ) {
+        // Raised by puter.js when a request hit a 403 account-verification
+        // gate. The cached user object may not know about a gate applied
+        // mid-session (or one cleared in another tab), so refresh it before
+        // deciding; if the gate is off after the refresh, respond success so
+        // the app replays its request.
+        // Mirrors the server's assertVerifiedAccount conditions.
+        const gate_flags = {
+            email_confirmation_required: (user) => user?.requires_email_confirmation && !user?.email_confirmed,
+            phone_verification_required: (user) => user?.requires_phone_verification,
+            card_verification_required: (user) => user?.requires_card_verification,
+        };
+        const gate_is_on = gate_flags[event.data.code];
+        let response = true;
+        if ( Array.isArray(event.data.factors) ) {
+            // A route asked for a verified factor. The account flags say
+            // nothing about that; the server already did.
+            response = await openVerificationGateWindow(event.data.code, {
+                factors: event.data.factors,
+            });
+        } else if ( gate_is_on ) {
+            try {
+                await window.refresh_user_data(window.auth_token);
+            } catch (e) {
+                // Stale data is still decidable; the gate window can handle it.
+            }
+            if ( gate_is_on(window.user) ) {
+                response = await openVerificationGateWindow(event.data.code);
+            }
+        }
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'requestVerificationGateResponded',
+            response,
         }, '*');
     }
     //--------------------------------------------------------
@@ -1381,6 +1424,20 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
+        // Accepted values mirror the grant endpoint's; anything else is a
+        // malformed request, same as a bad permission list.
+        const requested_create = event.data.options.create;
+        if ( requested_create !== undefined
+            && requested_create !== true
+            && requested_create !== false
+            && requested_create !== 'dir'
+            && requested_create !== 'file' )
+        {
+            console.error('IPC requestPermission requires `create` to be true, false, "dir", or "file"', event.data);
+            respond(false);
+            return;
+        }
+
         let granted = await UIPermissionDialog({
             // Both forms: the dialog reads `permissions`, and `permission` keeps
             // the single-scope path working for callers (and dialog versions)
@@ -1392,6 +1449,7 @@ const ipc_listener = async (event, handled) => {
                 : undefined,
             app_uid: app_uuid,
             app_name: app_name,
+            create: requested_create,
         });
 
         // report the user's decision to the requester window
@@ -1856,187 +1914,68 @@ const ipc_listener = async (event, handled) => {
         });
     }
     //--------------------------------------------------------
-    // saveToPictures/Desktop/Documents/Videos/Audio/AppData
+    // saveToPictures/Desktop/Documents/Videos/Audio/AppData (removed)
     //--------------------------------------------------------
+    // These legacy handlers wrote into standard user folders with no
+    // permission prompt — an app only had to post the message. They were
+    // never exposed through puter.js or documented, so the only callers are
+    // hand-rolled postMessage. Removed rather than gated: the write needs
+    // the same consent as any other filesystem write, and `puter.fs.write`
+    // already provides that path.
+    //
+    // Answered explicitly instead of falling through, so a legacy caller
+    // fails fast rather than awaiting a reply that never arrives.
     else if (( event.data.msg === 'saveToPictures' || event.data.msg === 'saveToDesktop' || event.data.msg === 'saveToAppData' ||
         event.data.msg === 'saveToDocuments' || event.data.msg === 'saveToVideos' || event.data.msg === 'saveToAudio' )) {
-        let target_path;
-        let create_missing_ancestors = false;
-
-        console.warn(`The method ${event.data.msg} is deprecated - see docs.puter.com for more information.`);
-        event.data.filename = path.normalize(event.data.filename)
-            .replace(/(\.+\/|\.+\\)/g, '');
-
-        if ( event.data.msg === 'saveToPictures' )
-        {
-            target_path = path.join(window.pictures_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToDesktop' )
-        {
-            target_path = path.join(window.desktop_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToDocuments' )
-        {
-            target_path = path.join(window.documents_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToVideos' )
-        {
-            target_path = path.join(window.videos_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToAudio' )
-        {
-            target_path = path.join(window.audio_path, event.data.filename);
-        }
-        else if ( event.data.msg === 'saveToAppData' ) {
-            target_path = path.join(window.appdata_path, app_uuid, event.data.filename);
-            create_missing_ancestors = true;
-        }
-        //auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
-        {
-            return;
-        }
-
-        let item_with_same_name_already_exists = true;
-        let overwrite = false;
-
-        // -------------------------------------
-        // URL
-        // -------------------------------------
-        if ( event.data.url ) {
-            let overwrite = false;
-            // download progress tracker
-            let dl_op_id = window.operation_id++;
-
-            // upload progress tracker defaults
-            window.progress_tracker[dl_op_id] = [];
-            window.progress_tracker[dl_op_id][0] = {};
-            window.progress_tracker[dl_op_id][0].total = 0;
-            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-            let item_with_same_name_already_exists = true;
-            while ( item_with_same_name_already_exists ) {
-                const res = await download({
-                    url: event.data.url,
-                    name: path.basename(target_path),
-                    dest_path: path.dirname(target_path),
-                    auth_token: window.auth_token,
-                    api_origin: window.api_origin,
-                    dedupe_name: true,
-                    overwrite: false,
-                    operation_id: dl_op_id,
-                    item_upload_id: 0,
-                    success: function (res) {
-                    },
-                    error: function (err) {
-                        UIAlert(err && err.message ? err.message : 'Download failed.');
-                    },
-                });
-                item_with_same_name_already_exists = false;
-            }
-        }
-        // -------------------------------------
-        // File
-        // -------------------------------------
-        else {
-            let content = event.data.content;
-            let file_to_upload;
-
-            if ( typeof content === 'string' ) {
-                const blob = new Blob([content], { type: 'text/plain' });
-                file_to_upload = new File([blob], path.basename(target_path), { type: 'text/plain' });
-            } else {
-                file_to_upload = new File([content], path.basename(target_path));
-            }
-
-            while ( item_with_same_name_already_exists ) {
-                if ( overwrite )
-                {
-                    item_with_same_name_already_exists = false;
-                }
-                try {
-                    const res = await puter.fs.write(target_path, file_to_upload, {
-                        dedupeName: true,
-                        overwrite: false,
-                        createMissingAncestors: create_missing_ancestors,
-                    });
-                    item_with_same_name_already_exists = false;
-                    let file_signature = await puter.fs.sign(app_uuid, { uid: res.uid, action: 'write' });
-                    file_signature = file_signature.items;
-
-                    target_iframe.contentWindow.postMessage({
-                        msg: 'fileSaved',
-                        original_msg_id: msg_id,
-                        filename: res.name,
-                        saved_file: {
-                            name: file_signature.fsentry_name,
-                            readURL: file_signature.read_url,
-                            writeURL: file_signature.write_url,
-                            metadataURL: file_signature.metadata_url,
-                            uid: file_signature.uid,
-                            path: privacy_aware_path(res.path),
-                        },
-                    }, '*');
-                    $(target_iframe).get(0).focus({ preventScroll: true });
-                }
-                catch ( err ) {
-                    if ( err.code === 'item_with_same_name_exists' ) {
-                        const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                            buttons: [
-                                {
-                                    label: i18n('replace'),
-                                    value: 'replace',
-                                    type: 'primary',
-                                },
-                                {
-                                    label: i18n('cancel'),
-                                    value: 'cancel',
-                                },
-                            ],
-                            parent_uuid: event.data.appInstanceID,
-                        });
-                        if ( alert_resp === 'replace' ) {
-                            overwrite = true;
-                        } else if ( alert_resp === 'cancel' ) {
-                            item_with_same_name_already_exists = false;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
+        console.warn(`The method ${event.data.msg} has been removed - use puter.fs.write() instead.`);
+        target_iframe.contentWindow.postMessage({
+            msg: 'error',
+            original_msg_id: msg_id,
+            error: {
+                code: 'method_removed',
+                message: `${event.data.msg} has been removed. Use puter.fs.write() instead.`,
+            },
+        }, '*');
     }
     //--------------------------------------------------------
     // messageToApp
     //--------------------------------------------------------
     else if ( event.data.msg === 'messageToApp' ) {
-        const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
+        const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents, transfer } = event.data;
         // TODO: Determine if we should allow the message
         // TODO: Track message traffic between apps
         const svc_ipc = globalThis.services.get('ipc');
         // const svc_exec = globalThis.services()
 
-        const conn = svc_ipc.get_connection(targetAppInstanceID);
-        if ( conn ) {
-            conn.send(contents);
-            return;
-        }
-
         // pass on the message
-        const target_iframe = window.iframe_for_app_instance(targetAppInstanceID);
-        if ( ! target_iframe ) {
+        const conn = svc_ipc.get_connection(targetAppInstanceID);
+        const target_iframe = conn ? null : window.iframe_for_app_instance(targetAppInstanceID);
+        if ( ! conn && ! target_iframe ) {
             console.error('Failed to send message to non-existent app', event);
             return;
         }
-        target_iframe.contentWindow.postMessage({
-            msg: 'messageToApp',
-            appInstanceID,
-            targetAppInstanceID,
-            contents,
-        }, targetAppOrigin);
+
+        // The sender transferred these to us, so they have to keep moving: the
+        // target app wants the objects themselves, not copies stranded here.
+        // `transfer` is whatever the sending app put in the message and
+        // postMessage is the authority on what may be transferred, so a bad
+        // list throws (detaching nothing) — and `ipc_listener` has no outer
+        // catch to stop that escaping.
+        try {
+            if ( conn ) {
+                conn.send(contents, { transfer });
+            } else {
+                target_iframe.contentWindow.postMessage({
+                    msg: 'messageToApp',
+                    appInstanceID,
+                    targetAppInstanceID,
+                    contents,
+                    transfer,
+                }, targetAppOrigin, transfer);
+            }
+        } catch ( e ) {
+            console.error('Failed to relay message between apps', e);
+        }
     }
     //--------------------------------------------------------
     // closeApp

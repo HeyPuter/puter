@@ -1478,7 +1478,7 @@ describe('PuterAIController model listing edges', () => {
         vi.spyOn(server.drivers.aiVideo, 'models').mockResolvedValueOnce([
             { id: 'veo-test' },
             { id: 'fake' },
-            { id: 'model-fallback-test-1' },
+            { id: 'costly' },
         ] as never);
 
         const { res, captured } = makeRes();

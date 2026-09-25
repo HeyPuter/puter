@@ -28,12 +28,15 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
+import { isHttpUrl, toBase64DataUri } from '../../../util/imageInput.js';
 import { VideoProvider } from '../VideoProvider.js';
+import { pollUntilSettled, videoJobFailure } from '../polling.js';
 import { GEMINI_VIDEO_GENERATION_MODELS, IGeminiVideoModel } from './models.js';
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const POLL_INTERVAL_MS = 10_000;
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+// Cheapest Veo tier; also what an unknown model id resolves to.
+const DEFAULT_MODEL = 'veo-3.1-lite-generate-preview';
 
 const DIMENSION_MAP: Record<
     string,
@@ -61,7 +64,7 @@ export class GeminiVideoProvider extends VideoProvider {
     }
 
     getDefaultModel(): string {
-        return GEMINI_VIDEO_GENERATION_MODELS[0].id;
+        return DEFAULT_MODEL;
     }
 
     async models(): Promise<IVideoModel[]> {
@@ -182,10 +185,12 @@ export class GeminiVideoProvider extends VideoProvider {
                         typeof img === 'string' && img.trim().length > 0,
                 )
                 .slice(0, 3);
-            config.referenceImages = validImages.map((img: string) => ({
-                image: this.#parseImageInput(img),
-                referenceType: 'asset',
-            }));
+            config.referenceImages = await Promise.all(
+                validImages.map(async (img: string) => ({
+                    image: await this.#inlineImage(img),
+                    referenceType: 'asset',
+                })),
+            );
         }
 
         if (
@@ -193,7 +198,7 @@ export class GeminiVideoProvider extends VideoProvider {
             typeof lastFrame === 'string' &&
             lastFrame.trim()
         ) {
-            config.lastFrame = this.#parseImageInput(lastFrame);
+            config.lastFrame = await this.#inlineImage(lastFrame);
         }
 
         const generateParams: GenerateVideosParameters = {
@@ -204,7 +209,7 @@ export class GeminiVideoProvider extends VideoProvider {
 
         // First frame (image-to-video)
         if (hasFirstFrame && !hasRefImages) {
-            generateParams.image = this.#parseImageInput(
+            generateParams.image = await this.#inlineImage(
                 inputReference as string,
             );
         }
@@ -230,7 +235,11 @@ export class GeminiVideoProvider extends VideoProvider {
                 throw new HttpError(
                     400,
                     `Video was filtered due to ${reasons}`,
-                    { legacyCode: 'disallowed_value' },
+                    {
+                        legacyCode: 'disallowed_value',
+                        code: 'moderation_flagged',
+                        fields: { provider: 'gemini' },
+                    },
                 );
             }
             throw new Error('Gemini response did not include a video');
@@ -271,30 +280,43 @@ export class GeminiVideoProvider extends VideoProvider {
     async #pollUntilComplete(
         operation: GenerateVideosOperation,
     ): Promise<GenerateVideosOperation> {
-        let op = operation;
-        const start = Date.now();
-
-        while (!op.done) {
-            if (Date.now() - start > DEFAULT_TIMEOUT_MS) {
-                throw new Error(
-                    'Timed out waiting for Gemini video generation to complete',
-                );
-            }
-
-            await this.#delay(POLL_INTERVAL_MS);
-            op = await this.#client.operations.getVideosOperation({
-                operation: op,
-            });
-        }
+        const op = await pollUntilSettled<GenerateVideosOperation>({
+            provider: 'gemini',
+            providerLabel: 'Gemini',
+            intervalMs: POLL_INTERVAL_MS,
+            initial: operation,
+            fetch: (previous) =>
+                this.#client.operations.getVideosOperation({
+                    operation: previous ?? operation,
+                }),
+            isPending: (o) => !o.done,
+        });
 
         if (op.error) {
             const msg =
-                (op.error as Record<string, unknown>).message ??
-                JSON.stringify(op.error);
-            throw new Error(`Gemini video generation failed: ${msg}`);
+                typeof op.error.message === 'string'
+                    ? op.error.message
+                    : JSON.stringify(op.error);
+            const code =
+                typeof op.error.status === 'string'
+                    ? op.error.status
+                    : undefined;
+            throw videoJobFailure('gemini', msg, code);
         }
 
         return op;
+    }
+
+    /**
+     * Veo only takes inline bytes, so a URL is fetched server-side (SSRF
+     * guarded) first; data URIs and raw base64 go straight to the parser.
+     */
+    async #inlineImage(
+        input: string,
+    ): Promise<{ imageBytes: string; mimeType: string }> {
+        return this.#parseImageInput(
+            isHttpUrl(input) ? await toBase64DataUri(input) : input,
+        );
     }
 
     #parseImageInput(input: string): { imageBytes: string; mimeType: string } {
@@ -320,7 +342,8 @@ export class GeminiVideoProvider extends VideoProvider {
         return (
             GEMINI_VIDEO_GENERATION_MODELS.find(
                 (m) => m.id === requestedModel,
-            ) ?? GEMINI_VIDEO_GENERATION_MODELS[0]
+            ) ??
+            GEMINI_VIDEO_GENERATION_MODELS.find((m) => m.id === DEFAULT_MODEL)!
         );
     }
 
@@ -353,9 +376,5 @@ export class GeminiVideoProvider extends VideoProvider {
                 : undefined;
         }
         return undefined;
-    }
-
-    async #delay(ms: number): Promise<void> {
-        return await new Promise((resolve) => setTimeout(resolve, ms));
     }
 }

@@ -27,9 +27,9 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
                     },
                     { role: "user", content: question },
                 ],
-                { model: "claude-sonnet-4-6" }
+                { model: "claude-sonnet-4-6", normalize: true }
             );
-            return response.message.content[0].text;
+            return response.message.content;
         }
 
         (async () => {

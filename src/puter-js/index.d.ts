@@ -26,6 +26,8 @@ export type {
     PuterEnvironment,
     RequestCallbacks,
     ToolSchema,
+    UpgradeReason,
+    UpgradeRequestDetails,
 } from './types/lib/types.js';
 export type { default as APICallLogger } from './types/lib/APICallLogger.js';
 
@@ -77,6 +79,8 @@ export type {
     MonthlyUsage,
     SignInResult,
     User,
+    UserProfile,
+    UserProfilePatch,
 } from './types/modules/Auth.js';
 
 // -- puter.debug --
@@ -90,24 +94,76 @@ export type {
     EmailAttachment,
     EmailSendOptions,
     EmailSendResult,
-} from './types/modules/Email.js';
+} from './types/modules/Email/Email.js';
+export type {
+    EmailAddress,
+    EmailFolder,
+    EmailGetOptions,
+    EmailHeader,
+    EmailListOptions,
+    EmailListStreamOptions,
+    EmailMessage,
+    EmailMessageAttachment,
+    EmailSummary,
+} from './types/modules/Email/types.js';
+
+// -- puter.events --
+export type {
+    DestroyedEventsWorker,
+    EventAnchor,
+    EventDelivery,
+    EventFetchOptions,
+    EventFetchPage,
+    EventGapMarker,
+    EventHandler,
+    EventsWorkerPage,
+    EventsWorkerSummary,
+    EventsWorkersListOptions,
+    HandlerOptions,
+    HandlerPublication,
+    HandlerSummary,
+    OnLocalOptions,
+    OnPersistentOptions,
+    PersistentSubscription,
+    PublishedHandler,
+    PuterEvent,
+    PuterKvEvent,
+    PuterNotifEvent,
+} from './types/modules/events/types.js';
+export type { EventSubscription } from './types/modules/events/lib/subscription.js';
+export type { EventHandlers } from './types/modules/events/lib/handlers.js';
+export type { EventsWorkers } from './types/modules/events/lib/workers.js';
 
 // -- puter.fs --
 export type {
     CopyOptions,
     DeleteOptions,
+    FSItemRead,
+    FSItemWithShares,
+    GetShareLinkOptions,
+    GetSharesOptions,
+    ListSharedByMeOptions,
+    ListSharedOptions,
     MkdirOptions,
     MoveOptions,
     ReadOptions,
     ReaddirOptions,
     RenameOptions,
+    Share,
+    ShareMode,
+    ShareOptions,
+    SharePage,
+    ShareRecipient,
     SignResult,
     SpaceInfo,
     StatOptions,
+    UnshareOptions,
     UploadBatchError,
     UploadItems,
     UploadOperationResult,
     UploadOptions,
+    ThumbnailGenerator,
+    ThumbnailGeneratorContext,
     WriteOptions,
 } from './types/modules/FileSystem/types.js';
 export type {
@@ -164,7 +220,29 @@ export type {
     AppDataScopePair,
     AppDataScopes,
     AppDataStore,
+    PermsAccess,
+    PermsAccessRequest,
+    PermsAppDataRequest,
+    PermsAppRootDirRequest,
+    PermsBatchEntry,
+    PermsCreateKind,
+    PermsFolderName,
+    PermsFolderRequest,
+    PermsPermissionRequest,
+    PermsRequestDetails,
+    PermsResource,
 } from './types/modules/perms/types.js';
+
+// -- puter.teams --
+export type {
+    CreateMemberOptions,
+    CreateTeamOptions,
+    Team,
+    TeamAuditEntry,
+    TeamMember,
+    TemporaryCredential,
+    UpdateTeamAttributes,
+} from './types/modules/teams/types.js';
 
 // -- puter.ui --
 export type { AppConnection } from './types/modules/UI.js';
@@ -211,12 +289,14 @@ export type AI = InstanceType<import('./types/modules/ai/index.js').AIConstructo
 export type Apps = InstanceType<import('./types/modules/apps/index.js').AppsConstructor>;
 export type Auth = InstanceType<import('./types/modules/Auth.js').AuthConstructor>;
 export type Drivers = InstanceType<import('./types/modules/Drivers.js').DriversConstructor>;
-export type Email = InstanceType<import('./types/modules/Email.js').EmailConstructor>;
+export type Email = InstanceType<import('./types/modules/Email/Email.js').EmailConstructor>;
+export type Events = InstanceType<import('./types/modules/events/index.js').EventsConstructor>;
 export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSConstructor>;
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
 export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;
 export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
 export type Peer = InstanceType<import('./types/modules/Peer.js').PeerConstructor>;
 export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
+export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsConstructor>;
 export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;
 export type WorkersHandler = InstanceType<import('./types/modules/Workers.js').WorkersConstructor>;

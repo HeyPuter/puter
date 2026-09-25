@@ -263,19 +263,24 @@ describe('DriverController — concurrent acquire/release', () => {
     });
 
     it('does not attach release listeners when the driver declares no concurrent config', async () => {
-        // The optimisation that lets the existing test stubs in
-        // DriverController.test.ts get away without an EventEmitter-shaped
-        // `res`: skip the once() wiring entirely when there's no spec.
+        // With no spec there is nothing to release, so the gate must not
+        // wire `finish`/`close` release listeners. The client-disconnect
+        // hook is separate and always present: exactly one `close` listener.
         const driver = makeSyntheticDriver();
         (driver as { concurrent?: unknown }).concurrent = undefined;
         const controller = buildController(driver);
         const handler = captureCallHandler(controller);
 
-        // Bare object with no event-emitter surface — exposes the bug
-        // case where the gate would try to call `res.once`.
+        // Minimal `res` that only records which events get listeners.
+        const listened: string[] = [];
         const bareRes = {
             statusCode: 200,
             body: undefined as unknown,
+            writableFinished: false,
+            once(event: string) {
+                listened.push(event);
+                return this;
+            },
             status(code: number) {
                 this.statusCode = code;
                 return this;
@@ -301,5 +306,6 @@ describe('DriverController — concurrent acquire/release', () => {
             bareRes as unknown as Response,
         );
         expect(bareRes.body).toMatchObject({ success: true, result: 'pong' });
+        expect(listened).toEqual(['close']);
     });
 });

@@ -431,6 +431,7 @@ export class KVStoreDriver extends PuterDriver {
         offset?: number;
         includeTotal?: boolean;
         fetchUntilFull?: boolean;
+        reverse?: boolean;
         optConfig?: { appUuid?: string };
     }): Promise<unknown> {
         const opts = await this.#opts('list', args);
@@ -453,6 +454,7 @@ export class KVStoreDriver extends PuterDriver {
                 offset: args.offset,
                 includeTotal: args.includeTotal,
                 fetchUntilFull: args.fetchUntilFull,
+                reverse: args.reverse,
             },
             opts,
         );

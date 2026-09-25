@@ -29,6 +29,23 @@ import UIWindow from './UIWindow.js';
 // Stripe.js is loaded lazily from the CDN only when this dialog actually opens.
 // Used as a hard gate for low-reputation signups (after phone verification), so
 // by default it has no close button.
+//
+// `options.phone_fallback` opens the same dialog as the SMS escape hatch: a
+// user the phone gate keeps blocking verifies a card instead, which clears the
+// phone gate server-side (see /card-verification/confirm). Two things change in
+// that mode:
+//   - The dialog can be dismissed back to phone verification, so choosing the
+//     card path is never a one-way door.
+//   - `card_verified` alone is NOT treated as success. The phone gate only
+//     lifts when the server also reports `phone_verified`; anything else (the
+//     kill switch short-circuit, in particular) would close a dialog that
+//     reports success while the account is still phone-gated and every gated
+//     route keeps 403ing. `options.on_unavailable` is called instead.
+//
+// `options.card_alternative` (with `phone_fallback`) is the phone dialog handing
+// off for a caller that accepts a verified phone OR card: the card alone is the
+// point, so `card_verified` is success on its own. The kill-switch short-circuit
+// still isn't — it verified nothing — and bounces back the same way.
 
 const STRIPE_JS_URL = 'https://js.stripe.com/v3/';
 
@@ -65,6 +82,7 @@ function UIWindowCardVerificationRequired(options) {
             '<svg style="width:24px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>';
         const verify_btn_txt = 'Verify Card';
         const retry_btn_txt = 'Try Again';
+        const back_to_phone_txt = 'Verify by phone instead';
 
         let h = '';
         if (options.show_close_button !== false) {
@@ -83,8 +101,9 @@ function UIWindowCardVerificationRequired(options) {
 
         // -- Card entry: Stripe Payment Element (hidden until setup succeeds) --
         h += '<form class="card-step card-step-form" style="display:none;">';
-        h +=
-            '<p style="text-align:center; padding: 0 20px; font-size:13px;">Verify a card to continue. You will <b><i>not</i></b> be charged.</p>';
+        h += options.phone_fallback
+            ? '<p style="text-align:center; padding: 0 20px; font-size:13px;">Verify a card instead of your phone number. You will <b><i>not</i></b> be charged.</p>'
+            : '<p style="text-align:center; padding: 0 20px; font-size:13px;">Verify a card to continue. You will <b><i>not</i></b> be charged.</p>';
         // Offer a friendly human fallback so verification is never a dead end —
         // worded as help, not as an accusation.
         h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:6px auto 14px; max-width:320px;">Need help? Email <a href="mailto:support@puter.com" style="color:#3b82f6; text-decoration:none;">support@puter.com</a> and we'll assist you creating your account.</p>`;
@@ -98,7 +117,13 @@ function UIWindowCardVerificationRequired(options) {
         h +=
             '<p style="text-align:center; padding: 0 20px;">Card verification is temporarily unavailable. Please try again in a few minutes.</p>';
         h += `<button type="button" class="button button-block button-primary card-retry-btn" style="margin-top:10px;">${retry_btn_txt}</button>`;
-        if (!options.logout_in_footer) {
+        if (options.phone_fallback) {
+            h +=
+                '<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">';
+            h += `<span class="card-back-to-phone" style="cursor:pointer; color:#3b82f6;">${back_to_phone_txt}</span>`;
+            h += '</div>';
+        }
+        if (!options.logout_in_footer && !options.phone_fallback) {
             h +=
                 '<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">';
             h += `<span class="card-log-out" style="cursor:pointer;">${i18n('log_out')}</span>`;
@@ -106,7 +131,16 @@ function UIWindowCardVerificationRequired(options) {
         }
         h += '</div>';
 
-        if (options.logout_in_footer) {
+        // In fallback mode the footer offers the way back to the phone gate
+        // rather than a log-out: the user still has a working path to an
+        // account, and dropping them out of the flow entirely is the outcome
+        // this mode exists to avoid.
+        if (options.phone_fallback) {
+            h +=
+                '<div style="text-align:center; padding:14px 10px 4px; margin-top:6px; border-top:1px solid #e9eef3; font-size:14px;">';
+            h += `<span class="card-back-to-phone" style="cursor:pointer; color:#3b82f6;">${back_to_phone_txt}</span>`;
+            h += '</div>';
+        } else if (options.logout_in_footer) {
             h +=
                 '<div style="text-align:center; padding:14px 10px 4px; margin-top:6px; border-top:1px solid #e9eef3; font-size:14px;">';
             h += `<span class="card-log-out" style="cursor:pointer;">${i18n('log_out')}</span>`;
@@ -135,6 +169,13 @@ function UIWindowCardVerificationRequired(options) {
             width: 390,
             dominant: true,
             ...options.window_options,
+            // Settles the closable variant (and a parent cascade) as
+            // dismissed; `finish`/`backToPhone` have settled before they close.
+            on_close: () => {
+                if (settled || logging_out) return;
+                settled = true;
+                resolve(false);
+            },
             window_class: 'window-card-verification',
             window_css: {
                 height: 'initial',
@@ -170,10 +211,49 @@ function UIWindowCardVerificationRequired(options) {
             $(el_window).find(`.card-step-${name}`).show();
         };
 
+        // Resolve at most once: `finish`, `backToPhone` and the close hook are
+        // the only exits and a double close would operate on a detached window.
+        let settled = false;
+        // Logout is handled by a global 'logout' event, not by resolving this
+        // gate; the close hook must not resolve(false) into a caller's
+        // reopen-until-cleared loop on the way out.
+        let logging_out = false;
+
         const finish = () => {
+            if (settled) return;
+            settled = true;
             $(el_window).close();
             window.refresh_user_data(window.auth_token);
             resolve(true);
+        };
+
+        // Fallback mode only: leave without clearing the gate. Resolving false
+        // hands the user back to whoever opened this dialog (the phone
+        // verification window), which is still the live gate on the account.
+        const backToPhone = () => {
+            if (settled) return;
+            settled = true;
+            $(el_window).close();
+            resolve(false);
+        };
+
+        // Fallback mode only: the server answered `card_verified` but that
+        // doesn't satisfy whoever opened this dialog (typically the server-side
+        // kill switch). Reporting success would close the dialog on an account
+        // the caller keeps refusing, so bounce back to the phone gate with the
+        // reason instead.
+        const cardCannotSatisfyCaller = () => {
+            options.on_unavailable?.();
+            backToPhone();
+        };
+
+        // Whether a `card_verified` answer satisfies the caller. As the SMS
+        // escape hatch the phone gate must have lifted too; as an alternative
+        // factor the card alone does — unless the answer was the kill switch's
+        // short-circuit, which verified nothing.
+        const cardSatisfiesCaller = (res) => {
+            if (options.card_alternative) return !res.disabled;
+            return !options.phone_fallback || Boolean(res.phone_verified);
         };
 
         const mountPaymentElement = async (publishable_key, client_secret) => {
@@ -220,6 +300,12 @@ function UIWindowCardVerificationRequired(options) {
                     // Already verified, or the feature was disabled server-side
                     // (kill switch) — either way the gate is satisfied.
                     if (res.card_verified) {
+                        // ...except when the caller needed more than a card on
+                        // file, which this short-circuit never delivers.
+                        if (!cardSatisfiesCaller(res)) {
+                            cardCannotSatisfyCaller();
+                            return;
+                        }
                         finish();
                         return;
                     }
@@ -321,6 +407,10 @@ function UIWindowCardVerificationRequired(options) {
                     statusCode: { 401: (xhr) => window.handle401(xhr) },
                     success: function (res) {
                         if (res.card_verified) {
+                            if (!cardSatisfiesCaller(res)) {
+                                cardCannotSatisfyCaller();
+                                return;
+                            }
                             finish();
                             return;
                         }
@@ -361,8 +451,15 @@ function UIWindowCardVerificationRequired(options) {
         $(el_window)
             .find('.card-log-out')
             .on('click', function () {
+                logging_out = true;
                 window.logout();
                 $(el_window).close();
+            });
+
+        $(el_window)
+            .find('.card-back-to-phone')
+            .on('click', function () {
+                backToPhone();
             });
 
         startSetup();

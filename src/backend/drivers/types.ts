@@ -23,28 +23,15 @@ import type { puterServices } from '../services';
 import type { IExtensionServiceInstances } from '../services/types';
 import type { puterStores } from '../stores';
 import type { IExtensionStoreInstances } from '../stores/types';
-import type { DriverConcurrentConfig, DriverRateLimitConfig } from './meta';
+import type {
+    DriverConcurrentConfig,
+    DriverRateLimitConfig,
+    DriverRequireSubscriptionConfig,
+} from './meta';
 import type { IConfig, LayerInstances, WithCostsReporting } from '../types';
 
-/**
- * Extension-augmentable driver registry. Extensions add their own driver
- * instance types via TypeScript declaration merging:
- *
- *     declare module '@heyputer/backend/drivers/types' {
- *         interface IExtensionDriverInstances {
- *             myDriver: MyDriver;
- *         }
- *     }
- *
- * Augmentations flow into `this.drivers` (PuterController) and into the
- * `extension.import('driver')` proxy.
- */
+/** Extension-augmentable driver registry; see `IExtensionClientInstances`. */
 export interface IExtensionDriverInstances {
-    /**
-     * Open index signature so reads of extension-only driver keys return
-     * `unknown` instead of a type error. Concrete declaration-merged keys
-     * override this for that name.
-     */
     [key: string]: unknown;
 }
 
@@ -59,30 +46,10 @@ export type IPuterDriver<T extends WithCostsReporting = WithCostsReporting> =
     ) => T;
 
 /**
- * Base class for v2 drivers.
- *
- * A driver implements a named interface (e.g., `puter-chat-completion`) and
- * exposes methods that match the interface contract. Multiple drivers can
- * implement the same interface (e.g., `openai-completion` and `claude` both
- * implement `puter-chat-completion`).
- *
- * **Two ways to declare a driver:**
- *
- * 1. Decorator:
- *
- *    ```ts
- *    @Driver('puter-chat-completion', { name: 'openai', default: true })
- *    class OpenAIChat extends PuterDriver { ... }
- * ```
- *
- *     2. Imperative (no decorator):
- *
- *        ```ts
- *        class OpenAIChat extends PuterDriver {
- *            readonly driverInterface = 'puter-chat-completion';
- *            readonly driverName = 'openai';
- *            readonly isDefault = true;
- *        }
+ * Base class for drivers. A driver implements a named interface (e.g.
+ * `puter-chat-completion`); several drivers may implement the same one. Declare
+ * it with `@Driver(interface, options)` or by setting the readonly fields below
+ * imperatively.
  */
 export const PuterDriver = class PuterDriver implements WithCostsReporting {
     /** The interface this driver implements. Set by `@Driver` or override. */
@@ -110,6 +77,12 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
      * imperatively. See `DriverMeta.noUserSession` in `./meta`.
      */
     declare readonly noUserSession?: boolean;
+    /**
+     * Subscriber-only methods on this driver. Set by `@Driver({
+     * requireSubscription: ... })` or declared imperatively. See
+     * `DriverRequireSubscriptionConfig` in `./meta` for the shape.
+     */
+    declare readonly requireSubscription?: DriverRequireSubscriptionConfig;
 
     constructor(
         protected config: IConfig,
@@ -129,7 +102,8 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
     public onServerShutdown() {
         return;
     }
-    public getReportedCosts(): // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    public getReportedCosts():
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[] // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]> {
         return [];

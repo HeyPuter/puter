@@ -1,6 +1,6 @@
 ---
 title: puter.fs.move()
-description: Move files or directories to new locations in Puter file system.
+description: Move files or directories to new locations in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 

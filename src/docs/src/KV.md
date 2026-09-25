@@ -1,6 +1,6 @@
 ---
 title: Key-Value Store
-description: Store and retrieve data using key-value pairs in the cloud.
+description: Store and retrieve data using key-value pairs in the user's own cloud store.
 ---
 
 The Key-Value Store API lets you store and retrieve data using key-value pairs in the cloud.
@@ -10,6 +10,8 @@ It supports various operations such as set, get, delete, list keys, increment an
 Puter.js handles all the infrastructure for you, so you don't need to set up servers, handle scaling, or manage backups. And thanks to the [User-Pays Model](/user-pays-model/), you don't have to worry about storage, read, or write costs, as users of your application cover their own usage.
 
 <div class="info"><strong>Need to share data across users?</strong> Each user's key-value store lives in their own account, so one user can't read another's data. To keep a single, centralized store that every user reads from and writes to, use a <a href="/Workers/">Serverless Worker</a> — its code can act on the worker owner's resources, giving all users one shared backend.</div>
+
+<div class="info"><strong>Key layout is the access boundary.</strong> To let another account watch part of your store instead of copying it, mint an <a href="/Events/">Events share handle</a> over a key prefix. A handle pins the prefix it was granted on, so reorganizing your keys breaks every handle already given out — grant on a stable synthetic segment such as <code>workspace:&lt;uuid&gt;:</code> rather than a semantic one like <code>q3-planning:</code>, which is the kind of name that gets renamed.</div>
 
 ## Features
 
@@ -221,7 +223,7 @@ These Key-Value Store features are supported out of the box when using Puter.js:
 - **[`puter.kv.del()`](/KV/del/)** - Delete a key-value pair
 - **[`puter.kv.expire()`](/KV/expire/)** - Set key expiration in seconds
 - **[`puter.kv.expireAt()`](/KV/expireAt/)** - Set key expiration timestamp
-- **[`puter.kv.list()`](/KV/list/)** - List all keys
+- **[`puter.kv.list()`](/KV/list/)** - List keys in ascending or descending order
 - **[`puter.kv.flush()`](/KV/flush/)** - Clear all data
 
 ## Examples

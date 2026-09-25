@@ -49,7 +49,11 @@ const GEMINI_DOWNLOAD_BASE =
  * All routes live on `subdomain: 'api'` and require a full-access API token
  * minted from the dashboard (user-scoped worker tokens also pass — workers are
  * never treated as root tokens). Apps, scoped tokens, and account session
- * ("root") tokens are rejected.
+ * ("root") tokens are rejected. The vendor-compatible routes additionally
+ * require the account to be on a paid plan. The model listings stay open —
+ * clients fetch the catalogue before they have any reason to authenticate — and
+ * so does the video proxy, whose signed URLs are handed out by a generation the
+ * account already paid for.
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
@@ -79,6 +83,13 @@ export class PuterAIController extends PuterController {
             allowFullAccessToken: true,
             noUserSession: true,
             requireVerified: true,
+            // The vendor-compatible wire surface is a paid feature: it is
+            // what makes Puter a drop-in for a metered vendor API, and an
+            // account on a free plan reaches the same models through
+            // `/drivers/call` (and puter.js) without it. Free accounts get
+            // 402 `subscription_required` here rather than a rate limit,
+            // so the answer is "upgrade", not "slow down".
+            requireSubscription: true,
             rateLimit: {
                 ...AI_RATE_LIMIT.default!,
                 scope: aiPolicyScope,
@@ -166,7 +177,9 @@ export class PuterAIController extends PuterController {
         // -- Video URL proxy -----------------------------------------
         // Reverse-proxies AI-generated video URLs that can't be given
         // directly to the client (auth-gated provider downloads). The
-        // URL itself is HMAC-signed, so no additional auth gate.
+        // URL itself is HMAC-signed, so no additional auth gate — and no
+        // plan gate either: it delivers a video the account already paid to
+        // generate, to whoever holds the link.
         router.get(
             '/puterai/video/proxy',
             {
@@ -273,9 +286,8 @@ export class PuterAIController extends PuterController {
                     legacyCode: 'internal_error',
                 });
             const models = await driver.list();
-            const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({
-                models: models?.filter((m) => !HIDDEN.includes(m)),
+                models: models?.filter((m) => !HIDDEN_MODELS.includes(m)),
             });
         };
     }
@@ -288,9 +300,8 @@ export class PuterAIController extends PuterController {
                     legacyCode: 'internal_error',
                 });
             const models = await driver.models();
-            const HIDDEN = ['costly', 'fake', 'abuse', 'model-fallback-test-1'];
             res.json({
-                models: models?.filter((m) => !HIDDEN.includes(m.id)),
+                models: models?.filter((m) => !HIDDEN_MODELS.includes(m.id)),
             });
         };
     }
@@ -319,16 +330,16 @@ export class PuterAIController extends PuterController {
             messages: body.messages,
             model: toStringOrEmpty(body.model),
             stream,
+            // This route does its own wire translation; pin the driver to the
+            // provider-native shape so the release-date cutoff can't change
+            // what the translators below receive.
+            normalize: false,
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(body.max_tokens !== undefined
-                ? { max_tokens: Number(body.max_tokens) }
-                : {}),
-            ...(body.provider
-                ? { provider: toStringOrEmpty(body.provider) }
-                : { provider: DEFAULTS.openaiChat }),
+            ...(finiteMaxTokens(body.max_tokens) ?? {}),
+            ...openaiCompatProvider(body),
         };
 
         const result = await this.#driver().complete(completeArgs);
@@ -478,15 +489,13 @@ export class PuterAIController extends PuterController {
             messages,
             model: toStringOrEmpty(body.model),
             stream,
+            // Pinned provider-native — this route translates the shape itself.
+            normalize: false,
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(body.max_tokens !== undefined
-                ? { max_tokens: Number(body.max_tokens) }
-                : {}),
-            ...(body.provider
-                ? { provider: toStringOrEmpty(body.provider) }
-                : { provider: DEFAULTS.openaiCompletion }),
+            ...(finiteMaxTokens(body.max_tokens) ?? {}),
+            ...openaiCompatProvider(body),
         };
 
         const completionId = `cmpl-${randomId()}`;
@@ -596,6 +605,9 @@ export class PuterAIController extends PuterController {
         const body = asRecord(req.body);
         const stream = !!body.stream;
 
+        // Pinned, unlike the chat/completions routes: the translators below
+        // read one provider's native Responses shape, so the preferred-route
+        // and unhealthy-route logic cannot be allowed to swap it out.
         const providerName =
             toStringOrEmpty(body.provider) || DEFAULTS.openaiResponses;
         if (providerName !== DEFAULTS.openaiResponses) {
@@ -617,6 +629,8 @@ export class PuterAIController extends PuterController {
             messages,
             model: toStringOrEmpty(body.model),
             stream,
+            // Pinned provider-native — this route translates the shape itself.
+            normalize: false,
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
             ...(body.tool_choice ? { tool_choice: body.tool_choice } : {}),
             ...(body.parallel_tool_calls !== undefined
@@ -957,13 +971,13 @@ export class PuterAIController extends PuterController {
             messages: normalizedMessages,
             model: toStringOrEmpty(body.model),
             stream,
+            // Pinned provider-native — this route translates the shape itself.
+            normalize: false,
             ...(tools ? { tools } : {}),
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(body.max_tokens !== undefined
-                ? { max_tokens: Number(body.max_tokens) }
-                : {}),
+            ...(finiteMaxTokens(body.max_tokens) ?? {}),
             ...(body.context_management !== undefined
                 ? { context_management: body.context_management }
                 : {}),
@@ -973,6 +987,9 @@ export class PuterAIController extends PuterController {
                           body.compaction as ICompleteArguments['compaction'],
                   }
                 : {}),
+            // Pinned for the same reason as /openai/v1/responses: this route
+            // translates Anthropic's native shape and cannot take whatever
+            // the preferred healthy route happens to return.
             ...(body.provider
                 ? { provider: toStringOrEmpty(body.provider) }
                 : { provider: DEFAULTS.anthropic }),
@@ -1183,10 +1200,27 @@ export class PuterAIController extends PuterController {
 
 const DEFAULTS = {
     openaiChat: 'openai-completion',
-    openaiCompletion: 'openai-completion',
     openaiResponses: 'openai-responses',
     anthropic: 'claude',
 } as const;
+
+/** Test-only chat models, kept out of the public listings. */
+const HIDDEN_MODELS = ['costly', 'fake', 'abuse'];
+
+/**
+ * How the OpenAI-compat routes pin a provider. An explicit one is the caller's
+ * choice; a named model is left unpinned so the driver picks the preferred
+ * healthy route, as it does for puter.js callers. A request with no model has
+ * no route to prefer, so it stays pinned and keeps taking its default model
+ * from OpenAI rather than silently switching to another vendor's.
+ */
+const openaiCompatProvider = (
+    body: Record<string, unknown>,
+): { provider?: string } => {
+    if (body.provider) return { provider: toStringOrEmpty(body.provider) };
+    if (toStringOrEmpty(body.model)) return {};
+    return { provider: DEFAULTS.openaiChat };
+};
 
 const randomId = (): string => crypto.randomUUID().replace(/-/g, '');
 const generateId = (prefix: string): string => `${prefix}_${randomId()}`;
@@ -1199,6 +1233,17 @@ const asRecord = (value: unknown): Record<string, unknown> => {
 
 const toStringOrEmpty = (v: unknown): string =>
     typeof v === 'string' ? v : '';
+
+// A user-supplied max_tokens must coerce to a finite number. A non-numeric
+// value (e.g. the string "NaN") becomes NaN, which slips through the credit
+// gate's `?? Infinity` and every `< 1` comparison, disabling the output cap.
+// Drop it instead so the request runs with no client-requested cap rather than
+// a poisoned one.
+const finiteMaxTokens = (v: unknown): { max_tokens: number } | undefined => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? { max_tokens: n } : undefined;
+};
 
 const setSseHeaders = (res: Response): void => {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');

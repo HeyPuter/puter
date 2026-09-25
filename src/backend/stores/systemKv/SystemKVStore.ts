@@ -17,17 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PuterStore } from '../types';
+import { metrics } from '@opentelemetry/api';
+import type { KvMutation } from '../../clients/event/types';
 import type { Actor } from '../../core/actor';
 import {
     isSystemActor,
     SYSTEM_ACTOR,
     SYSTEM_ACTOR_UUID,
 } from '../../core/actor';
-import {
-    PUTER_KV_STORE_TABLE_DEFINITION,
-    PUTER_KV_STORE_TABLE_NAME,
-} from './tableDefinition';
 import { HttpError } from '../../core/http';
 import {
     decodeCursor,
@@ -35,17 +32,64 @@ import {
     normalizeLimit,
     normalizeOffset,
 } from '../../util/pagination';
+import { PuterStore } from '../types';
 import {
     cacheTtlSecondsFor,
     decodeCachedRead,
     encodeCachedHit,
     encodeCachedMiss,
-    kvCacheKey,
     KV_CACHE_BLOCK_MARKER,
+    kvCacheKey,
     resolveKvCacheSettings,
     type KvCachedItem,
     type KvCacheSettings,
 } from './readCache';
+import {
+    PUTER_KV_STORE_TABLE_DEFINITION,
+    PUTER_KV_STORE_TABLE_NAME,
+} from './tableDefinition';
+
+const meter = metrics.getMeter('puter-backend');
+
+/**
+ * What the read cache did with each key it was asked about, by `result`:
+ *
+ * - `hit` — answered from a cached value
+ * - `miss` — answered from a cached absence, which saves the same read a `hit`
+ *   does and belongs on the same side of the ratio
+ * - `expired` — a cached value whose own deadline had passed, so it answered
+ *   nothing and the key was read through
+ * - `blocked` — a recent write left a marker, so the read deliberately went
+ *   through and did not populate
+ * - `absent` — nothing was cached; the read went through and populated
+ * - `error` — the cache could not be reached and the read degraded to uncached
+ *
+ * The rate worth watching is `(hit + miss) / total`. Deliberately not split by
+ * namespace: namespaces are per-app, so that would be unbounded cardinality.
+ */
+const cacheLookupCounter = meter.createCounter('kv.cache.lookup', {
+    description: 'KV read-cache lookups by outcome',
+});
+
+type CacheOutcomes = Record<
+    'hit' | 'miss' | 'expired' | 'blocked' | 'absent',
+    number
+>;
+
+const countedOutcomes = (): CacheOutcomes => ({
+    hit: 0,
+    miss: 0,
+    expired: 0,
+    blocked: 0,
+    absent: 0,
+});
+
+/** One `add` per outcome that actually occurred, rather than one per key. */
+const recordCacheOutcomes = (outcomes: CacheOutcomes): void => {
+    for (const [result, count] of Object.entries(outcomes)) {
+        if (count > 0) cacheLookupCounter.add(count, { result });
+    }
+};
 
 // -- Types ------------------------------------------------------------
 
@@ -90,11 +134,28 @@ export interface RecursiveRecord<T> {
 
 // -- Helpers ----------------------------------------------------------
 
-const GLOBAL_APP_KEY = 'os-global';
-const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${GLOBAL_APP_KEY}`;
+/** Namespace app component for an actor acting without an app. */
+export const KV_GLOBAL_APP_KEY = 'os-global';
+const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
+
+/**
+ * Whether a write was refused because the condition it carried no longer held.
+ * The compare-and-set answer, not a failure: the caller re-reads and decides.
+ */
+const isConditionRefused = (err: unknown): boolean =>
+    (err as { name?: string })?.name === 'ConditionalCheckFailedException';
 const MAX_VALUE_BYTES = 399 * 1024;
-const BATCH_GET_CHUNK = 100;
+// A number anywhere inside a value is bounded too, to the IEEE-754 safe
+// integer range — past that it cannot round-trip, so it is clamped to the
+// bound as the write is encoded. Enforced there rather than here because
+// finding one means walking every value of every write: the whole payload's
+// cost again, on the hot path, for something almost nothing sends.
+/**
+ * DynamoDB's own per-request item cap for BatchGetItem; also the chunk size
+ * here.
+ */
+export const KV_BATCH_GET_LIMIT = 100;
 const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // Offset emulation re-scans everything before the requested position, so it
 // is bounded; cursors are the recommended way to page.
@@ -109,6 +170,12 @@ const KV_CACHE_BROADCAST_CHUNK = 500;
  * caller data can neither collide with it nor set it.
  */
 export const KV_PRIVATE_ATTR = 'noShare';
+
+/** `[key]` when the item carries the private flag, else nothing. */
+const privateKeys = (
+    key: string,
+    item?: Record<string, unknown>,
+): string[] | undefined => (item?.[KV_PRIVATE_ATTR] ? [key] : undefined);
 
 const ttlFilter = (now: number) => ({
     expression: 'attribute_not_exists(#ttlAttr) OR #ttlAttr > :nowTs',
@@ -171,8 +238,22 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
         opts?.namespaceAppUuid ??
         actor.effectiveApp?.uid ??
         opts?.appUuid ??
-        GLOBAL_APP_KEY;
-    return `v1:${actor.user.uuid}:${appUuid}`;
+        KV_GLOBAL_APP_KEY;
+    return kvNamespace(actor.user.uuid!, appUuid);
+};
+
+/** The namespace one user's data for one app lives in. */
+export const kvNamespace = (userUuid: string, appUid: string): string =>
+    `v1:${userUuid}:${appUid}`;
+
+/** Split a namespace back into its parts, or `null` if it is not one. */
+export const parseKvNamespace = (
+    namespace: string,
+): { userUuid: string; appUid: string } | null => {
+    const parts = namespace.split(':');
+    if (parts.length !== 3 || parts[0] !== 'v1' || !parts[1] || !parts[2])
+        return null;
+    return { userUuid: parts[1], appUid: parts[2] };
 };
 
 const assertKey = (key: string): void => {
@@ -214,25 +295,99 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
         legacyCode: 'bad_request',
     });
 
-/**
- * Reject a caller-supplied document path (`a.b.c`, optionally with `[0]` list
- * indexes) whose segments would walk onto the prototype chain.
- */
-const assertPath = (valPath: string): void => {
+type PathToken =
+    { type: 'key'; value: string } | { type: 'index'; value: number };
+
+const invalidPathError = (): HttpError =>
+    new HttpError(400, 'kv: path has invalid syntax', {
+        legacyCode: 'bad_request',
+    });
+
+/** Parse the dot and bracket forms accepted by the KV document methods. */
+const parsePath = (valPath: string): PathToken[] => {
     if (typeof valPath !== 'string')
         throw new HttpError(400, 'kv: path must be a string', {
             legacyCode: 'bad_request',
         });
-    for (const chunk of valPath.split('.')) {
-        const name = chunk.split(/\[\d*\]/g)[0];
-        if (UNSAFE_OBJECT_KEYS.has(name))
-            throw unsafeKeyError(name, 'path segment');
+    if (valPath === '') return [];
+
+    const tokens: PathToken[] = [];
+    let position = 0;
+    let expectSegment = true;
+    while (position < valPath.length) {
+        if (valPath[position] === '.') {
+            while (valPath[position] === '.') position++;
+            expectSegment = true;
+            continue;
+        }
+
+        if (!expectSegment && valPath[position] !== '[')
+            throw invalidPathError();
+
+        if (valPath[position] === '[') {
+            position++;
+            if (position >= valPath.length) throw invalidPathError();
+            const quote = valPath[position];
+            if (quote === '"' || quote === "'") {
+                position++;
+                let value = '';
+                let closed = false;
+                while (position < valPath.length) {
+                    const char = valPath[position++];
+                    if (char === '\\') {
+                        if (position >= valPath.length)
+                            throw invalidPathError();
+                        value += valPath[position++];
+                    } else if (char === quote) {
+                        closed = true;
+                        break;
+                    } else {
+                        value += char;
+                    }
+                }
+                if (!closed || valPath[position] !== ']')
+                    throw invalidPathError();
+                position++;
+                if (UNSAFE_OBJECT_KEYS.has(value))
+                    throw unsafeKeyError(value, 'path segment');
+                tokens.push({ type: 'key', value });
+            } else {
+                const start = position;
+                while (
+                    position < valPath.length &&
+                    /[0-9]/.test(valPath[position])
+                )
+                    position++;
+                if (start === position || valPath[position] !== ']')
+                    throw invalidPathError();
+                const value = Number(valPath.slice(start, position));
+                if (!Number.isSafeInteger(value)) throw invalidPathError();
+                position++;
+                tokens.push({ type: 'index', value });
+            }
+            expectSegment = false;
+            continue;
+        }
+
+        if (!expectSegment) throw invalidPathError();
+        const start = position;
+        while (
+            position < valPath.length &&
+            valPath[position] !== '.' &&
+            valPath[position] !== '['
+        )
+            position++;
+        const value = valPath.slice(start, position);
+        if (!value) throw invalidPathError();
+        if (UNSAFE_OBJECT_KEYS.has(value))
+            throw unsafeKeyError(value, 'path segment');
+        tokens.push({ type: 'key', value });
+        expectSegment = false;
     }
+    return tokens;
 };
 
-const assertPaths = (paths: string[]): void => {
-    for (const valPath of paths) assertPath(valPath);
-};
+const parsePaths = (paths: string[]): PathToken[][] => paths.map(parsePath);
 
 const isOversizedExpression = (err: Error): boolean =>
     /expression size/i.test(err.message);
@@ -258,6 +413,11 @@ const assertSafeValueKeys = (value: unknown): void => {
     }
 };
 
+/**
+ * Reject a value too big to store, or one holding a key that cannot be walked
+ * safely. An out-of-range number is not rejected — it is clamped when the write
+ * is encoded.
+ */
 const assertValue = (value: unknown): void => {
     const size = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
     if (size > MAX_VALUE_BYTES) {
@@ -290,6 +450,12 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 const objectsEqual = (left: unknown, right: unknown): boolean => {
     if (left === right) return true;
+    if (Array.isArray(left) && Array.isArray(right)) {
+        return (
+            left.length === right.length &&
+            left.every((value, index) => objectsEqual(value, right[index]))
+        );
+    }
     if (!isPlainObject(left) || !isPlainObject(right)) return false;
     const leftKeys = Object.keys(left);
     const rightKeys = Object.keys(right);
@@ -301,15 +467,36 @@ const objectsEqual = (left: unknown, right: unknown): boolean => {
     return true;
 };
 
-const cleanAttrName = (chunk: string): string =>
-    `#${chunk.replaceAll(PATH_CLEANER_REGEX, '')}`;
+class PathExpressionRenderer {
+    readonly names: Record<string, string> = { '#value': 'value' };
+    #aliases = new Map<string, string>();
+
+    path(tokens: PathToken[]): string {
+        let result = '#value';
+        for (const token of tokens) {
+            if (token.type === 'index') result += `[${token.value}]`;
+            else result += `.${this.#alias(token.value)}`;
+        }
+        return result;
+    }
+
+    #alias(key: string): string {
+        let alias = this.#aliases.get(key);
+        if (alias) return alias;
+        alias = `#p${this.#aliases.size}_${key.replaceAll(PATH_CLEANER_REGEX, '')}`;
+        this.#aliases.set(key, alias);
+        this.names[alias] = key;
+        return alias;
+    }
+}
 
 /** The `SET` assignment `incr` renders for one path. */
-const incrSetStatement = (valPath: string, idx: number): string => {
-    const attrName = ['value', ...valPath.split('.')]
-        .filter(Boolean)
-        .map(cleanAttrName)
-        .join('.');
+const incrSetStatement = (
+    tokens: PathToken[],
+    idx: number,
+    renderer: PathExpressionRenderer,
+): string => {
+    const attrName = renderer.path(tokens);
     return `${attrName} = if_not_exists(${attrName}, :start${idx}) + :incr${idx}`;
 };
 
@@ -325,8 +512,14 @@ const incrSetStatement = (valPath: string, idx: number): string => {
 export const INCR_EXPRESSION_BUDGET_BYTES = 3584;
 
 /** Size of the update expression `incr` would send for `paths`. */
-export const incrExpressionBytes = (paths: string[]): number =>
-    Buffer.byteLength(`SET ${paths.map(incrSetStatement).join(', ')}`);
+export const incrExpressionBytes = (paths: string[]): number => {
+    const renderer = new PathExpressionRenderer();
+    return Buffer.byteLength(
+        `SET ${parsePaths(paths)
+            .map((tokens, index) => incrSetStatement(tokens, index, renderer))
+            .join(', ')}`,
+    );
+};
 
 /**
  * Split paths into batches whose expressions each fit `maxBytes`, preserving
@@ -454,6 +647,7 @@ export class SystemKVStore extends PuterStore {
             const resolved = new Set<string>();
             let readUnits = 0;
             const now = Date.now() / 1000;
+            const outcomes = countedOutcomes();
 
             keys.forEach((key, index) => {
                 const cached = decodeCachedRead(raw[index], key);
@@ -461,21 +655,33 @@ export class SystemKVStore extends PuterStore {
                     // The entry carries its own deadline and the cache TTL is
                     // only an upper bound on it, so an entry that lapsed since
                     // it was written counts as nothing cached at all.
-                    if (cached.item.ttl && cached.item.ttl <= now) return;
+                    if (cached.item.ttl && cached.item.ttl <= now) {
+                        outcomes.expired++;
+                        return;
+                    }
+                    outcomes.hit++;
                     items.push(cached.item);
                     resolved.add(key);
                     readUnits += cached.readUnits;
                     return;
                 }
                 if (cached.state === 'miss') {
+                    outcomes.miss++;
                     resolved.add(key);
                     readUnits += cached.readUnits;
+                    return;
                 }
+                if (cached.state === 'blocked') outcomes.blocked++;
+                else outcomes.absent++;
             });
 
+            recordCacheOutcomes(outcomes);
             return { items, resolved, readUnits };
         } catch (e) {
             // A cache that is down degrades to no cache, never to an error.
+            // Counted so that a cache which has stopped answering reads as
+            // exactly that, rather than as a cache nobody is asking.
+            cacheLookupCounter.add(keys.length, { result: 'error' });
             console.warn(
                 '[kv] read cache lookup failed:',
                 (e as Error).message,
@@ -559,6 +765,79 @@ export class SystemKVStore extends PuterStore {
                 (e as Error).message,
             );
         });
+    }
+
+    /**
+     * Post-commit fan-out for one mutation: drop the cached reads it made
+     * wrong, then say on the bus that it happened.
+     *
+     * Every mutating method ends here, and the announcement sits outside the
+     * cache's own guard — whether this install caches reads says nothing about
+     * whether anyone subscribed to the change.
+     */
+    async #committed(
+        actor: Actor,
+        namespace: string,
+        keys: string[],
+        op: KvMutation,
+        values?: unknown[],
+        noShareKeys?: string[],
+    ): Promise<void> {
+        await this.#invalidate(namespace, keys);
+        this.#emitMutation(actor, namespace, keys, op, values, noShareKeys);
+    }
+
+    /**
+     * A flush is a namespace-level marker rather than a per-key fan-out: its
+     * own key enumeration is truncated for a large namespace, so the keys it
+     * names are not the keys it removed.
+     */
+    #emitMutation(
+        actor: Actor,
+        namespace: string,
+        keys: string[],
+        op: KvMutation,
+        values?: unknown[],
+        noShareKeys?: string[],
+    ): void {
+        // Internal system data has no subscribable subject, and it is written
+        // often enough that the emit itself would be the cost.
+        if (isSystemActor(actor)) return;
+        const userId = actor.user?.id;
+        if (typeof userId !== 'number') return;
+
+        try {
+            if (op === 'flush') {
+                this.clients.event.emit(
+                    'kv.flushed',
+                    { namespace, userId },
+                    {},
+                );
+                return;
+            }
+            if (keys.length === 0) return;
+            const unique = [...new Set(keys)];
+            this.clients.event.emit(
+                'kv.mutated',
+                {
+                    namespace,
+                    userId,
+                    keys: unique,
+                    op,
+                    // Callers hand values aligned with `keys`; a deduped set
+                    // would misalign them, so only a dedupe-free batch carries.
+                    ...(values && unique.length === keys.length
+                        ? { values }
+                        : {}),
+                    ...(noShareKeys?.length
+                        ? { noShareKeys: [...new Set(noShareKeys)] }
+                        : {}),
+                },
+                {},
+            );
+        } catch {
+            // A change nobody hears about is not a failed write.
+        }
     }
 
     /**
@@ -651,6 +930,145 @@ export class SystemKVStore extends PuterStore {
                 });
             },
         );
+    }
+
+    // -- Reserved items -----------------------------------------------
+    //
+    // Platform bookkeeping that happens to live in this table and is not
+    // anyone's key-value data. Reserved items sit in the system namespace under
+    // their own key prefix, so the driver can never address one, and they go
+    // straight to the table: no usage is returned because nothing is billed, no
+    // read cache is consulted or invalidated, and no mutation event is emitted
+    // — a reserved item is not a change to a namespace anyone can subscribe to.
+
+    /** One reserved item, or `null`. Eventually consistent, which is enough. */
+    async getReservedItem<T extends object>(key: string): Promise<T | null> {
+        assertKey(key);
+        const response = await this.clients.dynamo.get(this.tableName, {
+            namespace: SYSTEM_NAMESPACE,
+            key,
+        });
+        return (response.Item as T | undefined) ?? null;
+    }
+
+    /**
+     * Reserved items whose key starts with `prefix`, in the system namespace.
+     * One page only: today's one caller (presence) is bounded by
+     * deployed-region count. Expired rows are excluded the same way `list`
+     * excludes them, so a caller never sees one the table's own sweep has not
+     * reclaimed yet.
+     */
+    async queryReservedItems<T extends Record<string, unknown>>(
+        prefix: string,
+    ): Promise<T[]> {
+        const now = Date.now() / 1000;
+        const response = await this.clients.dynamo.query(
+            this.tableName,
+            { namespace: SYSTEM_NAMESPACE },
+            0,
+            undefined,
+            '',
+            false,
+            { beginsWith: { key: 'key', value: prefix } },
+        );
+        return ((response.Items ?? []) as T[]).filter(
+            (item) => !item.ttl || (item.ttl as number) > now,
+        );
+    }
+
+    /**
+     * Unconditional put of one whole reserved item. Safe without a condition
+     * only because every caller's key already names the one writer allowed to
+     * touch it (presence's key carries the writing region), so there is no
+     * concurrent writer to race.
+     */
+    async putReservedItem(
+        key: string,
+        attributes: Record<string, unknown>,
+    ): Promise<void> {
+        assertKey(key);
+        // Identity last: an attribute named `key` or `namespace` must not be
+        // able to redirect the write at some other item.
+        await this.clients.dynamo.put(this.tableName, {
+            ...attributes,
+            namespace: SYSTEM_NAMESPACE,
+            key,
+        });
+    }
+
+    /**
+     * Unconditional update of one reserved item, creating it when missing:
+     * `set` attributes are written outright, `setIfAbsent` ones only where the
+     * item does not already carry them (a retired but unswept row keeps its
+     * value). Same trust model as `putReservedItem` — callers gate the write.
+     */
+    async refreshReservedItem(
+        key: string,
+        set: Record<string, unknown>,
+        setIfAbsent: Record<string, unknown> = {},
+    ): Promise<void> {
+        assertKey(key);
+        const names: Record<string, string> = {};
+        const values: Record<string, unknown> = {};
+        const setParts: string[] = [];
+        let idx = 0;
+        for (const [attr, value] of Object.entries(set)) {
+            const nameToken = `#r${idx}`;
+            const valueToken = `:r${idx}`;
+            names[nameToken] = attr;
+            values[valueToken] = value;
+            setParts.push(`${nameToken} = ${valueToken}`);
+            idx++;
+        }
+        for (const [attr, value] of Object.entries(setIfAbsent)) {
+            const nameToken = `#r${idx}`;
+            const valueToken = `:r${idx}`;
+            names[nameToken] = attr;
+            values[valueToken] = value;
+            setParts.push(
+                `${nameToken} = if_not_exists(${nameToken}, ${valueToken})`,
+            );
+            idx++;
+        }
+        if (setParts.length === 0) return;
+
+        await this.clients.dynamo.update(
+            this.tableName,
+            { namespace: SYSTEM_NAMESPACE, key },
+            `SET ${setParts.join(', ')}`,
+            values,
+            names,
+        );
+    }
+
+    /**
+     * Expire one reserved item, conditional on an attribute the caller read
+     * still holding. False means the condition lost the race (or the item never
+     * existed) — an answer, not an error. Readers treat an expired `ttl` as
+     * absent and the table's own sweep reclaims the row; the sentinel is `1`
+     * because a falsy `ttl` reads as "no expiry".
+     */
+    async retireReservedItemIf(
+        key: string,
+        condition: string,
+        conditionValues: Record<string, unknown>,
+        conditionNames: Record<string, string> = {},
+    ): Promise<boolean> {
+        assertKey(key);
+        try {
+            await this.clients.dynamo.update(
+                this.tableName,
+                { namespace: SYSTEM_NAMESPACE, key },
+                'SET #ttl = :expired',
+                { ...conditionValues, ':expired': 1 },
+                { ...conditionNames, '#ttl': 'ttl' },
+                { condition },
+            );
+            return true;
+        } catch (err) {
+            if (isConditionRefused(err)) return false;
+            throw err;
+        }
     }
 
     // -- Public API ---------------------------------------------------
@@ -823,7 +1241,14 @@ export class SystemKVStore extends PuterStore {
             ttl: expireAt,
             ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
         });
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [value],
+            disableSharing ? [key] : undefined,
+        );
 
         return {
             res: true,
@@ -893,7 +1318,14 @@ export class SystemKVStore extends PuterStore {
         }));
 
         const response = await this.clients.dynamo.batchPut(putParams);
-        await this.#invalidate(namespace, [...byKey.keys()]);
+        await this.#committed(
+            actor,
+            namespace,
+            [...byKey.keys()],
+            'set',
+            [...byKey.values()].map((item) => item.value),
+            disableSharing ? [...byKey.keys()] : undefined,
+        );
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -914,11 +1346,21 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const response = await this.clients.dynamo.del(this.tableName, {
+        // The old item is only worth reading back for the private-key check,
+        // which a system write never needs an event for anyway.
+        const response = await this.clients.dynamo.del(
+            this.tableName,
+            { namespace, key },
+            { returnOld: !isSystemActor(actor) },
+        );
+        await this.#committed(
+            actor,
             namespace,
-            key,
-        });
-        await this.#invalidate(namespace, [key]);
+            [key],
+            'del',
+            [null],
+            privateKeys(key, response.Attributes),
+        );
         return {
             res: true,
             usage: addUsage(
@@ -931,6 +1373,110 @@ export class SystemKVStore extends PuterStore {
         };
     }
 
+    /**
+     * Delete a key and return what it held — an atomic claim. However many
+     * callers race the same key, exactly one gets the value; the rest get
+     * null.
+     */
+    async take(
+        { key }: { key: string },
+        opts?: KVOpts,
+    ): Promise<KVResult<unknown | null>> {
+        assertKey(key);
+        const actor = ensureActor(opts);
+        const namespace = getNamespace(actor, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
+
+        const response = await this.clients.dynamo.del(
+            this.tableName,
+            { namespace, key },
+            { returnOld: true },
+        );
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'del',
+            [null],
+            privateKeys(key, response.Attributes),
+        );
+
+        const old = response.Attributes as
+            { value?: unknown; ttl?: number } | undefined;
+        const now = Date.now() / 1000;
+        const res =
+            old === undefined || (old.ttl && old.ttl <= now)
+                ? null
+                : (old.value ?? null);
+
+        return {
+            res,
+            usage: addUsage(
+                probeUsage,
+                writeUsage(
+                    (response.ConsumedCapacity?.CapacityUnits as
+                        number | undefined) ?? 1,
+                ),
+            ),
+        };
+    }
+
+    async batchDel(
+        { keys }: { keys: string[] },
+        opts?: KVOpts,
+    ): Promise<KVResult<boolean>> {
+        if (!Array.isArray(keys) || keys.length === 0) {
+            return { res: true, usage: emptyUsage() };
+        }
+
+        const unique = new Set<string>();
+        for (const key of keys) {
+            const k = String(key);
+            assertKey(k);
+            unique.add(k);
+        }
+        const uniqueKeys = [...unique];
+
+        const actor = ensureActor(opts);
+        const namespace = getNamespace(actor, opts);
+
+        // One private key refuses the batch — same posture as batchPut:
+        // no partial success to probe with.
+        const probeUsage = await this.#assertNonePrivate(
+            namespace,
+            uniqueKeys,
+            opts,
+        );
+
+        const response = await this.clients.dynamo.batchDel(
+            uniqueKeys.map((key) => ({
+                table: this.tableName,
+                key: { namespace, key },
+            })),
+        );
+        await this.#committed(
+            actor,
+            namespace,
+            uniqueKeys,
+            'del',
+            uniqueKeys.map((): unknown => null),
+            // A batch delete reports no prior state, so a same-app batch is
+            // marked private wholesale; a cross-app caller was already
+            // refused any private key.
+            isCrossApp(opts) ? undefined : uniqueKeys,
+        );
+        const units =
+            response.ConsumedCapacity?.reduce(
+                (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
+                0,
+            ) ?? unique.size;
+
+        return {
+            res: true,
+            usage: addUsage(probeUsage, writeUsage(units || unique.size)),
+        };
+    }
+
     async list(
         {
             as,
@@ -940,6 +1486,7 @@ export class SystemKVStore extends PuterStore {
             offset,
             includeTotal,
             fetchUntilFull,
+            reverse,
         }: {
             as?: 'keys' | 'values' | 'entries';
             limit?: number;
@@ -948,6 +1495,7 @@ export class SystemKVStore extends PuterStore {
             offset?: number;
             includeTotal?: boolean;
             fetchUntilFull?: boolean;
+            reverse?: boolean;
         },
         opts?: KVOpts,
     ): Promise<
@@ -971,7 +1519,50 @@ export class SystemKVStore extends PuterStore {
             cap: MAX_LIST_OFFSET,
             label: 'kv: offset',
         });
-        const pageKey = decodeCursor(cursor, 'kv: cursor');
+        if (reverse !== undefined && typeof reverse !== 'boolean') {
+            throw new HttpError(400, 'kv: reverse must be a boolean', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const decodedCursor = decodeCursor(cursor, 'kv: cursor');
+        let pageKey = decodedCursor;
+        let cursorReverse = false;
+        if (decodedCursor !== undefined) {
+            if (
+                !decodedCursor ||
+                typeof decodedCursor !== 'object' ||
+                Array.isArray(decodedCursor)
+            ) {
+                throw new HttpError(400, 'invalid kv: cursor', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            if (Object.hasOwn(decodedCursor, 'reverse')) {
+                if (
+                    decodedCursor.reverse !== true ||
+                    !decodedCursor.key ||
+                    typeof decodedCursor.key !== 'object' ||
+                    Array.isArray(decodedCursor.key) ||
+                    Object.keys(decodedCursor.key).length === 0
+                ) {
+                    throw new HttpError(400, 'invalid kv: cursor', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                cursorReverse = true;
+                pageKey = decodedCursor.key as Record<string, unknown>;
+            }
+            if (reverse !== undefined && reverse !== cursorReverse) {
+                throw new HttpError(
+                    400,
+                    'kv: reverse conflicts with cursor direction',
+                    {
+                        legacyCode: 'bad_request',
+                    },
+                );
+            }
+        }
+        const effectiveReverse = reverse ?? cursorReverse;
         const normalizedPattern = normalizePattern(pattern);
 
         if (pageKey !== undefined && normalizedOffset !== undefined) {
@@ -1020,6 +1611,7 @@ export class SystemKVStore extends PuterStore {
                 '',
                 false,
                 {
+                    scanIndexForward: !effectiveReverse,
                     ...(normalizedPattern
                         ? {
                               beginsWith: {
@@ -1116,7 +1708,11 @@ export class SystemKVStore extends PuterStore {
             } while (countKey);
         }
 
-        const nextCursor = encodeCursor(nextKey);
+        const nextCursor = encodeCursor(
+            nextKey && effectiveReverse
+                ? { reverse: true, key: nextKey }
+                : nextKey,
+        );
         return {
             res: {
                 items,
@@ -1139,33 +1735,38 @@ export class SystemKVStore extends PuterStore {
         );
 
         const entries = response.Items ?? [];
-        const results = (
-            await Promise.all(
-                entries.map(async (entry) => {
-                    try {
-                        return await this.clients.dynamo.del(this.tableName, {
-                            namespace,
-                            key: entry.key,
-                        });
-                    } catch (e) {
-                        console.error('[kv] flush delete failed', entry.key, e);
-                        return null;
-                    }
-                }),
-            )
-        ).filter(Boolean);
-
-        const deleteUnits = results.reduce(
-            (acc, r) => acc + Number(r?.ConsumedCapacity?.CapacityUnits ?? 0),
-            0,
-        );
+        // One BatchWriteItem fan-out (25-item chunks with retries inside the
+        // client) instead of an unbounded Promise.all of single deletes.
+        // Failure posture matches the old per-item loop: log and fall through
+        // to invalidation — a partial flush must still drop cached reads for
+        // every key the query saw.
+        let deleteUnits = 0;
+        if (entries.length > 0) {
+            try {
+                const deleted = await this.clients.dynamo.batchDel(
+                    entries.map((entry) => ({
+                        table: this.tableName,
+                        key: { namespace, key: entry.key },
+                    })),
+                );
+                deleteUnits =
+                    deleted.ConsumedCapacity?.reduce(
+                        (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
+                        0,
+                    ) ?? 0;
+            } catch (e) {
+                console.error('[kv] flush batch delete failed', e);
+            }
+        }
         usage = addUsage(usage, writeUsage(deleteUnits));
 
         // Exactly the keys the query saw, which is also exactly what was
         // deleted — anything a truncated query missed is still there to read.
-        await this.#invalidate(
+        await this.#committed(
+            actor,
             namespace,
             entries.map((entry) => String(entry.key)),
+            'flush',
         );
 
         return { res: true, usage };
@@ -1179,8 +1780,19 @@ export class SystemKVStore extends PuterStore {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
-        const usage = await this.rawExpireAt(namespace, key, Number(timestamp));
-        await this.#invalidate(namespace, [key]);
+        const { usage, isPrivate } = await this.rawExpireAt(
+            namespace,
+            key,
+            Number(timestamp),
+        );
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'expire',
+            undefined,
+            isPrivate ? [key] : undefined,
+        );
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -1193,8 +1805,19 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const timestamp = Math.floor(Date.now() / 1000) + Number(ttl);
-        const usage = await this.rawExpireAt(namespace, key, timestamp);
-        await this.#invalidate(namespace, [key]);
+        const { usage, isPrivate } = await this.rawExpireAt(
+            namespace,
+            key,
+            timestamp,
+        );
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'expire',
+            undefined,
+            isPrivate ? [key] : undefined,
+        );
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -1222,15 +1845,16 @@ export class SystemKVStore extends PuterStore {
                 { legacyCode: 'bad_request' },
             );
         }
-        assertPaths(Object.keys(pathAndAmountMap));
+        const pathTokens = parsePaths(Object.keys(pathAndAmountMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const setStatements = Object.keys(pathAndAmountMap).map(
-            (valPath, idx) => incrSetStatement(valPath, idx),
+        const renderer = new PathExpressionRenderer();
+        const setStatements = pathTokens.map((tokens, idx) =>
+            incrSetStatement(tokens, idx, renderer),
         );
         const valueAttributeValues = Object.entries(pathAndAmountMap).reduce(
             (acc, [_path, amt], idx) => {
@@ -1239,18 +1863,6 @@ export class SystemKVStore extends PuterStore {
                 return acc;
             },
             {} as Record<string, number>,
-        );
-        const valueAttributeNames = Object.entries(pathAndAmountMap).reduce(
-            (acc, [valPath]) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
         );
 
         // Fold the TTL into the same UpdateItem so a counter bump is a single
@@ -1265,18 +1877,17 @@ export class SystemKVStore extends PuterStore {
                 });
             setStatements.push('#ttl = if_not_exists(#ttl, :ttl)');
             valueAttributeValues[':ttl'] = ttlSeconds;
-            valueAttributeNames['#ttl'] = 'ttl';
+            renderer.names['#ttl'] = 'ttl';
         }
 
         const updateExpression = `SET ${setStatements.join(', ')}`;
-        const expressionNames = { ...valueAttributeNames, '#value': 'value' };
         const runUpdate = () =>
             this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
                 updateExpression,
                 valueAttributeValues,
-                expressionNames,
+                renderer.names,
             );
 
         // Most increments land on an item whose parent maps already exist (a
@@ -1301,11 +1912,18 @@ export class SystemKVStore extends PuterStore {
             createPathsUsage = await this.createPaths(
                 namespace,
                 key,
-                Object.keys(pathAndAmountMap),
+                pathTokens,
             );
             response = await runUpdate();
         }
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [response.Attributes?.value],
+            privateKeys(key, response.Attributes),
+        );
 
         const usage = addUsage(
             probeUsage,
@@ -1346,7 +1964,7 @@ export class SystemKVStore extends PuterStore {
         for (const val of Object.values(pathAndValueMap)) {
             assertValue(val);
         }
-        assertPaths(Object.keys(pathAndValueMap));
+        const pathTokens = parsePaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -1356,18 +1974,14 @@ export class SystemKVStore extends PuterStore {
         const createPathsUsage = await this.createPaths(
             namespace,
             key,
-            Object.keys(pathAndValueMap),
+            pathTokens,
         );
 
-        const setStatements = Object.entries(pathAndValueMap).map(
-            ([valPath], idx) => {
-                const attrName = ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .map(cleanAttrName)
-                    .join('.');
-                return `${attrName} = list_append(if_not_exists(${attrName}, :emptyList${idx}), :append${idx})`;
-            },
-        );
+        const renderer = new PathExpressionRenderer();
+        const setStatements = pathTokens.map((tokens, idx) => {
+            const attrName = renderer.path(tokens);
+            return `${attrName} = list_append(if_not_exists(${attrName}, :emptyList${idx}), :append${idx})`;
+        });
         const valueAttributeValues = Object.entries(pathAndValueMap).reduce(
             (acc, [_path, val], idx) => {
                 acc[`:append${idx}`] = Array.isArray(val) ? val : [val];
@@ -1376,27 +1990,21 @@ export class SystemKVStore extends PuterStore {
             },
             {} as Record<string, unknown>,
         );
-        const valueAttributeNames = Object.entries(pathAndValueMap).reduce(
-            (acc, [valPath]) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
-        );
-
         const response = await this.clients.dynamo.update(
             this.tableName,
             { key, namespace },
             `SET ${setStatements.join(', ')}`,
             valueAttributeValues,
-            { ...valueAttributeNames, '#value': 'value' },
+            renderer.names,
         );
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [response.Attributes?.value],
+            privateKeys(key, response.Attributes),
+        );
 
         const usage = addUsage(
             probeUsage,
@@ -1419,34 +2027,16 @@ export class SystemKVStore extends PuterStore {
                 legacyCode: 'bad_request',
             });
         }
-        assertPaths(paths);
+        const pathTokens = parsePaths(paths);
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const removeStatements = paths.map((valPath) => {
-            return ['value', ...valPath.split('.')]
-                .filter(Boolean)
-                .map((chunk) => {
-                    const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                    const indexSuffix = chunk.slice(cleanedChunk.length);
-                    return `${cleanAttrName(cleanedChunk)}${indexSuffix}`;
-                })
-                .join('.');
-        });
-        const valueAttributeNames = paths.reduce(
-            (acc, valPath) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
+        const renderer = new PathExpressionRenderer();
+        const removeStatements = pathTokens.map((tokens) =>
+            renderer.path(tokens),
         );
 
         try {
@@ -1455,9 +2045,16 @@ export class SystemKVStore extends PuterStore {
                 { key, namespace },
                 `REMOVE ${removeStatements.join(', ')}`,
                 undefined,
-                { ...valueAttributeNames, '#value': 'value' },
+                renderer.names,
             );
-            await this.#invalidate(namespace, [key]);
+            await this.#committed(
+                actor,
+                namespace,
+                [key],
+                'set',
+                [response.Attributes?.value],
+                privateKeys(key, response.Attributes),
+            );
             return {
                 res: response.Attributes?.value,
                 usage: addUsage(
@@ -1509,7 +2106,7 @@ export class SystemKVStore extends PuterStore {
         for (const val of Object.values(pathAndValueMap)) {
             assertValue(val);
         }
-        assertPaths(Object.keys(pathAndValueMap));
+        const pathTokens = parsePaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -1518,18 +2115,14 @@ export class SystemKVStore extends PuterStore {
         const createPathsUsage = await this.createPaths(
             namespace,
             key,
-            Object.keys(pathAndValueMap),
+            pathTokens,
         );
 
-        const setStatements = Object.entries(pathAndValueMap).map(
-            ([valPath], idx) => {
-                const attrName = ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .map(cleanAttrName)
-                    .join('.');
-                return `${attrName} = :value${idx}`;
-            },
-        );
+        const renderer = new PathExpressionRenderer();
+        const setStatements = pathTokens.map((tokens, idx) => {
+            const attrName = renderer.path(tokens);
+            return `${attrName} = :value${idx}`;
+        });
         const valueAttributeValues = Object.entries(pathAndValueMap).reduce(
             (acc, [_path, val], idx) => {
                 acc[`:value${idx}`] = val;
@@ -1537,19 +2130,6 @@ export class SystemKVStore extends PuterStore {
             },
             {} as Record<string, unknown>,
         );
-        const valueAttributeNames = Object.entries(pathAndValueMap).reduce(
-            (acc, [valPath]) => {
-                ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .forEach((chunk) => {
-                        const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                        acc[cleanAttrName(cleanedChunk)] = cleanedChunk;
-                    });
-                return acc;
-            },
-            {} as Record<string, string>,
-        );
-
         if (ttl !== undefined) {
             const ttlSeconds = Number(ttl);
             if (Number.isNaN(ttlSeconds))
@@ -1559,7 +2139,7 @@ export class SystemKVStore extends PuterStore {
             const timestamp = Math.floor(Date.now() / 1000) + ttlSeconds;
             setStatements.push('#ttl = :ttl');
             valueAttributeValues[':ttl'] = timestamp;
-            valueAttributeNames['#ttl'] = 'ttl';
+            renderer.names['#ttl'] = 'ttl';
         }
 
         const response = await this.clients.dynamo.update(
@@ -1567,10 +2147,17 @@ export class SystemKVStore extends PuterStore {
             { key, namespace },
             `SET ${setStatements.join(', ')}`,
             valueAttributeValues,
-            { ...valueAttributeNames, '#value': 'value' },
+            renderer.names,
         );
 
-        await this.#invalidate(namespace, [key]);
+        await this.#committed(
+            actor,
+            namespace,
+            [key],
+            'set',
+            [response.Attributes?.value],
+            privateKeys(key, response.Attributes),
+        );
 
         const usage = addUsage(
             probeUsage,
@@ -1593,8 +2180,8 @@ export class SystemKVStore extends PuterStore {
         usage: KVUsage;
     }> {
         const batches: string[][] = [];
-        for (let i = 0; i < allKeys.length; i += BATCH_GET_CHUNK) {
-            batches.push(allKeys.slice(i, i + BATCH_GET_CHUNK));
+        for (let i = 0; i < allKeys.length; i += KV_BATCH_GET_LIMIT) {
+            batches.push(allKeys.slice(i, i + KV_BATCH_GET_LIMIT));
         }
 
         const results = await Promise.all(
@@ -1605,7 +2192,7 @@ export class SystemKVStore extends PuterStore {
                 }));
                 const response = await this.clients.dynamo.batchGet(requests);
                 const entries = (response.Responses?.[this.tableName] ??
-                    []) as KvCachedItem[];
+                    []) as unknown as KvCachedItem[];
                 const units =
                     response.ConsumedCapacity?.reduce(
                         (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -1632,7 +2219,7 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         key: string,
         timestamp: number,
-    ): Promise<KVUsage> {
+    ): Promise<{ usage: KVUsage; isPrivate: boolean }> {
         const response = await this.clients.dynamo.update(
             this.tableName,
             { key, namespace },
@@ -1640,44 +2227,64 @@ export class SystemKVStore extends PuterStore {
             { ':ttl': timestamp, ':defaultValue': null },
             { '#ttl': 'ttl', '#value': 'value' },
         );
-        return writeUsage(
-            (response.ConsumedCapacity?.CapacityUnits as number | undefined) ??
-                1,
-        );
+        return {
+            usage: writeUsage(
+                (response.ConsumedCapacity?.CapacityUnits as
+                    | number
+                    | undefined) ?? 1,
+            ),
+            isPrivate: Boolean(response.Attributes?.[KV_PRIVATE_ATTR]),
+        };
     }
 
     /**
-     * Ensure each intermediate map layer exists for a set of nested paths.
-     * Returns write units consumed. DDB can't set nested paths on missing
-     * parents in one expression, so we walk the layers and `SET ...
-     * if_not_exists(..., {})` each one.
+     * Create missing parent containers one layer at a time and return write
+     * units consumed. Indexed ancestors must already exist.
      */
     private async createPaths(
         namespace: string,
         key: string,
-        pathList: string[],
+        pathList: PathToken[][],
     ): Promise<number> {
-        assertPaths(pathList);
-
         const nestedMapValue = (() => {
+            const rootIsList = pathList[0]?.[0]?.type === 'index';
+            if (
+                pathList.some(
+                    (tokens) =>
+                        tokens[0] &&
+                        (tokens[0].type === 'index') !== rootIsList,
+                )
+            )
+                throw new HttpError(
+                    400,
+                    'kv: paths require incompatible roots',
+                    {
+                        legacyCode: 'bad_request',
+                    },
+                );
+            if (rootIsList) return [] as unknown[];
+
             const valueRoot: Record<string, unknown> = {};
             let hasPaths = false;
-            pathList.forEach((valPath) => {
-                if (!valPath) return;
+            pathList.forEach((tokens) => {
+                if (tokens.length === 0) return;
                 hasPaths = true;
-                const chunks = valPath.split('.').filter(Boolean);
                 let cursor: Record<string, unknown> = valueRoot;
-                for (let i = 0; i < chunks.length - 1; i++) {
-                    const chunk = chunks[i];
+                for (let i = 0; i < tokens.length - 1; i++) {
+                    const token = tokens[i];
+                    if (token.type === 'index') break;
+                    const next = tokens[i + 1];
+                    const container = next.type === 'index' ? [] : {};
                     // Own properties only: an inherited hit here would mean
                     // walking (and then writing to) the prototype chain.
-                    const existing = Object.hasOwn(cursor, chunk)
-                        ? cursor[chunk]
+                    const existing = Object.hasOwn(cursor, token.value)
+                        ? cursor[token.value]
                         : undefined;
                     if (!isPlainObject(existing)) {
-                        cursor[chunk] = {};
+                        cursor[token.value] = container;
                     }
-                    cursor = cursor[chunk] as Record<string, unknown>;
+                    if (Array.isArray(container)) break;
+                    cursor = cursor[token.value] as Record<string, unknown>;
                 }
             });
             return hasPaths ? valueRoot : null;
@@ -1685,39 +2292,49 @@ export class SystemKVStore extends PuterStore {
 
         if (!nestedMapValue) return 0;
 
-        const allIntermediatePaths = new Set<string>();
-        pathList.forEach((valPath) => {
-            const chunks = ['value', ...valPath.split('.')].filter(Boolean);
-            for (let i = 1; i < chunks.length; i++) {
-                allIntermediatePaths.add(chunks.slice(0, i).join('.'));
+        const allIntermediatePaths = new Map<string, PathToken[]>();
+        const containerTypes = new Map<string, PathToken['type']>();
+        allIntermediatePaths.set('', []);
+        for (const tokens of pathList) {
+            for (let i = 1; i < tokens.length; i++) {
+                const prefix = tokens.slice(0, i);
+                if (prefix.at(-1)?.type === 'index') continue;
+                const id = JSON.stringify(prefix);
+                allIntermediatePaths.set(id, prefix);
+                const containerType = tokens[i].type;
+                const existingType = containerTypes.get(id);
+                if (existingType && existingType !== containerType) {
+                    throw new HttpError(
+                        400,
+                        'kv: paths require incompatible containers',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+                containerTypes.set(id, containerType);
             }
-        });
+        }
 
         let writeUnits = 0;
-        const orderedPaths = [...allIntermediatePaths].sort(
-            (left, right) => left.split('.').length - right.split('.').length,
+        const orderedPaths = [...allIntermediatePaths.values()].sort(
+            (left, right) => left.length - right.length,
         );
 
         for (const layerPath of orderedPaths) {
-            const chunks = layerPath.split('.');
-            const attrName = chunks.map(cleanAttrName).join('.');
-            const expressionNames: Record<string, string> = {};
-            chunks.forEach((chunk) => {
-                const cleanedChunk = chunk.split(/\[\d*\]/g)[0];
-                expressionNames[cleanAttrName(cleanedChunk)] = cleanedChunk;
-            });
-            const isRootLayer = layerPath === 'value';
+            const renderer = new PathExpressionRenderer();
+            const attrName = renderer.path(layerPath);
+            const isRootLayer = layerPath.length === 0;
+            const nextType = containerTypes.get(JSON.stringify(layerPath));
             const expressionValues = isRootLayer
                 ? { ':nestedMap': nestedMapValue }
-                : { ':emptyMap': {} };
-            const valueToken = isRootLayer ? ':nestedMap' : ':emptyMap';
+                : { ':emptyContainer': nextType === 'index' ? [] : {} };
+            const valueToken = isRootLayer ? ':nestedMap' : ':emptyContainer';
 
             const response = await this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
                 `SET ${attrName} = if_not_exists(${attrName}, ${valueToken})`,
                 expressionValues,
-                expressionNames,
+                renderer.names,
             );
             writeUnits += Number(response.ConsumedCapacity?.CapacityUnits ?? 0);
 

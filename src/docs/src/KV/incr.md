@@ -1,6 +1,6 @@
 ---
 title: puter.kv.incr()
-description: Increment values in key-value store by a specified amount.
+description: Increment values in the user's own key-value store by a specified amount.
 platforms: [websites, apps, nodejs, workers]
 ---
 
@@ -28,6 +28,10 @@ When `amount` is an object: Increments a property within an object value stored 
 
 - Key: the path to the property (e.g., `"user.score"`)
 - Value: the amount to increment by
+
+`amount` must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`); a larger one is applied clamped to that bound. A counter stays exact only while its total is inside the same range — store anything that has to count past it as a string with [`puter.kv.set()`](/KV/set/).
+
+Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. When a path continues through an array element (for example, `[0].score`), that element must already exist. Missing object parents are created automatically; sparse array elements are not created.
 
 ## Return Value
 

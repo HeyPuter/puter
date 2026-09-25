@@ -18,9 +18,9 @@
  */
 
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
@@ -83,10 +83,10 @@ describe('AuthService.createAccessToken', () => {
         // blanket account-wide token. This throws on actor shape, before any
         // DB / permission interaction, so the mock service is sufficient.
         const authService = createAuthService();
-        const appActor = {
+        const appActor = makeActor({
             user: { uuid: 'user-issuer', id: 1, username: 'issuer' },
             app: { id: 0, uid: 'app-x' },
-        } as Actor;
+        });
         await expect(
             authService.createAccessToken(appActor, [[FULL_API_ACCESS]]),
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
@@ -240,13 +240,13 @@ describe('AuthService (integration)', () => {
             });
         });
 
-        it('returns { reauth: token_v1 } for a token that is not v2', async () => {
-            // Since v1 was retired nothing but `kid: 'v2'` can verify, so an
-            // unrecognizable token is answered with "sign in again" rather than
-            // a bare failure the client can't act on.
+        it('returns { invalid } for a token that is not v2', async () => {
+            // v1 is fully removed: nothing but `kid: 'v2'` can verify, and an
+            // unrecognizable token is an ordinary invalid token — no reauth hint.
             const result = await authService.authenticate('not-a-jwt');
+            expect(result.invalid).toBe(true);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth?.reason).toBe('token_v1');
+            expect(result.reauth).toBeUndefined();
         });
 
         it('returns { invalid } for a v2-routed token with a bad signature', async () => {
@@ -259,10 +259,10 @@ describe('AuthService (integration)', () => {
             expect(result.reauth).toBeUndefined();
         });
 
-        it('a v1-signed session token resolves no actor, only a reauth signal', async () => {
+        it('a v1-signed session token resolves no actor and no reauth signal (v1 fully removed)', async () => {
             // The user's row and session are perfectly healthy; it is the token
-            // format that is retired, so the answer is "sign in again" and
-            // never an authenticated actor.
+            // format that is retired, so the answer is a plain invalid token —
+            // no actor, no reauth hint.
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const legacyJwt = jwt.sign(
@@ -281,11 +281,26 @@ describe('AuthService (integration)', () => {
                 'dev-jwt-secret-change-me',
             );
             const result = await authService.authenticate(legacyJwt);
+            expect(result.invalid).toBe(true);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth?.reason).toBe('token_v1');
-            // The advisory hint still comes off the unverified payload, so the
-            // client can re-attach to the same identity.
-            expect(result.reauth?.auth_id).toBe(user.uuid);
+            expect(result.reauth).toBeUndefined();
+        });
+
+        it('takeover regression: a forged no-kid token naming a victim uuid mints no reauth/actor', async () => {
+            // Previously, a v1-shaped token's unverified auth_id/user_uid was
+            // trusted as a reauth hint, letting an attacker who knows a victim's
+            // uuid mint a forged token and get a `reauth_token` for that
+            // identity. v1 is fully removed: this must resolve to a plain
+            // invalid token, nothing else.
+            const victim = await makeUser();
+            const forged = jwt.sign(
+                { auth_id: victim.uuid },
+                'attacker-controlled-secret',
+            );
+            const result = await authService.authenticate(forged);
+            expect(result.invalid).toBe(true);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toBeUndefined();
         });
 
         // ── App-under-user verify path ─────────────────────────────
@@ -1025,9 +1040,12 @@ describe('AuthService (integration)', () => {
             const before = Math.floor(Date.now() / 1000);
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const { session, token, gui_token } =
-                await authService.createWorkerSessionToken(user, workerName, {
-                    user_agent: 'worker-agent',
-                });
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    { user_agent: 'worker-agent' },
+                );
 
             const row = (await server.stores.session.getByUuid(
                 (session as { uuid: string }).uuid,
@@ -1052,14 +1070,56 @@ describe('AuthService (integration)', () => {
             expect(decodeAuth(gui_token).worker_name).toBe(workerName);
         });
 
+        it('createWorkerSessionToken refuses every delegated credential', async () => {
+            // The token it mints is `type: 'session'` with no app, so it walks
+            // past the gates that keep apps and tokens out of account
+            // management — including the one refusing an access token the
+            // right to mint another.
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const delegated: Actor[] = [
+                makeActor({ user, app: { uid: 'app-caller' } }),
+                makeActor({
+                    user,
+                    accessToken: {
+                        uid: 'tok-scoped',
+                        issuer: makeActor({ user }),
+                        authorized: null,
+                        fullAccess: false,
+                    },
+                }),
+                makeActor({
+                    user,
+                    accessToken: {
+                        uid: 'tok-pat',
+                        issuer: makeActor({ user }),
+                        authorized: null,
+                        fullAccess: true,
+                    },
+                }),
+            ];
+
+            for (const actor of delegated) {
+                await expect(
+                    authService.createWorkerSessionToken(
+                        actor,
+                        user,
+                        workerName,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            }
+        });
+
         it('createWorkerSessionToken is idempotent on (user, worker_name) — redeploys reuse the row', async () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const a = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
             const b = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
@@ -1071,10 +1131,12 @@ describe('AuthService (integration)', () => {
         it('createWorkerSessionToken with different worker_names mints distinct rows for the same user', async () => {
             const user = await makeUser();
             const a = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 `wk-${Math.random().toString(36).slice(2, 8)}-a`,
             );
             const b = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 `wk-${Math.random().toString(36).slice(2, 8)}-b`,
             );
@@ -1086,7 +1148,11 @@ describe('AuthService (integration)', () => {
         it('createWorkerSessionToken rejects an empty workerName (400)', async () => {
             const user = await makeUser();
             await expect(
-                authService.createWorkerSessionToken(user, ''),
+                authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    '',
+                ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
@@ -1231,10 +1297,10 @@ describe('AuthService (integration)', () => {
 
         it('createWorkerAppToken refuses an app actor targeting a different app (403)', async () => {
             const user = await makeUser();
-            const actor = {
+            const actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { uid: `app-${uuidv4()}` },
-            } as Actor;
+            });
             await expect(
                 authService.createWorkerAppToken(
                     actor,
@@ -1271,14 +1337,14 @@ describe('AuthService (integration)', () => {
                 user: { id: number; uuid: string; username: string },
                 app: { uid: string; id: number },
             ) =>
-                ({
+                makeActor({
                     user: {
                         id: user.id,
                         uuid: user.uuid,
                         username: user.username,
                     },
                     app: { uid: app.uid, id: app.id },
-                }) as Actor;
+                });
 
             it('mints a token scoped to an app the caller created', async () => {
                 const user = await makeUser();
@@ -1438,7 +1504,11 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const { token, session } =
-                await authService.createWorkerSessionToken(user, workerName);
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                );
             const sessionUuid = (session as { uuid: string }).uuid;
 
             await authService.revokeSession(sessionUuid);
@@ -1458,6 +1528,7 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const first = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
@@ -1465,6 +1536,7 @@ describe('AuthService (integration)', () => {
             await authService.revokeSession(firstUuid);
 
             const second = await authService.createWorkerSessionToken(
+                makeActor({ user }),
                 user,
                 workerName,
             );
@@ -1517,7 +1589,11 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
             const { token, session } =
-                await authService.createWorkerSessionToken(user, workerName);
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                );
             const sessionUuid = (session as { uuid: string }).uuid;
 
             await authService.removeSessionByToken(token);
@@ -1550,19 +1626,132 @@ describe('AuthService (integration)', () => {
             expect(a).toMatch(/^app-/);
         });
 
+        it('resolves every hosting variant of a subdomain to the same uid', async () => {
+            const sub = `canon-${Math.random().toString(36).slice(2, 10)}`;
+            const uids = await Promise.all([
+                authService.appUidFromOrigin(
+                    `https://${sub}.site.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `https://${sub}.host.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `http://${sub}.app.puter.localhost`,
+                ),
+                authService.appUidFromOrigin(
+                    `https://${sub}.dev.puter.localhost`,
+                ),
+            ]);
+            expect(new Set(uids).size).toBe(1);
+        });
+
+        it('prefers the private app row over an older public stub across hosting variants', async () => {
+            const user = await makeUser();
+            const sub = `pref-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.app.createFromOrigin(
+                `app-${uuidv4()}`,
+                `https://${sub}.host.puter.localhost`,
+                { ownerUserId: user.id },
+            );
+            const realUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+                [
+                    realUid,
+                    `real-${sub}`,
+                    'Real app',
+                    `https://${sub}.app.puter.localhost`,
+                    user.id,
+                    1,
+                ],
+            );
+            await expect(
+                authService.appUidFromOrigin(
+                    `https://${sub}.host.puter.localhost`,
+                ),
+            ).resolves.toBe(realUid);
+        });
+
         it.each([
             'javascript:alert(document.domain)',
             'data:text/html,<script>alert(1)</script>',
             'file:///etc/passwd',
             'vbscript:msgbox(1)',
-        ])('throws 400 for non-http(s) scheme %s', async (origin) => {
-            // These parse fine via `new URL()` but must never become a
-            // bootstrap app `index_url` — that would be a stored XSS /
-            // code-execution vector when launched as `iframe.src`.
-            await expect(
-                authService.appUidFromOrigin(origin),
-            ).rejects.toMatchObject({ statusCode: 400 });
+        ])(
+            'throws 400 for unsafe non-web/non-extension scheme %s',
+            async (origin) => {
+                // These parse fine via `new URL()` but must never become a
+                // bootstrap app `index_url` — that would be a stored XSS /
+                // code-execution vector when launched as `iframe.src`.
+                await expect(
+                    authService.appUidFromOrigin(origin),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        // Mirrors APP_ORIGIN_UUID_NAMESPACE in AuthService: changing it
+        // changes every origin-derived app uid in the fleet.
+        const APP_ORIGIN_UUID_NAMESPACE =
+            '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+        // Unique per run — a real `apps` row carrying the same origin as its
+        // `index_url` resolves ahead of the uuidv5 fallback.
+        const extensionId = uuidv4();
+
+        it.each([
+            `chrome-extension://${extensionId}`,
+            `moz-extension://${extensionId}`,
+            `safari-extension://${extensionId}`,
+            `safari-web-extension://${extensionId}`,
+        ])('derives the app uid for extension origin %s', async (origin) => {
+            const uid = await authService.appUidFromOrigin(origin);
+            expect(uid).toBe(
+                `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`,
+            );
+            expect(await authService.appUidFromOrigin(origin)).toBe(uid);
         });
+
+        it('gives two extensions two different app uids', async () => {
+            const a = await authService.appUidFromOrigin(
+                `chrome-extension://${uuidv4()}`,
+            );
+            const b = await authService.appUidFromOrigin(
+                `chrome-extension://${uuidv4()}`,
+            );
+            expect(a).not.toBe(b);
+        });
+
+        it('resolves an extension id case-insensitively', async () => {
+            // `new URL()` lowercases http(s) hosts but leaves opaque ones
+            // alone, so without normalization one extension would get two
+            // uids, two AppData trees and two permission sets.
+            const id = uuidv4();
+            expect(
+                await authService.appUidFromOrigin(
+                    `chrome-extension://${id.toUpperCase()}`,
+                ),
+            ).toBe(
+                await authService.appUidFromOrigin(`chrome-extension://${id}`),
+            );
+        });
+
+        it.each([
+            // Extension schemes are not "special", so `new URL()` accepts them
+            // with no authority — which would slip past every host-based guard.
+            'chrome-extension:',
+            'moz-extension:',
+            // Near-misses: no browser emits any of these.
+            'extension://my-extension-id',
+            'web-extension://my-extension-id',
+            'ms-browser-extension://my-extension-id',
+            'chrome-extensions://my-extension-id',
+        ])(
+            'throws 400 for host-less or non-browser scheme %s',
+            async (origin) => {
+                await expect(
+                    authService.appUidFromOrigin(origin),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
     });
 
     describe('subdomainOwnerIdFromOrigin', () => {
@@ -1783,10 +1972,10 @@ describe('AuthService (integration)', () => {
         it('lets an app actor mint a token for its own app', async () => {
             const user = await makeUser();
             const ownApp = `app-${uuidv4()}`;
-            const actor = {
+            const actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { uid: ownApp },
-            } as Actor;
+            });
             const token = await authService.getUserAppToken(actor, ownApp);
             const decoded = server.services.token.verify('auth', token) as {
                 app_uid: string;
@@ -1796,10 +1985,10 @@ describe('AuthService (integration)', () => {
 
         it('refuses an app actor minting a token for a different app (403)', async () => {
             const user = await makeUser();
-            const actor = {
+            const actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { uid: `app-${uuidv4()}` },
-            } as Actor;
+            });
             await expect(
                 authService.getUserAppToken(actor, `app-${uuidv4()}`),
             ).rejects.toMatchObject({
@@ -1988,10 +2177,10 @@ describe('AuthService (integration)', () => {
             );
             expect(fileEntry).not.toBeNull();
 
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: 0, uid: appUid },
-            } as Actor;
+            });
 
             const jwt = await authService.createAccessToken(appActor, [
                 [`fs:${fileEntry!.uuid}:read`],
@@ -2037,10 +2226,10 @@ describe('AuthService (integration)', () => {
             );
             expect(fileEntry).not.toBeNull();
 
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: 0, uid: appUid },
-            } as Actor;
+            });
 
             await expect(
                 authService.createAccessToken(appActor, [

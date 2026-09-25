@@ -17,13 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import get_html_element_from_options from './helpers/get_html_element_from_options.js';
+import { createUploadThumbnailGenerator } from './services/pdfThumbnails/index.js';
+import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
-import item_icon from './helpers/item_icon.js';
-import truncate_filename from './helpers/truncate_filename.js';
-import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
-import update_username_in_gui from './helpers/update_username_in_gui.js';
-import { select_uploaded_items } from './helpers/upload_selection.js';
+import item_icon from './helpers/itemIcon.js';
+import { is_owned_by_me, trash_path_for } from './helpers/pathOwner.js';
+import { invalidate_shared_roots } from './helpers/sharedAccess.js';
+import truncate_filename from './helpers/truncateFilename.js';
+import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
+import update_username_in_gui from './helpers/updateUsernameInGui.js';
+import { select_uploaded_items } from './helpers/uploadSelection.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
@@ -620,30 +623,16 @@ window.update_auth_data = async (auth_token, user) => {
     }
 
     // ----------------------------------------------------
-    // get .profile file and update user profile
+    // load the user's profile
     // ----------------------------------------------------
     user.profile = {};
-    puter.fs.read(`/${user.username}/Public/.profile`).then((blob) => {
-        blob.text()
-            .then(text => {
-                const profile = JSON.parse(text);
-                if ( profile.picture ) {
-                    window.user.profile.picture = html_encode(profile.picture);
-                }
-
-                // update profile picture in GUI
-                if ( window.user.profile.picture ) {
-                    $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
-                }
-            })
-            .catch(error => {
-                console.error('Error converting Blob to JSON:', error);
-            });
-    }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
-            // create .profile file
-            puter.fs.write(`/${user.username}/Public/.profile`, JSON.stringify({}));
+    puter.auth.getProfile().then((profile) => {
+        if ( profile?.picture ) {
+            window.user.profile.picture = html_encode(profile.picture);
+            $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
         }
+    }).catch((error) => {
+        console.error('Error loading profile:', error);
     });
 
     // ----------------------------------------------------
@@ -691,6 +680,7 @@ window.update_auth_data = async (auth_token, user) => {
     window.desktop_path = `/${ window.user.username }/Desktop`;
     window.home_path = `/${ window.user.username}`;
     window.public_path = `/${ window.user.username }/Public`;
+    window.shared_path = 'puter://shared';
 
     if ( window.user !== null && !window.user.is_temp ) {
         $('.user-options-login-btn, .user-options-create-account-btn').hide();
@@ -1156,6 +1146,7 @@ window.create_file = async (options) => {
     try {
         puter.fs.upload(new File(content, filename), dirname, {
             generateThumbnails: true,
+            thumbnailGenerator: createUploadThumbnailGenerator(),
             success: async function (data) {
                 const created_file = $(appendto_element).find(`.item[data-path="${html_encode(dirname)}/${html_encode(data.name)}"]`);
                 if ( created_file.length > 0 ) {
@@ -1352,7 +1343,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        // An out-of-storage copy already shows the SDK's
+                        // upgrade dialog — a second, generic alert on top of
+                        // it would just bury the actionable one.
+                        if ( err.message && err.code !== 'storage_limit_reached' ) {
                             UIAlert(err.message);
                         }
                         item_with_same_name_already_exists = false;
@@ -1488,7 +1482,13 @@ window.copy_items = function (el_items, dest_path) {
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        // An out-of-storage copy already shows the SDK's
+                        // upgrade dialog — a second, generic alert on top of
+                        // it would just bury the actionable one.
+                        if ( err.code === 'storage_limit_reached' ) {
+                            // handled by the SDK prompt
+                        }
+                        else if ( err.message ) {
                             UIAlert(err.message);
                         }
                         else if ( err ) {
@@ -1681,6 +1681,7 @@ window.update_trash_icons = function (is_empty) {
     $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
     $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
     $('.directories [data-folder="Trash"] img').attr('src', icon);
+    $('.files-tab .place-row[data-place="Trash"] .item-icon > img').attr('src', icon);
 };
 
 /**
@@ -1710,6 +1711,10 @@ window.refresh_trash_state = async function () {
  * @returns {Promise<void>}
  */
 window.move_items = async function (el_items, dest_path, is_undo = false) {
+    // The Shared view is a query, not a directory — nothing can be moved
+    // into it. Backstop for any drop target the surfaces fail to exclude.
+    if ( dest_path === window.shared_path ) return;
+
     let move_op_id = window.operation_id++;
     window.operation_cancelled[move_op_id] = false;
 
@@ -1777,8 +1782,17 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
             continue;
         }
 
+        // Deleting sends an item to its owner's trash, not yours.
+        const is_trashing = dest_path === window.trash_path;
+        const item_dest_path = is_trashing
+            ? trash_path_for(
+                $(el_item).attr('data-path'),
+                $(el_item).attr('data-owner'),
+            )
+            : dest_path;
+
         // cannot move item to its own path, skip it
-        if ( path.dirname($(el_item).attr('data-path')) === dest_path ) {
+        if ( path.dirname($(el_item).attr('data-path')) === item_dest_path ) {
             // pause the progress-window timer while waiting for the user
             clearTimeout(progwin_timeout);
             await UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>Cannot move item to its current location.`);
@@ -1834,7 +1848,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // --------------------------------------------------------
                 // Trashing
                 // --------------------------------------------------------
-                if ( dest_path === window.trash_path ) {
+                if ( is_trashing ) {
                     new_name = $(el_item).attr('data-uid');
                     metadata = {
                         original_name: $(el_item).attr('data-name'),
@@ -1884,7 +1898,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // execute move
                 let resp = await puter.fs.move({
                     source: $(el_item).attr('data-uid'),
-                    destination: dest_path,
+                    destination: item_dest_path,
                     overwrite: overwrite || overwrite_all,
                     // "Keep Both" conflict resolution: move under a deduped
                     // "name (1)" style name instead of overwriting
@@ -1899,7 +1913,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 let fsentry = resp.moved;
 
                 // path must use the real name from DB
-                fsentry.path = path.join(dest_path, fsentry.name);
+                fsentry.path = path.join(item_dest_path, fsentry.name);
 
                 // skip next loop iteration because this iteration was successful
                 item_with_same_name_already_exists = false;
@@ -1934,7 +1948,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 });
 
                 // if trashing, close windows of trashed items and its descendants
-                if ( dest_path === window.trash_path ) {
+                if ( is_trashing ) {
                     $(`.window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).close();
                     // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
                     $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"]`).close();
@@ -1944,11 +1958,11 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 else {
                     // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
                     $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"], .window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).each(function () {
-                        window.update_window_path(this, $(this).attr('data-path').replace($(el_item).attr('data-path'), path.join(dest_path, fsentry.name)));
+                        window.update_window_path(this, $(this).attr('data-path').replace($(el_item).attr('data-path'), path.join(item_dest_path, fsentry.name)));
                     });
                 }
 
-                if ( dest_path === window.trash_path ) {
+                if ( is_trashing ) {
                     // if trashing dir...
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
                         // disassociate all its websites
@@ -1972,19 +1986,19 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
                 // create new item on matching containers
                 const options = {
-                    appendTo: $(`.item-container[data-path="${html_encode(dest_path)}" i]`),
+                    appendTo: $(`.item-container[data-path="${html_encode(item_dest_path)}" i]`),
                     immutable: fsentry.immutable || (fsentry.writable === false),
                     associated_app_name: fsentry.associated_app?.name,
                     uid: fsentry.uid,
                     path: fsentry.path,
                     icon: await item_icon(fsentry),
-                    name: (dest_path === window.trash_path) ? $(el_item).attr('data-name') : fsentry.name,
+                    name: is_trashing ? $(el_item).attr('data-name') : fsentry.name,
                     is_dir: fsentry.is_dir,
                     size: fsentry.size,
                     type: fsentry.type,
                     modified: fsentry.modified,
                     is_selected: false,
-                    is_shared: (dest_path === window.trash_path) ? false : fsentry.is_shared,
+                    is_shared: is_trashing ? false : fsentry.is_shared,
                     is_shortcut: fsentry.is_shortcut,
                     shortcut_to: fsentry.shortcut_to,
                     shortcut_to_path: fsentry.shortcut_to_path,
@@ -2030,7 +2044,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 });
 
                 //sort each container
-                $(`.item-container[data-path="${html_encode(dest_path)}" i]`).each(function () {
+                $(`.item-container[data-path="${html_encode(item_dest_path)}" i]`).each(function () {
                     window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
                 });
             } catch ( err ) {
@@ -2346,9 +2360,13 @@ window.upload_items = async function (items, dest_path) {
         // options
         {
             generateThumbnails: true,
+            thumbnailGenerator: createUploadThumbnailGenerator(),
             // init
             init: async (operation_id, xhr) => {
                 opid = operation_id;
+                // register before the first await, so a failure while the progress
+                // window is still opening can't delete the entry before it exists
+                window.active_uploads[opid] = 0;
                 // create upload progress window
                 upload_progress_window = await UIWindowProgress({
                     title: i18n('upload'),
@@ -2360,8 +2378,6 @@ window.upload_items = async function (items, dest_path) {
                         xhr.abort();
                     },
                 });
-                // add to active_uploads
-                window.active_uploads[opid] = 0;
             },
             // start
             start: async function () {
@@ -2543,7 +2559,7 @@ window.getUserAppToken = async function (origin) {
 
 window.checkUserSiteRelationship = async function (origin) {
     try {
-        const response = await fetch(`${window.api_origin }/auth/check-app `, {
+        const response = await fetch(`${window.api_origin }/auth/check-app`, {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${ window.auth_token}`,
@@ -2843,6 +2859,7 @@ window.unzipItem = async function (itemPath) {
                 {
                     createFileParent: true,
                     generateThumbnails: true,
+                    thumbnailGenerator: createUploadThumbnailGenerator(),
                     progress: async function (operation_id, op_progress) {
                         progwin.set_progress(op_progress);
                         // update title if window is not visible
@@ -3093,6 +3110,7 @@ window.untarItem = async function (itemPath) {
             {
                 createFileParent: true,
                 generateThumbnails: true,
+                thumbnailGenerator: createUploadThumbnailGenerator(),
                 progress: async function (operation_id, op_progress) {
                     progwin.set_progress(op_progress);
                     if ( document.visibilityState !== 'visible' ) {
@@ -3168,6 +3186,10 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
         new_name: new_name,
         excludeSocketID: window.socket?.id,
         success: async (fsentry) => {
+            // A renamed shared item is cached under its old path — drop the
+            // cache so mode lookups against the new path don't miss.
+            if ( ! is_owned_by_me(old_path) ) invalidate_shared_roots();
+
             // Add action to actions_history for undo ability
             if ( ! is_undo )
             {
@@ -3200,19 +3222,22 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             const new_icon = (options.is_dir ? window.icons['folder.svg'] : (await item_icon(fsentry)).image);
             $(el_item_icon).find('.item-icon-icon').attr('src', new_icon);
 
-            // Set new `data-name`
+            // Set new `data-name`. Attributes and form values are stored raw:
+            // .attr()/.val() don't parse HTML, so an encoded name would come
+            // back as "a&amp;b" wherever it is read (sorting, type-to-select,
+            // the dashboard's column truncation).
             options.name = new_name;
-            $(el_item).attr('data-name', html_encode(new_name));
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', html_encode(new_name));
-            $(`.window-${options.uid}`).attr('data-name', html_encode(new_name));
+            $(el_item).attr('data-name', new_name);
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-name', new_name);
+            $(`.window-${options.uid}`).attr('data-name', new_name);
 
             // Set new `title` attribute
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', html_encode(new_name));
-            $(`.window-${options.uid}`).attr('title', html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('title', new_name);
+            $(`.window-${options.uid}`).attr('title', new_name);
 
             // Set new value for `item-name-editor`
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(html_encode(new_name));
-            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', html_encode(new_name));
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name-editor`).val(new_name);
+            $(`.item[data-uid='${$(el_item).attr('data-uid')}'] .item-name`).attr('title', new_name);
 
             // Set new `data-path` attribute
             options.path = path.join(path.dirname(options.path), options.name);
@@ -3266,7 +3291,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
 
             // hide item name editor
             $(el_item_name_editor).hide();
-            $(el_item_name_editor).val(html_encode($(el_item).attr('data-name')));
+            $(el_item_name_editor).val($(el_item).attr('data-name'));
 
             //show error
             if ( err.message ) {
@@ -3471,30 +3496,17 @@ window.countSubstr = (str, substring) => {
     return count;
 };
 
+// Updates the signed-in user's profile; `username` is kept for callers that
+// still pass it.
 window.update_profile = function (username, key_vals) {
-    puter.fs.read(`/${username}/Public/.profile`).then((blob) => {
-        blob.text()
-            .then(text => {
-                const profile = JSON.parse(text);
-
-                for ( const key in key_vals ) {
-                    profile[key] = key_vals[key];
-                    // update window.user.profile
-                    window.user.profile[key] = key_vals[key];
-                }
-
-                puter.fs.write(`/${username}/Public/.profile`, JSON.stringify(profile));
-            })
-            .catch(error => {
-                console.error('Error converting Blob to JSON:', error);
-            });
-    }).catch((e) => {
-        if ( e?.code === 'subject_does_not_exist' ) {
-            // create .profile file
-            puter.fs.write(`/${username}/Public/.profile`, JSON.stringify({}));
+    return puter.auth.updateProfile(key_vals).then((profile) => {
+        window.user.profile = window.user.profile ?? {};
+        for ( const key in key_vals ) {
+            window.user.profile[key] = profile?.[key] ?? key_vals[key];
         }
-        // Ignored
-        console.log(e);
+        return profile;
+    }).catch((e) => {
+        console.error('Error updating profile:', e);
     });
 };
 
@@ -3507,24 +3519,9 @@ window.blob2str = (blob) => {
     });
 };
 
+// Another user's picture is only available while they are on a paid plan.
 window.get_profile_picture = async function (username) {
-    let icon;
-    // try getting profile pic
-    try {
-        let stat = await puter.fs.stat({ path: `/${ username }/Public/.profile`, consistency: 'eventual' });
-        if ( stat.size > 0 && stat.is_dir === false && stat.size < 1000000 ) {
-            let profile_json = await puter.fs.read(`/${ username }/Public/.profile`);
-            profile_json = await blob2str(profile_json);
-            const profile = JSON.parse(profile_json);
-
-            if ( profile.picture && profile.picture.startsWith('data:image') ) {
-                icon = profile.picture;
-            }
-        }
-    } catch (e) {
-    }
-
-    return icon;
+    return (await puter.auth.getProfilePicture(username)) ?? undefined;
 };
 
 window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {

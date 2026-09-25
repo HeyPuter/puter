@@ -20,13 +20,12 @@
 /**
  * Offline unit tests for OpenAiImageProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs OpenAiImageProvider directly against the
- * live wired `MeteringService`. The OpenAI SDK is mocked at the
- * module boundary; that's the real network egress point. Covers the
- * gpt-image-* models (token-priced), gpt-image-2 (open-ended size
- * with the runtime-clamping normalizer), and image-to-image editing
- * via `input_images` (the `images.edit` endpoint).
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs OpenAiImageProvider directly against the live wired
+ * `MeteringService`. The OpenAI SDK is mocked at the module boundary; that's
+ * the real network egress point. Covers the gpt-image-* models (token-priced),
+ * gpt-image-2 (open-ended size with the runtime-clamping normalizer), and
+ * image-to-image editing via `input_images` (the `images.edit` endpoint).
  */
 
 import {
@@ -42,9 +41,15 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { OpenAiImageProvider } from './OpenAiImageProvider.js';
 
@@ -136,16 +141,26 @@ describe('OpenAiImageProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('OpenAiImageProvider model catalog', () => {
-    it('returns gpt-image-1-mini as the default', () => {
+    it('returns gpt-image-2 as the default', () => {
         const provider = makeProvider();
-        expect(provider.getDefaultModel()).toBe('gpt-image-1-mini');
+        expect(provider.getDefaultModel()).toBe('gpt-image-2');
+    });
+
+    it('keeps the deprecated gpt-image-1 family routable but delisted', () => {
+        const provider = makeProvider();
+        const byId = new Map(provider.models().map((m) => [m.id, m]));
+        for (const id of ['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5']) {
+            expect(byId.get(id)?.delisted).toBe(true);
+        }
+        expect(byId.get('gpt-image-2')?.delisted).toBeUndefined();
+        expect(byId.has('chatgpt-image-latest')).toBe(false);
     });
 
     it('no longer exposes any dall-e models', () => {
         const provider = makeProvider();
-        expect(
-            provider.models().some((m) => m.id.startsWith('dall-e')),
-        ).toBe(false);
+        expect(provider.models().some((m) => m.id.startsWith('dall-e'))).toBe(
+            false,
+        );
     });
 
     it('exposes the static OPEN_AI_IMAGE_GENERATION_MODELS list verbatim', () => {
@@ -172,6 +187,25 @@ describe('OpenAiImageProvider.generate test_mode', () => {
 
 // ── Argument validation ─────────────────────────────────────────────
 
+describe('OpenAiImageProvider.generate user identifier', () => {
+    it.each([
+        { app: undefined, expected: 'puter-u42' },
+        { app: { uid: 'app-123' }, expected: 'puter-u42-app-123' },
+    ])('sends $expected to OpenAI', async ({ app, expected }) => {
+        generateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://oai.example/img.png' }],
+        });
+        await withTestActor(
+            () => makeProvider().generate({ prompt: 'a tiny red dot' }),
+            makeActor({
+                user: { id: 42, uuid: 'u42', username: 'alice' },
+                app,
+            }),
+        );
+        expect(generateMock.mock.calls[0]![0].user).toBe(expected);
+    });
+});
+
 describe('OpenAiImageProvider.generate argument validation', () => {
     it('throws 400 when prompt is not a string', async () => {
         const provider = makeProvider();
@@ -192,7 +226,7 @@ describe('OpenAiImageProvider.generate credit gate', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gpt-image-1-mini',
+                    model: 'gpt-image-2',
                     prompt: 'hi',
                     ratio: { w: 1024, h: 1024 },
                 }),
@@ -226,7 +260,7 @@ describe('OpenAiImageProvider.generate output extraction', () => {
 
         const result = await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1-mini',
+                model: 'gpt-image-2',
                 prompt: 'hi',
                 ratio: { w: 1024, h: 1024 },
             }),
@@ -241,13 +275,39 @@ describe('OpenAiImageProvider.generate output extraction', () => {
 
         const result = await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1-mini',
+                model: 'gpt-image-2',
                 prompt: 'hi',
                 ratio: { w: 1024, h: 1024 },
             }),
         );
 
         expect(result).toBe('data:image/png;base64,AAAA');
+    });
+});
+
+describe('OpenAiImageProvider.generate user identifier', () => {
+    it('sends the actor uuid and effective app uid as the user field', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue({
+            data: [{ url: 'https://oai.example/img.png' }],
+        });
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'gpt-image-1-mini',
+                        prompt: 'hi',
+                        ratio: { w: 1024, h: 1024 },
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user'];
+        expect(sentIdentifierFields(generateMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
     });
 });
 
@@ -275,7 +335,7 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1',
+                model: 'gpt-image-2',
                 prompt: 'add a hat',
                 ratio: { w: 1024, h: 1024 },
                 input_images: [PNG, PNG],
@@ -285,11 +345,30 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
         expect(generateMock).not.toHaveBeenCalled();
         expect(editMock).toHaveBeenCalledTimes(1);
         const sent = editMock.mock.calls[0]![0];
-        expect(sent.model).toBe('gpt-image-1');
+        expect(sent.model).toBe('gpt-image-2');
         expect(sent.prompt).toBe('add a hat');
         // Two input images → array of uploadables.
         expect(Array.isArray(sent.image)).toBe(true);
         expect(sent.image).toHaveLength(2);
+    });
+
+    it('sends the actor user identifier on the edit request like generation does', async () => {
+        const provider = makeProvider();
+        editMock.mockResolvedValueOnce(editResponse);
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gpt-image-1',
+                    prompt: 'add a hat',
+                    ratio: { w: 1024, h: 1024 },
+                    input_images: [PNG],
+                }),
+            makeActorMatrix()[1],
+        );
+
+        const sent = editMock.mock.calls[0]![0];
+        expect(sent.user).toBe('puter-u42-app-abc');
     });
 
     it('meters an :input line at the image_input token rate when the edit response reports image tokens', async () => {
@@ -298,7 +377,7 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1',
+                model: 'gpt-image-2',
                 prompt: 'add a hat',
                 ratio: { w: 1024, h: 1024 },
                 input_images: [PNG],
@@ -310,12 +389,14 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
             entries as Array<{ usageType: string; costOverride: number }>
         ).find((e) => e.usageType.endsWith(':input'));
         expect(inputEntry?.usageType).toBe(
-            'openai:gpt-image-1:low:1024x1024:input',
+            'openai:gpt-image-2:low:1024x1024:input',
         );
-        // gpt-image-1: text_input=500, image_input=1000 (cents/1M tokens).
-        // 40 text + 560 image tokens → (40*500 + 560*1000)/1e6 cents.
-        const expectedCents = (40 * 500 + 560 * 1000) / 1_000_000;
-        expect(inputEntry?.costOverride).toBe(Math.ceil(expectedCents * 1_000_000));
+        // gpt-image-2: text_input=500, image_input=800 (cents/1M tokens).
+        // 40 text + 560 image tokens → (40*500 + 560*800)/1e6 cents.
+        const expectedCents = (40 * 500 + 560 * 800) / 1_000_000;
+        expect(inputEntry?.costOverride).toBe(
+            Math.ceil(expectedCents * 1_000_000),
+        );
     });
 
     it('folds singular input_image into the edit path with a single uploadable', async () => {
@@ -324,7 +405,7 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1-mini',
+                model: 'gpt-image-2',
                 prompt: 'add a hat',
                 ratio: { w: 1024, h: 1024 },
                 input_image: PNG,
@@ -348,7 +429,7 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1',
+                model: 'gpt-image-2',
                 prompt: 'add a hat',
                 ratio: { w: 1024, h: 1024 },
                 input_images: ['https://example.com/in.png'],
@@ -387,17 +468,33 @@ describe('OpenAiImageProvider.generate gpt-image-* request shape', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1',
+                model: 'gpt-image-2',
                 prompt: 'hi',
                 ratio: { w: 1024, h: 1024 },
             }),
         );
 
         const sent = generateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('gpt-image-1');
+        expect(sent.model).toBe('gpt-image-2');
         expect(sent.size).toBe('1024x1024');
         // No caller-supplied quality → provider sends 'low'.
         expect(sent.quality).toBe('low');
+    });
+
+    it('matches quality tiers case-insensitively, like the other providers', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValueOnce(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2',
+                prompt: 'hi',
+                quality: ' HIGH ',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        expect(generateMock.mock.calls[0]![0].quality).toBe('high');
     });
 
     it('meters input + output as two batched line items at token rates', async () => {
@@ -406,24 +503,160 @@ describe('OpenAiImageProvider.generate gpt-image-* request shape', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gpt-image-1',
+                model: 'gpt-image-2',
                 prompt: 'hi',
                 ratio: { w: 1024, h: 1024 },
             }),
         );
 
-        // gpt-image-1 rates: text_input=500, image_output=4000 (cents/1M tokens).
+        // gpt-image-2 rates: text_input=500, image_output=3000 (cents/1M tokens).
         expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
         const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
-        const types = (
-            entries as Array<{ usageType: string }>
-        ).map((e) => e.usageType);
+        const types = (entries as Array<{ usageType: string }>).map(
+            (e) => e.usageType,
+        );
         expect(types).toEqual(
             expect.arrayContaining([
-                'openai:gpt-image-1:low:1024x1024:input',
-                'openai:gpt-image-1:low:1024x1024:output',
+                'openai:gpt-image-2:low:1024x1024:input',
+                'openai:gpt-image-2:low:1024x1024:output',
             ]),
         );
+    });
+});
+
+// -- gpt-image-2.5 family --
+
+describe('OpenAiImageProvider gpt-image-2.5 models', () => {
+    const gptResponse = {
+        data: [{ b64_json: 'AAAA' }],
+        usage: {
+            input_tokens: 100,
+            output_tokens: 800,
+            input_tokens_details: {
+                text_tokens: 100,
+                image_tokens: 0,
+                cached_tokens: 0,
+            },
+        },
+    };
+
+    it.each(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare'])(
+        '%s takes open-ended sizes and the xhigh/max quality tiers',
+        (id) => {
+            const model = makeProvider()
+                .models()
+                .find((m) => m.id === id);
+            expect(model).toBeDefined();
+            expect(model!.allowedQualityLevels).toEqual([
+                'low',
+                'medium',
+                'high',
+                'xhigh',
+                'max',
+                'auto',
+            ]);
+            expect(model!.allowedRatios).toBeUndefined();
+        },
+    );
+
+    it('sends the xhigh tier upstream and meters it under that price key', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValueOnce(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'xhigh',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        expect(generateMock.mock.calls[0]![0].quality).toBe('xhigh');
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        const types = (entries as Array<{ usageType: string }>).map(
+            (e) => e.usageType,
+        );
+        expect(types).toEqual(
+            expect.arrayContaining([
+                'openai:gpt-image-2.5-sunburst:xhigh:1024x1024:input',
+                'openai:gpt-image-2.5-sunburst:xhigh:1024x1024:output',
+            ]),
+        );
+    });
+
+    it('bills output at the reported token count, not the estimate', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValueOnce(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-flare',
+                prompt: 'hi',
+                quality: 'max',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        const output = (
+            entries as Array<{ usageType: string; costOverride: number }>
+        ).find((e) => e.usageType.endsWith(':output'))!;
+        // 800 output tokens at image_output=3000 cents/1M = 2.4 cents.
+        expect(output.costOverride).toBe(2_400_000);
+    });
+
+    it('estimates fewer output tokens per quality tier than gpt-image-2', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2',
+                prompt: 'hi',
+                quality: 'medium',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'medium',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        // Latent factor 48 vs 24 at the medium tier.
+        const gptImage2Estimate = hasCreditsSpy.mock.calls[0]![1];
+        const gptImage25Estimate = hasCreditsSpy.mock.calls[1]![1];
+        expect(gptImage25Estimate).toBeLessThan(gptImage2Estimate);
+    });
+
+    it('scales the credit gate up for the max tier', async () => {
+        const provider = makeProvider();
+        generateMock.mockResolvedValue(gptResponse);
+
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'high',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+        await withTestActor(() =>
+            provider.generate({
+                model: 'gpt-image-2.5-sunburst',
+                prompt: 'hi',
+                quality: 'max',
+                ratio: { w: 1024, h: 1024 },
+            }),
+        );
+
+        const highEstimate = hasCreditsSpy.mock.calls[0]![1];
+        const maxEstimate = hasCreditsSpy.mock.calls[1]![1];
+        expect(maxEstimate).toBeGreaterThan(highEstimate);
     });
 });
 
@@ -515,11 +748,63 @@ describe('OpenAiImageProvider.generate output extraction error', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gpt-image-1-mini',
+                    model: 'gpt-image-2',
                     prompt: 'hi',
                     ratio: { w: 1024, h: 1024 },
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+});
+
+const sentSize = () => {
+    const [w, h] = String(generateMock.mock.calls[0]![0].size)
+        .split('x')
+        .map(Number);
+    return { w, h };
+};
+
+it('expands a portrait aspect hint into the gpt-image-2 pixel budget', async () => {
+    generateMock.mockResolvedValueOnce({
+        data: [{ url: 'https://example.com/image.png' }],
+    });
+    await withTestActor(() =>
+        makeProvider().generate({
+            model: 'gpt-image-2',
+            prompt: 'a landscape',
+            ratio: { w: 2, h: 3 },
+        }),
+    );
+    const { w, h } = sentSize();
+    expect(h).toBeGreaterThan(w);
+    expect(w % 16).toBe(0);
+    expect(h % 16).toBe(0);
+    expect(w * h).toBeGreaterThanOrEqual(655_360);
+});
+
+describe('generated image MIME labels', () => {
+    it('labels JPEG bytes from a base64 response as JPEG', async () => {
+        const base64 = '/9j/4AAQSkZJRgABAQ';
+        generateMock.mockResolvedValueOnce({ data: [{ b64_json: base64 }] });
+        const result = await withTestActor(() =>
+            makeProvider().generate({ prompt: 'hi' }),
+        );
+        expect(result).toBe(`data:image/jpeg;base64,${base64}`);
+    });
+});
+
+it('keeps a landscape aspect hint landscape at gpt-image-2 sizes', async () => {
+    generateMock.mockResolvedValueOnce({
+        data: [{ url: 'https://example.com/out.jpg' }],
+    });
+    await withTestActor(() =>
+        makeProvider().generate({
+            prompt: 'hi',
+            model: 'gpt-image-2',
+            ratio: { w: 17, h: 10 },
+        }),
+    );
+    const { w, h } = sentSize();
+    expect(w).toBeGreaterThan(h);
+    expect(Math.abs(w / h - 1.7)).toBeLessThan(0.1);
 });

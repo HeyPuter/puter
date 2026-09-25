@@ -21,6 +21,7 @@ import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { driversContainers } from '../../exports.js';
 import {
+    APP_ICON_SIZES,
     ICON_DATA_URL_MIME_ALLOWLIST,
     isTrustedIconHost,
 } from '../../util/appIcon.js';
@@ -185,14 +186,13 @@ export class AppController extends PuterController {
 
         // POST /rao — record a recent app open. When an app-under-user
         // actor calls this, the app id is already on the token — clients
-        // don't re-send it in the body. Fall back to `actor.app.uid`
+        // don't re-send it in the body. Fall back to the acting app's uid
         // before 400-ing for a missing body field.
         //
         // Authorization: only two callers are trusted to report opens —
         //   1. a root user actor (plain session, no `.app` and no access
         //      token), e.g. the GUI launching apps on behalf of the user;
-        //   2. the app-under-user actor for the app being reported, i.e.
-        //      `actor.app.uid === app_uid`.
+        //   2. the app-under-user actor for the app being reported.
         // Everything else — access tokens (regardless of issuer), asset
         // tokens, app actors reporting for a *different* app — is denied,
         // otherwise any authenticated party could inflate another app's
@@ -207,11 +207,11 @@ export class AppController extends PuterController {
             async (req, res) => {
                 const actor = req.actor;
                 const bodyAppUid = req.body?.app_uid;
-                const actorAppUid = actor?.app?.uid;
+                const callerAppUid = actor?.effectiveApp?.uid;
                 const app_uid =
                     typeof bodyAppUid === 'string' && bodyAppUid.length > 0
                         ? bodyAppUid
-                        : actorAppUid;
+                        : callerAppUid;
                 if (!app_uid || typeof app_uid !== 'string') {
                     throw new HttpError(400, 'Missing or invalid `app_uid`', {
                         legacyCode: 'bad_request',
@@ -230,7 +230,7 @@ export class AppController extends PuterController {
                     );
                 }
 
-                if (isAppActor(actor) && app_uid !== actorAppUid) {
+                if (isAppActor(actor) && app_uid !== callerAppUid) {
                     throw new HttpError(
                         403,
                         'App actors can only report opens for their own app',
@@ -414,8 +414,6 @@ export class AppController extends PuterController {
         //
         // ⚠ FLAG: Missing sharp-based resize pipeline; serves the original.
 
-        const ICON_SIZES = [16, 32, 64, 128, 256, 512];
-
         // Neutering headers for any response that echoes an icon byte
         // stream on the main origin. `image/svg+xml` is in our MIME
         // allow-list — it's a legitimate image format, and our own
@@ -457,7 +455,7 @@ export class AppController extends PuterController {
                 res.status(400).send('Missing app_uid');
                 return;
             }
-            if (!ICON_SIZES.includes(size)) {
+            if (!APP_ICON_SIZES.includes(size)) {
                 res.status(400).send('Invalid size');
                 return;
             }

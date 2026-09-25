@@ -1,6 +1,6 @@
 ---
 title: puter.kv.expire()
-description: Set the time-to-live (TTL) in seconds for a key in the key-value store.
+description: Set the time-to-live (TTL) in seconds for a key in the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 

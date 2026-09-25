@@ -54,30 +54,34 @@ export type LegacyErrorCodes =
     | 'password_mismatch'
     | 'field_not_allowed_for_create'
     | 'account_is_not_verified'
-    | 'app_or_api_token_required';
+    | 'app_or_api_token_required'
+    | 'team_not_found'
+    | 'not_the_team_owner'
+    | 'not_an_org_account'
+    | 'team_limit_reached'
+    | 'seat_limit_reached';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-/**
- * Options accepted by `HttpError`. All optional.
- */
+/** Options accepted by `HttpError`. All optional. */
 export interface HttpErrorOptions {
     /** Underlying error. Set as the standard `Error.cause`. */
     cause?: unknown;
@@ -89,25 +93,42 @@ export interface HttpErrorOptions {
     legacyCode?: LegacyErrorCodes | (string & {});
     /**
      * Modern, structured error code. If both `legacyCode` and `code` are set,
-     * the legacy one takes the `code` slot in the response body and `code`
-     * is emitted as `errorCode`, so clients keying on either field find
-     * what they expect.
+     * the legacy one takes the `code` slot in the response body and `code` is
+     * emitted as `errorCode`, so clients keying on either field find what they
+     * expect.
      */
     code?: string;
-    /** Additional fields merged into the response body. */
+    /**
+     * Additional fields merged into the response body, and attached to the
+     * alarm as `details` when the error alarms. Everything here reaches the
+     * client, so it has to be safe to show the caller.
+     */
     fields?: Record<string, unknown>;
+    /**
+     * Skip the terminal alarm gate for this error. Set it only where the call
+     * site already knows the failure is expected and arrives in proportion to
+     * traffic — an upstream rate limit on a zero-cost model, say. Never
+     * serialized to the client.
+     */
+    noAlarm?: boolean;
 }
 
 /**
  * The single error type controllers and services throw to surface an HTTP
- * failure. The terminal `errorHandler` middleware catches it, serializes a
- * JSON body, and sets the response status.
+ * failure. The terminal `errorHandler` middleware catches it, serializes a JSON
+ * body, and sets the response status.
  *
  * Usage:
+ *
  * ```ts
  * throw new HttpError(404, 'Item not found');
- * throw new HttpError(409, 'Cannot overwrite directory', { legacyCode: 'is_directory' });
- * throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden', fields: { target } });
+ * throw new HttpError(409, 'Cannot overwrite directory', {
+ *     legacyCode: 'is_directory',
+ * });
+ * throw new HttpError(403, 'Forbidden', {
+ *     legacyCode: 'forbidden',
+ *     fields: { target },
+ * });
  * ```
  *
  * Express 5 forwards thrown errors (sync and async) to error-handling
@@ -118,6 +139,7 @@ export class HttpError extends Error {
     readonly legacyCode?: LegacyErrorCodes | (string & {});
     readonly code?: string;
     readonly fields?: Record<string, unknown>;
+    readonly noAlarm?: boolean;
 
     constructor(
         statusCode: number,
@@ -133,6 +155,7 @@ export class HttpError extends Error {
         this.legacyCode = options.legacyCode;
         this.code = options.code;
         this.fields = options.fields;
+        this.noAlarm = options.noAlarm;
     }
 }
 

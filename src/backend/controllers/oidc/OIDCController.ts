@@ -23,6 +23,12 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { normalizeBonusCode } from '../../util/signupBonus.js';
+import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
+import {
+    SHARE_DEEP_LINK_ITEMS_LIMIT,
+    SHARE_DEEP_LINK_PARAM,
+} from '../../services/share/shareDeepLink.js';
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300;
@@ -45,6 +51,7 @@ const ALLOWED_ERRORS = [
     'account_suspended',
     'unauthorized',
     'signup_blocked',
+    'bonus_code_invalid',
 ] as const;
 
 /**
@@ -64,16 +71,99 @@ function resolutionErrorCode(code: string | undefined): string {
         : 'signup_blocked';
 }
 
-// GUI pages an OIDC flow may return to: /desktop, /dashboard, and direct app
-// landings (/app/<name> and its desktop-booted twin /desktop/app/<name>,
-// mirroring APP_NAME_REGEX in AppDriver). Strict whitelist — never a
-// client-supplied URL (no open redirect).
+/** What a new account created by an OIDC callback inherits from its flow. */
+interface OIDCSignupOptions {
+    referrer?: string | null;
+    bonusCode?: string | null;
+}
+
+function signupOptionsFromState(
+    stateDecoded: Record<string, unknown>,
+): OIDCSignupOptions {
+    return {
+        referrer: (stateDecoded.referrer as string) ?? null,
+        // Normalized when the state was signed; re-checked since this is the
+        // value signup acts on.
+        bonusCode: normalizeBonusCode(stateDecoded.bonus_code),
+    };
+}
+
+// GUI pages an OIDC flow may return to: the root (where a share email lands),
+// /desktop, /dashboard, and direct app landings (/app/<name> and its
+// desktop-booted twin /desktop/app/<name>, mirroring APP_NAME_REGEX in
+// AppDriver). Strict whitelist — never a client-supplied URL (no open
+// redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
+        path === '/' ||
         path === '/desktop' ||
         path === '/dashboard' ||
         /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
+}
+
+/**
+ * The share items a return target's query names, or null when the query is
+ * anything else at all.
+ *
+ * A share email lands on `/?shared=…`, and its recipient usually has to sign in
+ * before they can see what was shared. An OIDC flow leaves the origin and comes
+ * back to a URL this server builds, so the parameter travels through the flow
+ * or the recipient returns to a bare Home with nothing to say what they were
+ * sent.
+ *
+ * `shared` is the only parameter that makes the trip, and only values shaped
+ * like the masked path the mail was built from — the value is user-visible
+ * text, so a hand-edited one is refused rather than reflected back into the
+ * browser.
+ */
+function sharedPathsFromReturnQuery(query: string): string[] | null {
+    const paths: string[] = [];
+    for (const [key, value] of new URLSearchParams(query)) {
+        if (key !== SHARE_DEEP_LINK_PARAM) return null;
+        const parsed = parseMaskedSharePath(value);
+        // The segment after the uuid is the shared item itself. A mask without
+        // one addresses the owner's parent directory, which is not the
+        // recipient's to open.
+        if (!parsed || !parsed.tail) return null;
+        // Same rule the link builder follows: the first items are the ones
+        // that travel, so what gets highlighted reads as the top of the list.
+        if (
+            paths.length < SHARE_DEEP_LINK_ITEMS_LIMIT &&
+            !paths.includes(value)
+        ) {
+            paths.push(value);
+        }
+    }
+    return paths;
+}
+
+/**
+ * A client-supplied `return_to` reduced to what will actually be redirected to,
+ * or null when it isn't a page an OIDC flow returns to.
+ *
+ * The path is matched as given, never parsed as a URL: a protocol-relative
+ * value (`//evil.test/desktop`) has to fail the whitelist rather than smuggle
+ * an origin through as a `pathname`. The query is rebuilt from the values that
+ * survived, so nothing reaches the redirect verbatim.
+ */
+function sanitizeReturnTo(raw: string): string | null {
+    const separator = raw.indexOf('?');
+    const path = separator === -1 ? raw : raw.slice(0, separator);
+    if (!isWhitelistedReturnPath(path)) return null;
+
+    const shared =
+        separator === -1
+            ? []
+            : sharedPathsFromReturnQuery(raw.slice(separator + 1));
+    if (shared === null) return null;
+    // The root is only a destination when it names something: on its own it is
+    // where the flow already lands.
+    if (shared.length === 0) return path === '/' ? null : path;
+
+    const params = new URLSearchParams();
+    for (const value of shared) params.append(SHARE_DEEP_LINK_PARAM, value);
+    return `${path}?${params.toString()}`;
 }
 
 function buildErrorRedirectUrl(
@@ -100,11 +190,17 @@ function buildErrorRedirectUrl(
     // /app/<name> landing) so the retry — and the eventual success — keeps
     // the user's destination. redirect_uri comes from the signed state and
     // was built server-side, but re-check the path against the whitelist.
+    // A share link's items come back too: the retry happens on that page, and
+    // its success reloads it, so they have to be on it to survive.
     let pagePath = '/';
+    let sharedPaths: string[] = [];
     if (typeof stateDecoded?.redirect_uri === 'string') {
         try {
-            const statePath = new URL(stateDecoded.redirect_uri).pathname;
-            if (isWhitelistedReturnPath(statePath)) pagePath = statePath;
+            const stateUrl = new URL(stateDecoded.redirect_uri);
+            if (isWhitelistedReturnPath(stateUrl.pathname)) {
+                pagePath = stateUrl.pathname;
+                sharedPaths = sharedPathsFromReturnQuery(stateUrl.search) ?? [];
+            }
         } catch {
             // unparsable redirect_uri: fall back to the root page
         }
@@ -144,6 +240,16 @@ function buildErrorRedirectUrl(
     }
     if (requestCode) {
         params.set('request_code', requestCode);
+    }
+    // A retry from the error page keeps the bonus code, unless it's what failed.
+    if (
+        typeof stateDecoded?.bonus_code === 'string' &&
+        clamped !== 'bonus_code_invalid'
+    ) {
+        params.set('bonusCode', stateDecoded.bonus_code);
+    }
+    for (const path of sharedPaths) {
+        params.append(SHARE_DEEP_LINK_PARAM, path);
     }
     return `${base}${pagePath}?${params.toString()}`;
 }
@@ -222,6 +328,7 @@ export class OIDCController extends PuterController {
                     opener_origin: decoded.opener_origin ?? null,
                     msg_id: decoded.msg_id ?? null,
                     oidc_login: decoded.oidc_login === true,
+                    user_uuid: decoded.user_uuid ?? null,
                 });
             },
         );
@@ -289,16 +396,17 @@ export class OIDCController extends PuterController {
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
                 // Optional GUI return path so login started from /desktop,
-                // /dashboard, or an /app/<name> landing lands back there.
+                // /dashboard, an /app/<name> landing, or a share link lands
+                // back there.
                 const rawReturnTo = Array.isArray(req.query.return_to)
                     ? req.query.return_to[0]
                     : req.query.return_to;
-                if (
-                    (flow === 'login' || flow === 'signup') &&
-                    typeof rawReturnTo === 'string' &&
-                    isWhitelistedReturnPath(rawReturnTo)
-                ) {
-                    appRedirectUri = `${origin}${rawReturnTo}`;
+                const returnTo =
+                    typeof rawReturnTo === 'string'
+                        ? sanitizeReturnTo(rawReturnTo)
+                        : null;
+                if ((flow === 'login' || flow === 'signup') && returnTo) {
+                    appRedirectUri = `${origin}${returnTo}`;
                 }
 
                 // Popup support
@@ -341,6 +449,15 @@ export class OIDCController extends PuterController {
                     redirect_uri: appRedirectUri,
                 };
                 if (referrer) statePayload.referrer = referrer ?? openerOrigin;
+                // Login can create an account too, so both flows carry it. A
+                // malformed code is dropped here and never reaches signup.
+                const rawBonusCode = Array.isArray(req.query.bonusCode)
+                    ? req.query.bonusCode[0]
+                    : req.query.bonusCode;
+                const bonusCode = normalizeBonusCode(rawBonusCode);
+                if (bonusCode && (flow === 'login' || flow === 'signup')) {
+                    statePayload.bonus_code = bonusCode;
+                }
                 if (embeddedInPopup && msgId) {
                     statePayload.embedded_in_popup = true;
                     statePayload.msg_id = msgId;
@@ -425,7 +542,7 @@ export class OIDCController extends PuterController {
             const resolved = await this.#resolveOrCreateOIDCUser(
                 provider,
                 userinfo,
-                (stateDecoded.referrer as string) ?? null,
+                signupOptionsFromState(stateDecoded),
             );
             if ('error' in resolved) {
                 console.warn(
@@ -492,7 +609,7 @@ export class OIDCController extends PuterController {
             const resolved = await this.#resolveOrCreateOIDCUser(
                 provider,
                 userinfo,
-                (stateDecoded.referrer as string) ?? null,
+                signupOptionsFromState(stateDecoded),
             );
             if ('error' in resolved) {
                 console.warn(
@@ -660,7 +777,7 @@ if (window.opener) {
     async #resolveOrCreateOIDCUser(
         provider: string,
         userinfo: { sub: string; email?: unknown; [k: string]: unknown },
-        referrer?: string | null,
+        signup: OIDCSignupOptions = {},
         attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
@@ -710,7 +827,8 @@ if (window.opener) {
         const outcome = await this.services.oidc.createUserFromOIDC(
             provider,
             userinfo as { sub: string; email?: string },
-            referrer,
+            signup.referrer ?? null,
+            { bonusCode: signup.bonusCode ?? null },
         );
         // A concurrent callback (a second tab, a provider retry) created the
         // account between step 2 and the insert. Nothing went wrong for the
@@ -720,7 +838,7 @@ if (window.opener) {
             return this.#resolveOrCreateOIDCUser(
                 provider,
                 userinfo,
-                referrer,
+                signup,
                 attempt + 1,
             );
         }
@@ -843,6 +961,11 @@ if (window.opener) {
             // identity to mint a token for, so it needs the integrity this
             // state already carries — re-signed here, at the one point where
             // the round trip is known to have actually happened.
+            //
+            // `user_uuid` binds the proof to the account that just completed
+            // OIDC. Without it a proof from one login could be replayed in
+            // another signed-in browser to skip its account picker; the popup
+            // only honors `oidc_login` when this matches its current user.
             target = appendQueryParam(
                 target,
                 'opener_state',
@@ -850,6 +973,7 @@ if (window.opener) {
                     opener_origin: stateDecoded.opener_origin ?? null,
                     msg_id: stateDecoded.msg_id ?? null,
                     oidc_login: true,
+                    user_uuid: user.uuid,
                 }),
             );
         }

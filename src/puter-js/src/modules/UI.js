@@ -1,7 +1,9 @@
 import EventListener from '../lib/EventListener.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
+import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+import { checkPermissions } from './perms/lib/holds.js';
 
 
 /**
@@ -265,13 +267,27 @@ const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
 // A consent prompt covers a handful of scopes at most, and the popup carries
 // them in its URL.
+/**
+ * An error shaped like the DOM's, so `err.name` reads the way it would from
+ * the native picture-in-picture APIs.
+ */
+const pipError = (name, message) => {
+    if ( typeof DOMException === 'function' ) return new DOMException(message, name);
+    const err = new Error(message);
+    err.name = name;
+    return err;
+};
+
 const MAX_REQUESTED_PERMISSIONS = 16;
+
+// Short on purpose: a request usually spends a user gesture while it waits.
+const PERMISSION_CHECK_TIMEOUT_MS = 2000;
 
 /**
  * An interface for interacting with another app. Returned by the UI methods
  * that launch or connect to one; it cannot be constructed directly.
  *
- * - `postMessage(message)` sends a message to the target app.
+ * - `postMessage(message, transfer)` sends a message to the target app.
  * - `on('message', handler)` listens for messages from it.
  * - `on('close', handler)` fires when it closes.
  *
@@ -334,6 +350,11 @@ export class AppConnection extends EventListener {
         // TODO: Set this.#puterOrigin to the puter origin
 
         (globalThis.document) && window.addEventListener('message', event => {
+            // Relayed by the host environment; a window that guessed an
+            // appInstanceID must not be able to forge one directly.
+            if ( event.source !== this.messageTarget ) return;
+            if ( ! event.data ) return;
+
             if ( event.data.msg === 'messageToApp' ) {
                 if ( event.data.appInstanceID !== this.targetAppInstanceID ) {
                     // Message is from a different AppConnection; ignore it.
@@ -374,14 +395,47 @@ export class AppConnection extends EventListener {
     }
 
     /**
+     * @overload
+     * @param {unknown} message
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {unknown} message
+     * @param {Transferable[]} transfer
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {unknown} message
+     * @param {{ transfer?: Transferable[] }} options
+     * @returns {void}
+     */
+    /**
      * Sends a message to the target app. Does nothing — beyond a console
      * warning — if the target isn't using the SDK, or the connection has
      * already closed.
      *
+     * Objects listed in `transfer` move to the target app instead of being
+     * copied, and become unusable here. Each one must also appear somewhere
+     * inside `message`, which is where the target app reads it from.
+     *
      * @param {unknown} message
+     * @param {Transferable[] | { transfer?: Transferable[] }} [transferOrOptions]
      * @returns {void}
      */
-    postMessage (message) {
+    postMessage (message, transferOrOptions) {
+        const transfer = Array.isArray(transferOrOptions)
+            ? transferOrOptions
+            : (transferOrOptions?.transfer ?? []);
+
+        if ( ! Array.isArray(transfer) ) {
+            throw {
+                message: 'transfer must be an array of transferable objects',
+                code: 'invalid_transfer_list',
+            };
+        }
+
         if ( ! this.#isOpen ) {
             console.warn('Trying to post message on a closed AppConnection');
             return;
@@ -401,7 +455,10 @@ export class AppConnection extends EventListener {
             // on the other side where the expected origin for the app is known.
             targetAppOrigin: '*',
             contents: message,
-        }, this.#puterOrigin);
+            // In the body as well as the transfer list: Puter relays this
+            // message onward, and needs to know what to keep transferring.
+            transfer,
+        }, this.#puterOrigin, transfer);
     }
 
     /**
@@ -467,6 +524,9 @@ export class UIModule extends EventListener {
 
     #onLaunchedWithItems;
 
+    // Runs when the window from requestPictureInPicture() goes away on its own.
+    #onPictureInPictureClosed = null;
+
     // List of events that can be listened to.
     #eventNames;
 
@@ -475,6 +535,49 @@ export class UIModule extends EventListener {
 
     #overlayActive = false;
     #overlayTimer = null;
+
+    // The picker popups we opened in `web` env, so their replies can be told
+    // apart from any other window that can reach us. `window.open()` names
+    // these windows, so a repeated picker reuses one entry.
+    #pickerPopups = new Set();
+
+    // Canonical origin of the GUI we open popups on. The popup's messages
+    // arrive tagged with the browser's serialization of its origin, while
+    // `defaultGUIOrigin` is configuration-supplied text that may carry a
+    // trailing slash, an explicit default port or a stray path. Null when it
+    // can't be parsed, which no popup reply can then match.
+    #guiOrigin () {
+        try {
+            return new URL(puter.defaultGUIOrigin).origin;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    #trackPickerPopup (popup) {
+        // Null when the browser blocked the popup.
+        if ( popup ) this.#pickerPopups.add(popup);
+    }
+
+    // Whether a message on the window may drive this module.
+    #isTrustedMessageSource (e) {
+        // `app` env: the host frame relays everything. Its origin is whatever
+        // the deployment is served from, so pin the window instead — that
+        // keeps locally-hosted and self-hosted GUIs working while still
+        // rejecting a sibling app iframe or a third-party page that framed us.
+        if ( this.messageTarget ) return e.source === this.messageTarget;
+
+        // `web` env (a third-party site): there is no host frame to pin. The
+        // picker popups we opened post back directly, and always from the GUI
+        // origin we opened them on, so that origin is the check. Pin the
+        // window too when we can still see it: the picker calls
+        // window.close() right after posting, and a discarded browsing
+        // context can leave `event.source` null.
+        const guiOrigin = this.#guiOrigin();
+        if ( ! guiOrigin || e.origin !== guiOrigin ) return false;
+        if ( ! e.source ) return this.#pickerPopups.size > 0;
+        return this.#pickerPopups.has(e.source);
+    }
 
     // Replaces boilerplate for most methods: posts a message to the GUI with a unique ID, and sets a callback for it.
     #postMessageWithCallback (name, resolve, args = {}) {
@@ -522,7 +625,7 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve);
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget);
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -593,6 +696,7 @@ export class UIModule extends EventListener {
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
         (globalThis.document) && window.addEventListener('message', async (e) => {
+            if ( ! this.#isTrustedMessageSource(e) ) return;
             if ( ! e.data ) return;
             // `error`
             if ( e.data.error ) {
@@ -658,6 +762,14 @@ export class UIModule extends EventListener {
                     // Reset the lastDraggedOverElement
                     lastDraggedOverElement = null;
                 }
+            }
+            // pictureInPictureClosed: the window requestPictureInPicture()
+            // opened went away without exitPictureInPicture() — the user
+            // closed it, most likely.
+            else if ( e.data.msg === 'pictureInPictureClosed' ) {
+                const onClose = this.#onPictureInPictureClosed;
+                this.#onPictureInPictureClosed = null;
+                onClose?.();
             }
             // windowWillClose
             else if ( e.data.msg === 'windowWillClose' ) {
@@ -1031,6 +1143,26 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Asks the desktop to walk the user through clearing an account
+     * verification gate (a 403 `*_required` code — email confirmation, phone
+     * verification, or card verification). Resolves `true` once the gate is
+     * cleared, `false` otherwise.
+     *
+     * @internal
+     * @param {string} code - The gate's error code.
+     * @param {{ factors?: string[] }} [details] - What the server said about
+     *   the gate. `factors` is present when a route asked for a verified
+     *   factor rather than the account being flagged: the verifications it
+     *   accepts, in the order to offer them.
+     * @returns {Promise<boolean>}
+     */
+    requestVerificationGate (code, details = {}) {
+        return new Promise((resolve) => {
+            this.#postMessageWithCallback('requestVerificationGate', resolve, { code, ...details });
+        }).then((res) => res?.response === true);
+    };
+
+    /**
      * Shows an alert dialog, blocking the parent window until the user picks a
      * button. Resolves to that button's `value`, or its `label` when no value
      * is set. `callback` is vestigial and never invoked.
@@ -1191,11 +1323,15 @@ export class UIModule extends EventListener {
                 let title = 'Puter: Open Directory';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(
+                // Track the window we opened so the message listener accepts
+                // its reply. window.open() returns synchronously and the popup
+                // cannot post back until this function yields, so there is no
+                // race.
+                this.#trackPickerPopup(window.open(
                     `${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
                     title,
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                );
+                ));
             }
 
             //register callback
@@ -1236,11 +1372,11 @@ export class UIModule extends EventListener {
                 let title = 'Puter: Open File';
                 var left = (screen.width / 2) - (w / 2);
                 var top = (screen.height / 2) - (h / 2);
-                window.open(
+                this.#trackPickerPopup(window.open(
                     `${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
                     title,
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                );
+                ));
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
@@ -1310,13 +1446,84 @@ export class UIModule extends EventListener {
     };
 
     /**
-     * Asks the desktop to show its upgrade flow.
+     * Floats a page of this app in a picture-in-picture window: a small
+     * always-on-top window that stays in view while the user works in other
+     * windows or tabs.
      *
+     * Browsers only let a top-level page open a Document Picture-in-Picture
+     * window, and an app runs in an iframe, so the desktop opens it on the
+     * app's behalf and loads `url` in it. The page must come from this
+     * app's own origin. Inside it, the app's main frame is one of
+     * `window.parent.opener.frames` — probe them in a try/catch, since the
+     * others belong to other origins and throw — so the two can share
+     * objects directly, a MediaStream (which postMessage cannot carry)
+     * included. BroadcastChannel works between them too.
+     *
+     * Call it from a user gesture; browsers refuse otherwise. One window
+     * per app: asking again replaces the one that is up.
+     *
+     * @param {{url: string, width?: number, height?: number, onClose?: () => void}} options
+     *   `url` is resolved against the app's own page. `width`/`height` size
+     *   the window in CSS pixels (the browser may clamp them). `onClose`
+     *   runs when the window goes away other than through
+     *   {@link exitPictureInPicture} — the user closing it, typically.
+     * @returns {Promise<void>} resolves once the window is up. Rejects with
+     *   an error named as the DOM would name it: `NotSupportedError` (no
+     *   Document PiP in this browser, or not running as a desktop app),
+     *   `NotAllowedError` (no user gesture), `SecurityError` (`url` is not
+     *   this app's origin), `TypeError` (`url` is not a URL).
+     */
+    async requestPictureInPicture ({ url, width, height, onClose } = {}) {
+        if ( this.env !== 'app' ) {
+            throw pipError('NotSupportedError', 'requestPictureInPicture() is only available to apps running on the Puter desktop.');
+        }
+        let href;
+        try {
+            href = new URL(String(url), globalThis.location?.href).href;
+        } catch {
+            throw pipError('TypeError', '`url` must be a URL.');
+        }
+        const result = await this.#ipc_stub({
+            method: 'requestPictureInPicture',
+            parameters: { url: href, width, height },
+        });
+        if ( ! result?.ok ) {
+            throw pipError(result?.error?.name ?? 'NotAllowedError',
+                result?.error?.message ?? 'Could not open a picture-in-picture window.');
+        }
+        this.#onPictureInPictureClosed = typeof onClose === 'function' ? onClose : null;
+    }
+
+    /**
+     * Closes the picture-in-picture window opened with
+     * {@link requestPictureInPicture}, if one is up. Its `onClose` does not
+     * run for this — you asked.
+     *
+     * @returns {Promise<boolean>} whether there was a window to close
+     */
+    async exitPictureInPicture () {
+        if ( this.env !== 'app' ) return false;
+        this.#onPictureInPictureClosed = null;
+        const result = await this.#ipc_stub({
+            method: 'exitPictureInPicture',
+            parameters: {},
+        });
+        return result?.wasOpen === true;
+    }
+
+    /**
+     * Asks the desktop to show its upgrade flow. `details` say what was
+     * refused and why, so the desktop can explain the suggestion; the SDK
+     * fills them in when a call is refused for want of credit, a plan, or
+     * storage.
+     *
+     * @param {import('../lib/types.js').UpgradeRequestDetails} [details]
      * @returns {Promise<unknown>}
      */
-    requestUpgrade () {
+    requestUpgrade (details) {
+        const { reason, method, message } = details ?? {};
         return new Promise((resolve) => {
-            this.#postMessageWithCallback('requestUpgrade', resolve, { });
+            this.#postMessageWithCallback('requestUpgrade', resolve, { reason, method, message });
         });
     };
 
@@ -1402,6 +1609,9 @@ export class UIModule extends EventListener {
                     window.removeEventListener('message', onSendMeFileData);
                 };
                 window.addEventListener('message', onSendMeFileData);
+
+                // Same window, for the picker's own reply on the main listener.
+                this.#trackPickerPopup(popup);
             }
             //register callback
             this.#callbackFunctions[msg_id] = (maybe_result) => {
@@ -1620,6 +1830,47 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Whether every permission in a request is already held, read without
+     * prompting and without changing anything.
+     *
+     * A check that couldn't be made is not an answer: no token, an unreadable
+     * request, a failed read, or one that outlasts its timeout all fall through
+     * to the prompt.
+     *
+     * @param {{ permission?: string, permissions?: string[] }} options
+     * @returns {Promise<boolean>}
+     */
+    async #alreadyHeld (options) {
+        if ( ! this.authToken ) return false;
+        const requested = Array.isArray(options?.permissions)
+            ? options.permissions
+            : [options?.permission];
+        // The prompt paths answer false for a shape they can't read themselves.
+        if ( requested.length === 0
+            || requested.length > MAX_REQUESTED_PERMISSIONS
+            || requested.some(p => typeof p !== 'string' || p === '') ) {
+            return false;
+        }
+        let expiry;
+        try {
+            const held = await Promise.race([
+                checkPermissions(this.puter, [...new Set(requested)]),
+                // Waiting out a stalled read would cost the popup its gesture.
+                new Promise((resolve) => {
+                    expiry = setTimeout(() => resolve(null), PERMISSION_CHECK_TIMEOUT_MS);
+                }),
+            ]);
+            if ( held === null ) return false;
+            // Every scope: one prompt is one decision, so partly-held is unheld.
+            return requested.every(p => held[p] === true);
+        } catch (e) {
+            return false;
+        } finally {
+            clearTimeout(expiry);
+        }
+    }
+
+    /**
      * Asks the user to grant a permission to this app. Inside the Puter GUI
      * the request is relayed to the desktop; on the web the permission
      * dialog is shown in a popup window on the Puter origin.
@@ -1627,10 +1878,31 @@ export class UIModule extends EventListener {
      * One prompt may cover several scopes: pass `permissions` instead of
      * `permission` and the user answers for the whole list at once.
      *
-     * @param {{ permission?: string, permissions?: string[] }} options
+     * Access already granted resolves `true` without prompting.
+     *
+     * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
+     *   `create`: for an `fs:` permission naming a path that doesn't exist,
+     *   create it server-side after the user approves. Defaults to `true`;
+     *   `false` opts out, `'dir'`/`'file'` force the kind. See `puter.perms.request`.
      * @returns {Promise<boolean>} `true` only if the permission was granted.
+     * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
+     *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
      */
     async requestPermission (options) {
+        const create = options?.create;
+        if ( create !== undefined
+            && create !== true && create !== false
+            && create !== 'dir' && create !== 'file' ) {
+            throw new PuterJSError('create must be true, false, "dir", or "file"', 'invalid_argument');
+        }
+
+        // Only where a prompt would be raised. Elsewhere this answers false
+        // without asking anyone, and a check must not turn that into a grant.
+        if ( ( this.env === 'app' || this.env === 'web' )
+            && await this.#alreadyHeld(options) ) {
+            return true;
+        }
+
         if ( this.env === 'app' ) {
             const result = await this.#postMessageAsync('requestPermission', { options });
             return result.granted === true;
@@ -1700,7 +1972,10 @@ export class UIModule extends EventListener {
             const query = requested
                 .map(p => `permission=${encodeURIComponent(p)}`)
                 .join('&');
-            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}`;
+            // Left out when absent so the GUI applies its default; an explicit
+            // `false` has to travel, or the popup would create anyway.
+            const create_param = create === undefined ? '' : `&create=${encodeURIComponent(String(create))}`;
+            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}${create_param}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.
@@ -1866,12 +2141,13 @@ export class UIModule extends EventListener {
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${puter.authToken}`,
                             },
-                            body: JSON.stringify({ permissions: [permission] }),
+                            body: JSON.stringify({ permissions: requested }),
                             ...(controller ? { signal: controller.signal } : {}),
                         });
                         if ( ! resp.ok ) continue;
                         const data = await resp.json();
-                        if ( data?.permissions?.[permission] === true ) {
+                        // The whole list, since one prompt is one decision.
+                        if ( requested.every(p => data?.permissions?.[p] === true) ) {
                             settle(true);
                         }
                     } catch (e) {
@@ -1942,7 +2218,7 @@ export class UIModule extends EventListener {
         if ( this.env === 'app' ) {
             // The host GUI advertises the IPC dialogs it can answer via
             // `puter.gui_features` on the app iframe's URL (see
-            // launch_app.js). A GUI that predates this feature has no
+            // launchApp.js). A GUI that predates this feature has no
             // handler for the message and would never reply, hanging this
             // never-rejecting promise forever — and a reply timeout can't
             // stand in for the check, because a legitimate reply only

@@ -1,5 +1,10 @@
 import { Context } from '@heyputer/backend/src/core';
 import { extension } from '@heyputer/backend/src/extensions';
+import {
+    cardFallbackDepsFrom,
+    isCardFallbackEligible,
+} from '@heyputer/backend/src/util/cardFallback.js';
+import { APP_ICON_SIZES } from '@heyputer/backend/src/util/appIcon.js';
 import { getTaskbarItems } from '@heyputer/backend/src/util/taskbarItems.js';
 import type { Request, Response } from 'express';
 import TimeAgo from 'javascript-time-ago';
@@ -105,7 +110,7 @@ export const handleWhoami = async (
         return;
     }
 
-    const isUser = !actor.app;
+    const isUser = !actor.effectiveApp;
     const user = await stores.user.getById(actor.user.id);
     if (!user) {
         res.status(404).json({ error: 'User not found' });
@@ -113,13 +118,12 @@ export const handleWhoami = async (
     }
 
     const oidcOnly = user.password === null;
-    const ALLOWED_ICON_SIZES = new Set([16, 32, 64, 128, 256, 512]);
     const rawIconSize =
         typeof req.query?.icon_size === 'string'
             ? Number(req.query.icon_size)
             : undefined;
     const iconSize =
-        rawIconSize !== undefined && ALLOWED_ICON_SIZES.has(rawIconSize)
+        rawIconSize !== undefined && APP_ICON_SIZES.includes(rawIconSize)
             ? rawIconSize
             : undefined;
     const noIcons = !iconSize;
@@ -155,11 +159,32 @@ export const handleWhoami = async (
         // every app actor. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
         requires_card_verification: user.requires_card_verification,
+        // A seat reaches nothing until it replaces its admin's password.
+        requires_password_change: user.requires_password_change,
+        // The SMS-to-card escape hatch: true once this user is out of SMS send
+        // attempts and may verify a card instead. It has to ship from here
+        // because /send-confirm-phone can no longer say so — by the time the
+        // fallback opens, further sends are rejected by that route's own rate
+        // limit before any handler runs, so a page reload would otherwise lose
+        // an offer that stays valid for 24 hours. Only for user actors, and it
+        // costs no KV read unless the account is actually phone-gated.
+        card_fallback_available: isUser
+            ? await isCardFallbackEligible(
+                  extension.config,
+                  user,
+                  async (key) => (await stores.kv.get({ key })).res,
+                  cardFallbackDepsFrom(clients),
+              )
+            : false,
         desktop_bg_url: user.desktop_bg_url,
         desktop_bg_color: user.desktop_bg_color,
         desktop_bg_fit: user.desktop_bg_fit,
         is_temp: user.password === null && user.email === null,
         is_user_token: true,
+        // Present only once the account has actually asked for a code (see the
+        // referral extension) — null until then, and never minted from here:
+        // this endpoint is polled, and a mint is a write.
+        referral_code: user.referral_code,
         oidc_only: oidcOnly,
         taskbar_items: isUser
             ? await getTaskbarItems(
@@ -169,6 +194,7 @@ export const handleWhoami = async (
                       stores,
                       services,
                       apiBaseUrl: String(extension.config.api_base_url ?? ''),
+                      config: extension.config,
                   },
                   { iconSize, noIcons },
               )
@@ -218,6 +244,23 @@ export const handleWhoami = async (
         details.directories = directories;
     }
 
+    // The team an account belongs to, when it is one a team pays for. User
+    // actors only, and only where teams are on.
+    if (isUser && extension.config.teams_enabled === true) {
+        try {
+            const seat = await stores.team.getOrgSeat(user.id);
+            if (seat) {
+                details.team = {
+                    uid: seat.team_uid,
+                    name: seat.team_name ?? null,
+                };
+            }
+        } catch (e) {
+            // Never fail whoami over this; the account still works without it.
+            console.warn('[whoami] team lookup failed:', (e as Error).message);
+        }
+    }
+
     // Last activity
     const lastActivityTs = toUnixSeconds(user.last_activity_ts);
     if (lastActivityTs !== undefined) {
@@ -240,10 +283,13 @@ export const handleWhoami = async (
         delete details.created_ts;
         delete details.is_user_token;
         delete details.metadata;
+        // An app has no business reading the code its user earns credit with.
+        delete details.referral_code;
     }
 
-    if (actor.app) {
-        details.app_name = actor.app.uid;
+    const app = actor.effectiveApp;
+    if (app) {
+        details.app_name = app.uid;
     }
 
     try {

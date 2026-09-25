@@ -3,13 +3,17 @@ import ai from './ai.suite.ts';
 import apps from './apps.suite.ts';
 import auth from './auth.suite.ts';
 import components from './components.suite.ts';
+import email from './email.suite.ts';
+import events from './events.suite.ts';
 import fs from './fs.suite.ts';
 import hosting from './hosting.suite.ts';
 import kv from './kv.suite.ts';
 import net from './net.suite.ts';
 import os from './os.suite.ts';
 import perms from './perms.suite.ts';
+import sharing from './sharing.suite.ts';
 import system from './system.suite.ts';
+import teams from './teams.suite.ts';
 import util from './util.suite.ts';
 import workers from './workers.suite.ts';
 
@@ -22,13 +26,17 @@ export const suites: Suite[] = [
     apps,
     auth,
     components,
+    email,
+    events,
     fs,
     hosting,
     kv,
     net,
     os,
     perms,
+    sharing,
     system,
+    teams,
     util,
     workers,
 ];

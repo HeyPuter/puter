@@ -116,6 +116,7 @@ const normalizeListPattern = (pattern) => {
  */
 /**
  * Lists keys in the store for the current app, sorted lexicographically.
+ * Set `reverse: true` for descending key order.
  * Returns just the keys, `KVPair` objects when `returnValues` is `true`, or
  * a `KVListPage` when any pagination option (`limit`, `cursor`, `offset`,
  * `includeTotal`, `fetchUntilFull`) is used. With `stream: true` it instead
@@ -158,6 +159,12 @@ export function list (patternOrOptions, returnValuesOrOptConfig, maybeOptConfig)
 
     if ( isOptionsObject ) {
         const input = patternOrOptions;
+        if ( input.reverse !== undefined ) {
+            if ( typeof input.reverse !== 'boolean' ) {
+                throw { message: 'reverse must be a boolean', code: 'invalid_request' };
+            }
+            options.reverse = input.reverse;
+        }
         if ( typeof input.pattern === 'string' ) {
             pattern = input.pattern;
         }

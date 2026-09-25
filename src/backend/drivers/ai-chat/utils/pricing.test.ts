@@ -19,7 +19,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { IChatModel } from '../types.js';
-import { buildCostsOverride, usdPerMToken } from './pricing.js';
+import {
+    buildCostsOverride,
+    isFreeModel,
+    longContextMultipliers,
+    usdPerMToken,
+} from './pricing.js';
 
 const model = (costs: Record<string, number>): IChatModel =>
     ({
@@ -40,6 +45,32 @@ describe('usdPerMToken', () => {
             cached_tokens: 0,
         });
         expect(usdPerMToken(1, 2, 0.5).cached_tokens).toBe(50);
+    });
+});
+
+describe('isFreeModel', () => {
+    it('treats a table of nothing but zeroes as free', () => {
+        expect(
+            isFreeModel(
+                model({
+                    tokens: 1_000_000,
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                }),
+            ),
+        ).toBe(true);
+    });
+
+    it('treats a model priced on any axis as paid', () => {
+        expect(
+            isFreeModel(model({ prompt_tokens: 0, completion_tokens: 200 })),
+        ).toBe(false);
+        expect(isFreeModel(model({ request: 1 }))).toBe(false);
+    });
+
+    it('treats a model with no cost data as unknown, not free', () => {
+        expect(isFreeModel(model({}))).toBe(false);
+        expect(isFreeModel(model({ tokens: 1_000_000 }))).toBe(false);
     });
 });
 
@@ -137,6 +168,94 @@ describe('buildCostsOverride', () => {
             input_tokens: 30,
             output_tokens: 180,
             cached_tokens: 15,
+        });
+    });
+});
+
+describe('long-context pricing', () => {
+    const longContext = (costs: Record<string, number>): IChatModel => ({
+        ...model(costs),
+        long_context_pricing: {
+            threshold: 272_000,
+            input_multiplier: 2,
+            output_multiplier: 1.5,
+        },
+    });
+    const rates = {
+        prompt_tokens: 200,
+        cached_tokens: 20,
+        cache_write_tokens: 250,
+        completion_tokens: 1000,
+    };
+
+    it('bills a request at or under the threshold at standard rates', () => {
+        const overrides = buildCostsOverride(
+            {
+                prompt_tokens: 222_000,
+                cached_tokens: 50_000,
+                completion_tokens: 10,
+            },
+            longContext(rates),
+        );
+
+        expect(overrides).toEqual({
+            prompt_tokens: 222_000 * 200,
+            cached_tokens: 50_000 * 20,
+            completion_tokens: 10 * 1000,
+        });
+    });
+
+    it('raises every rate for the whole request once input passes the threshold', () => {
+        // 230K uncached + 50K cached + 20K cache writes = 300K input. No
+        // single key crosses 272K; their sum does.
+        const overrides = buildCostsOverride(
+            {
+                prompt_tokens: 230_000,
+                cached_tokens: 50_000,
+                cache_write_tokens: 20_000,
+                completion_tokens: 10_000,
+            },
+            longContext(rates),
+        );
+
+        expect(overrides).toEqual({
+            prompt_tokens: 230_000 * 200 * 2,
+            cached_tokens: 50_000 * 20 * 2,
+            cache_write_tokens: 20_000 * 250 * 2,
+            completion_tokens: 10_000 * 1000 * 1.5,
+        });
+    });
+
+    it('raises the fallback rate of an unpriced key too', () => {
+        const overrides = buildCostsOverride(
+            { prompt_tokens: 300_000, thinking_tokens: 10 },
+            longContext({ prompt_tokens: 200, completion_tokens: 1000 }),
+        );
+
+        expect(overrides.thinking_tokens).toBe(10 * 1000 * 1.5);
+    });
+
+    it('leaves a model without long-context pricing at standard rates', () => {
+        const overrides = buildCostsOverride(
+            { prompt_tokens: 900_000, completion_tokens: 10 },
+            model(rates),
+        );
+
+        expect(overrides).toEqual({
+            prompt_tokens: 900_000 * 200,
+            completion_tokens: 10 * 1000,
+        });
+    });
+
+    it('applies the multipliers strictly above the threshold', () => {
+        const m = longContext(rates);
+        expect(longContextMultipliers(m, 272_000)).toEqual({
+            input: 1,
+            output: 1,
+        });
+        expect(longContextMultipliers(m, 272_001)).toEqual({
+            input: 2,
+            output: 1.5,
         });
     });
 });

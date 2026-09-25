@@ -8,7 +8,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import { makeActor } from '../src/backend/core/actor.ts';
 import { runWithContext } from '../src/backend/core/context.ts';
+import { configContainer } from '../src/backend/exports.ts';
 import { PuterServer } from '../src/backend/server.ts';
 import { setupTestServer } from '../src/backend/testUtil.ts';
 import { handleWhoami } from './whoami.ts';
@@ -47,6 +49,7 @@ beforeAll(async () => {
             create_shortcut: true,
             payment_bypass: true,
         },
+        teams_enabled: true,
     } as never);
 });
 
@@ -65,6 +68,81 @@ const seedUser = async () => {
 };
 
 describe('whoami extension — handleWhoami', () => {
+    // The sidebar label needs this at boot, which is why it rides whoami
+    // rather than a call of its own.
+    describe('the team an account belongs to', () => {
+        // A seat is created, never adopted, so it must have no password.
+        const seedSeat = async () => {
+            const slug = Math.random().toString(36).slice(2, 8);
+            return server.stores.user.create({
+                username: `wseat_${slug}`,
+                uuid: uuidv4(),
+                password: null,
+                email: null,
+            });
+        };
+
+        const seatOf = async (teamName: string) => {
+            const owner = await seedUser();
+            const seat = await seedSeat();
+            const team = await server.stores.team.create({
+                ownerUserId: owner.id as number,
+                name: teamName,
+                handle: `wt-${Math.random().toString(36).slice(2, 9)}`,
+            });
+            await server.stores.team.addMember(team.uid, seat.id as number, {
+                orgOwned: true,
+            });
+            return { seat, team };
+        };
+
+        it('names the team for a seat', async () => {
+            const { seat, team } = await seatOf('Acme Corp');
+            const { res, captured } = makeRes();
+
+            await runWithContext(
+                { actor: { user: { uuid: seat.uuid, id: seat.id as number } } },
+                () => handleWhoami(makeReq(), res),
+            );
+
+            expect((captured.body as { team?: unknown }).team).toEqual({
+                uid: team.uid,
+                name: 'Acme Corp',
+            });
+        });
+
+        it('says nothing for an account that is not a seat', async () => {
+            const user = await seedUser();
+            const { res, captured } = makeRes();
+
+            await runWithContext(
+                { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+                () => handleWhoami(makeReq(), res),
+            );
+
+            expect(captured.body).not.toHaveProperty('team');
+        });
+
+        it('withholds it from an app actor', async () => {
+            // Same class as the phone number: a seat's employer is not an
+            // app's business.
+            const { seat } = await seatOf('Acme Corp');
+            const { res, captured } = makeRes();
+
+            await runWithContext(
+                {
+                    actor: makeActor({
+                        user: { uuid: seat.uuid, id: seat.id as number },
+                        app: { uid: 'app-1' },
+                    }),
+                },
+                () => handleWhoami(makeReq(), res),
+            );
+
+            expect(captured.body).not.toHaveProperty('team');
+        });
+    });
+
     it('returns 401 when no actor is on the context', async () => {
         const { res, captured } = makeRes();
 
@@ -118,6 +196,50 @@ describe('whoami extension — handleWhoami', () => {
         expect(body).toHaveProperty('taskbar_items');
     });
 
+    it('reports the SMS-to-card fallback only once a send has opened it', async () => {
+        const user = await server.stores.user.create({
+            username: `wuser_${Math.random().toString(36).slice(2, 8)}`,
+            uuid: uuidv4(),
+            password: 'hashedpw',
+            email: `${Math.random().toString(36).slice(2, 8)}@example.com`,
+            requires_phone_verification: true,
+        } as never);
+        const prev = configContainer.phone_verification_card_fallback;
+        configContainer.phone_verification_card_fallback = {
+            enabled: true,
+        } as never;
+        try {
+            const before = makeRes();
+            await runWithContext(
+                { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+                () => handleWhoami(makeReq(), before.res),
+            );
+            // Phone-gated, but the user has attempts left — no offer yet.
+            expect(
+                before.captured.body as Record<string, unknown>,
+            ).toMatchObject({ card_fallback_available: false });
+
+            // Exhausting SMS attempts stamps this flag; whoami is then the only
+            // thing that can still tell a reloading GUI about the offer, since
+            // further sends are rejected by the route's own rate limit.
+            await server.stores.kv.set({
+                key: `card-fallback-open:${user.id}`,
+                value: true,
+            });
+
+            const after = makeRes();
+            await runWithContext(
+                { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+                () => handleWhoami(makeReq(), after.res),
+            );
+            expect(
+                after.captured.body as Record<string, unknown>,
+            ).toMatchObject({ card_fallback_available: true });
+        } finally {
+            configContainer.phone_verification_card_fallback = prev;
+        }
+    });
+
     it('only forwards allow-listed feature flags', async () => {
         const user = await seedUser();
         const { res, captured } = makeRes();
@@ -141,10 +263,10 @@ describe('whoami extension — handleWhoami', () => {
 
         await runWithContext(
             {
-                actor: {
+                actor: makeActor({
                     user: { uuid: user.uuid, id: user.id as number },
                     app: { uid: 'app-test-actor' },
-                },
+                }),
             },
             () => handleWhoami(makeReq(), res),
         );
@@ -193,10 +315,10 @@ describe('whoami extension — handleWhoami', () => {
         const { res, captured } = makeRes();
         await runWithContext(
             {
-                actor: {
+                actor: makeActor({
                     user: { uuid: user.uuid, id: user.id as number },
                     app: { uid: 'app-test-actor' },
-                },
+                }),
             },
             () => handleWhoami(makeReq(), res),
         );
@@ -224,11 +346,11 @@ describe('whoami extension — handleWhoami', () => {
         expect(stored?.card_fingerprint).toBe('fp_ABC123');
 
         for (const actor of [
-            { user: { uuid: user.uuid, id: user.id as number } },
-            {
+            makeActor({ user: { uuid: user.uuid, id: user.id as number } }),
+            makeActor({
                 user: { uuid: user.uuid, id: user.id as number },
                 app: { uid: 'app-test-actor' },
-            },
+            }),
         ]) {
             const { res, captured } = makeRes();
             await runWithContext({ actor }, () =>

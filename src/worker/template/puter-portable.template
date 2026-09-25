@@ -1,49 +1,6 @@
-// This file is not actually in the webpack project, it is handled separately.
+// The ordinary worker runtime: puter.js plus the `router` that user code
+// registers routes on. Handled separately from the webpack project.
 
-if (globalThis.Cloudflare) {
-    // Cloudflare Workers has a faulty EventTarget implementation which doesn't
-    // bind "this" to the event handler.
-    // https://github.com/cloudflare/workerd/issues/4453
-    const CfEventTarget = EventTarget;
-    globalThis.EventTarget = class EventTarget extends CfEventTarget {
-        constructor(...args) {
-            super(...args);
-        }
-
-        addEventListener(type, listener, options) {
-            super.addEventListener(type, listener.bind(this), options);
-        }
-    };
-}
-
-globalThis.init_puter_portable = (auth, apiOrigin, type) => {
-    if (type === 'userPuter') {
-        const goodContext = {};
-        Object.getOwnPropertyNames(globalThis).forEach((name) => {
-            try {
-                goodContext[name] = globalThis[name];
-            } catch {}
-        });
-        goodContext.globalThis = goodContext;
-        goodContext.WorkerGlobalScope = WorkerGlobalScope;
-        goodContext.ServiceWorkerGlobalScope = ServiceWorkerGlobalScope;
-        goodContext.location = new URL('https://puter.work');
-        goodContext.addEventListener = () => {};
-        goodContext.atob = globalThis.atob?.bind(globalThis);
-        goodContext.btoa = globalThis.btoa?.bind(globalThis);
-        // @ts-ignore
-        with (goodContext) {
-            #include "../../puter-js/dist/puter.js"
-        }
-        goodContext.puter.setAPIOrigin(apiOrigin);
-        goodContext.puter.setAuthToken(auth);
-        return goodContext.puter;
-    }
-
-    #include "../../puter-js/dist/puter.js"
-
-    puter.setAPIOrigin(apiOrigin);
-    puter.setAuthToken(auth);
-};
+#include "./puter-portable-core.template"
 
 #include "../dist/webpackPreamplePart.js"

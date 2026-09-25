@@ -1,0 +1,8 @@
+// The events worker runtime: puter.js, and a fetch handler that answers
+// exactly one platform route. No `router` and no `me` — an events worker runs
+// published handlers with the arguments it is given and holds no token of its
+// own. Handled separately from the webpack project.
+
+#include "./puter-portable-core.template"
+
+#include "../src/events-runtime.js"

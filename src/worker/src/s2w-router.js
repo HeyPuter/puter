@@ -119,6 +119,7 @@ function initS2w () {
                         event.request.headers.get('puter-auth'),
                         globalThis.puter_endpoint || 'https://api.puter.com',
                         'userPuter',
+                        { socket: false },
                     ),
                 };
                 event.user = event.requestor;

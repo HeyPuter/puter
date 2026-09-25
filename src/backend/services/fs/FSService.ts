@@ -22,6 +22,7 @@ import { posix as pathPosix } from 'node:path';
 import type { TransformCallback } from 'node:stream';
 import { pipeline, Readable, Transform } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
+import type { EventKey, EventMap } from '../../clients/event/types.js';
 import {
     BinaryPayload,
     CompleteWriteRequest,
@@ -34,7 +35,7 @@ import {
     WriteRequest,
     WriteResponse,
 } from '../../controllers/fs/requestTypes.js';
-import { Actor } from '../../core/actor.js';
+import { Actor, isAppActor, isPlainUserActor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -45,6 +46,11 @@ import {
     PendingUploadCreateInput,
     PendingUploadSession,
 } from '../../stores/fs/FSEntry.js';
+import {
+    clampSignedUploadExpirySeconds,
+    isMissingObjectError,
+} from '../../stores/fs/S3ObjectStore.js';
+import { toUploadReservationBytes } from '../../stores/fs/UploadReservationStore.js';
 import type {
     MultipartCompletePart,
     SignedUploadResult,
@@ -63,7 +69,11 @@ import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types.js';
 import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
-import { assertNormalized } from './resolveNode.js';
+import {
+    isOwnersTrash,
+    isTildePath,
+    normalizeAbsolutePath,
+} from './resolveNode.js';
 import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
@@ -77,6 +87,9 @@ import type {
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 
+/** What `getAncestorChain` returns: a node and every directory above it. */
+type AncestorChain = Array<{ uid: string; path: string }>;
+
 /**
  * Storage-allowance sentinel meaning "don't enforce a quota on this write".
  *
@@ -87,6 +100,15 @@ const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
  * caller could opt itself out of its own quota.
  */
 export const UNLIMITED_STORAGE_ALLOWANCE = Number.MAX_SAFE_INTEGER;
+
+// Held past a lease's signed-URL expiry so a client finishing right at the
+// deadline still settles or aborts before the lease would otherwise lapse.
+const UPLOAD_RESERVATION_GRACE_MS = 5 * 60_000;
+// How long a completed lease still counts as pending after settling, so a
+// replica that hasn't caught up to the commit doesn't undercount usage.
+const UPLOAD_RESERVATION_SETTLE_MS = 60_000;
+/** Signed uploads one storage owner may have outstanding at once. */
+export const MAX_PENDING_UPLOADS_PER_OWNER = 10_000;
 
 const RESERVED_METADATA_KEYS: readonly string[] = ['objectKey'];
 
@@ -110,6 +132,77 @@ const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
     const e = err as { name?: unknown; Code?: unknown };
     return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
+};
+
+/** Also recorded as the failure reason on a session refused for it. */
+const UPLOAD_NOT_RECEIVED = 'Upload content was not received';
+const uploadNotReceivedError = (): HttpError =>
+    new HttpError(400, UPLOAD_NOT_RECEIVED, { legacyCode: 'bad_request' });
+
+/** A session refused for a missing object keeps giving that answer. */
+const assertSessionCompletable = (session: PendingUploadSession): void => {
+    if (session.status === 'pending') return;
+    if (
+        session.status === 'failed' &&
+        session.failureReason === UPLOAD_NOT_RECEIVED
+    ) {
+        throw uploadNotReceivedError();
+    }
+    throw new HttpError(
+        409,
+        `Upload session is not pending (status=${session.status})`,
+        { legacyCode: 'conflict' },
+    );
+};
+
+/**
+ * Active/settled bytes an owner has pending in signed uploads not yet
+ * committed.
+ */
+type PendingUploadBytes = { activeBytes: number; settledBytes: number };
+
+/**
+ * A storage lease taken for one signed-upload session, ready to release or
+ * settle.
+ */
+type HeldUploadReservation = {
+    ownerId: number;
+    sessionId: string;
+    bytes: number;
+};
+
+/** Minimal shape `#probeBatchUploads` needs from a batch completion item. */
+type BatchCompletionProbeItem = {
+    session: PendingUploadSession;
+    finalData: FSEntryCreateInput;
+};
+
+type UploadReservationClaim = {
+    sessionId: string;
+    path: string;
+    incomingSize: number;
+    existingSize: number;
+    expiresInSeconds: number;
+};
+
+/**
+ * A session's reservation, or null for one with nothing to release (unmetered
+ * owner, or predates lease tracking).
+ */
+const heldFromSession = (
+    session: PendingUploadSession,
+): HeldUploadReservation | null => {
+    if (
+        typeof session.reservationOwnerId !== 'number' ||
+        typeof session.reservedBytes !== 'number'
+    ) {
+        return null;
+    }
+    return {
+        ownerId: session.reservationOwnerId,
+        sessionId: session.sessionId,
+        bytes: session.reservedBytes,
+    };
 };
 
 interface WriteTargetResolutionInput {
@@ -142,6 +235,9 @@ interface BatchStartSignedWriteResult {
 }
 
 export class FSService extends PuterService {
+    /** Overridable so tests can reach the cap without filling it. */
+    static MAX_PENDING_UPLOADS_PER_OWNER = MAX_PENDING_UPLOADS_PER_OWNER;
+
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
 
@@ -182,14 +278,18 @@ export class FSService extends PuterService {
                     !permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`)
                 )
                     return false;
-                const [, specifier] = permission.split('fs:');
+                // Parse on component boundaries: a path can contain `fs:` (e.g. a home dir named `…fs`), which a raw split mistakes for the mode delimiter.
+                const parts = PermissionUtil.split(permission);
+                const fsIndex = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
+                const specifier = parts[fsIndex + 1];
                 return Boolean(specifier && specifier.startsWith('/'));
             },
             rewrite: async (permission: string): Promise<string> => {
-                const [manageOpt, pathPerm] = permission.split('fs:');
-                const parts = PermissionUtil.split(pathPerm);
-                const path = parts[0];
-                const rest = parts.slice(1);
+                const parts = PermissionUtil.split(permission);
+                const hasManage = parts[0] === MANAGE_PERM_PREFIX;
+                const fsIndex = hasManage ? 1 : 0;
+                const path = parts[fsIndex + 1];
+                const rest = parts.slice(fsIndex + 2);
                 if (!path) return permission;
                 const entry = await fsEntryStore.getEntryByPath(path);
                 if (!entry) {
@@ -197,9 +297,8 @@ export class FSService extends PuterService {
                         legacyCode: 'subject_does_not_exist',
                     });
                 }
-                const manage = manageOpt.replace(':', '');
                 const joined = PermissionUtil.join('fs', entry.uuid, ...rest);
-                return manage ? `${manage}:${joined}` : joined;
+                return hasManage ? `${MANAGE_PERM_PREFIX}:${joined}` : joined;
             },
         });
 
@@ -222,13 +321,10 @@ export class FSService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (actor.app || actor.accessToken) return undefined;
+                if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
 
-                const stripped = permission.replaceAll(
-                    `${MANAGE_PERM_PREFIX}:`,
-                    '',
-                );
+                const stripped = PermissionUtil.stripManageArms(permission);
                 const parts = PermissionUtil.split(stripped);
                 const uid = parts[1];
                 if (!uid) return undefined;
@@ -237,6 +333,66 @@ export class FSService extends PuterService {
                 if (!entry) return undefined;
                 if (entry.userId === actor.user.id) return {};
                 return undefined;
+            },
+        });
+
+        // -- manage-inherits-from-ancestor -----------------------------
+        // `manage` on a directory covers what is inside it, the way `fs:*`
+        // access already reaches descendants through the ancestor chain.
+        // Without this the two are asymmetric: someone trusted to manage a
+        // shared folder can re-share the folder itself but nothing in it, and
+        // cannot even see who has access to a file within it.
+        //
+        // The whole chain is answered in one pass: split the path into its
+        // ancestors, then look the corresponding grants up in bulk. Recursing a
+        // level at a time would re-enter the permission scan once per level.
+        const permissionStore = this.stores.permission;
+        permissions.registerImplicator({
+            id: 'manage-inherits-from-ancestor',
+            shortcut: true,
+            matches: (permission: string): boolean =>
+                permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`),
+            check: async ({ actor, permission }): Promise<unknown> => {
+                // Apps are bounded by their user through a separate path;
+                // widening them here would let one outrun that bound.
+                if (!isPlainUserActor(actor)) return undefined;
+                if (!actor.user?.id) return undefined;
+
+                const stripped = PermissionUtil.stripManageArms(permission);
+                const uid = PermissionUtil.split(stripped)[1];
+                if (!uid) return undefined;
+
+                const entry = await fsEntryStore.getEntryByUuid(uid);
+                // Owning the entry is `is-owner`'s answer to give, and it runs
+                // first — there is nothing to inherit on your own tree.
+                if (!entry || entry.userId === actor.user.id) return undefined;
+
+                const ancestors = (
+                    await this.getAncestorChain(entry.path)
+                ).slice(1);
+                if (ancestors.length === 0) return undefined;
+                const wanted = ancestors.map((ancestor) =>
+                    PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid),
+                );
+
+                // Read the stores rather than re-entering `scan`, which would
+                // cost one recursive scan per ancestor. A `manage:fs:*` grant
+                // reaches a user three ways — issued to them, group-issued, or
+                // sitting in the flat view — and each store answers the whole
+                // list at once.
+                const [linked, group, flat] = await Promise.all([
+                    permissionStore.readLinkedUserUserPerms(
+                        actor.user.id,
+                        wanted,
+                    ),
+                    permissionStore.readUserGroupPerms(actor.user.id, wanted),
+                    permissionStore.getFlatUserPerms(actor.user.id, wanted),
+                ]);
+                const held =
+                    linked.length > 0 ||
+                    group.length > 0 ||
+                    flat.some((value) => value && !value.deleted);
+                return held ? {} : undefined;
             },
         });
 
@@ -262,9 +418,9 @@ export class FSService extends PuterService {
                 );
             },
             check: async ({ actor, permission }): Promise<unknown> => {
-                if (!actor.app || actor.accessToken) return undefined;
+                if (!isAppActor(actor)) return undefined;
                 const username = actor.user?.username;
-                const appUid = actor.app.uid;
+                const appUid = actor.effectiveApp!.uid;
                 if (!username || !appUid) return undefined;
 
                 const stripped = permission.replaceAll(
@@ -316,6 +472,8 @@ export class FSService extends PuterService {
             see: ['list', 'read', 'write'],
             list: ['read', 'write'],
             read: ['write'],
+            // Widens to nothing, but still emits the manage arm.
+            write: [],
         };
         permissions.registerExploder({
             id: 'fs-access-levels',
@@ -354,30 +512,18 @@ export class FSService extends PuterService {
         });
     }
 
+    // Unlike the controllers, this layer refuses `~` rather than expanding it:
+    // the actor's username is a request-scoped fact the write path shouldn't
+    // reach for.
     #normalizePath(path: string): string {
-        const trimmedPath = path.trim();
-        if (trimmedPath.length === 0) {
-            throw new HttpError(400, 'Path cannot be empty', {
-                legacyCode: 'bad_request',
-            });
-        }
-        if (trimmedPath === '~' || trimmedPath.startsWith('~/')) {
+        if (typeof path === 'string' && isTildePath(path.trim())) {
             throw new HttpError(
                 400,
                 'Home path must be resolved before write',
                 { legacyCode: 'bad_request' },
             );
         }
-
-        assertNormalized(trimmedPath);
-        let normalizedPath = trimmedPath;
-        if (!normalizedPath.startsWith('/')) {
-            normalizedPath = `/${normalizedPath}`;
-        }
-        if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
-            normalizedPath = normalizedPath.slice(0, -1);
-        }
-        return normalizedPath;
+        return normalizeAbsolutePath(path);
     }
 
     #resolveBucket(): string {
@@ -403,9 +549,37 @@ export class FSService extends PuterService {
         return bucketRegion;
     }
 
+    /**
+     * Where a write's bytes should land. A home region this deployment knows
+     * about names its own bucket; anything else — an unmapped region, a
+     * single-node deployment, no hint at all — falls back to this server's own
+     * bucket, because placement is an optimisation and storing the bytes is
+     * not.
+     */
+    #resolvePlacement(homeRegion?: string): {
+        bucket: string;
+        bucketRegion: string;
+    } {
+        const place = homeRegion
+            ? this.config.servers?.[homeRegion]
+            : undefined;
+        if (homeRegion && !place) {
+            console.warn(
+                `[fs] no storage configured for region '${homeRegion}'; using this server's bucket`,
+            );
+        }
+        return (
+            place ?? {
+                bucket: this.#resolveBucket(),
+                bucketRegion: this.#resolveBucketRegion(),
+            }
+        );
+    }
+
     #normalizeWriteInput(
         userId: number,
         metadata: FSEntryWriteInput,
+        homeRegion?: string,
     ): NormalizedWriteInput {
         const normalizedPath = this.#normalizePath(metadata.path);
         if (normalizedPath === '/') {
@@ -415,7 +589,7 @@ export class FSService extends PuterService {
         }
 
         const size = Number(metadata.size);
-        if (Number.isNaN(size) || size < 0) {
+        if (!Number.isFinite(size) || size < 0) {
             throw new HttpError(400, 'Invalid file size', {
                 legacyCode: 'bad_request',
             });
@@ -441,8 +615,7 @@ export class FSService extends PuterService {
             immutable: Boolean(metadata.immutable),
             isPublic: metadata.isPublic,
             multipartPartSize: metadata.multipartPartSize,
-            bucket: this.#resolveBucket(),
-            bucketRegion: this.#resolveBucketRegion(),
+            ...this.#resolvePlacement(homeRegion),
         };
     }
 
@@ -628,6 +801,24 @@ export class FSService extends PuterService {
                 );
             }
 
+            // An overwrite reuses the entry's uuid as the object key, so the
+            // bytes must land in the bucket the entry already lives in —
+            // resolved the same way reads resolve it. Uploading to this
+            // server's bucket instead would repoint the row and strand the
+            // old object in the old bucket: a storage leak, and the replaced
+            // content survives there unreferenced.
+            if (existingEntry?.bucket) {
+                normalizedInput = {
+                    ...normalizedInput,
+                    bucket: this.stores.s3Object.resolveBucket(
+                        existingEntry.bucket,
+                    ),
+                    bucketRegion: this.stores.s3Object.resolveRegion(
+                        existingEntry.bucketRegion,
+                    ),
+                };
+            }
+
             reservedPaths.add(normalizedInput.path);
             results.push({
                 index: input.index,
@@ -670,6 +861,11 @@ export class FSService extends PuterService {
     ): UploadMode {
         const maxSingleUploadSize =
             this.stores.s3Object.getMaxSingleUploadSize();
+        // An empty object has no part to carry it, so a multipart request
+        // here can only be an attempt at a part URL bound to no bytes.
+        if (size <= 0) {
+            return 'single';
+        }
         if (requestUploadMode === 'multipart') {
             return 'multipart';
         }
@@ -698,70 +894,343 @@ export class FSService extends PuterService {
         return Math.max(allowanceMax, storageAllowanceMaxOverride);
     }
 
+    /**
+     * The allowance override to apply when charging `owner` for a write the
+     * acting user performs. The controller reads the override off the ACTING
+     * user's row, so it may only widen that same user's cap — a write into a
+     * tree someone else owns is judged against the owner's own allowance, or a
+     * recipient on a large plan could fill an owner's account past its limit.
+     * The unlimited sentinel passes through: it is server-authored (never
+     * derived from a user row) and means "don't meter this write".
+     */
+    #allowanceOverrideFor(
+        owner: number,
+        actingUserId: number,
+        override?: number,
+    ): number | undefined {
+        if (override === UNLIMITED_STORAGE_ALLOWANCE) return override;
+        return owner === actingUserId ? override : undefined;
+    }
+
+    /**
+     * Whose allowance a write to `path` draws on — the owner of the tree it
+     * lands in, which is not the writer when the folder was shared with them.
+     */
+    async #storageOwnerOf(path: string, actingUserId: number): Promise<number> {
+        const owners = await this.#storageOwnersOf([path], actingUserId);
+        return owners.get(path) ?? actingUserId;
+    }
+
+    /**
+     * As above, for a batch. Every item under one home resolves to the same
+     * owner, so the distinct homes are read in a single query rather than one
+     * lookup per item.
+     */
+    async #storageOwnersOf(
+        paths: string[],
+        actingUserId: number,
+    ): Promise<Map<string, number>> {
+        const homeOf = new Map<string, string>();
+        for (const path of paths) {
+            homeOf.set(
+                path,
+                `/${this.#normalizePath(path).split('/')[1] ?? ''}`,
+            );
+        }
+        const homes = [...new Set(homeOf.values())].filter(
+            (home) => home !== '/',
+        );
+        const entries = await this.stores.fsEntry.getEntriesByPaths(homes);
+        return new Map(
+            paths.map((path) => [
+                path,
+                entries.get(homeOf.get(path) as string)?.userId ?? actingUserId,
+            ]),
+        );
+    }
+
+    /**
+     * The shared allowance check: usage plus pending bytes against the max,
+     * from a replica. Only settled bytes can make this stricter than a plain
+     * replica check, so only then is the primary consulted. Returns whether a
+     * limit was actually enforced and throws the existing 413 when `delta`
+     * doesn't fit.
+     */
+    async #checkStorageAllowance(
+        userId: number,
+        delta: number,
+        storageAllowanceMaxOverride?: number,
+        pending?: PendingUploadBytes,
+    ): Promise<boolean> {
+        // Skip the allowance lookup entirely for unmetered writes — it costs
+        // a query plus a quota-bonus round trip whose answer can't matter.
+        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
+            return false;
+        }
+
+        const [fast, resolvedPending] = await Promise.all([
+            this.stores.fsEntry.getUserStorageAllowance(userId),
+            pending ?? this.stores.uploadReservation.outstanding(userId),
+        ]);
+        const fastMax = this.#resolveStorageMax(
+            fast.max,
+            storageAllowanceMaxOverride,
+        );
+        if (fastMax === UNLIMITED_STORAGE_ALLOWANCE) {
+            return false;
+        }
+
+        const { activeBytes, settledBytes } = resolvedPending;
+        const fastProjected = fast.curr + activeBytes + settledBytes + delta;
+        if (!(fastProjected > fastMax)) {
+            return true;
+        }
+        if (settledBytes === 0) {
+            throw new HttpError(413, 'Storage limit reached', {
+                legacyCode: 'storage_limit_reached',
+            });
+        }
+
+        const exact = await this.stores.fsEntry.getUserStorageAllowance(
+            userId,
+            { consistentRead: true },
+        );
+        const exactMax = this.#resolveStorageMax(
+            exact.max,
+            storageAllowanceMaxOverride,
+        );
+        if (exactMax === UNLIMITED_STORAGE_ALLOWANCE) {
+            return false;
+        }
+        if (!(exact.curr + activeBytes + delta > exactMax)) {
+            return true;
+        }
+
+        throw new HttpError(413, 'Storage limit reached', {
+            legacyCode: 'storage_limit_reached',
+        });
+    }
+
     async #assertStorageAllowance(
         userId: number,
         incomingSize: number,
         existingSize = 0,
         storageAllowanceMaxOverride?: number,
+        pending?: PendingUploadBytes,
     ): Promise<void> {
-        // Skip the allowance lookup entirely for unmetered writes — it costs
-        // a query plus a quota-bonus round trip whose answer can't matter.
-        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
-        }
-        const allowance =
-            await this.stores.fsEntry.getUserStorageAllowance(userId);
-        const maxStorage = this.#resolveStorageMax(
-            allowance.max,
+        await this.#checkStorageAllowance(
+            userId,
+            incomingSize - existingSize,
             storageAllowanceMaxOverride,
+            pending,
         );
-        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
-        }
-
-        const projectedUsage = allowance.curr - existingSize + incomingSize;
-        if (projectedUsage > maxStorage) {
-            throw new HttpError(413, 'Storage limit reached', {
-                legacyCode: 'storage_limit_reached',
-            });
-        }
     }
 
+    /**
+     * Same check for a batch's combined delta. Returns whether a limit was
+     * actually enforced.
+     */
     async #assertStorageAllowanceForBatch(
         userId: number,
         sizeChanges: Array<{ incomingSize: number; existingSize: number }>,
         storageAllowanceMaxOverride?: number,
-    ): Promise<void> {
+        pending?: PendingUploadBytes,
+    ): Promise<boolean> {
         if (sizeChanges.length === 0) {
-            return;
-        }
-        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
+            return false;
         }
 
-        const allowance =
-            await this.stores.fsEntry.getUserStorageAllowance(userId);
-        const maxStorage = this.#resolveStorageMax(
-            allowance.max,
-            storageAllowanceMaxOverride,
+        const delta = sizeChanges.reduce(
+            (total, sizeChange) =>
+                total - sizeChange.existingSize + sizeChange.incomingSize,
+            0,
         );
-        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
-            return;
+        return this.#checkStorageAllowance(
+            userId,
+            delta,
+            storageAllowanceMaxOverride,
+            pending,
+        );
+    }
+
+    /**
+     * Reserve storage for a batch of about-to-be-signed uploads, one owner at a
+     * time so each owner's leases serialize through its own cache key rather
+     * than racing on separate reads. Returns every lease actually taken, so the
+     * caller can settle or release them later; on any failure, everything taken
+     * so far is released before the error propagates.
+     */
+    async #reserveUploadStorage(
+        actingUserId: number,
+        claims: UploadReservationClaim[],
+        storageAllowanceMax?: number,
+    ): Promise<HeldUploadReservation[]> {
+        if (claims.length === 0) {
+            return [];
         }
 
-        let projectedUsage = allowance.curr;
-        for (const sizeChange of sizeChanges) {
-            projectedUsage =
-                projectedUsage -
-                sizeChange.existingSize +
-                sizeChange.incomingSize;
+        const owners = await this.#storageOwnersOf(
+            claims.map((claim) => claim.path),
+            actingUserId,
+        );
+        const claimsByOwner = new Map<number, UploadReservationClaim[]>();
+        for (const claim of claims) {
+            const owner = owners.get(claim.path) ?? actingUserId;
+            const ownerClaims = claimsByOwner.get(owner) ?? [];
+            ownerClaims.push(claim);
+            claimsByOwner.set(owner, ownerClaims);
         }
 
-        if (projectedUsage > maxStorage) {
-            throw new HttpError(413, 'Storage limit reached', {
-                legacyCode: 'storage_limit_reached',
-            });
+        const held: HeldUploadReservation[] = [];
+        try {
+            for (const [owner, ownerClaims] of claimsByOwner) {
+                const override = this.#allowanceOverrideFor(
+                    owner,
+                    actingUserId,
+                    storageAllowanceMax,
+                );
+                if (override === UNLIMITED_STORAGE_ALLOWANCE) {
+                    continue;
+                }
+
+                const now = Date.now();
+                const leases = ownerClaims.map((claim) => ({
+                    sessionId: claim.sessionId,
+                    bytes: toUploadReservationBytes(
+                        claim.incomingSize,
+                        claim.existingSize,
+                    ),
+                    deadline:
+                        now +
+                        clampSignedUploadExpirySeconds(claim.expiresInSeconds) *
+                            1000 +
+                        UPLOAD_RESERVATION_GRACE_MS,
+                }));
+
+                const taken = await this.stores.uploadReservation.take(
+                    owner,
+                    leases,
+                    FSService.MAX_PENDING_UPLOADS_PER_OWNER,
+                );
+                if (taken && !taken.added) {
+                    throw new HttpError(429, 'Too many uploads in progress', {
+                        legacyCode: 'too_many_requests',
+                    });
+                }
+
+                // `taken === null` means the cache couldn't be reached —
+                // nothing was actually leased, so there is nothing to hold or
+                // release, and pending is treated as zero for this owner.
+                const ownerHeld = taken
+                    ? leases.map((lease) => ({
+                          ownerId: owner,
+                          sessionId: lease.sessionId,
+                          bytes: lease.bytes,
+                      }))
+                    : [];
+                const heldFromIndex = held.length;
+                held.push(...ownerHeld);
+
+                const ownBytes = leases.reduce(
+                    (sum, lease) => sum + lease.bytes,
+                    0,
+                );
+                const pending: PendingUploadBytes = taken
+                    ? {
+                          activeBytes: Math.max(
+                              0,
+                              taken.activeBytes - ownBytes,
+                          ),
+                          settledBytes: taken.settledBytes,
+                      }
+                    : { activeBytes: 0, settledBytes: 0 };
+
+                const enforced = await this.#assertStorageAllowanceForBatch(
+                    owner,
+                    ownerClaims.map((claim) => ({
+                        incomingSize: claim.incomingSize,
+                        existingSize: claim.existingSize,
+                    })),
+                    override,
+                    pending,
+                );
+                if (!enforced && ownerHeld.length > 0) {
+                    // Nothing to guard for this owner — give the leases back
+                    // rather than holding bytes no check will ever read.
+                    await this.stores.uploadReservation.release(
+                        owner,
+                        ownerHeld,
+                    );
+                    held.splice(heldFromIndex, ownerHeld.length);
+                }
+            }
+        } catch (error) {
+            await this.#releaseUploadReservations(held);
+            throw error;
         }
+
+        return held;
+    }
+
+    #groupReservationsByOwner(
+        items: HeldUploadReservation[],
+    ): Map<number, { sessionId: string; bytes: number }[]> {
+        const byOwner = new Map<
+            number,
+            { sessionId: string; bytes: number }[]
+        >();
+        for (const item of items) {
+            const list = byOwner.get(item.ownerId) ?? [];
+            list.push({ sessionId: item.sessionId, bytes: item.bytes });
+            byOwner.set(item.ownerId, list);
+        }
+        return byOwner;
+    }
+
+    async #releaseUploadReservations(
+        items: HeldUploadReservation[],
+    ): Promise<void> {
+        if (items.length === 0) return;
+        await Promise.all(
+            [...this.#groupReservationsByOwner(items)].map(([owner, list]) =>
+                this.stores.uploadReservation.release(owner, list),
+            ),
+        );
+    }
+
+    async #settleUploadReservations(
+        items: HeldUploadReservation[],
+    ): Promise<void> {
+        if (items.length === 0) return;
+        await Promise.all(
+            [...this.#groupReservationsByOwner(items)].map(([owner, list]) =>
+                this.stores.uploadReservation.settle(
+                    owner,
+                    list,
+                    UPLOAD_RESERVATION_SETTLE_MS,
+                ),
+            ),
+        );
+    }
+
+    async #releaseSessionUploadReservations(
+        sessions: PendingUploadSession[],
+    ): Promise<void> {
+        await this.#releaseUploadReservations(
+            sessions
+                .map(heldFromSession)
+                .filter((item): item is HeldUploadReservation => item !== null),
+        );
+    }
+
+    async #settleSessionUploadReservations(
+        sessions: PendingUploadSession[],
+    ): Promise<void> {
+        await this.#settleUploadReservations(
+            sessions
+                .map(heldFromSession)
+                .filter((item): item is HeldUploadReservation => item !== null),
+        );
     }
 
     // Bytes an entry accounts for in the owner's usage: a directory's own row
@@ -1364,23 +1833,42 @@ export class FSService extends PuterService {
             }
         }
 
-        const sizeChanges = preparedBatch.items.map((item) => {
+        // One batch can straddle two trees, and each owner pays for its own.
+        const owners = await this.#storageOwnersOf(
+            preparedBatch.items.map((item) => item.normalizedInput.path),
+            preparedBatch.userId,
+        );
+        const sizeChangesByOwner = new Map<
+            number,
+            Array<{ incomingSize: number; existingSize: number }>
+        >();
+        for (const item of preparedBatch.items) {
             const uploadedItem = uploadedItemMap.get(item.index);
-            return {
+            const owner =
+                owners.get(item.normalizedInput.path) ?? preparedBatch.userId;
+            const sizeChanges = sizeChangesByOwner.get(owner) ?? [];
+            sizeChanges.push({
                 incomingSize: uploadedItem
                     ? uploadedItem.uploadedSize
                     : item.normalizedInput.size,
                 existingSize: item.existingEntry?.size ?? 0,
-            };
-        });
+            });
+            sizeChangesByOwner.set(owner, sizeChanges);
+        }
 
         const storageAllowanceMax =
             storageAllowanceMaxOverride ?? preparedBatch.storageAllowanceMax;
-        await this.#assertStorageAllowanceForBatch(
-            preparedBatch.userId,
-            sizeChanges,
-            storageAllowanceMax,
-        );
+        for (const [owner, sizeChanges] of sizeChangesByOwner) {
+            await this.#assertStorageAllowanceForBatch(
+                owner,
+                sizeChanges,
+                this.#allowanceOverrideFor(
+                    owner,
+                    preparedBatch.userId,
+                    storageAllowanceMax,
+                ),
+            );
+        }
     }
 
     async uploadPreparedBatchItem(
@@ -1575,103 +2063,137 @@ export class FSService extends PuterService {
 
         const existingSize = existingEntry?.size ?? 0;
         const parentPath = pathPosix.dirname(normalizedInput.path);
-        const [, { parentEntries, createdDirectoryEntries }] =
-            await Promise.all([
-                this.#assertStorageAllowance(
-                    userId,
-                    normalizedInput.size,
-                    existingSize,
-                    storageAllowanceMax,
-                ),
-                this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
-                    userId,
-                    [
-                        {
-                            parentPath,
-                            createPaths: normalizedInput.createMissingParents,
-                        },
-                    ],
-                ),
-            ]);
-        const [parentEntry] = parentEntries;
-        if (!parentEntry) {
-            throw new Error(
-                'Failed to resolve parent directory for signed write',
-            );
-        }
-
-        const objectKey = existingEntry?.uuid ?? uuidv4();
-        const uploadMode = this.#determineUploadMode(
-            signedWriteRequest.uploadMode,
-            normalizedInput.size,
-        );
+        const sessionId = uuidv4();
         const expiresInSeconds =
             signedWriteRequest.expiresInSeconds ??
             DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS;
-        const createInput = this.#toCreateInput(normalizedInput, objectKey);
 
-        const signedUploadResult =
-            await this.stores.s3Object.createSignedUploadUrl(
-                {
-                    bucket: normalizedInput.bucket,
-                    objectKey,
-                    size: normalizedInput.size,
-                    contentType: normalizedInput.contentType,
-                    uploadMode,
-                    expiresInSeconds,
-                    multipartPartSize: normalizedInput.multipartPartSize,
-                },
-                normalizedInput.bucketRegion,
-            );
+        const [reserveResult, parentResult] = await Promise.allSettled([
+            this.#reserveUploadStorage(
+                userId,
+                [
+                    {
+                        sessionId,
+                        path: normalizedInput.path,
+                        incomingSize: normalizedInput.size,
+                        existingSize,
+                        expiresInSeconds,
+                    },
+                ],
+                storageAllowanceMax,
+            ),
+            this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
+                userId,
+                [
+                    {
+                        parentPath,
+                        createPaths: normalizedInput.createMissingParents,
+                    },
+                ],
+            ),
+        ]);
 
-        const sessionId = uuidv4();
-        const pendingUploadInput: PendingUploadCreateInput = {
-            sessionId,
-            userId,
-            appId: normalizedInput.associatedAppId ?? null,
-            parentUid: parentEntry.uuid,
-            parentPath: parentEntry.path,
-            targetName: pathPosix.basename(normalizedInput.path),
-            targetPath: normalizedInput.path,
-            overwriteTargetUid: existingEntry?.uuid ?? null,
-            contentType: normalizedInput.contentType,
-            size: normalizedInput.size,
-            checksumSha256: normalizedInput.checksumSha256 ?? null,
-            uploadMode,
-            multipartUploadId: signedUploadResult.multipartUploadId ?? null,
-            multipartPartSize: signedUploadResult.multipartPartSize ?? null,
-            multipartPartCount: signedUploadResult.multipartPartCount ?? null,
-            storageProvider: 's3',
-            bucket: normalizedInput.bucket,
-            bucketRegion: normalizedInput.bucketRegion,
-            objectKey,
-            metadataJson: JSON.stringify(createInput),
-            expiresAt: signedUploadResult.expiresAt,
-        };
+        if (reserveResult.status === 'rejected') {
+            throw reserveResult.reason;
+        }
+        // Parent resolution failed but the reservation succeeded: any
+        // directories parent resolution already created are left in place
+        // (unchanged from a plain rejection), and the lease is given back.
+        if (parentResult.status === 'rejected') {
+            await this.#releaseUploadReservations(reserveResult.value);
+            throw parentResult.reason;
+        }
+        const reservedLeases = reserveResult.value;
+        const { parentEntries, createdDirectoryEntries } = parentResult.value;
 
         try {
-            await this.stores.fsEntry.createPendingEntry(pendingUploadInput);
-        } catch (error) {
-            await this.#cleanupSignedMultipartUploads([
-                {
-                    bucket: normalizedInput.bucket,
-                    bucketRegion: normalizedInput.bucketRegion,
+            const [parentEntry] = parentEntries;
+            if (!parentEntry) {
+                throw new Error(
+                    'Failed to resolve parent directory for signed write',
+                );
+            }
+
+            const objectKey = existingEntry?.uuid ?? uuidv4();
+            const uploadMode = this.#determineUploadMode(
+                signedWriteRequest.uploadMode,
+                normalizedInput.size,
+            );
+            const createInput = this.#toCreateInput(normalizedInput, objectKey);
+
+            const signedUploadResult =
+                await this.stores.s3Object.createSignedUploadUrl(
+                    {
+                        bucket: normalizedInput.bucket,
+                        objectKey,
+                        size: normalizedInput.size,
+                        contentType: normalizedInput.contentType,
+                        uploadMode,
+                        expiresInSeconds,
+                        multipartPartSize: normalizedInput.multipartPartSize,
+                    },
+                    normalizedInput.bucketRegion,
+                );
+
+            const reservation = reservedLeases.find(
+                (lease) => lease.sessionId === sessionId,
+            );
+            const pendingUploadInput: PendingUploadCreateInput = {
+                sessionId,
+                userId,
+                appId: normalizedInput.associatedAppId ?? null,
+                parentUid: parentEntry.uuid,
+                parentPath: parentEntry.path,
+                targetName: pathPosix.basename(normalizedInput.path),
+                targetPath: normalizedInput.path,
+                overwriteTargetUid: existingEntry?.uuid ?? null,
+                contentType: normalizedInput.contentType,
+                size: normalizedInput.size,
+                checksumSha256: normalizedInput.checksumSha256 ?? null,
+                uploadMode,
+                multipartUploadId: signedUploadResult.multipartUploadId ?? null,
+                multipartPartSize: signedUploadResult.multipartPartSize ?? null,
+                multipartPartCount:
+                    signedUploadResult.multipartPartCount ?? null,
+                storageProvider: 's3',
+                bucket: normalizedInput.bucket,
+                bucketRegion: normalizedInput.bucketRegion,
+                objectKey,
+                metadataJson: JSON.stringify(createInput),
+                expiresAt: signedUploadResult.expiresAt,
+                reservationOwnerId: reservation?.ownerId ?? null,
+                reservedBytes: reservation?.bytes ?? null,
+            };
+
+            try {
+                await this.stores.fsEntry.createPendingEntry(
+                    pendingUploadInput,
+                );
+            } catch (error) {
+                await this.#cleanupSignedMultipartUploads([
+                    {
+                        bucket: normalizedInput.bucket,
+                        bucketRegion: normalizedInput.bucketRegion,
+                        objectKey,
+                        signedUploadResult,
+                    },
+                ]);
+                throw error;
+            }
+
+            return {
+                response: this.#toSignedWriteResponse(
+                    sessionId,
+                    normalizedInput,
                     objectKey,
                     signedUploadResult,
-                },
-            ]);
+                ),
+                createdDirectoryEntries,
+            };
+        } catch (error) {
+            await this.#releaseUploadReservations(reservedLeases);
             throw error;
         }
-
-        return {
-            response: this.#toSignedWriteResponse(
-                sessionId,
-                normalizedInput,
-                objectKey,
-                signedUploadResult,
-            ),
-            createdDirectoryEntries,
-        };
     }
 
     async batchStartUrlWrites(
@@ -1801,28 +2323,21 @@ export class FSService extends PuterService {
                 };
             });
 
-            const allowanceChecks: Array<{
-                incomingSize: number;
-                existingSize: number;
-            }> = [];
-            for (const item of resolvedFileItems) {
-                allowanceChecks.push({
+            const sessionIds = resolvedFileItems.map(() => uuidv4());
+            const claims: UploadReservationClaim[] = resolvedFileItems.map(
+                (item, index) => ({
+                    sessionId: sessionIds[index] as string,
+                    path: item.normalizedInput.path,
                     incomingSize: item.normalizedInput.size,
                     existingSize: item.existingEntry?.size ?? 0,
-                });
-            }
-            const [
-                ,
-                {
-                    parentEntries,
-                    createdDirectoryEntries: createdParentDirectoryEntries,
-                },
-            ] = await Promise.all([
-                this.#assertStorageAllowanceForBatch(
-                    userId,
-                    allowanceChecks,
-                    storageAllowanceMax,
-                ),
+                    expiresInSeconds:
+                        item.request.expiresInSeconds ??
+                        DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
+                }),
+            );
+
+            const [reserveResult, parentResult] = await Promise.allSettled([
+                this.#reserveUploadStorage(userId, claims, storageAllowanceMax),
                 this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
                     userId,
                     resolvedFileItems.map((item) => ({
@@ -1833,6 +2348,22 @@ export class FSService extends PuterService {
                     })),
                 ),
             ]);
+
+            if (reserveResult.status === 'rejected') {
+                throw reserveResult.reason;
+            }
+            if (parentResult.status === 'rejected') {
+                await this.#releaseUploadReservations(reserveResult.value);
+                throw parentResult.reason;
+            }
+            const reservedLeases = reserveResult.value;
+            const reservationBySessionId = new Map(
+                reservedLeases.map((lease) => [lease.sessionId, lease]),
+            );
+            const {
+                parentEntries,
+                createdDirectoryEntries: createdParentDirectoryEntries,
+            } = parentResult.value;
             for (const createdParentDirectoryEntry of createdParentDirectoryEntries) {
                 createdDirectoryEntriesByPath.set(
                     createdParentDirectoryEntry.path,
@@ -1840,213 +2371,233 @@ export class FSService extends PuterService {
                 );
             }
 
-            const objectKeys = resolvedFileItems.map((item) => {
-                return item.existingEntry?.uuid ?? uuidv4();
-            });
-            const uploadModes = resolvedFileItems.map((item) => {
-                return this.#determineUploadMode(
-                    item.request.uploadMode,
-                    item.normalizedInput.size,
-                );
-            });
-            const sessionIds = resolvedFileItems.map(() => uuidv4());
+            try {
+                const objectKeys = resolvedFileItems.map((item) => {
+                    return item.existingEntry?.uuid ?? uuidv4();
+                });
+                const uploadModes = resolvedFileItems.map((item) => {
+                    return this.#determineUploadMode(
+                        item.request.uploadMode,
+                        item.normalizedInput.size,
+                    );
+                });
 
-            const signedResultsByIndex = new Map<number, SignedUploadResult>();
-            const writesByRegion = new Map<
-                string,
-                Array<{
-                    requestIndex: number;
-                    input: {
-                        bucket: string;
-                        objectKey: string;
-                        size: number;
-                        contentType: string;
-                        uploadMode: UploadMode;
-                        expiresInSeconds: number;
-                        multipartPartSize?: number;
-                    };
-                }>
-            >();
-            for (let index = 0; index < resolvedFileItems.length; index++) {
-                const item = resolvedFileItems[index];
-                const objectKey = objectKeys[index];
-                const uploadMode = uploadModes[index];
-                if (!item || !objectKey || !uploadMode) {
-                    throw new Error(
-                        'Failed to build batch signed upload request',
+                const signedResultsByIndex = new Map<
+                    number,
+                    SignedUploadResult
+                >();
+                const writesByRegion = new Map<
+                    string,
+                    Array<{
+                        requestIndex: number;
+                        input: {
+                            bucket: string;
+                            objectKey: string;
+                            size: number;
+                            contentType: string;
+                            uploadMode: UploadMode;
+                            expiresInSeconds: number;
+                            multipartPartSize?: number;
+                        };
+                    }>
+                >();
+                for (let index = 0; index < resolvedFileItems.length; index++) {
+                    const item = resolvedFileItems[index];
+                    const objectKey = objectKeys[index];
+                    const uploadMode = uploadModes[index];
+                    if (!item || !objectKey || !uploadMode) {
+                        throw new Error(
+                            'Failed to build batch signed upload request',
+                        );
+                    }
+                    const regionEntries =
+                        writesByRegion.get(item.normalizedInput.bucketRegion) ??
+                        [];
+                    regionEntries.push({
+                        requestIndex: item.index,
+                        input: {
+                            bucket: item.normalizedInput.bucket,
+                            objectKey,
+                            size: item.normalizedInput.size,
+                            contentType: item.normalizedInput.contentType,
+                            uploadMode,
+                            expiresInSeconds:
+                                item.request.expiresInSeconds ??
+                                DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
+                            multipartPartSize:
+                                item.normalizedInput.multipartPartSize,
+                        },
+                    });
+                    writesByRegion.set(
+                        item.normalizedInput.bucketRegion,
+                        regionEntries,
                     );
                 }
-                const regionEntries =
-                    writesByRegion.get(item.normalizedInput.bucketRegion) ?? [];
-                regionEntries.push({
-                    requestIndex: item.index,
-                    input: {
-                        bucket: item.normalizedInput.bucket,
-                        objectKey,
-                        size: item.normalizedInput.size,
-                        contentType: item.normalizedInput.contentType,
-                        uploadMode,
-                        expiresInSeconds:
-                            item.request.expiresInSeconds ??
-                            DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS,
-                        multipartPartSize:
-                            item.normalizedInput.multipartPartSize,
-                    },
-                });
-                writesByRegion.set(
-                    item.normalizedInput.bucketRegion,
-                    regionEntries,
-                );
-            }
 
-            const regionResults = await Promise.allSettled(
-                Array.from(writesByRegion.entries()).map(
-                    async ([region, regionWrites]) => {
-                        const signedResults =
-                            await this.stores.s3Object.batchCreateSignedUploadUrls(
-                                regionWrites.map((item) => item.input),
-                                region,
-                            );
-                        for (
-                            let index = 0;
-                            index < regionWrites.length;
-                            index++
-                        ) {
-                            const regionWrite = regionWrites[index];
-                            const signedResult = signedResults[index];
-                            if (!regionWrite || !signedResult) {
-                                throw new Error(
-                                    'Failed to map signed upload result to request',
+                const regionResults = await Promise.allSettled(
+                    Array.from(writesByRegion.entries()).map(
+                        async ([region, regionWrites]) => {
+                            const signedResults =
+                                await this.stores.s3Object.batchCreateSignedUploadUrls(
+                                    regionWrites.map((item) => item.input),
+                                    region,
+                                );
+                            for (
+                                let index = 0;
+                                index < regionWrites.length;
+                                index++
+                            ) {
+                                const regionWrite = regionWrites[index];
+                                const signedResult = signedResults[index];
+                                if (!regionWrite || !signedResult) {
+                                    throw new Error(
+                                        'Failed to map signed upload result to request',
+                                    );
+                                }
+                                signedResultsByIndex.set(
+                                    regionWrite.requestIndex,
+                                    signedResult,
                                 );
                             }
-                            signedResultsByIndex.set(
-                                regionWrite.requestIndex,
-                                signedResult,
+                        },
+                    ),
+                );
+                const signedMultipartCleanupTargets =
+                    this.#toSignedMultipartCleanupTargets(
+                        resolvedFileItems,
+                        objectKeys,
+                        signedResultsByIndex,
+                    );
+
+                const failedRegionResult = regionResults.find(
+                    (result) => result.status === 'rejected',
+                );
+                if (failedRegionResult?.status === 'rejected') {
+                    await this.#cleanupSignedMultipartUploads(
+                        signedMultipartCleanupTargets,
+                    );
+
+                    throw this.#toError(
+                        failedRegionResult.reason,
+                        'Failed to create batch signed upload urls',
+                    );
+                }
+
+                try {
+                    const pendingInputs: PendingUploadCreateInput[] = [];
+                    for (
+                        let index = 0;
+                        index < resolvedFileItems.length;
+                        index++
+                    ) {
+                        const item = resolvedFileItems[index];
+                        const parentEntry = parentEntries[index];
+                        const objectKey = objectKeys[index];
+                        const sessionId = sessionIds[index];
+                        const uploadMode = uploadModes[index];
+                        const existingEntry = item?.existingEntry;
+                        if (
+                            !item ||
+                            !parentEntry ||
+                            !objectKey ||
+                            !sessionId ||
+                            !uploadMode
+                        ) {
+                            throw new Error(
+                                'Failed to build pending upload input from batch start data',
                             );
                         }
-                    },
-                ),
-            );
-            const signedMultipartCleanupTargets =
-                this.#toSignedMultipartCleanupTargets(
-                    resolvedFileItems,
-                    objectKeys,
-                    signedResultsByIndex,
-                );
-
-            const failedRegionResult = regionResults.find(
-                (result) => result.status === 'rejected',
-            );
-            if (failedRegionResult?.status === 'rejected') {
-                await this.#cleanupSignedMultipartUploads(
-                    signedMultipartCleanupTargets,
-                );
-
-                throw this.#toError(
-                    failedRegionResult.reason,
-                    'Failed to create batch signed upload urls',
-                );
-            }
-
-            try {
-                const pendingInputs: PendingUploadCreateInput[] = [];
-                for (let index = 0; index < resolvedFileItems.length; index++) {
-                    const item = resolvedFileItems[index];
-                    const parentEntry = parentEntries[index];
-                    const objectKey = objectKeys[index];
-                    const sessionId = sessionIds[index];
-                    const uploadMode = uploadModes[index];
-                    const existingEntry = item?.existingEntry;
-                    if (
-                        !item ||
-                        !parentEntry ||
-                        !objectKey ||
-                        !sessionId ||
-                        !uploadMode
-                    ) {
-                        throw new Error(
-                            'Failed to build pending upload input from batch start data',
+                        const signedUploadResult = signedResultsByIndex.get(
+                            item.index,
                         );
-                    }
-                    const signedUploadResult = signedResultsByIndex.get(
-                        item.index,
-                    );
-                    if (!signedUploadResult) {
-                        throw new Error(
-                            'Failed to resolve signed upload result for batch start data',
-                        );
-                    }
+                        if (!signedUploadResult) {
+                            throw new Error(
+                                'Failed to resolve signed upload result for batch start data',
+                            );
+                        }
 
-                    const createInput = this.#toCreateInput(
-                        item.normalizedInput,
-                        objectKey,
-                    );
-                    pendingInputs.push({
-                        sessionId,
-                        userId,
-                        appId: item.normalizedInput.associatedAppId ?? null,
-                        parentUid: parentEntry.uuid,
-                        parentPath: parentEntry.path,
-                        targetName: pathPosix.basename(
-                            item.normalizedInput.path,
-                        ),
-                        targetPath: item.normalizedInput.path,
-                        overwriteTargetUid: existingEntry?.uuid ?? null,
-                        contentType: item.normalizedInput.contentType,
-                        size: item.normalizedInput.size,
-                        checksumSha256:
-                            item.normalizedInput.checksumSha256 ?? null,
-                        uploadMode,
-                        multipartUploadId:
-                            signedUploadResult.multipartUploadId ?? null,
-                        multipartPartSize:
-                            signedUploadResult.multipartPartSize ?? null,
-                        multipartPartCount:
-                            signedUploadResult.multipartPartCount ?? null,
-                        storageProvider: 's3',
-                        bucket: item.normalizedInput.bucket,
-                        bucketRegion: item.normalizedInput.bucketRegion,
-                        objectKey,
-                        metadataJson: JSON.stringify(createInput),
-                        expiresAt: signedUploadResult.expiresAt,
-                    });
-                }
-
-                await this.stores.fsEntry.batchCreatePendingEntries(
-                    pendingInputs,
-                );
-
-                for (let index = 0; index < resolvedFileItems.length; index++) {
-                    const item = resolvedFileItems[index];
-                    const sessionId = sessionIds[index];
-                    const objectKey = objectKeys[index];
-                    if (!item || !sessionId || !objectKey) {
-                        throw new Error(
-                            'Failed to build signed write response from batch start data',
-                        );
-                    }
-                    const signedUploadResult = signedResultsByIndex.get(
-                        item.index,
-                    );
-                    if (!signedUploadResult) {
-                        throw new Error(
-                            'Failed to resolve signed upload result for batch response data',
-                        );
-                    }
-                    responsesByIndex.set(
-                        item.index,
-                        this.#toSignedWriteResponse(
-                            sessionId,
+                        const createInput = this.#toCreateInput(
                             item.normalizedInput,
                             objectKey,
-                            signedUploadResult,
-                        ),
+                        );
+                        const reservation =
+                            reservationBySessionId.get(sessionId);
+                        pendingInputs.push({
+                            sessionId,
+                            userId,
+                            appId: item.normalizedInput.associatedAppId ?? null,
+                            parentUid: parentEntry.uuid,
+                            parentPath: parentEntry.path,
+                            targetName: pathPosix.basename(
+                                item.normalizedInput.path,
+                            ),
+                            targetPath: item.normalizedInput.path,
+                            overwriteTargetUid: existingEntry?.uuid ?? null,
+                            contentType: item.normalizedInput.contentType,
+                            size: item.normalizedInput.size,
+                            checksumSha256:
+                                item.normalizedInput.checksumSha256 ?? null,
+                            uploadMode,
+                            multipartUploadId:
+                                signedUploadResult.multipartUploadId ?? null,
+                            multipartPartSize:
+                                signedUploadResult.multipartPartSize ?? null,
+                            multipartPartCount:
+                                signedUploadResult.multipartPartCount ?? null,
+                            storageProvider: 's3',
+                            bucket: item.normalizedInput.bucket,
+                            bucketRegion: item.normalizedInput.bucketRegion,
+                            objectKey,
+                            metadataJson: JSON.stringify(createInput),
+                            expiresAt: signedUploadResult.expiresAt,
+                            reservationOwnerId: reservation?.ownerId ?? null,
+                            reservedBytes: reservation?.bytes ?? null,
+                        });
+                    }
+
+                    await this.stores.fsEntry.batchCreatePendingEntries(
+                        pendingInputs,
                     );
+
+                    for (
+                        let index = 0;
+                        index < resolvedFileItems.length;
+                        index++
+                    ) {
+                        const item = resolvedFileItems[index];
+                        const sessionId = sessionIds[index];
+                        const objectKey = objectKeys[index];
+                        if (!item || !sessionId || !objectKey) {
+                            throw new Error(
+                                'Failed to build signed write response from batch start data',
+                            );
+                        }
+                        const signedUploadResult = signedResultsByIndex.get(
+                            item.index,
+                        );
+                        if (!signedUploadResult) {
+                            throw new Error(
+                                'Failed to resolve signed upload result for batch response data',
+                            );
+                        }
+                        responsesByIndex.set(
+                            item.index,
+                            this.#toSignedWriteResponse(
+                                sessionId,
+                                item.normalizedInput,
+                                objectKey,
+                                signedUploadResult,
+                            ),
+                        );
+                    }
+                } catch (error) {
+                    await this.#cleanupSignedMultipartUploads(
+                        signedMultipartCleanupTargets,
+                    );
+                    throw error;
                 }
             } catch (error) {
-                await this.#cleanupSignedMultipartUploads(
-                    signedMultipartCleanupTargets,
-                );
+                await this.#releaseUploadReservations(reservedLeases);
                 throw error;
             }
         }
@@ -2066,6 +2617,36 @@ export class FSService extends PuterService {
                 createdDirectoryEntriesByPath.values(),
             ),
         };
+    }
+
+    /**
+     * Read-only lookup of pending upload sessions, one per id in request order.
+     * Callers use it to re-authorize a session's target path before resuming or
+     * completing an upload, since the session outlives the access check
+     * `startWrite` made.
+     */
+    async getUploadSessions(
+        userId: number,
+        uploadIds: string[],
+    ): Promise<PendingUploadSession[]> {
+        if (uploadIds.length === 0) {
+            return [];
+        }
+        const sessions =
+            await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
+        return sessions.map((session) => {
+            if (!session) {
+                throw new HttpError(404, 'Upload session was not found', {
+                    legacyCode: 'not_found',
+                });
+            }
+            if (session.userId !== userId) {
+                throw new HttpError(403, 'Upload session access denied', {
+                    legacyCode: 'forbidden',
+                });
+            }
+            return session;
+        });
     }
 
     async signMultipartParts(
@@ -2121,10 +2702,14 @@ export class FSService extends PuterService {
             );
         }
         if (session.expiresAt < Date.now()) {
-            await this.stores.fsEntry.markPendingEntryFailed(
-                session.sessionId,
-                'Upload session expired',
-            );
+            try {
+                await this.stores.fsEntry.markPendingEntryFailed(
+                    session.sessionId,
+                    'Upload session expired',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
             throw new HttpError(400, 'Upload session expired', {
                 legacyCode: 'session_required',
             });
@@ -2172,13 +2757,20 @@ export class FSService extends PuterService {
                     multipartUploadId: session.multipartUploadId,
                     partNumbers: uniquePartNumbers,
                     expiresInSeconds,
+                    // Re-signed parts need the same size binding the
+                    // originals got, or this route hands out unbounded URLs
+                    // for a session that was already quota-checked.
+                    declaredTotalSize: session.size,
+                    ...(session.multipartPartSize !== null
+                        ? { multipartPartSize: session.multipartPartSize }
+                        : {}),
                 },
                 session.bucketRegion,
             );
 
         const expiresAt =
             Date.now() +
-            Math.max(60, Math.min(60 * 60, expiresInSeconds)) * 1000;
+            clampSignedUploadExpirySeconds(expiresInSeconds) * 1000;
 
         return {
             uploadId: session.sessionId,
@@ -2189,6 +2781,90 @@ export class FSService extends PuterService {
             expiresAt,
             multipartPartUrls,
         };
+    }
+
+    // Object size once landed, 'missing' when the store says it isn't there,
+    // null when the check failed or gave no length.
+    async #probeSignedUpload(
+        bucket: string,
+        objectKey: string,
+        region: string,
+    ): Promise<number | 'missing' | null> {
+        try {
+            return await this.stores.s3Object.headObjectSize(
+                bucket,
+                objectKey,
+                region,
+            );
+        } catch (error) {
+            if (isMissingObjectError(error)) return 'missing';
+            console.warn(
+                `[fs] signed upload size check failed for ${objectKey}: ${this.#toErrorMessage(error)}`,
+            );
+            return null;
+        }
+    }
+
+    #logUnreceivedUploads(sessions: PendingUploadSession[]): void {
+        for (const session of sessions) {
+            console.warn('[fs] signed upload refused: object not received', {
+                sessionId: session.sessionId,
+                userId: session.userId,
+                appId: session.appId,
+                uploadMode: session.uploadMode,
+                overwrite: Boolean(session.overwriteTargetUid),
+            });
+        }
+    }
+
+    // Marks the sessions failed, releases their leases, and refuses the batch.
+    async #refuseUnreceivedUploads(
+        sessions: PendingUploadSession[],
+    ): Promise<never> {
+        this.#logUnreceivedUploads(sessions);
+        try {
+            await this.stores.fsEntry.markPendingEntriesFailed(
+                sessions.map((session) => session.sessionId),
+                UPLOAD_NOT_RECEIVED,
+            );
+        } finally {
+            await this.#releaseSessionUploadReservations(sessions);
+        }
+        throw uploadNotReceivedError();
+    }
+
+    // Probes each item's size into `sizes`; refuses the batch if any object never arrived.
+    async #probeBatchUploads(
+        items: BatchCompletionProbeItem[],
+        sizes: Map<string, number | null>,
+    ): Promise<void> {
+        if (items.length === 0) return;
+        const missing: PendingUploadSession[] = [];
+        await Promise.all(
+            items.map(async (item) => {
+                const bucket =
+                    item.session.bucket ??
+                    item.finalData.bucket ??
+                    this.#resolveBucket();
+                const region =
+                    item.session.bucketRegion ??
+                    item.finalData.bucketRegion ??
+                    this.#resolveBucketRegion();
+                const uploaded = await this.#probeSignedUpload(
+                    bucket,
+                    item.session.objectKey,
+                    region,
+                );
+                if (uploaded === 'missing') {
+                    missing.push(item.session);
+                    return;
+                }
+                sizes.set(item.session.sessionId, uploaded);
+            }),
+        );
+        if (missing.length > 0) {
+            await this.#refuseUnreceivedUploads(missing);
+        }
     }
 
     async completeUrlWrite(
@@ -2208,18 +2884,16 @@ export class FSService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
-        if (session.status !== 'pending') {
-            throw new HttpError(
-                409,
-                `Upload session is not pending (status=${session.status})`,
-                { legacyCode: 'conflict' },
-            );
-        }
+        assertSessionCompletable(session);
         if (session.expiresAt < Date.now()) {
-            await this.stores.fsEntry.markPendingEntryFailed(
-                session.sessionId,
-                'Upload session expired',
-            );
+            try {
+                await this.stores.fsEntry.markPendingEntryFailed(
+                    session.sessionId,
+                    'Upload session expired',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
             throw new HttpError(400, 'Upload session expired', {
                 legacyCode: 'session_required',
             });
@@ -2268,49 +2942,43 @@ export class FSService extends PuterService {
             }
 
             // The size recorded so far is the client-declared value from the
-            // start-write request. On a signed (direct-to-S3) upload the
-            // client could declare `1` and PUT gigabytes — the presigned URL
-            // doesn't bound the body — so reconcile against the object's true
-            // size before persisting. Without this, storage accounting is
-            // understated permanently (quota is SUM(size)) and the free-tier
-            // limit is bypassable. Mirrors the server-proxied /write path.
+            // start-write request. The presigned URL binds that size as
+            // `Content-Length`, but the stored object is still the authority
+            // on what landed, so reconcile before persisting — sessions signed
+            // before the binding, and stores that don't enforce it, would
+            // otherwise understate SUM(size). Mirrors /write.
             const reconcileBucket =
                 session.bucket ?? createInput.bucket ?? this.#resolveBucket();
             const reconcileRegion =
                 session.bucketRegion ??
                 createInput.bucketRegion ??
                 this.#resolveBucketRegion();
-            let trueSize: number | null = null;
-            try {
-                trueSize = await this.stores.s3Object.headObjectSize(
-                    reconcileBucket,
-                    session.objectKey,
-                    reconcileRegion,
-                );
-            } catch {
-                // HEAD failed (e.g. object never uploaded) — leave the
-                // declared size; don't block completion on a metadata read.
-                trueSize = null;
+            const uploaded = await this.#probeSignedUpload(
+                reconcileBucket,
+                session.objectKey,
+                reconcileRegion,
+            );
+            if (uploaded === 'missing') {
+                this.#logUnreceivedUploads([session]);
+                throw uploadNotReceivedError();
             }
-            if (typeof trueSize === 'number' && trueSize >= 0) {
-                // Record the true size only — do not re-assert the quota here.
-                // The bytes are already in S3, so a completion-time reject
-                // can't reclaim them; it only false-rejects (the start-check
-                // may have used a higher storageAllowanceMax override that
-                // isn't persisted in the session) and deletes within-quota
-                // uploads. Recording real bytes is what closes the bypass:
-                // the user's SUM(size) becomes accurate so their next signed
-                // -write start-check (#assertStorageAllowance via
-                // getUserStorageAllowance) blocks them. The residual is a
-                // single in-flight upload over quota — the same bounded
-                // check-then-act window the start-check already has.
-                createInput.size = trueSize;
+            if (typeof uploaded === 'number' && uploaded >= 0) {
+                // Record the true size only — do not re-assert the quota
+                // here. The bytes are already in the object store, so a
+                // completion-time reject can't reclaim them; it only
+                // false-rejects (the start-check may have used a higher
+                // storageAllowanceMax override that isn't persisted in the
+                // session) and deletes within-quota uploads. Over-declaration
+                // is closed at signing time now, so what's left is the
+                // bounded check-then-act window the start-check already has.
+                createInput.size = uploaded;
             }
 
             const fsEntry = await this.stores.fsEntry.completePendingEntry(
                 session.sessionId,
                 createInput,
             );
+            await this.#settleSessionUploadReservations([session]);
             this.#emitFsEvent(
                 session.overwriteTargetUid ? 'fs.write.file' : 'fs.create.file',
                 fsEntry,
@@ -2322,12 +2990,16 @@ export class FSService extends PuterService {
                 requestedThumbnail,
             };
         } catch (error) {
-            await this.stores.fsEntry.markPendingEntryFailed(
-                session.sessionId,
-                error instanceof Error
-                    ? error.message
-                    : 'Unknown error while completing upload',
-            );
+            try {
+                await this.stores.fsEntry.markPendingEntryFailed(
+                    session.sessionId,
+                    error instanceof Error
+                        ? error.message
+                        : 'Unknown error while completing upload',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
             throw error;
         }
     }
@@ -2361,7 +3033,7 @@ export class FSService extends PuterService {
             finalData: FSEntryCreateInput;
             requestedThumbnail: string | null | undefined;
         }> = [];
-        const expiredSessionIds: string[] = [];
+        const expiredSessions: PendingUploadSession[] = [];
 
         for (let index = 0; index < completeWriteRequests.length; index++) {
             const request = completeWriteRequests[index];
@@ -2376,15 +3048,9 @@ export class FSService extends PuterService {
                     legacyCode: 'forbidden',
                 });
             }
-            if (session.status !== 'pending') {
-                throw new HttpError(
-                    409,
-                    `Upload session is not pending (status=${session.status})`,
-                    { legacyCode: 'conflict' },
-                );
-            }
+            assertSessionCompletable(session);
             if (session.expiresAt < Date.now()) {
-                expiredSessionIds.push(session.sessionId);
+                expiredSessions.push(session);
                 continue;
             }
 
@@ -2401,15 +3067,27 @@ export class FSService extends PuterService {
             });
         }
 
-        if (expiredSessionIds.length > 0) {
-            await this.stores.fsEntry.markPendingEntriesFailed(
-                expiredSessionIds,
-                'Upload session expired',
-            );
+        if (expiredSessions.length > 0) {
+            try {
+                await this.stores.fsEntry.markPendingEntriesFailed(
+                    expiredSessions.map((session) => session.sessionId),
+                    'Upload session expired',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations(expiredSessions);
+            }
             throw new HttpError(400, 'Upload session expired', {
                 legacyCode: 'session_required',
             });
         }
+
+        const uploadedSizes = new Map<string, number | null>();
+        const singleItems = completionItems.filter(
+            (item) => item.session.uploadMode !== 'multipart',
+        );
+        // Probe the single-mode items before any multipart completion runs —
+        // a multipart completion can't be undone if a sibling is refused.
+        await this.#probeBatchUploads(singleItems, uploadedSizes);
 
         const multipartItems = completionItems.filter(
             (item) => item.session.uploadMode === 'multipart',
@@ -2454,6 +3132,7 @@ export class FSService extends PuterService {
 
         const failedMultipartItems: Array<{
             sessionId: string;
+            session: PendingUploadSession;
             reason: unknown;
         }> = [];
         for (let index = 0; index < multipartCompletions.length; index++) {
@@ -2462,20 +3141,27 @@ export class FSService extends PuterService {
             if (completion?.status === 'rejected' && multipartItem) {
                 failedMultipartItems.push({
                     sessionId: multipartItem.session.sessionId,
+                    session: multipartItem.session,
                     reason: completion.reason,
                 });
             }
         }
 
         if (failedMultipartItems.length > 0) {
-            await Promise.all(
-                failedMultipartItems.map((item) => {
-                    return this.stores.fsEntry.markPendingEntryFailed(
-                        item.sessionId,
-                        this.#toErrorMessage(item.reason),
-                    );
-                }),
-            );
+            try {
+                await Promise.all(
+                    failedMultipartItems.map((item) => {
+                        return this.stores.fsEntry.markPendingEntryFailed(
+                            item.sessionId,
+                            this.#toErrorMessage(item.reason),
+                        );
+                    }),
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations(
+                    failedMultipartItems.map((item) => item.session),
+                );
+            }
 
             const firstReason = failedMultipartItems[0]?.reason;
             if (firstReason instanceof HttpError) {
@@ -2487,47 +3173,20 @@ export class FSService extends PuterService {
             throw new Error('Failed to complete multipart upload');
         }
 
-        // Reconcile client-declared sizes against the true uploaded object
-        // sizes before persisting — see completeUrlWrite for the rationale.
-        // Without this the batch endpoint is a parallel bypass of the same
-        // storage-quota check.
-        const reconcileBucketRegion = (
-            item: (typeof completionItems)[number],
-        ) => ({
-            bucket:
-                item.session.bucket ??
-                item.finalData.bucket ??
-                this.#resolveBucket(),
-            region:
-                item.session.bucketRegion ??
-                item.finalData.bucketRegion ??
-                this.#resolveBucketRegion(),
-        });
-        const headSizes = await Promise.all(
-            completionItems.map(async (item) => {
-                const { bucket, region } = reconcileBucketRegion(item);
-                try {
-                    return await this.stores.s3Object.headObjectSize(
-                        bucket,
-                        item.session.objectKey,
-                        region,
-                    );
-                } catch {
-                    return null;
-                }
-            }),
-        );
+        // Also records the multipart sizes.
+        await this.#probeBatchUploads(multipartItems, uploadedSizes);
+
         // Record the true sizes only — do not re-assert the quota here. See
-        // completeUrlWrite: the bytes are already in S3 so a completion-time
-        // reject can't reclaim them, and per-item deletes would destroy the
-        // bytes of correctly-declared, within-quota siblings in the batch.
-        // Recording real sizes keeps SUM(size) accurate so the next
-        // signed-write start-check blocks an over-quota user.
-        for (let index = 0; index < completionItems.length; index++) {
-            const item = completionItems[index];
-            const trueSize = headSizes[index];
-            if (typeof trueSize !== 'number' || trueSize < 0) continue;
-            item.finalData.size = trueSize;
+        // completeUrlWrite: the bytes are already in the object store so a
+        // completion-time reject can't reclaim them, and per-item deletes
+        // would destroy the bytes of correctly-declared, within-quota
+        // siblings in the batch. Recording real sizes keeps SUM(size)
+        // accurate so the next signed-write start-check blocks an
+        // over-quota user.
+        for (const item of completionItems) {
+            const uploaded = uploadedSizes.get(item.session.sessionId);
+            if (typeof uploaded !== 'number' || uploaded < 0) continue;
+            item.finalData.size = uploaded;
         }
 
         const completedEntries =
@@ -2537,6 +3196,9 @@ export class FSService extends PuterService {
                     finalData: item.finalData,
                 })),
             );
+        await this.#settleSessionUploadReservations(
+            completionItems.map((item) => item.session),
+        );
 
         const responseByIndex = new Map<number, CompleteWriteResponse>();
         for (let index = 0; index < completionItems.length; index++) {
@@ -2588,6 +3250,9 @@ export class FSService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
+        // A completed session's object now backs a live entry, and its
+        // reservation is already settled — nothing left for abort to undo.
+        if (session.status === 'completed') return;
 
         try {
             const bucket = session.bucket;
@@ -2603,6 +3268,20 @@ export class FSService extends PuterService {
                         bucket,
                         session.objectKey,
                     );
+                } else if (session.overwriteTargetUid) {
+                    // An overwrite shares the live entry's object key, so only
+                    // delete once the primary confirms that entry is gone.
+                    const target =
+                        await this.stores.fsEntry.getEntryByUuidFromPrimary(
+                            session.overwriteTargetUid,
+                        );
+                    if (target === null) {
+                        await this.stores.s3Object.deleteObject(
+                            bucket,
+                            session.objectKey,
+                            bucketRegion,
+                        );
+                    }
                 } else {
                     await this.stores.s3Object.deleteObject(
                         bucket,
@@ -2612,10 +3291,14 @@ export class FSService extends PuterService {
                 }
             }
         } finally {
-            await this.stores.fsEntry.abortPendingEntry(
-                session.sessionId,
-                'Upload aborted by caller',
-            );
+            try {
+                await this.stores.fsEntry.abortPendingEntry(
+                    session.sessionId,
+                    'Upload aborted by caller',
+                );
+            } finally {
+                await this.#releaseSessionUploadReservations([session]);
+            }
         }
     }
 
@@ -2624,10 +3307,15 @@ export class FSService extends PuterService {
         writeRequest: WriteRequest,
         uploadTracker?: UploadProgressTrackerLike,
         storageAllowanceMax?: number,
+        homeRegion?: string,
     ): Promise<WriteResponse> {
+        // Server-only, and a positional argument for that reason: the
+        // controllers build `writeRequest` out of the parsed request body, so a
+        // field there would let a caller choose its own bucket.
         let normalizedInput = this.#normalizeWriteInput(
             userId,
             writeRequest.fileMetadata,
+            homeRegion,
         );
         const [resolvedTarget] = await this.#resolveWriteTargets(userId, [
             {
@@ -2645,11 +3333,20 @@ export class FSService extends PuterService {
         normalizedInput.thumbnail = null;
 
         const existingSize = existingEntry?.size ?? 0;
-        await this.#assertStorageAllowance(
+        const storageOwner = await this.#storageOwnerOf(
+            normalizedInput.path,
             userId,
+        );
+        const ownerAllowanceMax = this.#allowanceOverrideFor(
+            storageOwner,
+            userId,
+            storageAllowanceMax,
+        );
+        await this.#assertStorageAllowance(
+            storageOwner,
             normalizedInput.size,
             existingSize,
-            storageAllowanceMax,
+            ownerAllowanceMax,
         );
 
         const uploadBody = await this.#toUploadBody(
@@ -2683,10 +3380,10 @@ export class FSService extends PuterService {
         }
         if (uploadedSize > normalizedInput.size) {
             await this.#assertStorageAllowance(
-                userId,
+                storageOwner,
                 uploadedSize,
                 existingSize,
-                storageAllowanceMax,
+                ownerAllowanceMax,
             );
         }
         normalizedInput.size = uploadedSize;
@@ -2850,12 +3547,19 @@ export class FSService extends PuterService {
 
     /**
      * Cursor-paginated nested listing: descendants of `path` up to `maxDepth`
-     * levels deep, ordered by path. Owner-scoped by `userId` + path prefix.
+     * levels deep. Owner-scoped by `userId` + path prefix. Sorts as asked; a
+     * `name` sort orders by full path so subtrees stay grouped.
      */
     async listDirectoryTreePage(
         userId: number,
         path: string,
-        options: { limit?: number; cursor?: string | null; maxDepth: number },
+        options: {
+            limit?: number;
+            cursor?: string | null;
+            maxDepth: number;
+            sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        },
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         return this.stores.fsEntry.listDescendantsPage(userId, path, options);
     }
@@ -2980,11 +3684,34 @@ export class FSService extends PuterService {
         }
     }
 
-    // S3 returned NoSuchKey for an entry the DB still has — orphan. Delete
-    // the row (and emit fs.remove.node) so subsequent reads 404 cleanly via
-    // resolveNode instead of bubbling another S3 error. Best-effort: read
-    // path must not fail because cleanup failed.
+    // Only a second, definitive not-found from the entry's own recorded
+    // location removes it — a spurious miss elsewhere must not destroy data.
+    async #isObjectConfirmedMissing(
+        entry: FSEntry,
+        objectKey: string,
+    ): Promise<boolean> {
+        if (!entry.bucket || !entry.bucketRegion) return false;
+        try {
+            await this.stores.s3Object.headObjectSize(
+                entry.bucket,
+                objectKey,
+                entry.bucketRegion,
+            );
+            return false;
+        } catch (error) {
+            return isMissingObjectError(error);
+        }
+    }
+
+    // Called after NoSuchKey against an entry the DB still has. Confirm at
+    // the entry's own recorded location before deleting the row (and
+    // emitting fs.remove.node) — best-effort: the caller must not fail
+    // because cleanup failed.
     async #handleGhostFile(entry: FSEntry, objectKey: string): Promise<void> {
+        const confirmed = await this.#isObjectConfirmedMissing(
+            entry,
+            objectKey,
+        );
         console.error('prodfsv2 ghost fsentry — backing S3 object missing', {
             userId: entry.userId,
             uuid: entry.uuid,
@@ -2992,7 +3719,9 @@ export class FSService extends PuterService {
             bucket: entry.bucket,
             bucketRegion: entry.bucketRegion,
             objectKey,
+            removed: confirmed,
         });
+        if (!confirmed) return;
         try {
             await this.remove(entry.userId, { entry, systemInitiated: true });
         } catch (cleanupErr) {
@@ -3118,7 +3847,6 @@ export class FSService extends PuterService {
         let created: FSEntry;
         try {
             created = await this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent,
                 name,
                 kind: 'directory',
@@ -3190,7 +3918,6 @@ export class FSService extends PuterService {
             });
         }
         const created = await this.stores.fsEntry.createNonFileEntry({
-            userId,
             parent,
             name,
             kind: 'empty-file',
@@ -3203,15 +3930,14 @@ export class FSService extends PuterService {
      * Rename an entry in place. The name changes and path rewrites; if the
      * entry is a directory, descendant paths are rewritten too.
      */
-    async rename(entry: FSEntry, newName: string): Promise<FSEntry> {
-        if (newName.includes('/'))
-            throw new HttpError(400, 'Name cannot contain a slash', {
-                legacyCode: 'bad_request',
-            });
-        if (newName.trim().length === 0)
-            throw new HttpError(400, 'Name cannot be empty', {
-                legacyCode: 'bad_request',
-            });
+    async rename(
+        userId: number,
+        entry: FSEntry,
+        newName: string,
+    ): Promise<FSEntry> {
+        this.#assertNotUserRoot(entry, 'rename');
+        await this.#assertCanRename(entry, userId);
+        this.#assertUsableName(newName);
         if (entry.name === newName) return entry;
         await this.#assertCrossAppDeleteAllowed(entry.path);
 
@@ -3239,12 +3965,17 @@ export class FSService extends PuterService {
                 newPath,
             );
         }
-        this.#emitFsEvent('fs.rename', updated, {
-            old_name: entry.name,
-            new_name: newName,
-            old_path: entry.path,
-            new_path: newPath,
-        });
+        this.#emitFsEvent(
+            'fs.rename',
+            updated,
+            {
+                old_name: entry.name,
+                new_name: newName,
+                old_path: entry.path,
+                new_path: newPath,
+            },
+            { path: entry.path },
+        );
         return updated;
     }
 
@@ -3279,7 +4010,6 @@ export class FSService extends PuterService {
             }
         }
         const created = await this.stores.fsEntry.createNonFileEntry({
-            userId,
             parent: input.parent,
             name,
             kind: 'shortcut',
@@ -3291,13 +4021,6 @@ export class FSService extends PuterService {
 
     // -- Mutation: remove / move / copy ---------------------------------
 
-    /**
-     * Remove an entry. For directories, descendants are walked and removed
-     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
-     * thumbnail extension (and any other listener) can clean up side state.
-     *
-     * Does NOT enforce ACL — caller (controller) performs the `write` check.
-     */
     /**
      * Delete, move, and rename all ask ACL for `fs:write`, which cannot tell
      * them apart from an ordinary write — so the delete class is enforced here
@@ -3311,9 +4034,8 @@ export class FSService extends PuterService {
     async #assertCrossAppDeleteAllowed(path: string): Promise<void> {
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor) return;
-        // Through the issuer chain: a token actor has no `app` of its own, so
-        // keying off `actor.app` would skip the guard — failing open where the
-        // paired implicator fails closed.
+        // The app the caller acts as, not the one it carries directly: a token
+        // actor has no `app` of its own and would skip the guard.
         const app = actor.effectiveApp;
         if (!app) return;
         const username = actor.user?.username;
@@ -3331,6 +4053,111 @@ export class FSService extends PuterService {
         }
     }
 
+    /**
+     * A name has to be one path segment. Rename, move and copy all splice the
+     * caller's name straight into the parent's path, so a slash or a `.`/`..`
+     * segment would name a row outside the directory the caller was authorized
+     * against — and `move` into the owner's Trash is authorized without a write
+     * check on the destination at all.
+     */
+    #assertUsableName(name: string): void {
+        if (typeof name !== 'string' || name.trim().length === 0)
+            throw new HttpError(400, 'Name cannot be empty', {
+                legacyCode: 'bad_request',
+            });
+        if (name.includes('/'))
+            throw new HttpError(400, 'Name cannot contain a slash', {
+                legacyCode: 'bad_request',
+            });
+        if (name === '.' || name === '..')
+            throw new HttpError(400, 'Name cannot be `.` or `..`', {
+                legacyCode: 'bad_request',
+            });
+    }
+
+    /**
+     * A home's name is the account's username, and ACL authorizes by matching
+     * the first path segment against it — so a root free to be renamed or moved
+     * can be parked on a name another account later claims, leaving two trees
+     * at one path. `renameUserHome` is the only writer of a home's name.
+     *
+     * Both parent columns have to be NULL: `parent_uid` alone is NULL on legacy
+     * rows that only ever carried `parent_id`.
+     */
+    #assertNotUserRoot(entry: FSEntry, verb: string): void {
+        if (entry.parentUid === null && entry.parentId === null) {
+            throw new HttpError(
+                403,
+                `Cannot ${verb} a home directory — its name follows the account username.`,
+                { legacyCode: 'forbidden' },
+            );
+        }
+    }
+
+    /**
+     * A FILE shared directly with you is renameable with `write` on it — the
+     * name is the file's own, and rename stays in place. A folder's name is
+     * structure the owner's whole subtree hangs off, so folders (and anything
+     * reached inside a shared folder) go by the parent-write restructure rule
+     * instead.
+     */
+    async #assertCanRename(entry: FSEntry, userId: number): Promise<void> {
+        if (entry.userId !== userId && !entry.isDir) {
+            const actor = Context.get('actor') as Actor | undefined;
+            if (actor) {
+                const allowed = await this.services.acl.check(
+                    actor,
+                    {
+                        path: entry.path,
+                        resolveAncestors: () =>
+                            this.getAncestorChain(entry.path),
+                    },
+                    'write',
+                );
+                if (allowed) return;
+            }
+        }
+
+        await this.#assertCanRestructure(entry, userId);
+    }
+
+    /**
+     * Move and delete are authorized by `write` on the parent, not on the entry
+     * — which is what lets a share recipient reorganize inside a shared folder
+     * without reaching the shared folder itself.
+     */
+    async #assertCanRestructure(entry: FSEntry, userId: number): Promise<void> {
+        if (entry.userId === userId) return;
+
+        const actor = Context.get('actor') as Actor | undefined;
+        const parentPath = pathPosix.dirname(entry.path);
+        if (actor && parentPath !== '/') {
+            const allowed = await this.services.acl.check(
+                actor,
+                {
+                    path: parentPath,
+                    resolveAncestors: () => this.getAncestorChain(parentPath),
+                },
+                'write',
+            );
+            if (allowed) return;
+        }
+
+        throw new HttpError(
+            403,
+            'Cannot restructure an entry owned by another user',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
+    /**
+     * Remove an entry. For directories, descendants are walked and removed
+     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
+     * thumbnail extension (and any other listener) can clean up side state.
+     *
+     * The caller checks `write` on the entry; the parent check that governs
+     * restructuring is enforced here.
+     */
     async remove(
         userId: number,
         input: {
@@ -3349,20 +4176,10 @@ export class FSService extends PuterService {
         if (!input.systemInitiated) {
             await this.#assertCrossAppDeleteAllowed(entry.path);
         }
-        if (entry.userId !== userId) {
-            // Defensive — only the owner should be hitting this path; higher
-            // layers grant access via ACL, not raw ownership, but we still
-            // want to avoid a misrouted call taking out someone else's tree.
-            throw new HttpError(
-                403,
-                'Cannot remove an entry owned by another user',
-                { legacyCode: 'forbidden' },
-            );
-        }
+        await this.#assertCanRestructure(entry, userId);
 
         if (entry.isDir) {
             const descendants = await this.stores.fsEntry.listDescendantsByPath(
-                userId,
                 entry.path,
             );
             if (descendants.length > 0 && !input.recursive) {
@@ -3521,6 +4338,90 @@ export class FSService extends PuterService {
         } catch {
             // Non-critical.
         }
+        this.#dispatchEvents('fs.remove.node', entry);
+    }
+
+    /**
+     * Publish a committed change to whoever subscribed to it.
+     *
+     * Post-commit and fire-and-forget: the write already happened, so nothing
+     * here may fail it or slow it down. The ancestor walk is a thunk because
+     * almost every write belongs to a user with no subscriptions, and that user
+     * must not pay for the walk to find out.
+     *
+     * `movedFrom` is a move only: the folder `entry` left needs its own
+     * ancestor walk, taken from where it used to live, or its subscribers would
+     * never hear the node went.
+     *
+     * `ancestors` lets a caller that already knows the chain supply it instead
+     * of walking from `entry.path`.
+     */
+    #dispatchEvents(
+        key: EventKey,
+        entry: FSEntry,
+        options: {
+            movedFrom?: { path: string };
+            ancestors?: () => Promise<AncestorChain>;
+        } = {},
+    ): void {
+        const events = this.services.events;
+        if (!events?.enabled) return;
+        const { movedFrom, ancestors } = options;
+        try {
+            void events
+                .dispatchFs(key, entry, {
+                    actingUserId: (Context.get('actor') as Actor | undefined)
+                        ?.user?.id,
+                    ancestors:
+                        ancestors ?? (() => this.getAncestorChain(entry.path)),
+                    ...(movedFrom
+                        ? {
+                              movedFrom: {
+                                  path: movedFrom.path,
+                                  ancestors: () =>
+                                      this.getAncestorChain(movedFrom.path),
+                              },
+                          }
+                        : {}),
+                })
+                .catch((err: unknown) => {
+                    console.warn('[fs] event dispatch failed', err);
+                });
+        } catch (err) {
+            console.warn('[fs] event dispatch failed', err);
+        }
+    }
+
+    /**
+     * Publish an entry a copy created as a plain `add` — the same thing a write
+     * or an upload publishes. Events-API dispatch only: `fs.create.*` on the
+     * internal bus has consumers a copy has never reached, and the copy's own
+     * bus event stays `fs.copy.node`.
+     *
+     * Links are left out: a shortcut names another node, so what a subscriber
+     * should be told about one is unsettled.
+     *
+     * `above` is the new entries between this one and the destination parent,
+     * innermost first, so a tree copy costs one ancestor walk rather than one
+     * per entry.
+     */
+    #publishCopiedEntry(
+        entry: FSEntry,
+        above: AncestorChain,
+        destinationChain: () => Promise<AncestorChain>,
+    ): void {
+        if (entry.isSymlink || entry.isShortcut) return;
+        this.#dispatchEvents(
+            entry.isDir ? 'fs.create.directory' : 'fs.create.file',
+            entry,
+            {
+                ancestors: async () => [
+                    { uid: entry.uid, path: entry.path },
+                    ...above,
+                    ...(await destinationChain()),
+                ],
+            },
+        );
     }
 
     /**
@@ -3531,31 +4432,36 @@ export class FSService extends PuterService {
      *
      * Currently emitted: fs.create.{file,directory,shortcut,symlink}
      * fs.write.file — overwrite of an existing file fs.rename — in-place name
-     * change (move emits fs.move.node separately)
+     * change (move emits fs.move.node separately); both carry the path the node
+     * left via `movedFrom`.
      *
      * Skipped intentionally: `fs.pending.*` (no real entry yet at signed-URL
      * issue time) and per-flavor `fs.move.file` (move already emits
      * `fs.move.node`).
      */
-    #emitFsEvent(
-        name: string,
+    #emitFsEvent<T extends EventKey>(
+        name: T,
         entry: FSEntry,
         extras: Record<string, unknown> = {},
+        movedFrom?: { path: string },
     ): void {
         try {
             this.clients.event.emit(
                 name,
+                // The aliases are what existing handlers destructure; the cast
+                // is what lets one helper serve every key that carries them.
                 {
                     node: entry,
                     entry,
                     uid: entry.uuid,
                     ...extras,
-                },
+                } as EventMap[T],
                 {},
             );
         } catch {
             console.warn('missing event emissions');
         }
+        this.#dispatchEvents(name, entry, { movedFrom });
     }
 
     /**
@@ -3581,13 +4487,19 @@ export class FSService extends PuterService {
         },
     ): Promise<FSEntry> {
         const { source, destinationParent } = input;
+        this.#assertNotUserRoot(source, 'move');
         // The source only: moving *into* another app's AppData is a write, and
         // ACL plus the fs:write class already cover that.
         await this.#assertCrossAppDeleteAllowed(source.path);
-        if (source.userId !== userId) {
+        await this.#assertCanRestructure(source, userId);
+        // Write inside a shared folder reorganizes it, it does not empty it.
+        if (
+            source.userId !== userId &&
+            source.userId !== destinationParent.userId
+        ) {
             throw new HttpError(
                 403,
-                'Cannot move an entry owned by another user',
+                "Cannot move an entry out of its owner's tree",
                 { legacyCode: 'forbidden' },
             );
         }
@@ -3606,6 +4518,7 @@ export class FSService extends PuterService {
         }
 
         let name = input.newName ?? source.name;
+        this.#assertUsableName(name);
         const targetPath =
             destinationParent.path === '/'
                 ? `/${name}`
@@ -3647,9 +4560,20 @@ export class FSService extends PuterService {
                 this.#stripReservedMetadataKeys(input.newMetadata),
             );
 
+        // Moving your entry into another tree hands it over, bytes included,
+        // so they have to fit the new owner's allowance.
+        const newOwnerId = destinationParent.userId;
+        if (newOwnerId !== source.userId) {
+            await this.#assertStorageAllowance(
+                newOwnerId,
+                await this.#entryStorageSize(source),
+            );
+        }
+
         const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
             name,
             path: finalPath,
+            userId: newOwnerId,
             parentId: destinationParent.id,
             parentUid: destinationParent.uuid,
             ...(metadataPatch !== undefined ? { metadata: metadataPatch } : {}),
@@ -3657,9 +4581,10 @@ export class FSService extends PuterService {
 
         if (source.isDir && source.path !== finalPath) {
             await this.stores.fsEntry.updatePathPrefixForUser(
-                userId,
+                source.userId,
                 source.path,
                 finalPath,
+                newOwnerId,
             );
         }
 
@@ -3670,11 +4595,22 @@ export class FSService extends PuterService {
                     node: updated,
                     fromPath: source.path,
                     toPath: finalPath,
+                    fromUserId: source.userId,
                 },
                 {},
             );
         } catch {
             // ignore — non-critical.
+        }
+        this.#dispatchEvents('fs.move.node', updated, {
+            movedFrom: { path: source.path },
+        });
+
+        // Deleting is a move into Trash, and a grant follows its entry there,
+        // so recipients keep their access unless it is withdrawn here. Awaited,
+        // and after the events, so the holders still hear the item go.
+        if (isOwnersTrash(source, destinationParent)) {
+            await this.services.share.onEntryTrashed(updated);
         }
         return updated;
     }
@@ -3684,7 +4620,8 @@ export class FSService extends PuterService {
      * issues S3 CopyObject + DB inserts. Thumbnail URLs on entries ride along
      * in the DB column — the thumbnail extension is notified via `fs.copy.node`
      * so it can duplicate the backing S3 object (otherwise deleting one copy
-     * would nuke the other's thumbnail).
+     * would nuke the other's thumbnail). Each entry the copy creates publishes
+     * as `add`; a copied shortcut or symlink does not.
      */
     async copy(
         userId: number,
@@ -3716,6 +4653,7 @@ export class FSService extends PuterService {
         }
 
         let name = input.newName ?? source.name;
+        this.#assertUsableName(name);
         const targetPath =
             destinationParent.path === '/'
                 ? `/${name}`
@@ -3727,12 +4665,16 @@ export class FSService extends PuterService {
         // the allowance as writing them. Check before the overwrite below
         // removes anything, and credit what that removal frees.
         await this.#assertStorageAllowance(
-            userId,
+            destinationParent.userId,
             await this.#entryStorageSize(source),
             collision && input.overwrite
                 ? await this.#entryStorageSize(collision)
                 : 0,
-            input.storageAllowanceMax,
+            this.#allowanceOverrideFor(
+                destinationParent.userId,
+                userId,
+                input.storageAllowanceMax,
+            ),
         );
 
         if (collision) {
@@ -3761,14 +4703,28 @@ export class FSService extends PuterService {
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
 
+        // One ancestor walk for the whole copy, run only if something needs
+        // it — the destination parent's own chain is the same for every
+        // entry the copy creates.
+        let destinationChainCache: Promise<AncestorChain> | null = null;
+        const destinationChain = (): Promise<AncestorChain> => {
+            if (!destinationChainCache)
+                destinationChainCache = this.getAncestorChain(
+                    destinationParent.path,
+                );
+            return destinationChainCache;
+        };
+
         if (!source.isDir) {
-            return this.#copyLeafEntry(
+            const copied = await this.#copyLeafEntry(
                 userId,
                 source,
                 destinationParent,
                 name,
                 finalPath,
             );
+            this.#publishCopiedEntry(copied, [], destinationChain);
+            return copied;
         }
 
         // Recursive directory copy:
@@ -3776,7 +4732,6 @@ export class FSService extends PuterService {
         // 2) Walk descendants; for each, compute new path by swapping prefix
         // 3) Create a new row (files copy S3 object; dirs just insert)
         const newRoot = await this.stores.fsEntry.createNonFileEntry({
-            userId,
             parent: destinationParent,
             name,
             kind: 'directory',
@@ -3785,9 +4740,13 @@ export class FSService extends PuterService {
             associatedAppId: source.associatedAppId,
             isPublic: source.isPublic,
         });
+        // The new entries above a given new entry, so a descendant's chain
+        // can be built without reading anything back.
+        const aboveByNewPath = new Map<string, AncestorChain>();
+        aboveByNewPath.set(newRoot.path, []);
+        this.#publishCopiedEntry(newRoot, [], destinationChain);
 
         const descendants = await this.stores.fsEntry.listDescendantsByPath(
-            source.userId,
             source.path,
         );
         // Sort shallow-first so parents exist before children.
@@ -3807,7 +4766,6 @@ export class FSService extends PuterService {
             }
             const copied = descendant.isDir
                 ? await this.stores.fsEntry.createNonFileEntry({
-                      userId,
                       parent: newParent,
                       name: descendant.name,
                       kind: 'directory',
@@ -3825,6 +4783,12 @@ export class FSService extends PuterService {
                           ? `/${descendant.name}`
                           : `${newParent.path}/${descendant.name}`,
                   );
+            const above: AncestorChain = [
+                { uid: newParent.uid, path: newParent.path },
+                ...(aboveByNewPath.get(newParent.path) ?? []),
+            ];
+            aboveByNewPath.set(copied.path, above);
+            this.#publishCopiedEntry(copied, above, destinationChain);
             newByOldPath.set(descendant.path, copied);
         }
 
@@ -3843,7 +4807,6 @@ export class FSService extends PuterService {
     ): Promise<FSEntry> {
         if (source.isSymlink) {
             return this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent: destinationParent,
                 name: newName,
                 kind: 'symlink',
@@ -3854,7 +4817,6 @@ export class FSService extends PuterService {
         }
         if (source.isShortcut) {
             return this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent: destinationParent,
                 name: newName,
                 kind: 'shortcut',
@@ -3870,7 +4832,6 @@ export class FSService extends PuterService {
         // the source as another empty-file entry instead of touching S3.
         if (hasNoBackingS3Object(source)) {
             return this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent: destinationParent,
                 name: newName,
                 kind: 'empty-file',

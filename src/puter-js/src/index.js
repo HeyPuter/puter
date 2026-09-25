@@ -2,6 +2,7 @@ import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
 import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
+import { isFramedDocument } from './lib/appModeGate.js';
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
@@ -11,7 +12,8 @@ import { Apps } from './modules/apps/index.js';
 import Auth from './modules/Auth.js';
 import { Debug } from './modules/Debug.js';
 import Drivers from './modules/Drivers.js';
-import Email from './modules/Email.js';
+import Email from './modules/Email/Email.js';
+import { Events } from './modules/events/index.js';
 import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import { Hosting } from './modules/hosting/index.js';
@@ -22,6 +24,7 @@ import { pFetch } from './modules/networking/requests.js';
 import { OS } from './modules/os/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
+import { Teams } from './modules/teams/index.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
@@ -171,8 +174,12 @@ export class Puter {
     kv;
     /** @type {InstanceType<typeof Email>} */
     email;
+    /** @type {InstanceType<typeof Events>} */
+    events;
     /** @type {InstanceType<typeof Perms>} */
     perms;
+    /** @type {InstanceType<typeof Teams>} */
+    teams;
     /** @type {InstanceType<typeof Drivers>} */
     drivers;
     /** @type {InstanceType<typeof Debug>} */
@@ -271,6 +278,16 @@ export class Puter {
     quiet = false;
 
     /**
+     * @internal
+     * Whether a module holding a live connection (today, FileSystem's
+     * cache-invalidation socket) may open one. Seeded off
+     * `puter_socket_enabled` so an embedder can opt out before this instance
+     * exists — e.g. the events worker runtime, which builds one client per
+     * delivery and never wants it parked in a delivery-room socket.
+     */
+    socketEnabled = globalThis.puter_socket_enabled !== false;
+
+    /**
      * Puter.js Modules
      *
      * These are the modules you see on docs.puter.com; for example:
@@ -297,7 +314,9 @@ export class Puter {
         this.ai = this.registerModule('ai', AI);
         this.kv = this.registerModule('kv', KV);
         this.email = this.registerModule('email', Email);
+        this.events = this.registerModule('events', Events);
         this.perms = this.registerModule('perms', Perms);
+        this.teams = this.registerModule('teams', Teams);
         this.drivers = this.registerModule('drivers', Drivers);
         this.debug = this.registerModule('debug', Debug);
         this.peer = this.registerModule('peer', Peer);
@@ -448,7 +467,15 @@ export class Puter {
         let URLParams = new URLSearchParams(globalThis.location?.search);
 
         // Figure out the environment in which the SDK is running
-        if (URLParams.has('puter.app_instance_id')) {
+        //
+        // App mode is gated on being framed: the parameter that selects it is
+        // URL-supplied, and app mode is what makes `puter.api_origin` and
+        // `puter.auth.token` authoritative. The GUI launches apps into an
+        // iframe, so a top-level document carrying those is a third-party site.
+        if (
+            URLParams.has('puter.app_instance_id') &&
+            isFramedDocument(globalThis)
+        ) {
             this.env = 'app';
         } else if (globalThis.puter_gui_enabled === true) {
             this.env = 'gui';
@@ -676,7 +703,23 @@ export class Puter {
                 const storedToken = this.normalizeAuthTokenCandidate(
                     localStorage.getItem(STORAGE_KEY_V2),
                 );
-                if (storedToken) this.setAuthToken(storedToken);
+                // Same origin binding the app branch applies. A token stored
+                // during a run whose API origin came from the URL is bound to
+                // that origin, and replaying one here would boot the page on a
+                // session someone else planted — so it is dropped rather than
+                // adopted. In `web` mode the current origin is always the
+                // default, so a token this page stored itself always passes.
+                const boundOrigin = this.normalizeStringCandidate(
+                    localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
+                );
+                if (
+                    storedToken &&
+                    this._storedTokenUsableForCurrentOrigin(boundOrigin)
+                ) {
+                    this.setAuthToken(storedToken);
+                } else if (storedToken) {
+                    this._clearAuthToken();
+                }
                 // if appID is already set in localStorage, then we don't need to show the dialog
                 if (!this.appID && localStorage.getItem('puter.app.id')) {
                     this.setAppID(localStorage.getItem('puter.app.id'));
@@ -777,7 +820,9 @@ export class Puter {
 
         // Don't record an app open when running inside the Puter GUI, or
         // when running as a Puter app (i.e. within an iframe in the GUI).
-        if (this.env === 'gui' || this.env === 'app') {
+        // Same call opted out of by `socketEnabled: false` — that flag means
+        // this client is a disposable per-invocation one, not a real visit.
+        if (this.env === 'gui' || this.env === 'app' || !this.socketEnabled) {
             return;
         }
 
@@ -829,7 +874,9 @@ export class Puter {
      * isn't assigned until the constructor returns.
      */
     async cacheWhoami_() {
-        if (!this.authToken) return null;
+        // Same opt-out as `/rao`: a disposable per-invocation client has no
+        // use for a cached user and shouldn't pay for the request.
+        if (!this.authToken || !this.socketEnabled) return null;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,

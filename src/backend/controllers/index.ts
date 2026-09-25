@@ -23,6 +23,7 @@ import { AuthController } from './auth/AuthController.js';
 import { BroadcastController } from './broadcast/BroadcastController.js';
 import { DesktopController } from './desktop/DesktopController.js';
 import { DriverController } from './drivers/DriverController.js';
+import { EventsController } from './events/EventsController.js';
 import { FSController } from './fs/FSController.js';
 import { HomepageController } from './homepage/HomepageController.js';
 import { HostingController } from './hosting/HostingController.js';
@@ -31,6 +32,7 @@ import { NotificationController } from './notification/NotificationController.js
 import { OIDCController } from './oidc/OIDCController.js';
 import { PuterAIController } from './puterai/PuterAIController.js';
 import { ShareController } from './share/ShareController.js';
+import { TeamController } from './team/TeamController.js';
 import { StaticAssetsController } from './static/StaticAssetsController.js';
 import { StaticPagesController } from './static/StaticPagesController.js';
 import { SystemController } from './system/SystemController.js';
@@ -38,11 +40,13 @@ import { WebDAVController } from './webdav/WebDAVController.js';
 import { WispController } from './wisp/WispController.js';
 import type { IPuterControllerRegistry } from './types.js';
 import { PeerController } from './peer/PeerController.js';
+import { ProfileController } from './profile/ProfileController.js';
 
 export const puterControllers = {
     staticAssets: StaticAssetsController,
     staticPages: StaticPagesController,
     auth: AuthController,
+    profile: ProfileController,
     apps: AppController,
     appFeedback: AppFeedbackController,
     desktop: DesktopController,
@@ -54,7 +58,9 @@ export const puterControllers = {
     drivers: DriverController,
     broadcast: BroadcastController,
     notification: NotificationController,
+    events: EventsController,
     share: ShareController,
+    team: TeamController,
     webdav: WebDAVController,
     oidc: OIDCController,
     wisp: WispController,

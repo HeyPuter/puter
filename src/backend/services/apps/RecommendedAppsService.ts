@@ -18,7 +18,8 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import { getAppIconUrl } from '../../util/appIcon.js';
+import type { AppIconHostConfig } from '../../util/appIcon.js';
+import { getAppIconCdnUrl, getAppIconUrl } from '../../util/appIcon.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -26,15 +27,15 @@ import { PuterService } from '../types.js';
  * at call time against the apps table.
  */
 const RECOMMENDED_APP_NAMES = [
+    'app-center',
     'builder',
     'editor',
     'camera',
     'recorder',
-    'app-center',
-    'dev-center',
     'calculator',
     'contacts',
     'calendar',
+    'meetings',
     'blockarena',
     'music-player',
     'word-processor',
@@ -47,17 +48,25 @@ const RECOMMENDED_APP_NAMES = [
     'browser',
     'ai-image-project',
     'chess',
+    'checkers',
+    'backgammon',
+    'klondike',
+    'sudoku',
     'blockup',
     'basketball-tap',
+    'dev-center',
 ];
 
 export class RecommendedAppsService extends PuterService {
     async getRecommendedApps(): Promise<Array<Record<string, unknown>>> {
+        const event = { appNames: [...RECOMMENDED_APP_NAMES] };
+        await this.clients.event.emitAndWait('app.recommended', event, {});
+
         const apiBaseUrl = this.config.api_base_url as string | undefined;
         const results: Array<Record<string, unknown>> = [];
-        for (const name of RECOMMENDED_APP_NAMES) {
+        for (const name of event.appNames) {
             const app = await this.stores.app.getByName(name);
-            if (app) results.push(toAppSummary(app, apiBaseUrl));
+            if (app) results.push(toAppSummary(app, apiBaseUrl, this.config));
         }
         return results;
     }
@@ -66,12 +75,15 @@ export class RecommendedAppsService extends PuterService {
 function toAppSummary(
     app: Record<string, unknown>,
     apiBaseUrl: string | undefined,
+    config: AppIconHostConfig,
 ): Record<string, unknown> {
     return {
         uuid: app.uid,
         name: app.name,
         title: app.title,
         icon: getAppIconUrl(app, { apiBaseUrl }) ?? app.icon ?? null,
+        // Direct subdomain URL for the client to try before `icon`.
+        iconCdnUrl: getAppIconCdnUrl(app, config),
         godmode: Boolean(app.godmode),
         maximize_on_start: Boolean(app.maximize_on_start),
         index_url: app.index_url,

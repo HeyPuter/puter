@@ -82,8 +82,7 @@ let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
 const KV_KEY = 'togetherai:models';
 // Together's `models.list()` returns API-shaped rows; the provider
-// coerces them to IChatModel and prepends a synthetic
-// `model-fallback-test-1` row at the end. Costs (per million):
+// coerces them to IChatModel. Costs (per million):
 // Llama-3.1-8B: input=18, output=18; Qwen-7B: input=20, output=20.
 const SAMPLE_API_MODELS = [
     {
@@ -176,7 +175,10 @@ describe('TogetherAIProvider construction', () => {
     it('constructs the Together SDK with the configured API key', () => {
         makeProvider();
         expect(togetherCtor).toHaveBeenCalledTimes(1);
-        expect(togetherCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(togetherCtor).toHaveBeenCalledWith({
+            apiKey: 'test-key',
+            timeout: 600_000,
+        });
     });
 });
 
@@ -205,8 +207,6 @@ describe('TogetherAIProvider model catalog', () => {
             'togetherai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
         );
         expect(ids).toContain('Meta-Llama-3.1-8B-Instruct-Turbo');
-        // The synthetic fallback-test model is appended.
-        expect(ids).toContain('model-fallback-test-1');
     });
 
     it('reserves headroom under the context length for the output cap', async () => {
@@ -215,7 +215,8 @@ describe('TogetherAIProvider model catalog', () => {
             (m) => m.id === 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
         )!;
         // The advertised context window is unchanged; only the output cap
-        // leaves room for the driver's under-counting input estimator.
+        // leaves room for an input estimate that can run half low on
+        // whitespace-poor prompts.
         expect(model.context).toBe(32768);
         expect(model.max_tokens).toBe(Math.floor(32768 * 0.95));
     });
@@ -353,22 +354,6 @@ describe('TogetherAIProvider.complete request shape', () => {
         });
     });
 
-    it('throws synthetic model-fallback-test-1 BEFORE hitting the SDK', async () => {
-        const { provider } = makeProvider();
-
-        await expect(
-            withTestActor(() =>
-                provider.complete({
-                    model: 'model-fallback-test-1',
-                    messages: [{ role: 'user', content: 'hi' }],
-                }),
-            ),
-        ).rejects.toThrow(/Model Fallback Test 1/);
-
-        expect(createMock).not.toHaveBeenCalled();
-        expect(recordSpy).not.toHaveBeenCalled();
-    });
-
     // Together's APIError carries the whole response body on `.error`, so the
     // provider message sits at `.error.error.message` — one level deeper than
     // the OpenAI SDK puts it.
@@ -386,29 +371,152 @@ describe('TogetherAIProvider.complete request shape', () => {
         },
     };
 
-    it('retries without max_tokens when Together rejects with a context-length error', async () => {
+    it('retries under the room left by the window when Together rejects with a context-length error', async () => {
         const { provider } = makeProvider();
 
         createMock
             .mockRejectedValueOnce(contextLengthError)
             .mockResolvedValueOnce(baseCompletion);
 
+        const tools = [
+            {
+                type: 'function',
+                function: { name: 'get_weather', parameters: {} },
+            },
+        ];
         await withTestActor(() =>
             provider.complete({
                 model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
                 messages: [{ role: 'user', content: 'hi' }],
+                tools,
                 max_tokens: 1048573,
+            } as never),
+        );
+
+        expect(createMock).toHaveBeenCalledTimes(2);
+        // 1048576 of window less the 11 input tokens the rejection reported.
+        expect(createMock.mock.calls[1]![0].max_tokens).toBe(1048565);
+        // Resizing the request must not drop what it was carrying.
+        expect(createMock.mock.calls[1]![0].tools).toHaveLength(1);
+        // The first attempt's params are left as they were sent.
+        expect(createMock.mock.calls[0]![0].max_tokens).toBe(1048573);
+        // The retry is still metered exactly once.
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up when the estimate leaves no smaller cap to retry with', async () => {
+        const { provider } = makeProvider();
+
+        // The rejection carries no counts, the prompt estimates at ~100
+        // tokens, and 3990 already sits under the 3996 that leaves — so the
+        // only retry available is the request just rejected.
+        const noCounts = {
+            status: 400,
+            error: {
+                error: {
+                    message:
+                        "This model's maximum context length is 4096 tokens.",
+                },
+            },
+        };
+        createMock.mockRejectedValueOnce(noCounts);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                    messages: [{ role: 'user', content: 'x'.repeat(400) }],
+                    max_tokens: 3990,
+                }),
+            ),
+        ).rejects.toBe(noCounts);
+
+        expect(createMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('caps a retry that had no cap to begin with', async () => {
+        const { provider } = makeProvider();
+
+        createMock
+            .mockRejectedValueOnce(contextLengthError)
+            .mockResolvedValueOnce(baseCompletion);
+
+        // Output priced at zero leaves the gate nothing to cap, so the first
+        // attempt goes out without max_tokens and the retry sizes to the room.
+        await withTestActor(() =>
+            provider.complete({
+                model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        // Provider mutates a single completionParams object across both calls
-        // (`delete completionParams.max_tokens` after the first throw), so the
-        // first call's recorded args are retroactively altered — only the
-        // surviving shape is worth asserting on.
         expect(createMock).toHaveBeenCalledTimes(2);
-        expect('max_tokens' in createMock.mock.calls[1]![0]).toBe(false);
-        // The retry is still metered exactly once.
-        expect(recordSpy).toHaveBeenCalledTimes(1);
+        expect('max_tokens' in createMock.mock.calls[0]![0]).toBe(false);
+        expect(createMock.mock.calls[1]![0].max_tokens).toBe(1048565);
+    });
+
+    it('gives up instead of retrying when the prompt alone fills the window', async () => {
+        const { provider } = makeProvider();
+
+        const noRoom = {
+            status: 400,
+            error: {
+                error: {
+                    message:
+                        "This model's maximum context length is 8192 tokens. However, your messages resulted in 9000 tokens.",
+                },
+            },
+        };
+        createMock.mockRejectedValueOnce(noRoom);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    max_tokens: 500,
+                }),
+            ),
+        ).rejects.toBe(noRoom);
+
+        expect(createMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up rather than retrying uncapped when no window can be determined', async () => {
+        // A listing with no context_length leaves the model without a
+        // declared window, and this rejection carries no figure either.
+        modelsListMock.mockResolvedValue([
+            {
+                id: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+                type: 'chat',
+                display_name: 'Qwen 2.5 7B Instruct Turbo',
+                pricing: { input: 20, output: 20 },
+            },
+        ]);
+        const { provider } = makeProvider();
+
+        const noWindow = {
+            status: 400,
+            error: {
+                error: {
+                    message:
+                        'Request exceeds the maximum context length for this model.',
+                },
+            },
+        };
+        createMock.mockRejectedValueOnce(noWindow);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    max_tokens: 500,
+                }),
+            ),
+        ).rejects.toBe(noWindow);
+
+        expect(createMock).toHaveBeenCalledTimes(1);
     });
 
     it('retries a streaming request the same way', async () => {
@@ -428,7 +536,7 @@ describe('TogetherAIProvider.complete request shape', () => {
         );
 
         expect(createMock).toHaveBeenCalledTimes(2);
-        expect('max_tokens' in createMock.mock.calls[1]![0]).toBe(false);
+        expect(createMock.mock.calls[1]![0].max_tokens).toBe(1048565);
         expect(createMock.mock.calls[1]![0].stream).toBe(true);
     });
 

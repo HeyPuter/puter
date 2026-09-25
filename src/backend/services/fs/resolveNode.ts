@@ -161,15 +161,23 @@ export function normalizeAbsolutePath(path: string): string {
 }
 
 /**
+ * Home-dir shorthand: `~` itself or a `~/`-rooted path. `~backup` is an
+ * ordinary name, not a home path.
+ */
+export function isTildePath(path: string): boolean {
+    return path === '~' || path.startsWith('~/');
+}
+
+/**
  * Expand a leading `~` (home-dir shorthand) to `/<username>`. Preserves
  * non-tilde paths as-is. Throws 400 when the path needs expansion but no
- * username was supplied. Used by legacy FS endpoints (stat/readdir/etc.) that
- * accept user-authored paths verbatim.
+ * username was supplied. This is the one place `~` expands — every caller
+ * routes through here rather than re-deriving it.
  */
 export function expandTildePath(path: string, username?: string): string {
     if (typeof path !== 'string') return path;
     const trimmed = path.trim();
-    if (trimmed !== '~' && !trimmed.startsWith('~/')) return path;
+    if (!isTildePath(trimmed)) return path;
     if (!username) {
         throw new HttpError(400, 'Unable to resolve home path', {
             legacyCode: 'bad_request',
@@ -195,4 +203,21 @@ export function joinChildPath(parentPath: string, name: string): string {
     }
     const parent = normalizeAbsolutePath(parentPath);
     return parent === '/' ? `/${name}` : `${parent}/${name}`;
+}
+
+/**
+ * The top-level Trash of `entry`'s own owner. Moving there is how an entry gets
+ * deleted, so it goes by rights over the entry — a share recipient deleting
+ * inside a shared folder has no access to the owner's Trash.
+ */
+export function isOwnersTrash(
+    entry: { userId: number },
+    destination: { userId: number; isDir: boolean; name: string; path: string },
+): boolean {
+    return (
+        destination.userId === entry.userId &&
+        destination.isDir &&
+        destination.name === 'Trash' &&
+        pathPosix.dirname(pathPosix.dirname(destination.path)) === '/'
+    );
 }

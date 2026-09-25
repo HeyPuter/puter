@@ -24,10 +24,10 @@ export const NEURALWATT_ID_PREFIX = 'neuralwatt:';
 export const NEURALWATT_DEFAULT_MODEL = 'neuralwatt:deepseek-v4-flash';
 
 /**
- * Shape of one entry in Neuralwatt's `GET /v1/models` catalog.
- * Pricing is USD per million tokens under `metadata.pricing` and is used
- * only for Puter preflight estimates / token-cost fallback. Live billing
- * uses each completion's `cost.request_cost_usd`.
+ * Shape of one entry in Neuralwatt's `GET /v1/models` catalog. Pricing is USD
+ * per million tokens under `metadata.pricing` and is used only for Puter
+ * preflight estimates / token-cost fallback. Live billing uses each
+ * completion's `cost.request_cost_usd`.
  */
 
 export type NeuralwattApiModel = {
@@ -94,9 +94,9 @@ export const stripNeuralwattPrefix = (modelId: string): string =>
         : modelId;
 
 /**
- * Map a Neuralwatt catalog entry to Puter's `IChatModel`. Returns `null`
- * when pricing is TBD (placeholders) so the model is not offered for
- * preflight credit checks until Neuralwatt publishes real rates.
+ * Map a Neuralwatt catalog entry to Puter's `IChatModel`. Returns `null` when
+ * pricing is TBD (placeholders) so the model is not offered for preflight
+ * credit checks until Neuralwatt publishes real rates.
  */
 export const mapNeuralwattApiModel = (
     model: NeuralwattApiModel,
@@ -158,29 +158,4 @@ export const mapNeuralwattApiModel = (
               }
             : {}),
     };
-};
-
-/** True when the Puter model catalog entry advertises image input. */
-export const modelSupportsVision = (model: IChatModel): boolean =>
-    Array.isArray(model.modalities?.input) &&
-    model.modalities.input.includes('image');
-
-/**
- * Detect image / puter_path parts so we can prefer a vision-capable model
- * from the Neuralwatt catalog (or reject a text-only pick).
- */
-export const messagesHaveImageContent = (
-    messages: Array<{ content?: unknown }>,
-): boolean => {
-    for (const message of messages) {
-        if (!Array.isArray(message.content)) continue;
-        for (const part of message.content as Array<Record<string, unknown>>) {
-            if (!part || typeof part !== 'object') continue;
-            if (part.type === 'image_url' || part.image_url) return true;
-            if (typeof part.puter_path === 'string' && part.puter_path) {
-                return true;
-            }
-        }
-    }
-    return false;
 };

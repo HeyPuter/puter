@@ -28,6 +28,7 @@ import type {
     IChatCompleteResult,
 } from '../../types.js';
 import { XAI_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 export class XAIProvider implements IChatProvider {
     #openai: OpenAI;
@@ -51,15 +52,7 @@ export class XAIProvider implements IChatProvider {
     }
 
     async list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     async complete({

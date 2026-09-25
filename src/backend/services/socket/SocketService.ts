@@ -23,10 +23,15 @@ import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
 import {
+    assertNotSuspended,
+    assertVerifiedAccount,
+} from '../../core/http/middleware/gates.js';
+import {
     CONCURRENT_SLOT_TTL_MS,
     acquireConcurrent,
     checkRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
+import { PRESENCE_NO_APP } from '../../stores/events/PresenceStore.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -56,6 +61,15 @@ export const buildSocketReauthError = (reauth: {
 /** Pure decision from an `AuthResult` to a socket-side accept/reject. */
 export type SocketAuthDecision = { accept: Actor } | { reject: Error };
 
+export interface SocketAuthOptions {
+    /**
+     * Whether an app-under-user actor may hold a connection. Off, the handshake
+     * is exactly what it has always been. On, an app socket is admitted — into
+     * its own room and nothing else (see `socketRoomsFor`).
+     */
+    allowAppActors?: boolean;
+}
+
 /**
  * Map an `AuthService.authenticate()` result onto the socket-handshake verdict.
  * Order matters:
@@ -63,13 +77,22 @@ export type SocketAuthDecision = { accept: Actor } | { reject: Error };
  * 1. `reauth` → structured `reauth_required` error so the client can drive the
  *    same migration / re-login flow it does for HTTP.
  * 2. Missing actor → generic `socket auth failed`.
- * 3. App-under-user / access-token actor → rejected with a specific message;
- *    sockets only accept plain user actors.
- * 4. Otherwise → accept the actor.
+ * 3. Access-token actor → rejected, always. App-under-user actor → rejected unless
+ *    `allowAppActors`, since a subscription feed is the only thing an app
+ *    connection is for.
+ * 4. Suspended, or pending a verification → rejected. A socket carries the same
+ *    filesystem entries, upload paths and notification bodies as the HTTP
+ *    routes, which get these two from `requireAuthGate` /
+ *    `requireVerifiedAccount`; the handshake is not in that chain, so it has to
+ *    apply them itself.
+ * 5. Otherwise → accept the actor.
  *
  * Pure / no side effects — the middleware logs the reauth event.
  */
-export const decideSocketAuth = (result: AuthResult): SocketAuthDecision => {
+export const decideSocketAuth = (
+    result: AuthResult,
+    options: SocketAuthOptions = {},
+): SocketAuthDecision => {
     if (result.reauth) {
         return { reject: buildSocketReauthError(result.reauth) };
     }
@@ -77,8 +100,20 @@ export const decideSocketAuth = (result: AuthResult): SocketAuthDecision => {
     if (!actor || !actor.user) {
         return { reject: new Error('socket auth failed') };
     }
-    if (isAppActor(actor) || isAccessTokenActor(actor)) {
+    if (
+        isAccessTokenActor(actor) ||
+        (isAppActor(actor) && !options.allowAppActors)
+    ) {
         return { reject: new Error('socket auth: only user tokens accepted') };
+    }
+    try {
+        assertNotSuspended(actor.user);
+        assertVerifiedAccount(actor.user);
+    } catch (err) {
+        return {
+            reject:
+                err instanceof Error ? err : new Error('socket auth failed'),
+        };
     }
     return { accept: actor };
 };
@@ -92,6 +127,36 @@ export interface SocketSpecifier {
     room?: string | number;
     socket?: string;
 }
+
+/** The room an app-under-user socket receives its own deliveries in. */
+export const appSocketRoom = (
+    userId: number | string,
+    appUid: string,
+): string => `u${userId}:a${appUid}`;
+
+/**
+ * A room every one of an account's sockets joins and nothing is ever emitted
+ * to. The user room is what a session revoke drops, and an app socket is
+ * deliberately not in it — this is the handle that reaches those.
+ */
+export const accountSocketRoom = (userId: number | string): string =>
+    `u${userId}:all`;
+
+/**
+ * Which rooms a socket joins. An app socket gets its own per-(user, app) room
+ * and never the user room, which carries the whole `outer.gui.*` fan and is the
+ * reason app actors were refused outright. Scoped on the app the socket acts
+ * as, so a credential an app issued lands in that app's room rather than the
+ * account's.
+ */
+export const socketRoomsFor = (actor: Actor): string[] => {
+    const userId = String(actor.user!.id);
+    const appUid = actor.effectiveApp?.uid;
+    return [
+        appUid ? appSocketRoom(userId, appUid) : userId,
+        accountSocketRoom(userId),
+    ];
+};
 
 // -- Redis key format for cross-node FS-cache invalidation ----------
 //
@@ -131,15 +196,21 @@ interface UploadProgressPayload {
  */
 interface AuthenticatedSocket extends Socket {
     actor?: Actor;
+    /**
+     * The handshake token, kept for the periodic re-check. On the socket
+     * instance rather than in `socket.data`, which the adapter serializes to
+     * other nodes — a session token has no business travelling over it.
+     */
+    authToken?: string;
 }
 
 /**
  * Socket.io wrapper with:
  *
  * 1. Auth middleware — reads `handshake.auth.auth_token`, validates it via
- *    `AuthService`, rejects anything other than plain user actors (no
- *    app-under-user, no access-token), and joins the socket to a per-user room
- *    keyed by `user.id`.
+ *    `AuthService`, rejects access-token actors (and app-under-user actors
+ *    unless events are enabled), and joins the socket to its room: the per-user
+ *    room keyed by `user.id` for a session, a per-(user, app) room for an app.
  * 2. Event bus → socket fan-out — subscribes to the known set of `outer.gui.*`
  *    mutation events and pushes each to the affected users' rooms. Strips the
  *    `outer.gui.` prefix before emitting.
@@ -152,6 +223,7 @@ interface AuthenticatedSocket extends Socket {
  */
 export class SocketService extends PuterService {
     #io: SocketIOServer | null = null;
+    #reauthTimer: ReturnType<typeof setInterval> | null = null;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -194,6 +266,7 @@ export class SocketService extends PuterService {
         this.#installAuthMiddleware();
         this.#installConnectionHandler();
         this.#subscribeEventBus();
+        this.#installReauthLoop();
     }
 
     /**
@@ -209,6 +282,10 @@ export class SocketService extends PuterService {
     }
 
     override onServerPrepareShutdown(): Promise<void> {
+        if (this.#reauthTimer) {
+            clearInterval(this.#reauthTimer);
+            this.#reauthTimer = null;
+        }
         // Close the io server so existing sockets disconnect cleanly
         // before http's close() starts waiting for connections.
         return new Promise<void>((resolve) => {
@@ -284,6 +361,14 @@ export class SocketService extends PuterService {
 
     // -- Auth + connection wiring -----------------------------------
 
+    /**
+     * An app connection exists to carry event subscriptions, so it is admitted
+     * only where those are switched on.
+     */
+    #authOptions(): SocketAuthOptions {
+        return { allowAppActors: this.config.events?.enabled === true };
+    }
+
     #installAuthMiddleware(): void {
         if (!this.#io) return;
         const authService = this.services.auth as AuthService | undefined;
@@ -338,16 +423,17 @@ export class SocketService extends PuterService {
                     );
                 }
 
-                const decision = decideSocketAuth(result);
+                const decision = decideSocketAuth(result, this.#authOptions());
                 if ('reject' in decision) {
                     next(decision.reject);
                     return;
                 }
 
                 socket.actor = decision.accept;
+                socket.authToken = token;
                 // user.id is numeric in the DB; stringify for room name
                 // so adapter lookups key on a stable type.
-                socket.join(String(decision.accept.user!.id));
+                socket.join(socketRoomsFor(decision.accept));
                 next();
             } catch (err) {
                 console.warn('[socket] auth error', err);
@@ -392,13 +478,12 @@ export class SocketService extends PuterService {
     /**
      * Simultaneous connections per (user, origin).
      *
-     * The natural split would be per app, but there isn't one to key on:
-     * `decideSocketAuth` accepts only plain user actors, so an app-token actor
-     * never reaches this code and every socket here belongs to a session. The
-     * requesting origin is the next-best proxy — it separates our own pages
-     * from a third-party site embedding the SDK against the same session, which
-     * is the split that matters. Without it a single looping page consumes the
-     * account's whole allowance and takes every other window offline with it.
+     * The natural split would be per app, but most sockets have no app to key
+     * on — a session carries none, and an app connection is the minority case.
+     * The requesting origin covers both: it separates our own pages from a
+     * third-party site embedding the SDK against the same session, and an app
+     * connects from its own origin. Without it a single looping page consumes
+     * the account's whole allowance and takes every other window offline.
      *
      * A browser sets `Origin` itself, so a page can't lie about its own; a
      * non-browser client can put anything there, which is exactly why the
@@ -475,8 +560,20 @@ export class SocketService extends PuterService {
 
         // A third of the window: two renewals may be missed (a paused timer, a
         // slow backend) before a live slot looks abandoned.
+        const appUid = actor.effectiveApp?.uid ?? PRESENCE_NO_APP;
         const renewTimer = setInterval(
-            () => void Promise.all(slots.map((s) => s.renew())),
+            () => {
+                void Promise.all(slots.map((s) => s.renew()));
+                // Presence bookkeeping lapses the same way a slot does if
+                // nothing refreshes it, and this is the only timer that runs
+                // for as long as a socket does. A no-op with no peers
+                // configured, which is where presence costs nothing at all.
+                void this.services.eventForward
+                    ?.touchPresence(userId, appUid)
+                    .catch((err: unknown) => {
+                        console.warn('[socket] presence touch failed', err);
+                    });
+            },
             Math.floor(CONCURRENT_SLOT_TTL_MS / 3),
         );
         renewTimer.unref?.();
@@ -489,6 +586,94 @@ export class SocketService extends PuterService {
         // The socket may already be gone by the time the tier lookup resolved;
         // don't strand the slots until they age out.
         if (socket.disconnected) finish();
+    }
+
+    // -- Keeping a live connection honest ----------------------------
+    //
+    // The handshake is the only place a socket's credential was ever checked,
+    // and a connection outlives it indefinitely — a desktop tab stays up for
+    // days. Two mechanisms close that gap: an eviction on revoke for the paths
+    // that know a session ended, and a periodic re-check for everything that
+    // changes without touching `sessions` (a bulk suspension, a verification
+    // requirement added by the abuse harness).
+
+    /** How often a live socket's credential is re-verified. */
+    static REAUTH_INTERVAL_MS = 5 * 60_000;
+
+    /**
+     * Drop every socket on this node whose token no longer authenticates to the
+     * same accepted actor. De-duplicated by token: one browser's tabs share a
+     * session, so a sweep costs one check per credential, not per connection.
+     *
+     * Driven by the interval below; public because that timer isn't drivable
+     * from a test.
+     */
+    async reauthenticateSockets(): Promise<void> {
+        const io = this.#io;
+        const authService = this.services.auth as AuthService | undefined;
+        if (!io || !authService) return;
+
+        const decisions = new Map<string, SocketAuthDecision>();
+        for (const raw of io.sockets.sockets.values()) {
+            const socket = raw as AuthenticatedSocket;
+            const token = socket.authToken;
+            // Nothing to re-check against — it can't be shown to still be
+            // valid, so it goes.
+            if (!token) {
+                socket.disconnect(true);
+                continue;
+            }
+            let decision = decisions.get(token);
+            if (!decision) {
+                try {
+                    decision = decideSocketAuth(
+                        await authService.authenticate(token, {}),
+                        this.#authOptions(),
+                    );
+                } catch {
+                    decision = { reject: new Error('socket reauth failed') };
+                }
+                decisions.set(token, decision);
+            }
+            if ('reject' in decision) {
+                socket.disconnect(true);
+                continue;
+            }
+            // Refresh the actor so anything reading it off the socket sees the
+            // current row rather than the one from connect time.
+            socket.actor = decision.accept;
+        }
+    }
+
+    #installReauthLoop(): void {
+        const timer = setInterval(() => {
+            void this.reauthenticateSockets().catch((err: unknown) => {
+                console.error('[socket] reauth sweep failed', err);
+            });
+        }, SocketService.REAUTH_INTERVAL_MS);
+        timer.unref?.();
+        this.#reauthTimer = timer;
+    }
+
+    /**
+     * Close a user's connections after any of their sessions was revoked.
+     * Cluster-wide: `disconnectSockets` publishes through the adapter, so a
+     * revoke handled on one node reaches sockets terminated on another.
+     *
+     * Every connection for the account goes, not just the revoked session's —
+     * which is what the account room is for, since an app socket is not in the
+     * user room. Narrowing would mean matching each socket to its session via
+     * `fetchSockets`, which the adapter implements on top of `serverCount()` —
+     * and that path is unavailable with our Redis client. Dropping the room is
+     * the safe direction — a client does not reconnect by itself after a
+     * server-side disconnect, so one that wants to stay connected opens a new
+     * connection, and that handshake re-authenticates: only the revoked session
+     * is refused.
+     */
+    async #evictUserSockets(userId: number): Promise<void> {
+        const io = this.#io;
+        if (!io || !userId) return;
+        await io.in(accountSocketRoom(userId)).disconnectSockets(true);
     }
 
     async #allowSocketEvent(userId: number, event: string): Promise<boolean> {
@@ -515,6 +700,17 @@ export class SocketService extends PuterService {
             // errors, and server-side disconnects alike — so an abandoned
             // connection gives its slots back the same way a closed one does.
             void this.#admitConnection(socket, actor, userId);
+
+            // Subscription verbs and the disconnect reaping that goes with
+            // them. Off unless events are enabled, in which case the verbs
+            // answer with `events_disabled` rather than going unanswered.
+            this.services.events.attachSocket(socket, actor);
+
+            // Everything below is the desktop session's own traffic: two verbs
+            // that reach the user's other tabs, and a connect announcement
+            // whose listeners read it as "the UI is up". An app connection is
+            // none of those things.
+            if (isAppActor(actor)) return;
 
             // Peer-echo: one tab notifies others that trash is empty.
             socket.on('trash.is_empty', (msg: unknown) => {
@@ -581,6 +777,16 @@ export class SocketService extends PuterService {
             'fs.storage.upload-progress',
             (_key: string, data: unknown) => {
                 this.#handleUploadProgress(data as UploadProgressPayload);
+            },
+        );
+
+        this.clients.event.on(
+            'auth.sessions.revoked',
+            (_key: string, data: unknown) => {
+                const { user_id } = data as { user_id: number };
+                this.#evictUserSockets(user_id).catch((err: unknown) => {
+                    console.error('[socket] session eviction failed', err);
+                });
             },
         );
     }

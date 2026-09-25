@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { getAppIconUrl } from './appIcon.js';
+import type { AppIconHostConfig } from './appIcon.js';
+import { getAppIconCdnUrl, getAppIconUrl } from './appIcon.js';
 
 interface TaskbarEntry {
     name?: string;
@@ -33,6 +34,7 @@ interface TaskbarOptions {
 
 interface TaskbarDeps {
     apiBaseUrl?: string;
+    config?: AppIconHostConfig;
     clients: {
         db: {
             write: (query: string, params?: unknown[]) => Promise<unknown>;
@@ -117,6 +119,10 @@ export async function getTaskbarItems(
         } else {
             item.icon =
                 getAppIconUrl(app, deps, options.iconSize) ?? app.icon ?? null;
+            // Direct subdomain URL for the client to try before `icon`.
+            item.iconCdnUrl = deps.config
+                ? getAppIconCdnUrl(app, deps.config, options.iconSize)
+                : null;
         }
 
         items.push(item);

@@ -38,11 +38,8 @@ export interface KvCachedItem {
 }
 
 /**
- * What a cache lookup resolved to.
- *
- * `miss` is a cached _absence_ — a definitive "no such entry", as good an
- * answer as a hit. `absent` means nothing is cached. `blocked` means a recent
- * write left a marker: read through to the underlying store and don't
+ * `miss` is a cached absence, as definitive as a hit. `absent` means nothing is
+ * cached. `blocked` means a recent write left a marker: read through and don't
  * populate.
  */
 export type KvCachedRead =
@@ -52,33 +49,27 @@ export type KvCachedRead =
     | { state: 'absent' };
 
 /**
- * Wire envelope. Single-letter fields because every byte is multiplied by the
- * number of cached entries:
- *
- * - `h` — 1 when the entry exists, 0 when it is known-absent
- * - `v` — the stored value
- * - `t` — the entry's own expiry, epoch seconds
- * - `p` — 1 when the entry is private to the app that wrote it
- * - `u` — read units the uncached read consumed, replayed for billing
- * - `b` — 1 on a write block marker (no other field is set)
+ * Wire envelope; single-letter fields since every byte is multiplied by entry
+ * count.
  */
 interface KvCacheEnvelope {
+    /** 1 when the entry exists, 0 when known-absent. */
     h?: 0 | 1;
     v?: unknown;
+    /** Entry expiry, epoch seconds. */
     t?: number;
+    /** 1 when private to the app that wrote it. */
     p?: 1;
+    /** Read units the uncached read consumed, replayed for billing. */
     u?: number;
+    /** 1 on a write block marker; no other field is set. */
     b?: 1;
 }
 
 /**
- * Written over a key by every mutation, in place of deleting it.
- *
- * A delete leaves the key free for a read that started before the write to fill
- * with the value it already fetched; a marker occupies the key, and populates
- * are `NX`, so that read can't land. It also gives the peer regions something
- * to hold across replication lag, where the invalidation arrives after the
- * write.
+ * Written over a key by every mutation instead of deleting it, so a read that
+ * started before the write cannot repopulate (populates are `NX`) and peers
+ * hold it across replication lag.
  */
 export const KV_CACHE_BLOCK_MARKER = JSON.stringify({ b: 1 });
 

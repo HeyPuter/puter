@@ -27,11 +27,29 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
  */
 
 /**
+ * A user's public profile. Every field is present; `null` where the user has
+ * set nothing.
+ *
+ * @typedef {Object} UserProfile
+ * @property {string | null} picture Profile picture as a base64 image data URL.
+ * @property {string | null} displayName Name shown next to the picture.
+ * @property {string | null} bio A short self-description.
+ */
+
+/**
+ * Fields to change on the signed-in user's profile. `null` clears a field; a
+ * field left out is left as it is.
+ *
+ * @typedef {Partial<UserProfile>} UserProfilePatch
+ */
+
+/**
  * Information about the user's resource allowance and consumption.
  *
  * @typedef {Object} AllowanceInfo
  * @property {number} monthUsageAllowance Total resource allowance for the month.
  * @property {number} remaining The remaining allowance that can be used.
+ * @property {string} [unit] 'credits' when the server already scaled every monetary field to display credits; absent for raw amounts.
  */
 
 /**
@@ -97,7 +115,9 @@ export class AuthModule extends PuterModule {
      * user's click on it. Resolves once the user has signed in.
      *
      * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
-     * popup, or `{ error: 'auth_window_closed' }` if the user closed it.
+     * popup, `{ error: 'auth_window_closed' }` if the user closed it, or
+     * `{ error: 'not_available_in_app' }` when called from an app — an app's
+     * token comes from the Puter session that launched it.
      *
      * `request_auth` asks the popup to let the user re-pick their account even
      * when this site already holds a token for them — the GUI otherwise skips
@@ -109,6 +129,17 @@ export class AuthModule extends PuterModule {
      */
     signIn = (options) => {
         options = options || {};
+
+        // Apps receive their token from the GUI that launched them, not from a
+        // popup. Running the popup flow under app mode would deliver the token
+        // to whatever `puter.api_origin` the launching URL named, which in app
+        // mode is URL-supplied.
+        if ( puter.env === 'app' ) {
+            return Promise.reject({
+                error: 'not_available_in_app',
+                msg: 'signIn is not available to an app; the Puter session that launched it provides the token.',
+            });
+        }
 
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
@@ -136,7 +167,11 @@ export class AuthModule extends PuterModule {
                 (async () => {
                     while (true) {
                         try {
-                            const result = await fetchUrl(`${this.APIOrigin}/login/wait`, {
+                            // Pinned to the deployment's own API, the same
+                            // way the popup and its message handler pin
+                            // `defaultGUIOrigin`: this relay hands back a real
+                            // token, so its host must not be one a URL named.
+                            const result = await fetchUrl(`${puter.defaultAPIOrigin}/login/wait`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
@@ -313,6 +348,83 @@ export class AuthModule extends PuterModule {
     };
 
     /**
+     * A user's profile, or `null` when none is available: the user does not
+     * exist, or their profile is not public and they are not the signed-in
+     * user. Another user's profile is public only while that user is on a
+     * paid plan. Never opens a sign-in prompt.
+     *
+     * @param {string} [username] Defaults to the signed-in user.
+     * @returns {Promise<UserProfile | null>}
+     */
+    async getProfile (username) {
+        try {
+            if ( username === undefined ) {
+                if ( ! this.authToken ) return null;
+            } else if ( typeof username !== 'string' || ! /^[a-z0-9_-]{1,64}$/i.test(username) ) {
+                return null;
+            }
+            const url = new URL(`${this.APIOrigin}/profile`);
+            if ( username !== undefined ) url.searchParams.set('username', username);
+            const resp = await fetchUrl(url.toString(), {
+                includePuterAuth: true,
+                interactiveReauth: false,
+                logContext: { service: 'auth', operation: 'get_profile', params: { username } },
+            });
+            if ( ! resp.ok ) return null;
+            const profile = await resp.json();
+            if ( ! profile || typeof profile !== 'object' || Array.isArray(profile) ) {
+                return null;
+            }
+            return profile;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Update the signed-in user's profile and return the result. Requires the
+     * account's own session. Rejects with the backend's `{ code, message }` when a field is unknown,
+     * malformed, or too large (`profile_field_not_allowed`,
+     * `profile_picture_invalid`, `profile_picture_too_large`,
+     * `profile_field_too_long`).
+     *
+     * @param {UserProfilePatch} patch
+     * @returns {Promise<UserProfile>}
+     */
+    async updateProfile (patch) {
+        if ( ! patch || typeof patch !== 'object' || Array.isArray(patch) ) {
+            throw { message: 'patch must be an object of profile fields', code: 'profile_patch_invalid' };
+        }
+        const resp = await fetchUrl(`${this.APIOrigin}/profile`, {
+            method: 'POST',
+            includePuterAuth: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch),
+            logContext: { service: 'auth', operation: 'update_profile', params: { fields: Object.keys(patch) } },
+        });
+        const body = await resp.json();
+        if ( ! resp.ok ) throw body;
+        return body;
+    }
+
+    /**
+     * A user's profile picture, or `null` when none is available. Reads the
+     * `picture` field of {@link getProfile}, so another user's picture is only
+     * available while that user is on a paid plan. Never opens a sign-in
+     * prompt.
+     *
+     * @param {string} [username] Defaults to the signed-in user.
+     * @returns {Promise<string | null>} A base64 image data URL, or null.
+     */
+    async getProfilePicture (username) {
+        const profile = await this.getProfile(username);
+        const picture = profile?.picture;
+        return typeof picture === 'string' &&
+            /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/]+={0,2}$/i.test(picture)
+            ? picture : null;
+    }
+
+    /**
      * Signs the user out of this app by discarding its auth token.
      *
      * @type {() => void}
@@ -397,11 +509,14 @@ export class AuthModule extends PuterModule {
 
 /**
  * The public face of the module: derived from the class, with the internal
- * `puter` handle and the legacy `authToken` accessor omitted.
+ * `puter` handle and the legacy `authToken` accessor omitted, plus methods
+ * apps cannot call: `updateProfile` needs the account's own session and
+ * `getGlobalUsage` an admin.
  *
  * @typedef {import('../lib/types.js').OmitMembers<
  *     typeof AuthModule,
  *     'puter' | 'authToken'
+ *     | 'updateProfile' | 'getGlobalUsage'
  * >} AuthConstructor
  */
 

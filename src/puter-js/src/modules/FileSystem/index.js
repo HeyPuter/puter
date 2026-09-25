@@ -1,6 +1,7 @@
 import path from 'path-browserify';
 import { io } from 'socket.io-client';
 import { PuterModule } from '../../lib/PuterModule.js';
+import { socketAutoUnref } from '../../lib/socketOptions.js';
 import * as utils from '../../lib/utils.js';
 
 // Constants
@@ -13,6 +14,10 @@ import FSItem from '../FSItem.js';
 import copy from './operations/copy.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
+import getShareLink from './operations/getShareLink.js';
+import getShares from './operations/getShares.js';
+import listShared from './operations/listShared.js';
+import listSharedByMe from './operations/listSharedByMe.js';
 import mkdir from './operations/mkdir.js';
 import move from './operations/move.js';
 import read from './operations/read.js';
@@ -20,9 +25,11 @@ import readdir from './operations/readdir.js';
 import readdirSubdomains from './operations/readdirSubdomains.js';
 import rename from './operations/rename.js';
 import revokeReadURL from './operations/revokeReadUrl.js';
+import share from './operations/share.js';
 import sign from './operations/sign.js';
 import space from './operations/space.js';
 import stat from './operations/stat.js';
+import unshare from './operations/unshare.js';
 import upload from './operations/upload/index.js';
 import write from './operations/write.js';
 
@@ -55,6 +62,14 @@ export class PuterJSFileSystemModule extends PuterModule {
     readdirSubdomains = readdirSubdomains;
     stat = stat;
 
+    // Sharing
+    share = share;
+    unshare = unshare;
+    listShared = listShared;
+    listSharedByMe = listSharedByMe;
+    getShares = getShares;
+    getShareLink = getShareLink;
+
     FSItem = FSItem;
 
     /**
@@ -67,8 +82,10 @@ export class PuterJSFileSystemModule extends PuterModule {
     constructor (puter) {
         super(puter);
         this.cacheUpdateTimer = null;
-        // Connect socket.
-        this.initializeSocket();
+        // Connect socket, unless this client opted out (see `puter.socketEnabled`).
+        if (puter.socketEnabled) {
+            this.initializeSocket();
+        }
         puter.onAuthStateChanged(() => this.onAuthStateChanged());
     }
 
@@ -101,30 +118,10 @@ export class PuterJSFileSystemModule extends PuterModule {
     }
 
     shouldUseSocketAutoUnref () {
-        if ( this.puter.env !== 'nodejs' ) {
-            return false;
-        }
-
-        const WebSocketImpl = globalThis.WebSocket;
-        if ( typeof WebSocketImpl !== 'function' ) {
-            return false;
-        }
-
-        const wsPrototype = WebSocketImpl.prototype ?? {};
-        // ws package instances are EventEmitter-like; Undici WebSocket is EventTarget-like.
-        // autoUnref is only safe on the ws path.
-        return typeof wsPrototype.on === 'function' &&
-            typeof wsPrototype.removeListener === 'function';
+        return socketAutoUnref(this.puter);
     }
 
     bindSocketEvents () {
-        // this.socket.on('cache.updated', (msg) => {
-        //     // check original_client_socket_id and if it matches this.socket.id, don't post update
-        //     if (msg.original_client_socket_id !== this.socket.id) {
-        //         this.invalidateCache();
-        //     }
-        // });
-
         this.socket.on('item.renamed', (item) => {
             puter._cache.flushall();
         });
@@ -214,7 +211,9 @@ export class PuterJSFileSystemModule extends PuterModule {
             this.startCacheUpdateTimer();
         }
 
-        this.initializeSocket();
+        if ( this.puter.socketEnabled ) {
+            this.initializeSocket();
+        }
     }
 
     /**

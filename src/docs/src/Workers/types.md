@@ -103,3 +103,5 @@ Handler events expose:
 - `request` — standard [`Request`](https://developer.mozilla.org/en-US/docs/Web/API/Request)
 - `params` — route params, inferred from the path literal
 - `user` / `requestor` — caller's Puter context, present only when invoked with a `puter-auth` header (e.g. via [`puter.workers.exec()`](/Workers/exec/))
+
+This `puter-auth` header rule is for a router-based worker invoked over HTTP. An **events worker** is invoked differently — there is no request to carry a header on — so its handler's `user` is always built from the delivery's own token, never absent. See [`puter.events.onPersistent()`](/Events/onPersistent/) for what an events worker handler is called with.

@@ -76,6 +76,15 @@ export const normalize_single_message = (message, params = {}) => {
             message.content = [];
             for (let i = 0; i < message.tool_calls.length; i++) {
                 const tool_call = message.tool_calls[i];
+                // Streaming deltas and non-OpenAI tool-call shapes both omit
+                // `function`, so it cannot be assumed present.
+                if (!tool_call?.function) {
+                    throw new HttpError(
+                        400,
+                        "each tool_call must have a 'function' property",
+                        { legacyCode: 'bad_request' },
+                    );
+                }
                 message.content.push({
                     type: 'tool_use',
                     id: tool_call.id,

@@ -24,6 +24,10 @@ import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
+import {
+    checkSignupBonus,
+    validateSignupBonus,
+} from '../../util/signupBonus.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
 import crypto from 'node:crypto';
@@ -456,11 +460,14 @@ export class OIDCService extends PuterService {
      * `raced` means a concurrent callback got there first and the caller should
      * re-resolve rather than surface an error — see
      * `#resolveOrCreateOIDCUser`.
+     *
+     * `bonusCode` must already be canonical (`normalizeBonusCode`).
      */
     async createUserFromOIDC(
         providerId: string,
         claims: OIDCUserInfo,
         referrer?: string | null,
+        { bonusCode = null }: { bonusCode?: string | null } = {},
     ): Promise<{
         success: boolean;
         user?: UserRow;
@@ -509,7 +516,14 @@ export class OIDCService extends PuterService {
                     success: false,
                     error: 'Failed to generate unique username.',
                 };
-        } while (await this.stores.user.getByUsername(username));
+        } while (
+            (await this.stores.user.getByUsername(username)) ||
+            (await this.stores.fsEntry.findHomePathConflict(
+                username,
+                undefined,
+                { includeDescendants: true },
+            ))
+        );
 
         // Create user — no password, email assumed confirmed by provider
         const { v4: uuidv4 } = await import('uuid');
@@ -525,15 +539,18 @@ export class OIDCService extends PuterService {
             // IdP already authenticated the user, so captcha listeners
             // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
             source: 'oidc' as const,
-            data: { username, email },
-            ip:
-                (req?.headers?.['x-forwarded-for'] as string | undefined) ||
-                req?.connection?.remoteAddress ||
-                req?.ip ||
-                req?.socket?.remoteAddress ||
-                null,
+            data: { username, email, ...(bonusCode ? { bonusCode } : {}) },
+            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
+            // would let a client pick its own per-IP abuse bucket.
+            ip: clientIp,
             user_agent: req?.headers?.['user-agent'] ?? null,
             email,
+            // See the same field in AuthController: the canonical form
+            // `email.validate` is given, so the abuse harness can find the
+            // verdict that hook cached.
+            clean_email: cleanEmail(email),
+            // OIDC signups are never temp users.
+            is_temp: false,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
@@ -547,25 +564,13 @@ export class OIDCService extends PuterService {
             // Request Code so support can look the decision up.
             trail_id: undefined as string | undefined,
         };
-        try {
-            await this.clients.event?.emitAndWait(
-                'puter.signup.validate',
-                validateEvent,
-                {},
-            );
-        } catch (e) {
-            console.warn('[oidc] validate hook failed:', e);
-        }
-        if (!validateEvent.allow) {
-            return {
-                success: false,
-                error: validateEvent.message ?? 'Signup blocked',
-                code: validateEvent.code ?? 'signup_blocked',
-                requestCode: validateEvent.trail_id,
-            };
-        }
-
-        // Email validation — mirrors AuthController#validateEmail.
+        // Email validation — mirrors AuthController#validateEmail, and runs
+        // BEFORE the signup harness for the same reason it does there: the
+        // address verdict is an input to the reputation decision. The abuse
+        // extension's `email.validate` handler caches its Kickbox verdict and
+        // its `emailQuality` check reads that cache under
+        // `puter.signup.validate`, so emitting these two in the other order
+        // silently drops the email signal from every OIDC signup.
         if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
             return {
                 success: false,
@@ -595,16 +600,77 @@ export class OIDCService extends PuterService {
             };
         }
 
+        // Refuse a dead code before the validate hook records the attempt; see
+        // the same check in AuthController.
+        if (
+            bonusCode &&
+            !(
+                await checkSignupBonus(this.clients.event, bonusCode, {
+                    ip: clientIp,
+                    fingerprint: null,
+                })
+            ).valid
+        ) {
+            return {
+                success: false,
+                error: 'This bonus code is invalid or no longer available.',
+                code: 'bonus_code_invalid',
+            };
+        }
+
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.signup.validate',
+                validateEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[oidc] validate hook failed:', e);
+        }
+        if (!validateEvent.allow) {
+            return {
+                success: false,
+                error: validateEvent.message ?? 'Signup blocked',
+                code: validateEvent.code ?? 'signup_blocked',
+                requestCode: validateEvent.trail_id,
+            };
+        }
+
         const cfg = this.config as {
             always_require_phone_verification?: boolean;
             always_require_card_verification?: boolean;
         };
-        const force_phone_verification =
+        let force_phone_verification =
             Boolean(validateEvent.requires_phone_verification) ||
             Boolean(cfg.always_require_phone_verification);
-        const force_card_verification =
+        let force_card_verification =
             Boolean(validateEvent.requires_card_verification) ||
             Boolean(cfg.always_require_card_verification);
+
+        if (bonusCode) {
+            const verdict = await validateSignupBonus(
+                this.clients.event,
+                bonusCode,
+                {
+                    source: 'oidc',
+                    email,
+                    clean_email: cleanEmail(email),
+                    ip: clientIp,
+                    reputation: validateEvent.reputation,
+                    requires_phone_verification: force_phone_verification,
+                    requires_card_verification: force_card_verification,
+                },
+            );
+            if (!verdict.accepted) {
+                return {
+                    success: false,
+                    error: 'This bonus code is invalid or no longer available.',
+                    code: 'bonus_code_invalid',
+                };
+            }
+            force_phone_verification = verdict.requiresPhoneVerification;
+            force_card_verification = verdict.requiresCardVerification;
+        }
 
         // The caller checked this email was free before we got here, but the
         // validate hook and the blocklist checks above sit in between — long
@@ -646,7 +712,10 @@ export class OIDCService extends PuterService {
                     origin: req?.headers?.origin,
                 },
                 signup_ip: clientIp,
-                signup_ip_forwarded: proxyIpChain,
+                // The abuse harness and the admin IP lookup both key on this
+                // column, so it holds the trusted client address; the raw
+                // forwarded chain stays in `audit_metadata.ip_fwd`.
+                signup_ip_forwarded: clientIp,
                 signup_user_agent: req?.headers?.['user-agent'] ?? null,
                 signup_origin: req?.headers?.origin,
                 signup_server: this.config.serverId,
@@ -722,6 +791,25 @@ export class OIDCService extends PuterService {
         // Fire signup events — keys match the password-based signup path so
         // downstream listeners (welcome email, mailchimp sync, etc.) treat
         // both signup routes identically.
+        //
+        // That includes `user.email-confirmed`: the provider's attestation IS
+        // the confirmation, and anything keyed on owning a confirmed address —
+        // pending share invites, most importantly — has no other moment to
+        // fire. Without it, an invitee who follows the email and signs in with
+        // Google never receives what was shared with them.
+        try {
+            this.clients.event?.emit(
+                'user.email-confirmed',
+                {
+                    user_id: resolved.id,
+                    user_uid: resolved.uuid,
+                    email: resolved.email,
+                },
+                {},
+            );
+        } catch {
+            // ignore — event emission shouldn't block signup
+        }
         try {
             this.clients.event?.emit(
                 'puter.signup.success',
@@ -730,12 +818,11 @@ export class OIDCService extends PuterService {
                     user_uuid: resolved.uuid,
                     email: resolved.email,
                     username: resolved.username,
-                    ip:
-                        req?.headers?.['x-forwarded-for'] ||
-                        req?.connection?.remoteAddress ||
-                        req?.ip ||
-                        req?.socket?.remoteAddress ||
-                        null,
+                    // Same derivation as the validate event above — the two
+                    // have to agree or per-IP counters are written under one
+                    // key and read under another.
+                    ip: clientIp,
+                    ...(bonusCode ? { bonus_code: bonusCode } : {}),
                 },
                 {},
             );

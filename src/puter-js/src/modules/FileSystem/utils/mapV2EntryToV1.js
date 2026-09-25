@@ -39,6 +39,7 @@ const mapV2EntryToV1 = (entry) => {
         type: entry.type ?? null,
         writable: true,
         is_public: entry.isPublic ?? null,
+        is_shared: entry.isShared ?? null,
         thumbnail: entry.thumbnail ?? null,
         immutable: Boolean(entry.immutable),
         metadata: entry.metadata ?? null,

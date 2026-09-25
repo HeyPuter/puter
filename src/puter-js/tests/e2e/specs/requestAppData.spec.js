@@ -105,15 +105,11 @@ test.describe('puter.perms.requestAppData (env=app)', () => {
             expect(listed.res).toContain('birthday');
             expect(listed.res).not.toContain('oauthToken');
 
-            // -- a repeat request prompts again --
-            // `requestAppData` does not consult existing grants before
-            // prompting, unlike `requestEmail` (checks whoami) and the folder
-            // helpers (stat first). Pinned as current behaviour: an app calling
-            // this on every launch re-asks the user.
+            // -- a repeat request settles from the grant, with no prompt --
+            // What an app calling this on every launch relies on.
             await ask(appFrame, target.uid, { kv: ['get'] });
-            await expect(dialog).toBeVisible();
-            await dialog.locator('.perm-dialog-allow').click();
             expect(await settle(appFrame)).toEqual({ ok: true, value: true });
+            await expect(dialog).toHaveCount(0);
         } finally {
             await deleteTestApp(page, appName);
             await deleteTestApp(page, target.name);

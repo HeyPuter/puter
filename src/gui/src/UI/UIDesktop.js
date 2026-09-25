@@ -32,16 +32,21 @@ import UIWindowQR from './UIWindowQR.js';
 
 import UIWindowProgress from './UIWindowProgress.js';
 import UITaskbar from './UITaskbar.js';
-import new_context_menu_item from '../helpers/new_context_menu_item.js';
-import refresh_item_container from '../helpers/refresh_item_container.js';
+import new_context_menu_item from '../helpers/newContextMenuItem.js';
+import refresh_item_container from '../helpers/refreshItemContainer.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
 import UIWindowTaskManager from './UIWindowTaskManager.js';
-import truncate_filename from '../helpers/truncate_filename.js';
+import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
-import launch_app from '../helpers/launch_app.js';
-import item_icon from '../helpers/item_icon.js';
-import apply_item_added_to_containers from '../helpers/apply_item_added_to_containers.js';
+import launch_app from '../helpers/launchApp.js';
+import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
+import item_icon from '../helpers/itemIcon.js';
+import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
+import resolve_shared_item from '../helpers/resolveSharedItem.js';
+import { applyToastMark, createNotificationFeed } from '../helpers/notificationFeed.js';
+import { notificationTarget } from './Dashboard/notificationCenter.js';
+import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
 async function UIDesktop (options) {
@@ -209,29 +214,82 @@ async function UIDesktop (options) {
     });
 
     /**
-     * This event is triggered if a user receives a notification during
-     * an active session.
+     * Clicking a share notification opens the item, or Shared if grouped.
+     * Shares the notification center's predicate so a toast and a list entry
+     * never disagree about where a click goes.
      */
-    window.socket.on('notif.message', async ({ uid, notification }) => {
-        let icon = window.icons[notification.icon];
+    const share_notification_click = (notification) => {
+        const target = notificationTarget(notification);
+        if ( target === null ) return undefined;
+        if ( target.kind === 'shared-item' ) {
+            return () => {
+                open_shared_item(target.path);
+            };
+        }
+        // Grouped: open where they all landed rather than picking one.
+        return () => {
+            UIWindow({
+                path: window.shared_path,
+                title: i18n('shared'),
+                icon: window.icons['sidebar-folder-shared.svg'],
+                is_dir: true,
+                app: 'explorer',
+            });
+        };
+    };
+
+    /**
+     * Raise one notification, whichever path it arrived on. `replay` names
+     * what the feed already claimed as shown while catching up, so the same
+     * row isn't marked twice.
+     */
+    const show_notification = ({ uid, notification }, { replay = false } = {}) => {
+        // A notification can be re-sent under its own uid when what it says has
+        // grown — several people sharing with you is one notification that
+        // counts them. Refresh the one on screen rather than stacking a copy.
+        const $showing = $(`.notification[data-uid="${html_encode(uid)}"]`);
+        if ( $showing.length ) {
+            $showing.find('.notification-title').text(notification.title);
+            $showing.find('.notification-text').text(notification.text ?? '');
+            return;
+        }
 
         UINotification({
             title: notification.title,
             text: notification.text,
-            icon: icon,
+            icon: window.icons[notification.icon],
             value: notification,
             uid,
-            close: async () => {
-                await fetch(`${window.api_origin}/notif/mark-ack`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ uid }),
-                });
-            },
+            click: share_notification_click(notification),
+            close: () => applyToastMark('dismissed', uid, {
+                eventsPath: notification_feed.isActive(),
+            }),
         });
+
+        if ( ! replay ) {
+            void applyToastMark('shown', uid, { eventsPath: notification_feed.isActive() });
+        }
+    };
+
+    /**
+     * Notifications over the events surface, where the server says it has
+     * them. It renders through the same path the socket wire does, and the
+     * listeners below stand down only while it is up.
+     */
+    const notification_feed = createNotificationFeed({
+        deliver: (items, { replay }) => {
+            for ( const item of items ) show_notification(item, { replay });
+        },
+    });
+    void notification_feed.start();
+
+    /**
+     * This event is triggered if a user receives a notification during
+     * an active session.
+     */
+    window.socket.on('notif.message', async ({ uid, notification }) => {
+        if ( notification_feed.isActive() ) return;
+        show_notification({ uid, notification });
     });
 
     /**
@@ -244,34 +302,24 @@ async function UIDesktop (options) {
      */
     window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
+        if ( notification_feed.isActive() ) return;
         if ( window.__already_got_unreads ) return;
         window.__already_got_unreads = true;
 
         for ( const notif_info of unreads ) {
             const notification = notif_info.notification;
-            let icon = window.icons[notification.icon];
-
-            UINotification({
-                icon,
-                title: notification.title,
-                text: notification.text ?? notification.title,
+            show_notification({
                 uid: notif_info.uid,
-                close: async () => {
-                    await fetch(`${window.api_origin}/notif/mark-ack`, {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${puter.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            uid: notif_info.uid,
-                        }),
-                    });
-                },
-            });
+                // The replay has always shown the title as the body for a
+                // notification carrying no text of its own.
+                notification: { ...notification, text: notification.text ?? notification.title },
+            }, { replay: true });
         }
     });
 
+    // Not gated: an ack takes a toast off screen rather than raising one, so
+    // it can't double-render — and the events surface carries only postings,
+    // which leaves this the one thing that still dismisses across tabs.
     window.socket.on('notif.ack', ({ uid }) => {
         $(`.notification[data-uid="${uid}"]`).remove();
         update_tab_notif_count_badge();
@@ -1318,12 +1366,16 @@ async function UIDesktop (options) {
             if ( window.app_query_params && window.app_query_params.posargs ) {
                 posargs = JSON.parse(window.app_query_params.posargs);
             }
+            // `?file=<path or uid>` opens that file with the app, the same as
+            // double-clicking it would — but the link picked both, so the user
+            // is asked before the app is given the file.
             launch_app({
                 app: window.app_launched_from_url.name,
                 app_obj: window.app_launched_from_url,
                 readURL: window.url_query_params.get('readURL'),
                 maximized: window.url_query_params.get('maximized'),
                 params: window.app_query_params ?? [],
+                ...urlFileLaunchOptions(window.url_query_params.get('file')),
                 ...(posargs ? {
                     args: {
                         command_line: { args: posargs },
@@ -1713,10 +1765,17 @@ async function UIDesktop (options) {
             return;
         }
 
-        // TODO: DRY everything here with open_item. Unfortunately we can't
-        //       use open_item here because it's coupled with UI logic;
-        //       it requires a UIItem element and cannot operate on a
-        //       file path on its own.
+        await open_path_target(item_path, stat);
+    }
+
+    /**
+     * Open a path as double-clicking would: the associated app for a file, an
+     * explorer window for a directory.
+     *
+     * TODO: DRY with open_item, which is coupled to a UIItem element and can't
+     *       operate on a path alone.
+     */
+    async function open_path_target (item_path, stat) {
         if ( ! stat.is_dir ) {
             if ( stat.associated_app ) {
                 launch_app({ name: stat.associated_app.name });
@@ -1785,6 +1844,60 @@ async function UIDesktop (options) {
             is_dir: true,
             app: 'explorer',
         });
+    }
+
+    /** Open an item somebody shared, addressed as `/<owner>/<uuid>/<name>`. */
+    async function open_shared_item (shared_path) {
+        const stat = await resolve_shared_item(puter.fs, shared_path);
+        if ( ! stat ) {
+            UIAlert({
+                message: i18n('error_user_or_path_not_found'),
+                type: 'error',
+            });
+            return false;
+        }
+
+        // `stat` returns the path this viewer may use, which is the one to open.
+        await open_path_target(stat.path ?? shared_path, stat);
+        return true;
+    }
+
+    /**
+     * Act on a share link. A share to a person only ever reaches a real
+     * account, so for a temporary session the item is tried first — an item
+     * open to anyone with the link resolves for it — and only a miss asks
+     * for a sign-in, rather than burning the link on a "not found" as
+     * somebody who can't see it. The link stays in the address bar across
+     * the prompt because login reloads on success, which brings it back for
+     * the account that can actually open it.
+     */
+    async function handle_shared_link (shared_path) {
+        if ( window.user?.is_temp ) {
+            const stat = await resolve_shared_item(puter.fs, shared_path);
+            if ( stat ) {
+                clear_shared_param();
+                await open_path_target(stat.path ?? shared_path, stat);
+                return;
+            }
+            await UIWindowLogin({
+                reload_on_success: true,
+                window_options: { cover_page: true, has_head: false },
+            });
+            // Dismissed without signing in: drop the link rather than loop.
+            if ( window.user?.is_temp ) clear_shared_param();
+            return;
+        }
+        clear_shared_param();
+        await open_shared_item(shared_path);
+    }
+
+    //--------------------------------------------------------------------------------------
+    // Opening an item someone shared, on the desktop
+    // i.e. https://puter.com/desktop?shared=%2F<owner>%2F<uuid>%2F<name>
+    // (the same link at the root lands in the dashboard's Shared view instead)
+    //--------------------------------------------------------------------------------------
+    if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
+        await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));
     }
 
     //--------------------------------------------------------------------------------------

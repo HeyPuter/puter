@@ -20,13 +20,12 @@
 /**
  * Offline unit tests for ZAIProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs ZAIProvider directly against the live wired
- * `MeteringService` so the recording side is exercised end-to-end.
- * The OpenAI SDK is mocked at the module boundary — Z.AI is OpenAI-
- * compatible so the provider talks to it through the same client —
- * so the provider never reaches the network. The companion
- * integration test (ZAIProvider.integration.test.ts) exercises the
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs ZAIProvider directly against the live wired `MeteringService` so
+ * the recording side is exercised end-to-end. The OpenAI SDK is mocked at the
+ * module boundary — Z.AI is OpenAI- compatible so the provider talks to it
+ * through the same client — so the provider never reaches the network. The
+ * companion integration test (ZAIProvider.integration.test.ts) exercises the
  * real Z.AI endpoint.
  */
 
@@ -43,8 +42,7 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import type { Actor } from '../../../../core/actor.js';
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -326,10 +324,10 @@ describe('ZAIProvider.complete request shape', () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
-        const userActor: Actor = {
+        const userActor = makeActor({
             user: { id: 42, uuid: 'u42', username: 'alice' },
             app: { id: 7, uid: 'app-uid' },
-        };
+        });
 
         await withTestActor(
             () =>
@@ -341,16 +339,42 @@ describe('ZAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.user_id).toBe('puter-42-app-uid');
+        expect(args.user_id).toBe('puter-u42-app-uid');
     });
 
-    it('prefers an explicit custom.user_id over the actor-derived one', async () => {
+    it('attributes the app through effectiveApp for access-token actors', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
-        const userActor: Actor = {
-            user: { id: 42, uuid: 'u42' },
-        };
+        const tokenActor = makeActor({
+            user: { id: 42, uuid: 'u42', username: 'alice' },
+            accessToken: {
+                uid: 'tok-1',
+                issuer: makeActor({
+                    user: { id: 42, uuid: 'u42', username: 'alice' },
+                    app: { id: 7, uid: 'app-uid' },
+                }),
+            },
+        });
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'glm-4.6',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            tokenActor,
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.user_id).toBe('puter-u42-app-uid');
+    });
+
+    it('ignores a caller-supplied custom.user_id', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        const userActor = makeActor({ user: { id: 42, uuid: 'u42' } });
 
         await withTestActor(
             () =>
@@ -363,10 +387,10 @@ describe('ZAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.user_id).toBe('caller-supplied');
+        expect(args.user_id).toBe('puter-u42');
     });
 
-    it('omits user_id entirely for the system actor (no user.id)', async () => {
+    it('omits user_id entirely for the system actor', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -378,7 +402,7 @@ describe('ZAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        // SYSTEM_ACTOR has no user.id — provider should leave the key off.
+        // SYSTEM_ACTOR is excluded by isSystemActor() — the provider should leave the key off.
         expect('user_id' in args).toBe(false);
     });
 

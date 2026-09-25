@@ -24,11 +24,13 @@ import {
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
+    signEntry,
     signEntryThumbnail,
     signingConfigFromAppConfig,
     toLegacyEntry,
 } from './legacyFsHelpers.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import { NON_OWNER_SIGNATURE_TTL_SECONDS } from '../../util/fileSigning.js';
 
 const entryWithApp = (associatedAppId: number): FSEntry =>
     ({ associatedAppId }) as unknown as FSEntry;
@@ -442,5 +444,50 @@ describe('loadLegacyAssociatedApps short-circuit', () => {
             entryWithApp(5),
         ]);
         expect(seen).toEqual([[4, 5]]);
+    });
+});
+
+describe('signEntry', () => {
+    const cfg = { secret: 'test-secret', apiBaseUrl: 'https://api.test' };
+    const entry = {
+        uuid: 'e-1',
+        name: 'x.txt',
+        isDir: false,
+        size: 1,
+        accessed: 0,
+        modified: 0,
+        created: 0,
+        userId: 7,
+    };
+    // signFile ceils its own clock read, so allow a second of slack.
+    const inSeconds = (expires: number) =>
+        expires - Math.ceil(Date.now() / 1000);
+
+    it('leaves an owner’s signature effectively permanent', () => {
+        const signed = signEntry(entry, cfg, { actorUserId: 7 });
+        expect(inSeconds(signed.expires)).toBeGreaterThan(
+            NON_OWNER_SIGNATURE_TTL_SECONDS * 10,
+        );
+    });
+
+    it('expires a signature over someone else’s entry', () => {
+        const signed = signEntry(entry, cfg, { actorUserId: 8 });
+        const ttl = inSeconds(signed.expires);
+        expect(ttl).toBeLessThanOrEqual(NON_OWNER_SIGNATURE_TTL_SECONDS);
+        expect(ttl).toBeGreaterThan(0);
+    });
+
+    it('keeps the old default when no actor is supplied', () => {
+        expect(inSeconds(signEntry(entry, cfg).expires)).toBeGreaterThan(
+            NON_OWNER_SIGNATURE_TTL_SECONDS * 10,
+        );
+    });
+
+    it('honours an explicit ttl over the ownership check', () => {
+        const signed = signEntry(entry, cfg, {
+            actorUserId: 7,
+            ttlSeconds: 30,
+        });
+        expect(inSeconds(signed.expires)).toBeLessThanOrEqual(30);
     });
 });

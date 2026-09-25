@@ -23,6 +23,8 @@ import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
 import UIWindowConfirmUserDeletion from '../Settings/UIWindowConfirmUserDeletion.js';
 import UIWindowCopyToken from '../UIWindowCopyToken.js';
 import UIWindow from '../UIWindow.js';
+import UIProfilePictureCropModal from './UIProfilePictureCropModal.js';
+import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 
 const TabAccount = {
     id: 'account',
@@ -42,7 +44,7 @@ const TabAccount = {
         // Profile picture card
         h += '<div class="dashboard-card dashboard-profile-card">';
         h += '<div class="dashboard-profile-picture-section">';
-        h += `<div class="profile-picture change-profile-picture dashboard-profile-avatar profile-pic" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
+        h += `<div class="profile-picture change-profile-picture dashboard-profile-avatar profile-pic" role="button" tabindex="0" aria-label="${i18n('change_profile_picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
         h += '</div>';
         h += '<div class="dashboard-profile-info">';
         h += `<h3>${html_encode(window.user?.username || 'User')}</h3>`;
@@ -66,7 +68,17 @@ const TabAccount = {
         h += `<span class="username">${html_encode(window.user.username)}</span>`;
         h += '</div>';
         h += '</div>';
-        h += `<button class="button change-username">${i18n('change_username')}</button>`;
+        // A seat's name is the team's; the console and audit log key on it.
+        if ( isOrgSeat(window.user) ) {
+            const team = orgSeatTeamName(window.user);
+            h += `<span class="dashboard-settings-card-note">${
+                team
+                    ? i18n('username_set_by_team', { team })
+                    : i18n('username_set_by_team_generic')
+            }</span>`;
+        } else {
+            h += `<button class="button change-username">${i18n('change_username')}</button>`;
+        }
         h += '</div>';
 
         // Password card (only for non-temp users)
@@ -115,26 +127,32 @@ const TabAccount = {
         if ( window.user?.email_confirmed ) {
             h += `<button class="button copy-auth-token">${i18n('create_token')}</button>`;
         } else {
+            // "Verify your email" is a dead end for an account with none.
+            const tokenHint = window.user?.email
+                ? i18n('verify_email_to_create_token')
+                : i18n('email_needed_to_create_token');
             // Disabled buttons have `pointer-events: none`, so the tooltip
             // lives on a wrapping span that still receives hover.
-            h += `<span title="${html_encode(i18n('verify_email_to_create_token'))}" style="cursor: not-allowed;">`;
+            h += `<span title="${html_encode(tokenHint)}" style="cursor: not-allowed;">`;
             h += `<button class="button copy-auth-token" disabled>${i18n('create_token')}</button>`;
             h += '</span>';
         }
         h += '</div>';
 
-        // Danger zone
-        h += '<div class="dashboard-danger-zone">';
-        h += '<div class="dashboard-card dashboard-danger-card">';
-        h += '<div class="dashboard-danger-card-content">';
-        h += '<div class="dashboard-danger-card-info">';
-        h += `<strong>${i18n('delete_account')}</strong>`;
-        h += '<span>Permanently delete your account and all associated data. This action cannot be undone.</span>';
-        h += '</div>';
-        h += '</div>';
-        h += `<button class="button button-danger delete-account">${i18n('delete_account')}</button>`;
-        h += '</div>';
-        h += '</div>';
+        // Danger zone. A seat has none: the team owns the account.
+        if ( ! isOrgSeat(window.user) ) {
+            h += '<div class="dashboard-danger-zone">';
+            h += '<div class="dashboard-card dashboard-danger-card">';
+            h += '<div class="dashboard-danger-card-content">';
+            h += '<div class="dashboard-danger-card-info">';
+            h += `<strong>${i18n('delete_account')}</strong>`;
+            h += '<span>Permanently delete your account and all associated data. This action cannot be undone.</span>';
+            h += '</div>';
+            h += '</div>';
+            h += `<button class="button button-danger delete-account">${i18n('delete_account')}</button>`;
+            h += '</div>';
+            h += '</div>';
+        }
 
         h += '</div>'; // end settings-grid
 
@@ -207,6 +225,11 @@ const TabAccount = {
                 },
             });
         });
+        $el_window.find('.dashboard-section-account .change-profile-picture').on('keydown', function (e) {
+            if ( e.key !== 'Enter' && e.key !== ' ' ) return;
+            e.preventDefault();
+            $(this).trigger('click');
+        });
         $el_window.find('.dashboard-section-account .change-profile-picture').on('click', async function (e) {
             // open dialog
             UIWindow({
@@ -226,32 +249,21 @@ const TabAccount = {
                 stay_on_top: true,
             });
         });
-        $el_window.on('file_opened', async function (e) {
-            let selected_file = Array.isArray(e.detail) ? e.detail[0] : e.detail;
-            // set profile picture
-            const profile_pic = await puter.fs.read(selected_file.path);
-            // blob to base64
-            const reader = new FileReader();
-            reader.readAsDataURL(profile_pic);
-            reader.onloadend = function () {
-                // resizes the image to 150x150
-                const img = new Image();
-                img.src = reader.result;
-                img.onload = function () {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = 150;
-                    canvas.height = 150;
-                    ctx.drawImage(img, 0, 0, 150, 150);
-                    const base64data = canvas.toDataURL('image/png');
+        $el_window.on('file_opened', function (e) {
+            const selectedFile = Array.isArray(e.detail) ? e.detail[0] : e.detail;
+            // Let the user frame the photo before it becomes the avatar.
+            UIProfilePictureCropModal({
+                picture: puter.fs.read(selectedFile.path),
+                $container: $el_window,
+                returnFocusTo: $el_window.find('.dashboard-section-account .change-profile-picture').get(0),
+                onSave: (dataUrl) => {
                     // update profile picture everywhere (matches helpers.js session refresh)
-                    $('.profile-pic').css('background-image', `url(${ html_encode(base64data) })`);
-                    $('.profile-image').css('background-image', `url(${ html_encode(base64data) })`);
+                    $('.profile-pic').css('background-image', `url(${ html_encode(dataUrl) })`);
+                    $('.profile-image').css('background-image', `url(${ html_encode(dataUrl) })`);
                     $('.profile-image').addClass('profile-image-has-picture');
-                    // update profile picture
-                    update_profile(window.user.username, { picture: base64data });
-                };
-            };
+                    update_profile(window.user.username, { picture: dataUrl });
+                },
+            });
         });
     },
 };

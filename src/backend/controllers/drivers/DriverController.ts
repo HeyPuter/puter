@@ -24,6 +24,7 @@ import { Context } from '../../core/context.js';
 import { Controller } from '../../core/http/decorators.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { assertNotUserSession } from '../../core/http/middleware/gates.js';
+import { assertActorMeetsReputation } from '../../core/reputation.js';
 import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
@@ -31,12 +32,20 @@ import {
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { DriverMeta } from '../../drivers/meta.js';
 import {
+    isCreditExhaustion,
+    isUpstreamTimeoutError,
+    sanitizeUpstreamMessage,
+} from '../../drivers/util/upstreamErrors.js';
+import {
     isDriverStreamResult,
     resolveCallableMethods,
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
+    resolveDriverMethodRequireReputation,
+    resolveDriverMethodRequireSubscription,
 } from '../../drivers/meta.js';
+import { assertActorHasSubscription } from '../../services/metering/enforcement.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
 import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
@@ -112,13 +121,32 @@ const translateProviderError = (err: unknown): unknown => {
         message?: string;
         error?: { code?: string; type?: string; message?: string };
         code?: string;
+        cause?: unknown;
     };
     const status = extractUpstreamStatus(e);
-    if (typeof status !== 'number') return err;
-
-    const msg = e.error?.message ?? e.message ?? 'Upstream provider error';
+    const msg = sanitizeUpstreamMessage(
+        e.error?.message ?? e.message ?? 'Upstream provider error',
+    );
     const upstreamCode = e.error?.code ?? e.code;
     const fields = { upstreamStatus: status, upstreamCode };
+
+    if (isCreditExhaustion(status, upstreamCode, msg)) {
+        return new HttpError(503, 'AI provider out of credits', {
+            legacyCode: 'upstream_credits_exhausted',
+            fields,
+        });
+    }
+    if (typeof status !== 'number') {
+        if (isUpstreamTimeoutError(e)) {
+            const cause = e.cause as { code?: string } | undefined;
+            return new HttpError(504, 'AI provider timed out', {
+                legacyCode: 'upstream_timeout',
+                fields: { upstreamCode: e.code ?? cause?.code },
+                cause: err,
+            });
+        }
+        return err;
+    }
 
     if (status === 429) {
         return new HttpError(429, msg, {
@@ -325,6 +353,44 @@ export class DriverController extends PuterController {
             }
         }
 
+        // Methods that ask for a trusted-enough account. Declared per-driver
+        // (`@Driver({ requireReputation })`) for the same reason the
+        // subscription block is. Checked ahead of the plan and rate-limit
+        // gates, matching the route chain: whether this account should be
+        // reaching the method at all is settled before what it pays for or how
+        // often it may ask. Inert unless the running config gives the named
+        // tier a score.
+        const reputationRequirement = resolveDriverMethodRequireReputation(
+            driverMeta?.requireReputation,
+            method,
+        );
+        if (reputationRequirement !== undefined) {
+            await assertActorMeetsReputation(
+                req.actor,
+                reputationRequirement,
+                this.config,
+            );
+        }
+
+        // Subscriber-only methods. Declared per-driver
+        // (`@Driver({ requireSubscription })`) because `/drivers/call` is a
+        // single route and a route option would apply to every driver at once.
+        // Checked before the rate limit — the same order the route chain uses
+        // — so a caller whose plan never included the method is told that
+        // rather than spending a bucket on it.
+        const subscriptionRequirement = resolveDriverMethodRequireSubscription(
+            driverMeta?.requireSubscription,
+            method,
+        );
+        if (subscriptionRequirement !== undefined) {
+            await assertActorHasSubscription(
+                this.services.metering,
+                req.actor,
+                subscriptionRequirement,
+                this.config,
+            );
+        }
+
         // Per-method rate-limit and concurrent specs both live on the
         // driver's resolved meta (set by `@Driver({ rateLimit, concurrent })`
         // or imperative fields). Rate-limit is single-shot; concurrent
@@ -390,6 +456,15 @@ export class DriverController extends PuterController {
         // alias was requested, so the driver sees `undefined` rather than
         // a stale value from a prior call.
         Context.set('driverName', requestedDriver);
+
+        // A caller that hangs up mid-call gets nothing back, so long-running
+        // drivers watch this to stop working (and metering) as soon as it does.
+        // `close` after `finish` is the normal end of a response, not an abort.
+        const abort = new AbortController();
+        res.once('close', () => {
+            if (!res.writableFinished) abort.abort();
+        });
+        Context.set('abortSignal', abort.signal);
 
         // Per-method lifecycle events, scoped to `driver.<iface>.<method>`.
         // Subscribers can listen on `driver.*`, `driver.<iface>.*`, or the

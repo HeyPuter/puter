@@ -278,6 +278,47 @@ describe('HomepageController GET /app/:name', () => {
         expect(html).toContain('Cool App');
     });
 
+    it('caps description, og:description and twitter:description at 150 chars', async () => {
+        const { userId } = await makeUser();
+        const name = `long-${Math.random().toString(36).slice(2, 10)}`;
+        const longDescription =
+            'This drawing app has brushes, layers, filters and more. '.repeat(
+                8,
+            );
+        await server.stores.app.create(
+            {
+                name,
+                title: 'Wordy App',
+                description: longDescription,
+                index_url: `https://example.com/${name}/`,
+            },
+            { ownerUserId: userId },
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app/:name',
+            makeReq({ params: { name }, path: `/app/${name}` }),
+            res,
+        );
+
+        const html = String(captured.body);
+        for (const tag of [
+            'name="description"',
+            'property="og:description"',
+            'name="twitter:description"',
+        ]) {
+            const match = new RegExp(`${tag} content="([^"]*)"`).exec(html);
+            expect(match, `no ${tag} tag`).toBeTruthy();
+            const content = match![1];
+            expect(content.length).toBeLessThanOrEqual(150);
+            expect(content.endsWith('…')).toBe(true);
+            // Cut at a word boundary, not mid-word.
+            expect(longDescription).toContain(content.slice(0, -1));
+        }
+    });
+
     it('does not leak a private app index_url or owner id to an anonymous visitor', async () => {
         const { userId } = await makeUser();
         const name = `priv-${Math.random().toString(36).slice(2, 10)}`;

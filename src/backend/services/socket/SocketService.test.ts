@@ -18,8 +18,9 @@
  */
 
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
+import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import type { PuterServer } from '../../server.js';
 import {
     allocateEphemeralPort,
@@ -29,8 +30,10 @@ import {
 } from '../../testUtil.js';
 import type { AuthResult } from '../auth/AuthService.js';
 import {
+    accountSocketRoom,
     buildSocketReauthError,
     decideSocketAuth,
+    socketRoomsFor,
     SocketService,
     type SocketReauthError,
 } from './SocketService.js';
@@ -40,13 +43,13 @@ import {
 describe('buildSocketReauthError', () => {
     it('packs reason + auth_id into error.data matching the HTTP shape', () => {
         const err = buildSocketReauthError({
-            reason: 'token_v1',
+            reason: 'session_expired',
             auth_id: 'u-1',
         });
         expect(err.message).toBe('reauth_required');
         expect(err.data).toEqual({
             code: 'reauth_required',
-            reason: 'token_v1',
+            reason: 'session_expired',
             auth_id: 'u-1',
         });
     });
@@ -67,10 +70,10 @@ describe('decideSocketAuth', () => {
     const userActor: Actor = {
         user: { id: 1, uuid: 'u-1', username: 'u' },
     };
-    const appActor: Actor = {
+    const appActor: Actor = makeActor({
         user: { id: 1, uuid: 'u-1', username: 'u' },
         app: { uid: 'app-1', id: 2 },
-    };
+    });
     const accessTokenActor: Actor = {
         user: { id: 1, uuid: 'u-1', username: 'u' },
         accessToken: {
@@ -106,6 +109,13 @@ describe('decideSocketAuth', () => {
         expect((decision.reject as { data?: unknown }).data).toBeUndefined();
     });
 
+    it('admits an app-under-user actor where app sockets are allowed', () => {
+        const decision = decideSocketAuth({ actor: appActor } as AuthResult, {
+            allowAppActors: true,
+        });
+        expect(decision).toEqual({ accept: appActor });
+    });
+
     it('rejects an access-token actor with a specific message', () => {
         const decision = decideSocketAuth({
             actor: accessTokenActor,
@@ -114,24 +124,103 @@ describe('decideSocketAuth', () => {
         expect(decision.reject.message).toMatch(/only user tokens/);
     });
 
+    it('keeps rejecting an access-token actor where app sockets are allowed', () => {
+        // Including one an app issued: the allowance is for app-under-user
+        // credentials, not for anything that resolves to an app.
+        const issuedByApp: Actor = {
+            ...accessTokenActor,
+            accessToken: {
+                uid: 'tok-2',
+                issuer: appActor,
+                authorized: null,
+            },
+            effectiveApp: appActor.app,
+        };
+        for (const actor of [accessTokenActor, issuedByApp]) {
+            const decision = decideSocketAuth({ actor } as AuthResult, {
+                allowAppActors: true,
+            });
+            if (!('reject' in decision)) throw new Error('expected reject');
+            expect(decision.reject.message).toMatch(/only user tokens/);
+        }
+    });
+
+    it('applies the account gates to an admitted app actor', () => {
+        const decision = decideSocketAuth(
+            {
+                actor: { ...appActor, user: { ...appActor.user, suspended: 1 } },
+            } as unknown as AuthResult,
+            { allowAppActors: true },
+        );
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(/suspended/i);
+    });
+
+    it('rejects a suspended user — the HTTP gate the handshake never runs', () => {
+        const decision = decideSocketAuth({
+            actor: {
+                user: { id: 1, uuid: 'u-1', username: 'u', suspended: 1 },
+            },
+        } as unknown as AuthResult);
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(/suspended/i);
+    });
+
+    it.each([
+        [
+            'email',
+            { requires_email_confirmation: 1, email_confirmed: 0 },
+            /confirm your email/i,
+        ],
+        ['phone', { requires_phone_verification: 1 }, /verify your phone/i],
+        ['card', { requires_card_verification: 1 }, /verify your card/i],
+    ])('rejects an account pending %s verification', (_label, flags, match) => {
+        const decision = decideSocketAuth({
+            actor: { user: { id: 1, uuid: 'u-1', username: 'u', ...flags } },
+        } as unknown as AuthResult);
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(match);
+    });
+
     it('rejects when AuthService returned no actor at all', () => {
         const decision = decideSocketAuth({ invalid: true } as AuthResult);
         if (!('reject' in decision)) throw new Error('expected reject');
         expect(decision.reject.message).toBe('socket auth failed');
     });
 
-    it('reauth wins over a usable actor (legacy v1 path)', () => {
-        // Legacy v1 tokens may lazy-backfill a valid actor AND emit a
-        // reauth signal — the socket must still reject so the client
-        // migrates. Mirrors the HTTP gate's priority.
+    it('reauth wins over a usable actor', () => {
+        // authenticate() may return a valid actor AND a reauth signal
+        // (e.g. an expired session) — the socket must still reject so the
+        // client re-auths. Mirrors the HTTP gate's priority.
         const decision = decideSocketAuth({
             actor: userActor,
-            reauth: { reason: 'token_v1', auth_id: 'u-1' },
+            reauth: { reason: 'session_expired', auth_id: 'u-1' },
         } as AuthResult);
         if (!('reject' in decision)) throw new Error('expected reject');
         expect((decision.reject as SocketReauthError).data.reason).toBe(
-            'token_v1',
+            'session_expired',
         );
+    });
+});
+
+// -- socketRoomsFor ----------------------------------------------------
+
+describe('socketRoomsFor', () => {
+    it('puts a session in the user room', () => {
+        expect(
+            socketRoomsFor({ user: { id: 7, uuid: 'u-7', username: 'u' } }),
+        ).toEqual(['7', accountSocketRoom(7)]);
+    });
+
+    it('keeps an app out of the user room and in its own', () => {
+        const rooms = socketRoomsFor(
+            makeActor({
+                user: { id: 7, uuid: 'u-7', username: 'u' },
+                app: { uid: 'app-1' },
+            }),
+        );
+        expect(rooms).toEqual(['u7:aapp-1', accountSocketRoom(7)]);
+        expect(rooms).not.toContain('7');
     });
 });
 
@@ -204,6 +293,23 @@ describe('SocketService (live socket.io)', () => {
         // A full-access API token is an access-token actor, which the socket
         // handshake refuses even though it authenticates fine over HTTP.
         await expect(connect({ auth_token: user.apiToken })).rejects.toThrow(
+            /only user tokens/,
+        );
+    });
+
+    it('rejects an app-under-user token while events are off', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const appUid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+            [appUid, appUid, appUid, `https://${appUid}.example/`, row!.id],
+        );
+        const appToken = await server.services.auth.getUserAppToken(
+            { user: row as never, effectiveApp: null },
+            appUid,
+        );
+
+        await expect(connect({ auth_token: appToken })).rejects.toThrow(
             /only user tokens/,
         );
     });
@@ -408,6 +514,103 @@ describe('SocketService (live socket.io)', () => {
 
             first.disconnect();
         });
+    });
+
+    // -- Evicting a connection whose credential is gone ---------------
+    //
+    // The handshake is the only place the credential was checked, so nothing
+    // here is covered by the cases above: a revoke, a suspension and a new
+    // verification requirement all leave a live feed open otherwise.
+
+    it('drops the connection when its session is revoked', async () => {
+        const evicted = await createTestUser(server, {
+            username: 'sock-evicted',
+            password: 'sock-evicted-password',
+        });
+        const row = await server.stores.user.getByUsername(evicted.username);
+        const socket = await connect({ auth_token: `Bearer ${evicted.token}` });
+        expect(socket.connected).toBe(true);
+
+        const authService = server.services.auth as unknown as {
+            revokeAllSessionsForUserId: (id: number) => Promise<void>;
+        };
+        await authService.revokeAllSessionsForUserId(row!.id);
+
+        await vi.waitFor(() => expect(socket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+    });
+
+    it('leaves other accounts alone when one is revoked', async () => {
+        const kept = await createTestUser(server, {
+            username: 'sock-kept',
+            password: 'sock-kept-password',
+        });
+        const revoked = await createTestUser(server, {
+            username: 'sock-revoked',
+            password: 'sock-revoked-password',
+        });
+        const revokedRow = await server.stores.user.getByUsername(
+            revoked.username,
+        );
+
+        const keptSocket = await connect({
+            auth_token: `Bearer ${kept.token}`,
+        });
+        const revokedSocket = await connect({
+            auth_token: `Bearer ${revoked.token}`,
+        });
+
+        const authService = server.services.auth as unknown as {
+            revokeAllSessionsForUserId: (id: number) => Promise<void>;
+        };
+        await authService.revokeAllSessionsForUserId(revokedRow!.id);
+
+        await vi.waitFor(() => expect(revokedSocket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+        expect(keptSocket.connected).toBe(true);
+        keptSocket.disconnect();
+    });
+
+    it('drops a connection whose account was suspended without a revoke', async () => {
+        // A bulk suspension writes `user.suspended` and never touches
+        // `sessions`, so eviction-on-revoke never fires — the periodic
+        // re-check is what closes it.
+        const suspended = await createTestUser(server, {
+            username: 'sock-suspended',
+            password: 'sock-suspended-password',
+        });
+        const row = await server.stores.user.getByUsername(suspended.username);
+        const socket = await connect({
+            auth_token: `Bearer ${suspended.token}`,
+        });
+        expect(socket.connected).toBe(true);
+
+        await server.clients.db.write(
+            'UPDATE user SET suspended = 1 WHERE id = ?',
+            [row!.id],
+        );
+        await server.stores.user.invalidateById(row!.id);
+
+        await socketService.reauthenticateSockets();
+        await vi.waitFor(() => expect(socket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+    });
+
+    it('leaves a still-valid connection up across a re-check', async () => {
+        const healthy = await createTestUser(server, {
+            username: 'sock-healthy',
+            password: 'sock-healthy-password',
+        });
+        const socket = await connect({ auth_token: `Bearer ${healthy.token}` });
+
+        await socketService.reauthenticateSockets();
+        await new Promise((r) => setTimeout(r, 200));
+
+        expect(socket.connected).toBe(true);
+        socket.disconnect();
     });
 
     it('gives a slot back when the connection closes', async () => {

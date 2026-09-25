@@ -18,7 +18,8 @@
  */
 
 import { posix as pathPosix } from 'node:path';
-import { getAppIconUrl } from '../../util/appIcon.js';
+import type { AppIconHostConfig } from '../../util/appIcon.js';
+import { getAppIconCdnUrl, getAppIconUrl } from '../../util/appIcon.js';
 import { hostedIndexUrlBackingIsUnavailable } from '../../util/hostedAppBacking.js';
 import { PuterService } from '../types.js';
 
@@ -156,11 +157,8 @@ function suggestionsForExtension(ext: string): {
     if (CODE_EXTS.has(lower)) {
         return { names: ['code', 'editor'], isFallback: false };
     }
-    if (lower === 'txt' || lower === '') {
+    if (lower === 'txt' || lower === 'md' || lower === '') {
         return { names: ['editor', 'code'], isFallback: false };
-    }
-    if (lower === 'md') {
-        return { names: ['markus', 'editor', 'code'], isFallback: false };
     }
     if (IMAGE_EXTS.has(lower)) {
         return { names: ['viewer', 'draw'], isFallback: false };
@@ -322,19 +320,22 @@ export class SuggestedAppsService extends PuterService {
 
         return candidates
             .filter((_app, index) => !availability[index])
-            .map((app) => toAppSummary(app, apiBaseUrl));
+            .map((app) => toAppSummary(app, apiBaseUrl, this.config));
     }
 }
 
 function toAppSummary(
     app: Record<string, unknown>,
     apiBaseUrl: string | undefined,
+    config: AppIconHostConfig,
 ): Record<string, unknown> {
     return {
         uuid: app.uid,
         name: app.name,
         title: app.title,
         icon: getAppIconUrl(app, { apiBaseUrl }) ?? app.icon ?? null,
+        // Direct subdomain URL for the client to try before `icon`.
+        iconCdnUrl: getAppIconCdnUrl(app, config),
         godmode: Boolean(app.godmode),
         maximize_on_start: Boolean(app.maximize_on_start),
         index_url: app.index_url,

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -215,6 +215,66 @@ describe('AppDriver.create', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('reports a lost name-uniqueness race the way the check reports it', async () => {
+        const { actor } = await makeUser();
+
+        // The name check and the insert are two statements, so a name can be
+        // claimed in between and only the unique index catches it. The
+        // in-memory sqlite schema has no unique index on `apps`.`name` (mysql
+        // and postgres do), so the losing insert is what gets stubbed here. A
+        // raw driver error would escape as a 500 carrying the index name.
+        const dup = Object.assign(new Error('Duplicate entry'), {
+            code: 'ER_DUP_ENTRY',
+            errno: 1062,
+        });
+        const create = vi
+            .spyOn(server.stores.app, 'create')
+            .mockRejectedValueOnce(dup);
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('race'),
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'app_name_already_in_use',
+            });
+        } finally {
+            create.mockRestore();
+        }
+    });
+
+    it('lets a non-uniqueness insert failure surface as a server error', async () => {
+        const { actor } = await makeUser();
+
+        const create = vi
+            .spyOn(server.stores.app, 'create')
+            .mockRejectedValueOnce(new Error('connection lost'));
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('boom'),
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                    }),
+                ),
+            ).rejects.toThrow('connection lost');
+        } finally {
+            create.mockRestore();
+        }
     });
 
     it('dedupes a colliding name when `dedupe_name` is true', async () => {
@@ -453,6 +513,40 @@ describe('AppDriver.delete', () => {
         expect(
             await server.stores.app.getByUid(created.uid as string),
         ).toBeNull();
+    });
+
+    it('deletes the subdomain rows the app owns and leaves the rest', async () => {
+        const { actor, userId } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('own'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const app = (await server.stores.app.getByUid(created.uid as string))!;
+        const prefix = `appdel-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId,
+            subdomain: `${prefix}-owned`,
+            appOwner: app.id,
+        });
+        await server.stores.subdomain.create({
+            userId,
+            subdomain: `${prefix}-unowned`,
+        });
+
+        await withActor(actor, () => driver.delete({ uid: created.uid }));
+
+        const remaining = await server.stores.subdomain.listByUserIdAndPrefix(
+            userId,
+            prefix,
+        );
+        expect(remaining.map((r) => r.subdomain)).toEqual([
+            `${prefix}-unowned`,
+        ]);
     });
 
     it("refuses to delete another user's app with 403", async () => {
@@ -945,6 +1039,43 @@ describe('AppDriver.update additional branches', () => {
         ).rejects.toMatchObject({ statusCode: 409 });
     });
 
+    it('reports a lost rename-uniqueness race as 409, not a 500', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('ren'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+
+        const dup = Object.assign(new Error('Duplicate entry'), {
+            code: 'ER_DUP_ENTRY',
+            errno: 1062,
+        });
+        const update = vi
+            .spyOn(server.stores.app, 'update')
+            .mockRejectedValueOnce(dup);
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: created.uid,
+                        object: { name: uniqueName('taken') },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                legacyCode: 'conflict',
+            });
+        } finally {
+            update.mockRestore();
+        }
+    });
+
     it('updates metadata and filetype_associations on an owned app', async () => {
         const { actor } = await makeUser();
         const created = await withActor(actor, () =>
@@ -1222,6 +1353,7 @@ describe('AppDriver.isNameAvailable additional branches', () => {
 describe('AppDriver alias-group index_url merge', () => {
     const aliasHostA = `alias-a-${Math.random().toString(36).slice(2, 10)}.test`;
     const aliasHostB = `alias-b-${Math.random().toString(36).slice(2, 10)}.test`;
+    const aliasHostC = `alias-c-${Math.random().toString(36).slice(2, 10)}.test`;
 
     // `config` is protected on PuterDriver; reach in to toggle the alias
     // groups for this block only. `#getOriginAliasGroups` reads config at
@@ -1230,7 +1362,11 @@ describe('AppDriver alias-group index_url merge', () => {
         (driver as unknown as { config: Record<string, unknown> }).config;
 
     beforeAll(() => {
-        driverConfig().app_origin_aliases = [[aliasHostA], [aliasHostB]];
+        driverConfig().app_origin_aliases = [
+            [aliasHostA],
+            [aliasHostB],
+            [aliasHostC],
+        ];
     });
 
     afterAll(() => {
@@ -1314,6 +1450,47 @@ describe('AppDriver alias-group index_url merge', () => {
             driver.read({ uid: created.uid }),
         );
         expect(viaOldUid.uid).toBe(stubUid);
+    });
+
+    it("update merge hands the source app's owned subdomain rows to the joined app", async () => {
+        const { actor, userId } = await makeUser();
+        const stubUid = await makeBootstrapStub(aliasHostC);
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('alias-own'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        const sourceApp = (await server.stores.app.getByUid(
+            created.uid as string,
+        ))!;
+        const subdomain = `merge-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId,
+            subdomain,
+            appOwner: sourceApp.id,
+        });
+
+        const updated = await withActor(actor, () =>
+            driver.update({
+                uid: created.uid,
+                object: { index_url: `https://${aliasHostC}/` },
+            }),
+        );
+        expect(updated.uid).toBe(stubUid);
+
+        // The source row is gone; its subdomain row survives under the joined
+        // app rather than cascading away with the source.
+        const stub = (await server.stores.app.getByUid(stubUid))!;
+        const [row] = await server.stores.subdomain.listByUserIdAndPrefix(
+            userId,
+            subdomain,
+        );
+        expect(row).toBeTruthy();
+        expect(Number(row!.app_owner)).toBe(stub.id);
     });
 
     it('leaves unrelated custom domains untouched (no alias group, no conflict check)', async () => {
@@ -1431,6 +1608,34 @@ describe('AppDriver hosted-subdomain ownership check', () => {
         expect(result.name).toBe(name);
         const stored = await server.stores.app.getByUid(stubUid);
         expect(stored?.owner_user_id).toBe(userId);
+    });
+
+    it('create absorbs a bootstrap stub minted on an alternate hosting domain', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('altstub');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const stubUid = `app-${uuidv4()}`;
+        await server.stores.app.createFromOrigin(
+            stubUid,
+            `https://${sub}.host.puter.localhost`,
+            { ownerUserId: userId },
+        );
+
+        const name = uniqueName('alt-create');
+        const result = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name,
+                    title: 'Alt-host stub',
+                    index_url: hostedUrl(sub),
+                },
+            }),
+        );
+
+        expect(result.uid).toBe(stubUid);
+        expect(result.name).toBe(name);
+        const stored = await server.stores.app.getByUid(stubUid);
+        expect(stored?.index_url).toBe(hostedUrl(sub));
     });
 
     it('rejects a hosted index_url whose subdomain does not exist anywhere', async () => {

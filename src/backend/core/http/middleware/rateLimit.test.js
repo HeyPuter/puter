@@ -38,8 +38,10 @@ import {
     checkDriverRateLimit,
     checkRateLimit,
     concurrencyGate,
+    consumeRouteRateLimit,
     configureRateLimit,
     listConfiguredRateLimitBackends,
+    peekRateLimit,
     rateLimitGate,
     sweepMemoryWindows,
 } from './rateLimit.js';
@@ -87,6 +89,38 @@ describe('rateLimitGate — memory backend (default)', () => {
         expect(isHttpError(rejected)).toBe(true);
         expect(rejected.statusCode).toBe(429);
         expect(rejected.legacyCode).toBe('too_many_requests');
+    });
+
+    it("'user' strategy separates one user's apps and workers", async () => {
+        const opts = {
+            limit: 1,
+            window: 60_000,
+            key: 'user',
+            scope: 'mem-user-app',
+        };
+        const user = { id: 7 };
+        const reqs = [
+            makeReq({ actor: { user, effectiveApp: null } }),
+            makeReq({
+                actor: {
+                    user,
+                    app: { uid: 'app-1' },
+                    effectiveApp: { uid: 'app-1' },
+                },
+            }),
+            makeReq({
+                actor: {
+                    user,
+                    app: { uid: 'app-1' },
+                    effectiveApp: { uid: 'app-1' },
+                    session: { uid: 'w-1', kind: 'worker' },
+                },
+            }),
+        ];
+        for (const req of reqs)
+            expect(await runGate(opts, req)).toBeUndefined();
+        for (const req of reqs)
+            expect(isHttpError(await runGate(opts, req))).toBe(true);
     });
 
     it("'user' strategy buckets by actor.user.id (different users don't crowd)", async () => {
@@ -373,6 +407,51 @@ describe('rateLimitGate — bySubscription overrides', () => {
         expect(await runGate(opts, paidReq)).toBeUndefined();
     });
 
+    it('holds a free plan the spec never named to the free cap', async () => {
+        // A team seat resolves to `org_seat_free`; no driver enumerates it, and
+        // falling through to `limit` would outrank an ordinary free account.
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async () => ({ id: 'org_seat_free' }),
+            },
+        });
+        const opts = {
+            limit: 100,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: 'rl-sub-orgseat',
+        };
+        const req = () => ({
+            actor: { user: { id: 7, uuid: 'seat' } },
+            headers: {},
+        });
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(isHttpError(await runGate(opts, req()))).toBe(true);
+    });
+
+    it('still gives a paid plan the base when it names no cap of its own', async () => {
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async () => ({ id: 'some-paid-tier' }),
+            },
+        });
+        const opts = {
+            limit: 2,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: 'rl-sub-paid-unlisted',
+        };
+        const req = () => ({
+            actor: { user: { id: 8, uuid: 'paid2' } },
+            headers: {},
+        });
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(await runGate(opts, req())).toBeUndefined();
+        expect(isHttpError(await runGate(opts, req()))).toBe(true);
+    });
+
     it('falls back to the base `limit` when metering throws', async () => {
         configureRateLimit({
             metering: {
@@ -587,6 +666,89 @@ describe('configureRateLimit — backend selection', () => {
 describe('checkDriverRateLimit', () => {
     beforeEach(() => {
         configureRateLimit();
+    });
+
+    it('buckets the same user separately per app and per worker', async () => {
+        const user = { uuid: 'user-apps' };
+        const plain = { actor: { user, effectiveApp: null } };
+        const appA = {
+            actor: {
+                user,
+                app: { uid: 'app-a' },
+                effectiveApp: { uid: 'app-a' },
+            },
+        };
+        const appB = {
+            actor: {
+                user,
+                app: { uid: 'app-b' },
+                effectiveApp: { uid: 'app-b' },
+            },
+        };
+        const workerA = {
+            actor: {
+                user,
+                app: { uid: 'app-a' },
+                effectiveApp: { uid: 'app-a' },
+                session: { uid: 'sess-w1', kind: 'worker' },
+            },
+        };
+        const workerA2 = {
+            actor: {
+                user,
+                app: { uid: 'app-a' },
+                effectiveApp: { uid: 'app-a' },
+                session: { uid: 'sess-w2', kind: 'worker' },
+            },
+        };
+        for (const req of [plain, appA, appB, workerA, workerA2]) {
+            expect(await checkDriverRateLimit(req, 'kv', 'get', spec(1))).toBe(
+                true,
+            );
+        }
+        for (const req of [plain, appA, appB, workerA, workerA2]) {
+            expect(await checkDriverRateLimit(req, 'kv', 'get', spec(1))).toBe(
+                false,
+            );
+        }
+    });
+
+    it('lands an app-issued access token in the issuing app bucket', async () => {
+        const user = { uuid: 'user-token' };
+        const app = {
+            actor: {
+                user,
+                app: { uid: 'app-x' },
+                effectiveApp: { uid: 'app-x' },
+            },
+        };
+        const token = { actor: { user, effectiveApp: { uid: 'app-x' } } };
+        expect(await checkDriverRateLimit(app, 'kv', 'get', spec(1))).toBe(
+            true,
+        );
+        expect(await checkDriverRateLimit(token, 'kv', 'get', spec(1))).toBe(
+            false,
+        );
+    });
+
+    it("a non-worker session doesn't add a segment", async () => {
+        const user = { uuid: 'user-web' };
+        const a = {
+            actor: {
+                user,
+                effectiveApp: null,
+                session: { uid: 's1', kind: 'web' },
+            },
+        };
+        const b = {
+            actor: {
+                user,
+                effectiveApp: null,
+                session: { uid: 's2', kind: 'web' },
+            },
+        };
+        expect(await checkDriverRateLimit(a, 'kv', 'get', spec(1))).toBe(true);
+        expect(await checkDriverRateLimit(b, 'kv', 'get', spec(1))).toBe(false);
     });
 
     const spec = (limit, window = 60_000, backend) => ({
@@ -959,6 +1121,28 @@ describe('acquireConcurrent — orphan recovery (redis)', () => {
 
         expect((await acquireConcurrent(key, 1)).ok).toBe(true);
     });
+
+    it('heals a legacy string counter key and enforces the limit again', async () => {
+        // The pre-zset implementation stored these buckets as INCR string
+        // counters. Against such a key every zset command fails WRONGTYPE
+        // inside the MULTI while the trailing EXPIRE succeeds — so traffic
+        // kept the stale key alive indefinitely, and the undefined zcard
+        // result (NaN) admitted every caller unbounded.
+        // The file-level afterEach resets wiring to memory after every test,
+        // so re-point the default at this suite's redis for this test.
+        configureRateLimit({ default: 'redis', redis });
+        const key = 'legacy-counter';
+        await redis.set(`concurrent:${key}`, '7');
+
+        const first = await acquireConcurrent(key, 1);
+        expect(first.ok).toBe(true);
+        // The key was rebuilt as a zset and the cap is live again.
+        expect(await redis.type(`concurrent:${key}`)).toBe('zset');
+        expect((await acquireConcurrent(key, 1)).ok).toBe(false);
+
+        await first.release();
+        expect((await acquireConcurrent(key, 1)).ok).toBe(true);
+    });
 });
 
 // ── concurrency: subscription-based limits ──────────────────────────
@@ -1066,6 +1250,36 @@ describe('concurrencyGate — bySubscription overrides', () => {
 describe('acquireDriverConcurrent', () => {
     beforeEach(() => {
         configureRateLimit();
+    });
+
+    it('slots are per app and per worker for the same user', async () => {
+        const user = { uuid: 'conc-user' };
+        const app = {
+            actor: {
+                user,
+                app: { uid: 'app-c' },
+                effectiveApp: { uid: 'app-c' },
+            },
+        };
+        const worker = {
+            actor: {
+                user,
+                app: { uid: 'app-c' },
+                effectiveApp: { uid: 'app-c' },
+                session: { uid: 'w-c', kind: 'worker' },
+            },
+        };
+        const a = await acquireDriverConcurrent(app, 'kv', 'get', { limit: 1 });
+        expect(a.ok).toBe(true);
+        expect(
+            (await acquireDriverConcurrent(app, 'kv', 'get', { limit: 1 })).ok,
+        ).toBe(false);
+        const w = await acquireDriverConcurrent(worker, 'kv', 'get', {
+            limit: 1,
+        });
+        expect(w.ok).toBe(true);
+        await a.release();
+        await w.release();
     });
 
     it('returns an always-ok handle with a noop release when no spec is declared', async () => {
@@ -1254,6 +1468,161 @@ describe('checkRateLimit', () => {
         });
         const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
         expect(await checkRateLimit('boom', 1, 60_000)).toBe(true);
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+});
+
+describe('consumeRouteRateLimit', () => {
+    beforeEach(() => configureRateLimit());
+    afterEach(() => configureRateLimit());
+
+    const uniqueScope = () => `charge-${Math.random().toString(36).slice(2, 10)}`;
+
+    it('spends from the same bucket the route gate does', async () => {
+        // The whole point of the helper: a handler charge and the gate must
+        // resolve the identical key for the same spec + request.
+        const opts = { limit: 2, window: 60_000, key: 'user', scope: uniqueScope() };
+        const req = { actor: { user: { id: 7 } }, headers: {} };
+
+        expect(await consumeRouteRateLimit(req, opts)).toBe(true);
+
+        const next = vi.fn();
+        await rateLimitGate(opts)(req, {}, next);
+        expect(next.mock.calls[0][0]).toBeUndefined();
+
+        // Gate + helper together exhausted the bucket; either side now rejects.
+        expect(await consumeRouteRateLimit(req, opts)).toBe(false);
+        const rejectedNext = vi.fn();
+        await rateLimitGate(opts)(req, {}, rejectedNext);
+        expect(isHttpError(rejectedNext.mock.calls[0][0])).toBe(true);
+    });
+
+    it("buckets per user under the 'user' strategy", async () => {
+        const opts = { limit: 1, window: 60_000, key: 'user', scope: uniqueScope() };
+        const reqFor = (id) => ({ actor: { user: { id } }, headers: {} });
+        expect(await consumeRouteRateLimit(reqFor(1), opts)).toBe(true);
+        expect(await consumeRouteRateLimit(reqFor(1), opts)).toBe(false);
+        expect(await consumeRouteRateLimit(reqFor(2), opts)).toBe(true);
+    });
+
+    it('charges every window of an array spec, and any refusal refuses', async () => {
+        // The array form routes use (burst + sustained); the tightest bites.
+        const specs = [
+            { limit: 5, window: 60_000, key: 'user', scope: uniqueScope() },
+            { limit: 2, window: 60_000, key: 'user', scope: uniqueScope() },
+        ];
+        const req = { actor: { user: { id: 9 } }, headers: {} };
+        expect(await consumeRouteRateLimit(req, specs)).toBe(true);
+        expect(await consumeRouteRateLimit(req, specs)).toBe(true);
+        expect(await consumeRouteRateLimit(req, specs)).toBe(false);
+        // The refusing window really was the second one, not the first.
+        expect(await consumeRouteRateLimit(req, specs[0])).toBe(true);
+    });
+
+    it('applies bySubscription overrides via the wired metering service', async () => {
+        configureRateLimit({
+            metering: {
+                getActorSubscription: async (actor) => ({
+                    id: actor.user.uuid === 'free' ? 'user_free' : 'other',
+                }),
+            },
+        });
+        const opts = {
+            limit: 5,
+            window: 60_000,
+            bySubscription: { user_free: 1 },
+            key: 'user',
+            scope: uniqueScope(),
+        };
+        const freeReq = { actor: { user: { id: 1, uuid: 'free' } }, headers: {} };
+        expect(await consumeRouteRateLimit(freeReq, opts)).toBe(true);
+        expect(await consumeRouteRateLimit(freeReq, opts)).toBe(false);
+    });
+
+    it('fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis exploded');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const opts = { limit: 1, window: 60_000, key: 'ip', scope: uniqueScope() };
+        const req = { ip: '5.5.5.5', headers: {} };
+        expect(await consumeRouteRateLimit(req, opts)).toBe(true);
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+});
+
+describe('peekRateLimit', () => {
+    beforeEach(() => configureRateLimit());
+    afterEach(() => configureRateLimit());
+
+    const backends = [
+        ['memory', () => ({})],
+        ['redis', () => ({ redis: new RedisMock() })],
+    ];
+
+    it.each(backends)(
+        'reads %s state without spending it',
+        async (name, wiring) => {
+            const cfg = wiring();
+            configureRateLimit(cfg);
+            const key = `peek-${name}-${Math.random()}`;
+
+            // Peeking is free: any number of reads leaves the budget intact.
+            for (let i = 0; i < 5; i++) {
+                expect(await peekRateLimit(key, 1, 60_000, name)).toBe(true);
+            }
+            expect(await checkRateLimit(key, 1, 60_000, name)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000, name)).toBe(false);
+            await cfg.redis?.quit?.();
+        },
+    );
+
+    it('reports exhaustion on the kv backend without writing', async () => {
+        const server = await setupTestServer();
+        try {
+            configureRateLimit({ default: 'kv', kv: server.stores.kv });
+            const key = `peek-kv-${Math.random().toString(36).slice(2, 10)}`;
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await checkRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(false);
+        } finally {
+            configureRateLimit();
+            await server.shutdown();
+        }
+    });
+
+    it('ages entries out of the window', async () => {
+        vi.useFakeTimers();
+        try {
+            const key = `peek-window-${Math.random()}`;
+            expect(await checkRateLimit(key, 1, 60_000)).toBe(true);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(false);
+            vi.advanceTimersByTime(60_001);
+            expect(await peekRateLimit(key, 1, 60_000)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis down');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        expect(await peekRateLimit('boom', 1, 60_000)).toBe(true);
         expect(spy).toHaveBeenCalled();
         spy.mockRestore();
     });

@@ -20,12 +20,11 @@
 /**
  * Offline unit tests for CloudflareImageProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs CloudflareImageProvider directly against the
- * live wired `MeteringService` so the recording side is exercised
- * end-to-end. Cloudflare has no SDK — the provider hits the REST API
- * directly via global `fetch`, which we stub. That's the real network
- * egress point.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs CloudflareImageProvider directly against the live wired
+ * `MeteringService` so the recording side is exercised end-to-end. Cloudflare
+ * has no SDK — the provider hits the REST API directly via global `fetch`,
+ * which we stub. That's the real network egress point.
  */
 
 import {
@@ -47,14 +46,14 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './models.js';
 import { CloudflareImageProvider } from './CloudflareImageProvider.js';
 
-// Stub the URL→base64 fetch so URL inputs stay offline; keep the rest real.
-const { fetchImageAsBase64Mock } = vi.hoisted(() => ({
-    fetchImageAsBase64Mock: vi.fn(),
+// Keep URL downloads offline; other input parsing stays real.
+const { fetchImageBytesMock } = vi.hoisted(() => ({
+    fetchImageBytesMock: vi.fn(),
 }));
 
 vi.mock('../../inputImage.js', async (orig) => ({
     ...(await orig<typeof import('../../inputImage.js')>()),
-    fetchImageAsBase64: fetchImageAsBase64Mock,
+    fetchImageBytes: fetchImageBytesMock,
 }));
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -91,7 +90,7 @@ const makeProvider = (
     );
 
 beforeEach(() => {
-    fetchImageAsBase64Mock.mockReset();
+    fetchImageBytesMock.mockReset();
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     batchIncrementUsagesSpy = vi.spyOn(
@@ -181,7 +180,7 @@ describe('CloudflareImageProvider.generate credit gate', () => {
 // ── Request shape ──────────────────────────────────────────────────
 
 describe('CloudflareImageProvider.generate request shape', () => {
-    it('POSTs JSON with width/height/steps to the account-scoped /ai/run/<model> endpoint', async () => {
+    it('sends only fields supported by Schnell to its account-scoped endpoint', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(
             okJsonResponse({
@@ -195,7 +194,7 @@ describe('CloudflareImageProvider.generate request shape', () => {
             provider.generate({
                 model: '@cf/black-forest-labs/flux-1-schnell',
                 prompt: 'a tiny red dot',
-                ratio: { w: 1024, h: 1024 },
+                imageSize: { w: 1024, h: 1024, kind: 'pixels' },
             } as never),
         );
 
@@ -209,13 +208,7 @@ describe('CloudflareImageProvider.generate request shape', () => {
         expect(headers.Authorization).toBe('Bearer cf-test-token');
         expect(headers['Content-Type']).toBe('application/json');
         const body = JSON.parse(init?.body as string);
-        expect(body.prompt).toBe('a tiny red dot');
-        expect(body.width).toBe(1024);
-        expect(body.height).toBe(1024);
-        // Schnell defaults to 4 steps; provider sends both steps + num_steps
-        // for compatibility with both naming conventions.
-        expect(body.steps).toBe(4);
-        expect(body.num_steps).toBe(4);
+        expect(body).toEqual({ prompt: 'a tiny red dot', steps: 4 });
     });
 
     it('honours an apiBaseUrl override', async () => {
@@ -253,7 +246,7 @@ describe('CloudflareImageProvider.generate request shape', () => {
                 // flux-2-dev has requiresMultipart=true.
                 model: '@cf/black-forest-labs/flux-2-dev',
                 prompt: 'hi',
-                ratio: { w: 1024, h: 1024 },
+                imageSize: { w: 1024, h: 1024, kind: 'pixels' },
             } as never),
         );
 
@@ -268,7 +261,7 @@ describe('CloudflareImageProvider.generate request shape', () => {
         expect(form.get('height')).toBe('1024');
     });
 
-    it('clamps user-supplied steps to [1,50]', async () => {
+    it('clamps Schnell steps to [1,8]', async () => {
         const provider = makeProvider();
 
         // High clamp.
@@ -282,9 +275,9 @@ describe('CloudflareImageProvider.generate request shape', () => {
                 steps: 999,
             } as never),
         );
-        expect(JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string).steps).toBe(
-            50,
-        );
+        expect(
+            JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string).steps,
+        ).toBe(8);
 
         // Low clamp.
         fetchSpy.mockResolvedValueOnce(
@@ -297,9 +290,9 @@ describe('CloudflareImageProvider.generate request shape', () => {
                 steps: 0,
             } as never),
         );
-        expect(JSON.parse(fetchSpy.mock.calls[1]![1]!.body as string).steps).toBe(
-            1,
-        );
+        expect(
+            JSON.parse(fetchSpy.mock.calls[1]![1]!.body as string).steps,
+        ).toBe(1);
     });
 });
 
@@ -341,7 +334,7 @@ describe('CloudflareImageProvider.generate output extraction', () => {
             } as never),
         );
 
-        expect(result).toBe('data:image/webp;base64,AAAA');
+        expect(result).toBe('data:image/jpeg;base64,AAAA');
     });
 
     it('passes through an http(s) URL or data URL straight from the JSON envelope', async () => {
@@ -426,7 +419,7 @@ describe('CloudflareImageProvider.generate cost components', () => {
             provider.generate({
                 model: '@cf/black-forest-labs/flux-1-schnell',
                 prompt: 'hi',
-                ratio: { w: 1024, h: 1024 }, // 2x2 tiles = 4
+                imageSize: { w: 1024, h: 1024, kind: 'pixels' }, // 2x2 tiles = 4
             } as never),
         );
 
@@ -462,7 +455,7 @@ describe('CloudflareImageProvider.generate cost components', () => {
                 model: '@cf/black-forest-labs/flux-2-klein-9b',
                 prompt: 'hi',
                 // 2 MP image to exercise both first_mp and subsequent_mp.
-                ratio: { w: 2000, h: 1000 },
+                imageSize: { w: 2000, h: 1000, kind: 'pixels' },
                 image: 'data:image/png;base64,AAAA', // hasInputImage=true
             } as never),
         );
@@ -497,7 +490,7 @@ describe('CloudflareImageProvider.generate input_images', () => {
             provider.generate({
                 model: '@cf/black-forest-labs/flux-2-klein-9b',
                 prompt: 'edit it',
-                ratio: { w: 2000, h: 1000 },
+                imageSize: { w: 2000, h: 1000, kind: 'pixels' },
                 ...extra,
             } as never),
         );
@@ -521,12 +514,12 @@ describe('CloudflareImageProvider.generate input_images', () => {
     });
 
     it('fetches an http(s) URL input via secureFetch and uses it as the input image', async () => {
-        fetchImageAsBase64Mock.mockResolvedValueOnce({
-            base64: 'AAAA',
+        fetchImageBytesMock.mockResolvedValueOnce({
+            bytes: Buffer.from('AAAA', 'base64'),
             mime: 'image/png',
         });
         await klein9bWith({ input_images: ['https://example.com/in.png'] });
-        expect(fetchImageAsBase64Mock).toHaveBeenCalledWith(
+        expect(fetchImageBytesMock).toHaveBeenCalledWith(
             'https://example.com/in.png',
         );
         expect(hasInputCostLine()).toBe(true);
@@ -539,12 +532,221 @@ describe('CloudflareImageProvider.generate input_images', () => {
                 provider.generate({
                     model: '@cf/black-forest-labs/flux-2-klein-9b',
                     prompt: 'edit it',
-                    ratio: { w: 1024, h: 1024 },
-                    input_images: ['data:image/png;base64,AAAA', 'data:image/png;base64,BBBB'],
+                    imageSize: { w: 1024, h: 1024, kind: 'pixels' },
+                    input_images: [
+                        'data:image/png;base64,AAAA',
+                        'data:image/png;base64,BBBB',
+                    ],
                 } as never),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(fetchImageAsBase64Mock).not.toHaveBeenCalled();
+        expect(fetchImageBytesMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('CloudflareImageProvider reference transport', () => {
+    it('labels a FLUX.2 JPEG response with its actual MIME type', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            okJsonResponse({ result: { image: '/9j/4A==' } }),
+        );
+        const result = await withTestActor(() =>
+            makeProvider().generate({
+                model: '@cf/black-forest-labs/flux-2-klein-4b',
+                prompt: 'a landscape',
+            }),
+        );
+        expect(result).toBe('data:image/jpeg;base64,/9j/4A==');
+    });
+
+    it('uploads decoded image bytes using the FLUX.2 multipart field', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            okJsonResponse({ result: { image: 'AAAA' } }),
+        );
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: '@cf/black-forest-labs/flux-2-klein-4b',
+                prompt: 'a landscape',
+                input_images: ['data:image/png;base64,AQID'],
+                steps: 40,
+            }),
+        );
+        const form = fetchSpy.mock.calls[0][1]!.body as FormData;
+        const input = form.get('input_image_0') as File;
+        expect(input.type).toBe('image/png');
+        expect([...new Uint8Array(await input.arrayBuffer())]).toEqual([
+            1, 2, 3,
+        ]);
+        expect(form.has('image')).toBe(false);
+        expect(form.has('steps')).toBe(false);
+    });
+
+    it('rejects image inputs on text-only models before a provider request', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'a landscape',
+                    input_image: 'AAAA',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('Cloudflare legacy image option', () => {
+    it.each([{ url: 'https://example.com/in.png' }, 123, ['AAAA']])(
+        'rejects a non-string image %j as 400 before any upstream call',
+        async (image) => {
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({
+                        model: '@cf/black-forest-labs/flux-2-dev',
+                        prompt: 'hi',
+                        image,
+                    } as never),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(hasCreditsSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('rejects an input that decodes to zero bytes instead of uploading it', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: '@cf/black-forest-labs/flux-2-dev',
+                    prompt: 'hi',
+                    input_images: ['data:image/png;base64,'],
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Invalid input image (empty or not base64)',
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('Cloudflare size bounds', () => {
+    it.each([
+        { w: 4, h: 1 },
+        { w: 1, h: 4 },
+        { w: 32, h: 1 },
+    ])('fits an aspect hint %j inside FLUX.2 side limits', async (ratio) => {
+        fetchSpy.mockResolvedValueOnce(
+            okJsonResponse({ result: { image: 'AAAA' } }),
+        );
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: '@cf/black-forest-labs/flux-2-klein-4b',
+                prompt: 'hi',
+                imageSize: { ...ratio, kind: 'aspect' },
+            }),
+        );
+        const body = fetchSpy.mock.calls[0][1]!.body as FormData;
+        for (const side of ['width', 'height']) {
+            expect(Number(body.get(side))).toBeGreaterThanOrEqual(256);
+            expect(Number(body.get(side))).toBeLessThanOrEqual(1920);
+        }
+    });
+});
+
+it.each([
+    { model: '@cf/leonardo/lucid-origin', negative: false },
+    { model: '@cf/leonardo/phoenix-1.0', negative: true },
+])(
+    'sends the supported JSON fields for $model',
+    async ({ model, negative }) => {
+        fetchSpy.mockResolvedValueOnce(
+            okJsonResponse({ result: { image: 'AAAA' } }),
+        );
+        await withTestActor(() =>
+            makeProvider().generate({
+                model,
+                prompt: 'hi',
+                imageSize: { w: 1024, h: 768, kind: 'pixels' },
+                steps: 12,
+                seed: 42,
+                guidance: 4,
+                negative_prompt: 'blur',
+            }),
+        );
+        expect(JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)).toEqual({
+            prompt: 'hi',
+            width: 1024,
+            height: 768,
+            num_steps: 12,
+            seed: 42,
+            guidance: 4,
+            ...(negative ? { negative_prompt: 'blur' } : {}),
+        });
+    },
+);
+
+it('meters the bounded FLUX.2 dimensions sent upstream', async () => {
+    fetchSpy.mockResolvedValueOnce(
+        okJsonResponse({ result: { image: 'AAAA' } }),
+    );
+    await withTestActor(() =>
+        makeProvider().generate({
+            model: '@cf/black-forest-labs/flux-2-klein-4b',
+            prompt: 'hi',
+            imageSize: { w: 32, h: 1, kind: 'aspect' },
+        }),
+    );
+    const body = fetchSpy.mock.calls[0][1]!.body as FormData;
+    expect(body.get('width')).toBe('1920');
+    expect(body.get('height')).toBe('256');
+    expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual([
+        expect.objectContaining({
+            usageType: expect.stringContaining(':input_tile_512'),
+            usageAmount: 4,
+            costOverride: 23600,
+        }),
+        expect.objectContaining({
+            usageType: expect.stringContaining(':output_tile_512'),
+            usageAmount: 4,
+            costOverride: 114800,
+        }),
+    ]);
+});
+
+describe('Cloudflare priced legacy models', () => {
+    it('sends image and mask bytes to inpainting and preserves a published zero price', async () => {
+        fetchSpy.mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }));
+        await withTestActor(() => makeProvider().generate({
+            model: '@cf/runwayml/stable-diffusion-v1-5-inpainting', prompt: 'A cup',
+            input_images: ['data:image/png;base64,AQID'], maskImage: 'data:image/png;base64,BAUG',
+            imageSize: { kind: 'pixels', w: 512, h: 512 },
+        }));
+        expect(JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string)).toMatchObject({ image: [1, 2, 3], mask: [4, 5, 6], num_steps: 20, width: 512, height: 512 });
+        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 0);
+    });
+
+    it('rejects missing inpainting inputs before credit checks', async () => {
+        await expect(withTestActor(() => makeProvider().generate({ model: '@cf/runwayml/stable-diffusion-v1-5-inpainting', prompt: 'A cup' }))).rejects.toMatchObject({ statusCode: 400 });
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each(['@cf/bytedance/stable-diffusion-xl-lightning', '@cf/stabilityai/stable-diffusion-xl-base-1.0'])(
+        'rejects an input image on %s, which Cloudflare serves text-to-image only', async (model) => {
+            await expect(withTestActor(() => makeProvider().generate({
+                model, prompt: 'A cup', input_image: 'data:image/png;base64,AQID',
+            }))).rejects.toMatchObject({ statusCode: 400 });
+            expect(fetchSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('charges Lucid at the price returned by the model API', async () => {
+        fetchSpy.mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }));
+        await withTestActor(() => makeProvider().generate({ model: '@cf/leonardo/lucid-origin', prompt: 'A cup', imageSize: { kind: 'pixels', w: 512, h: 512 }, steps: 1 }));
+        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 713200);
     });
 });

@@ -1,12 +1,14 @@
 ---
 title: puter.auth.signIn()
 description: Initiate sign in process in your application with user's Puter account.
-platforms: [websites, apps]
+platforms: [websites]
 ---
 
 Initiates the sign in process for the user. This will open a popup window with the appropriate authentication method. Puter automatically handles the authentication process and will resolve the promise when the user has signed in.
 
 It is important to note that all essential methods in Puter handle authentication automatically. This method is only necessary if you want to handle authentication manually, for example if you want to build your own custom authentication flow.
+
+This is a website-only method. An app running on Puter is already signed in as the user who launched it, so calling it there rejects with `not_available_in_app`.
 
 <div class="info">
 
@@ -42,6 +44,8 @@ The promise will reject with an object containing an `error` code and a human-re
 - `popup_blocked`: The sign-in popup was blocked by the browser. This usually happens when `signIn()` is not called from a user action (such as a click event).
 
 - `auth_window_closed`: The user closed the sign-in window (or cancelled the consent dialog) without completing the sign-in process.
+
+- `not_available_in_app`: `signIn()` was called from an app running on Puter. An app is already signed in as the user who launched it — the Puter session hands it a token at launch — so there is nothing for the popup to do. Use `puter.auth.getUser()` to read who that is.
 
 The promise may also reject with the failure response returned by the authentication window itself.
 

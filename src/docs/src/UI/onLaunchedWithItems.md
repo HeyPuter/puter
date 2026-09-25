@@ -29,3 +29,23 @@ A function to execute after items are opened by user action. The function will b
 </body>
 </html>
 ```
+
+## Launching from a URL
+
+An app can also be launched with a file straight from a link, by naming the
+file in the `file` query parameter:
+
+```
+https://puter.com/app/<app-name>?file=<path>
+```
+
+The path may be absolute (`/username/Documents/report.docx`) or written
+relative to the user's home directory (`~/Documents/report.docx`). Because the
+link, not the user, picked the file, Puter first asks the user to allow the app
+access to it. Once allowed, the file is handed to the app exactly as
+double-clicking it would, so `onLaunchedWithItems` receives it and
+`wasLaunchedWithItems()` returns `true`.
+
+If the file doesn't exist, the user can't reach it or declines the prompt, or
+the path names a folder, the app is launched with no items rather than failing
+to open.

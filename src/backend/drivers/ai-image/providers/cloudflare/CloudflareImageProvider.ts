@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { assertImagePrompt } from '../../imageValidation.js';
+import { expandAspectRatio } from '../../imageDimensions.js';
+import { imageDataUri } from '../../imageOutput.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
@@ -30,9 +33,11 @@ import {
     CloudflareImageModel,
 } from './models.js';
 import {
-    fetchImageAsBase64,
+    assertInputImageString,
+    fetchImageBytes,
     isHttpUrl,
     resolveSingleInputImage,
+    parseDataUri,
 } from '../../inputImage.js';
 
 type CloudflareGenerateParams = IGenerateParams & {
@@ -41,8 +46,9 @@ type CloudflareGenerateParams = IGenerateParams & {
     seed?: number;
     guidance?: number;
     negative_prompt?: string;
-    output_format?: 'jpeg' | 'png' | 'webp';
     image?: string;
+    maskImage?: string;
+    strength?: number;
 };
 
 interface CostComponent {
@@ -84,20 +90,18 @@ export class CloudflareImageProvider implements IImageProvider {
     }
 
     async generate(params: IGenerateParams): Promise<string> {
-        const options = params as CloudflareGenerateParams;
+        const options = { ...params } as CloudflareGenerateParams;
         const { prompt, test_mode } = options;
-        const ratio = this.#normalizeRatio(options.ratio);
         const selectedModel = this.#getModel(options.model);
+        const ratio = selectedModel.fixedRatio
+            ? { ...selectedModel.fixedRatio }
+            : this.#normalizeRatio(options, selectedModel);
 
         if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new HttpError(400, '`prompt` must be a non-empty string', {
-                legacyCode: 'bad_request',
-            });
-        }
+        assertImagePrompt(prompt);
 
         const actor = Context.get('actor');
         if (!actor) {
@@ -106,21 +110,82 @@ export class CloudflareImageProvider implements IImageProvider {
             });
         }
 
-        // Canonical `input_images`/`input_image` → Cloudflare's `image` field.
-        // Cloudflare accepts a single input image; a URL is fetched to base64
-        // server-side (SSRF-guarded) since the API has no URL field.
-        const singleInput = resolveSingleInputImage(options, 'Cloudflare');
+        // The legacy `image` option bypasses the driver's input_images shape
+        // check, so it gets the same string validation here before anything
+        // reaches the base64 decoder.
+        const legacyImage =
+            options.image == null
+                ? undefined
+                : assertInputImageString(options.image, 'Cloudflare');
+        const singleInput =
+            resolveSingleInputImage(options, 'Cloudflare') ?? legacyImage;
+        let inputImage: { bytes: Buffer; mime: string } | undefined;
         if (singleInput) {
-            options.image ??= isHttpUrl(singleInput)
-                ? (await fetchImageAsBase64(singleInput)).base64
-                : singleInput;
+            if (
+                !selectedModel.requiresMultipart &&
+                !selectedModel.supportsImageBytes
+            ) {
+                throw new HttpError(
+                    400,
+                    `${selectedModel.id} does not support input images`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            if (isHttpUrl(singleInput))
+                inputImage = await fetchImageBytes(singleInput);
+            else {
+                const data = parseDataUri(singleInput);
+                inputImage = {
+                    bytes: Buffer.from(data?.base64 ?? singleInput, 'base64'),
+                    mime:
+                        data?.mime ??
+                        options.input_image_mime_type ??
+                        'image/png',
+                };
+            }
+            if (inputImage.bytes.length === 0) {
+                throw new HttpError(
+                    400,
+                    'Invalid input image (empty or not base64)',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+        }
+
+        if (selectedModel.requiresInputImage && !inputImage) {
+            throw new HttpError(
+                400,
+                `${selectedModel.id} requires an input image`,
+                {
+                    legacyCode: 'bad_request',
+                },
+            );
+        }
+        let maskBytes: Buffer | undefined;
+        if (options.maskImage != null) {
+            const mask = assertInputImageString(options.maskImage, 'maskImage');
+            if (!selectedModel.supportsImageBytes || !inputImage) {
+                throw new HttpError(
+                    400,
+                    'maskImage requires a model supporting masks and an input image',
+                    {
+                        legacyCode: 'bad_request',
+                    },
+                );
+            }
+            maskBytes = isHttpUrl(mask)
+                ? (await fetchImageBytes(mask)).bytes
+                : Buffer.from(parseDataUri(mask)?.base64 ?? mask, 'base64');
+            if (!maskBytes.length) {
+                throw new HttpError(400, 'maskImage must contain image data', {
+                    legacyCode: 'bad_request',
+                });
+            }
         }
 
         const steps = this.#resolveSteps(selectedModel, options);
         const costComponents = this.#estimateCost(selectedModel, ratio, steps, {
-            hasInputImage:
-                typeof options.image === 'string' &&
-                options.image.trim() !== '',
+            hasInputImage: !!inputImage,
         });
         const totalCostInMicroCents = costComponents.reduce(
             (acc, component) => acc + component.totalCostMicroCents,
@@ -142,6 +207,8 @@ export class CloudflareImageProvider implements IImageProvider {
             ...options,
             ratio,
             steps,
+            inputImage,
+            maskBytes,
         });
 
         this.#meteringService.batchIncrementUsages(
@@ -170,33 +237,39 @@ export class CloudflareImageProvider implements IImageProvider {
         return found || models.find((m) => m.id === DEFAULT_MODEL)!;
     }
 
-    #normalizeRatio(ratio?: { w: number; h: number }) {
-        const width = Number(ratio?.w);
-        const height = Number(ratio?.h);
-        if (
-            Number.isFinite(width) &&
-            Number.isFinite(height) &&
-            width > 0 &&
-            height > 0
-        ) {
-            return {
-                w: Math.max(64, Math.round(width)),
-                h: Math.max(64, Math.round(height)),
-            };
-        }
-        return { ...DEFAULT_RATIO };
+    #normalizeRatio(params: IGenerateParams, model: CloudflareImageModel) {
+        // The driver resolves every caller-facing size field into `imageSize`.
+        const size = params.imageSize;
+        const { w, h } =
+            size?.kind === 'aspect'
+                ? expandAspectRatio(size)
+                : (size ?? DEFAULT_RATIO);
+        const min = model.minDimension ?? 64;
+        const max = model.maxDimension ?? 2500;
+        const scale =
+            size?.kind === 'aspect'
+                ? Math.min(
+                      max / Math.max(w, h),
+                      Math.max(min / Math.min(w, h), 1),
+                  )
+                : 1;
+        return {
+            w: Math.min(max, Math.max(min, Math.round(w * scale))),
+            h: Math.min(max, Math.max(min, Math.round(h * scale))),
+        };
     }
 
     #resolveSteps(
         model: CloudflareImageModel,
         options: CloudflareGenerateParams,
     ): number {
+        if (model.fixedSteps) return model.fixedSteps;
         const input = Number(
             options.steps ?? options.num_steps ?? model.defaultSteps ?? 25,
         );
         const fallback = model.defaultSteps ?? 25;
         if (!Number.isFinite(input)) return fallback;
-        return Math.max(1, Math.min(50, Math.round(input)));
+        return Math.max(1, Math.min(model.maxSteps ?? 50, Math.round(input)));
     }
 
     // Cloudflare models have *really exact* billing needs. They pretty much bill based on exactly what the model does
@@ -329,6 +402,8 @@ export class CloudflareImageProvider implements IImageProvider {
         params: CloudflareGenerateParams & {
             ratio: { w: number; h: number };
             steps: number;
+            inputImage?: { bytes: Buffer; mime: string };
+            maskBytes?: Buffer;
         },
     ) {
         const endpoint = `${this.#apiBaseUrl}/accounts/${this.#accountId}/ai/run/${model.id}`;
@@ -342,7 +417,8 @@ export class CloudflareImageProvider implements IImageProvider {
             formData.append('prompt', params.prompt);
             formData.append('width', String(params.ratio.w));
             formData.append('height', String(params.ratio.h));
-            formData.append('steps', String(params.steps));
+            if (!model.fixedSteps)
+                formData.append('steps', String(params.steps));
 
             if (Number.isFinite(params.seed))
                 formData.append(
@@ -351,34 +427,43 @@ export class CloudflareImageProvider implements IImageProvider {
                 );
             if (Number.isFinite(params.guidance))
                 formData.append('guidance', String(params.guidance));
-            if (typeof params.negative_prompt === 'string')
-                formData.append('negative_prompt', params.negative_prompt);
-            if (typeof params.output_format === 'string')
-                formData.append('output_format', params.output_format);
-            if (typeof params.image === 'string')
-                formData.append('image', params.image);
+            if (params.inputImage) {
+                formData.append(
+                    'input_image_0',
+                    new Blob([new Uint8Array(params.inputImage.bytes)], {
+                        type: params.inputImage.mime,
+                    }),
+                    'input-image',
+                );
+            }
             body = formData;
         } else {
             headers['Content-Type'] = 'application/json';
-            body = JSON.stringify({
-                prompt: params.prompt,
-                width: params.ratio.w,
-                height: params.ratio.h,
-                steps: params.steps,
-                num_steps: params.steps,
-                ...(Number.isFinite(params.seed)
-                    ? { seed: Math.round(params.seed as number) }
-                    : {}),
-                ...(Number.isFinite(params.guidance)
-                    ? { guidance: params.guidance }
-                    : {}),
-                ...(typeof params.negative_prompt === 'string'
-                    ? { negative_prompt: params.negative_prompt }
-                    : {}),
-                ...(typeof params.output_format === 'string'
-                    ? { output_format: params.output_format }
-                    : {}),
-            });
+            const request: Record<string, unknown> = { prompt: params.prompt };
+            if (model.fixedRatio) {
+                request.steps = params.steps;
+            } else {
+                request.width = params.ratio.w;
+                request.height = params.ratio.h;
+                request.num_steps = params.steps;
+                if (model.supportsImageBytes && params.inputImage) {
+                    request.image = [...params.inputImage.bytes];
+                    if (params.maskBytes) request.mask = [...params.maskBytes];
+                    if (Number.isFinite(params.strength))
+                        request.strength = params.strength;
+                }
+                if (Number.isFinite(params.seed))
+                    request.seed = Math.round(params.seed!);
+                if (Number.isFinite(params.guidance))
+                    request.guidance = params.guidance;
+                if (
+                    model.supportsNegativePrompt &&
+                    typeof params.negative_prompt === 'string'
+                ) {
+                    request.negative_prompt = params.negative_prompt;
+                }
+            }
+            body = JSON.stringify(request);
         }
 
         const response = await fetch(endpoint, {
@@ -439,8 +524,8 @@ export class CloudflareImageProvider implements IImageProvider {
             return imageString;
         }
 
-        const mime = this.#mimeForFormat(params.output_format);
-        return `data:${mime};base64,${imageString}`;
+        const mime = model.outputMime ?? 'image/png';
+        return imageDataUri(imageString, mime);
     }
 
     #extractImageString(payload: unknown): string | undefined {
@@ -500,12 +585,6 @@ export class CloudflareImageProvider implements IImageProvider {
 
     #megapixels({ w, h }: { w: number; h: number }) {
         return (w * h) / 1_000_000;
-    }
-
-    #mimeForFormat(format?: string) {
-        if (format === 'jpeg') return 'image/jpeg';
-        if (format === 'webp') return 'image/webp';
-        return 'image/png';
     }
 
     #costForUnits(units: number, microCentsPerUnit?: number) {

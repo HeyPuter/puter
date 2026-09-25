@@ -152,11 +152,11 @@ const waitFor = async (
 
 const putCalls = () =>
     fetchSpy.mock.calls.filter(
-        ([, init]) => (init as RequestInit | undefined)?.method === 'PUT',
+        (call) => (call[1] as RequestInit | undefined)?.method === 'PUT',
     );
 const deleteCalls = () =>
     fetchSpy.mock.calls.filter(
-        ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+        (call) => (call[1] as RequestInit | undefined)?.method === 'DELETE',
     );
 
 // -- create ----------------------------------------------------------
@@ -358,6 +358,54 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
         ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
     });
 
+    it('reports a lost uniqueness race as 409, not a 500', async () => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/worker.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+
+        // The name check and the insert are two statements, and the check may
+        // answer from cache or a replica, so a name can be claimed in between
+        // and only the unique index catches it. The in-memory sqlite schema has
+        // no unique index on `subdomain` (mysql and postgres do), so the losing
+        // insert is what gets stubbed here. A raw driver error would escape as
+        // a 500 carrying the index name and the subdomain.
+        const dup = Object.assign(new Error('Duplicate entry'), {
+            code: 'ER_DUP_ENTRY',
+            errno: 1062,
+        });
+        vi.spyOn(server.stores.subdomain, 'create').mockRejectedValueOnce(dup);
+
+        await expect(
+            inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: `race-${user.username}`,
+                    filePath: path,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
+    });
+
+    it('lets a non-uniqueness insert failure surface as a server error', async () => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/worker.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+
+        vi.spyOn(server.stores.subdomain, 'create').mockRejectedValueOnce(
+            new Error('connection lost'),
+        );
+
+        await expect(
+            inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: `boom-${user.username}`,
+                    filePath: path,
+                }),
+            ),
+        ).rejects.toThrow('connection lost');
+    });
+
     it('rejects a source that is not a real FS file with 400', async () => {
         const { user, actor } = await makeUser();
         // A data URL resolves to bytes but carries no fsentry, so there is
@@ -504,6 +552,7 @@ describe('WorkerDriver.getFilePaths source resolution', () => {
             url: string;
             file_path: string | null;
             file_uid: string | null;
+            app_uid: string | null;
             created_at: string | null;
         }>;
 
@@ -512,6 +561,7 @@ describe('WorkerDriver.getFilePaths source resolution', () => {
         expect(row.url).toBe(`https://${name}.puter.work`);
         expect(row.file_path).toBe(path);
         expect(row.file_uid).toBe(entry.uuid);
+        expect(row.app_uid).toBeNull();
         expect(row.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
@@ -576,8 +626,11 @@ describe('WorkerDriver hot reload', () => {
         expect(notifySpy).toHaveBeenCalledWith(
             [user.id],
             expect.objectContaining({
-                source: 'worker',
                 title: `Successfully deployed https://${name}.puter.work`,
+            }),
+            expect.objectContaining({
+                type: 'app.worker.deployed',
+                appUid: null,
             }),
         );
     });
@@ -619,7 +672,7 @@ describe('WorkerDriver hot reload', () => {
             );
             return !row;
         }, 'subdomain row removal after source delete');
-        expect(deleteCalls().map(([u]) => u)).toContain(
+        expect(deleteCalls().map((call) => call[0])).toContain(
             `${SCRIPTS_BASE}/${name}/`,
         );
         expect(path).toContain(user.username);
@@ -646,7 +699,7 @@ describe('WorkerDriver hot reload', () => {
             );
             return !row;
         }, 'subdomain row removal after trash move');
-        expect(deleteCalls().map(([u]) => u)).toContain(
+        expect(deleteCalls().map((call) => call[0])).toContain(
             `${SCRIPTS_BASE}/${name}/`,
         );
     });
@@ -694,5 +747,61 @@ describe('WorkerDriver hot reload', () => {
 
         await new Promise((r) => setTimeout(r, 120));
         expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    // Deleting the app a worker is bound to deletes the worker row with it.
+    // Were the row to survive unbound, the next source write would redeploy
+    // it with an account-scoped token — a child app is enough to set that up.
+    it('does not redeploy a worker whose app was deleted, and never falls back to an account-scoped token', async () => {
+        const { user, actor } = await makeUser();
+        const builder = await server.stores.app.create(
+            {
+                name: `builder-${user.username}`,
+                title: 'builder',
+                index_url: `https://builder-${user.username}.example.com/`,
+            },
+            { ownerUserId: user.id },
+        );
+        const child = await server.stores.app.create(
+            {
+                name: `child-${user.username}`,
+                title: 'child',
+                index_url: `https://child-${user.username}.example.com/`,
+            },
+            { ownerUserId: user.id, appOwner: builder.id },
+        );
+        const path = `/${user.username}/bound.js`;
+        await writeSource(actor, user.id, path, 'v1');
+        const name = `bound-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({
+                appId: child.uid,
+                workerName: name,
+                filePath: path,
+            }),
+        );
+
+        // Uncached listing: the by-name cache would still serve the row.
+        const rowsFor = () =>
+            server.stores.subdomain.listByUserIdAndPrefix(
+                user.id,
+                `workers.puter.${name}`,
+            );
+        const [row] = await rowsFor();
+        expect(Number(row!.app_owner)).toBe(child.id);
+
+        await server.stores.app.delete(child.id);
+        expect(await rowsFor()).toEqual([]);
+
+        fetchSpy.mockClear();
+        const sessionMint = vi.spyOn(
+            server.services.auth,
+            'createWorkerSessionToken',
+        );
+        await writeSource(actor, user.id, path, 'v2');
+
+        await new Promise((r) => setTimeout(r, 120));
+        expect(putCalls()).toHaveLength(0);
+        expect(sessionMint).not.toHaveBeenCalled();
     });
 });

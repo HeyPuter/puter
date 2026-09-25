@@ -7,12 +7,16 @@
 // `defineOperation` only describe what is unique to them: the names of their
 // positional arguments and the request they make.
 
+import { promptIfUpgradeRequired } from '../../../lib/upgradePrompt.js';
 import * as utils from '../../../lib/utils.js';
 
 /** @typedef {import('../index.js').PuterJSFileSystemModule} FileSystemModule */
 
 /**
- * One request against the filesystem API.
+ * One request against the filesystem API. `upgradePrompt` is how the upgrade
+ * prompt names the operation when the request is refused for want of
+ * storage, credit, or a plan (default: `puter.fs (<endpoint>)`), and why the
+ * operation needs a plan if it has such a gate.
  *
  * @typedef {{
  *   endpoint: string,
@@ -25,6 +29,7 @@ import * as utils from '../../../lib/utils.js';
  *   transform?: (response: unknown) => unknown,
  *   success?: (value: unknown) => void,
  *   error?: (reason: unknown) => void,
+ *   upgradePrompt?: import('../../../lib/types.js').UpgradePromptContext,
  * }} FSRequestSpec
  */
 
@@ -134,7 +139,7 @@ export const ensureAuthenticated = async () => {
 export async function fsRequest (spec) {
     const {
         endpoint, body, method = 'post', contentType, responseType,
-        authHeader = true, prepareXhr, transform, success, error,
+        authHeader = true, prepareXhr, transform, success, error, upgradePrompt,
     } = spec;
 
     await ensureAuthenticated();
@@ -151,6 +156,18 @@ export async function fsRequest (spec) {
 
         prepareXhr?.(xhr);
 
+        // Refusals an upgrade would clear (413 on copy, mkdir, ...; 402 on a
+        // metered or plan-gated route) prompt the user the same way an
+        // over-quota upload does — on the reject path only, so the prompt
+        // fires once however many callbacks are attached.
+        const rejectWithPrompt = (e) => {
+            promptIfUpgradeRequired(e, {
+                method: `puter.fs (${endpoint})`,
+                ...upgradePrompt,
+            });
+            reject(e);
+        };
+
         // `transform` has to run before the callbacks so that they and the
         // promise agree on the value, which rules out `setupXhrEventHandlers`'
         // own success callback.
@@ -163,7 +180,7 @@ export async function fsRequest (spec) {
                 if ( typeof error === 'function' ) error(e);
                 reject(e);
             }
-        }, reject);
+        }, rejectWithPrompt);
 
         xhr.send(body === undefined ? undefined : JSON.stringify(body));
     });

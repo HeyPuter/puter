@@ -243,3 +243,29 @@ export const DAV_CONCURRENT: NonNullable<RouteOptions['concurrent']> = {
     limit: 10,
     key: 'fingerprint',
 };
+
+/**
+ * Failed HTTP Basic verifications on the DAV host.
+ *
+ * `DAV_LIMIT` counts requests, and a working DAV client resends its credentials
+ * on every one of them, so it cannot double as a credential ceiling — these
+ * count only verifications that failed, which a working client never produces.
+ * The gate reads them before the bcrypt compare, so an exhausted bucket costs
+ * nothing to serve.
+ *
+ * Two axes, sized like `/login`'s, and for the same reasons: per-account so one
+ * account can't be ground down from many networks, plus a coarser per-IP
+ * backstop, because the network fingerprint `DAV_LIMIT` buckets on rotates with
+ * client-controlled headers.
+ */
+export const DAV_AUTH_FAILURE_LIMIT: RouteRateLimit = {
+    scope: 'dav-auth',
+    limit: 10,
+    window: 15 * 60_000,
+};
+export const DAV_AUTH_FAILURE_IP_LIMIT: RouteRateLimit = {
+    scope: 'dav-auth-ip',
+    limit: 50,
+    window: 15 * 60_000,
+    key: 'ip',
+};

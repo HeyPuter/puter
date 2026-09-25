@@ -74,6 +74,18 @@ describe('SystemKVStore read cache', () => {
     const sleep = (ms: number) =>
         new Promise((resolve) => setTimeout(resolve, ms));
 
+    /**
+     * The dynamo client is shared by the whole test server, so a spy on it
+     * also sees background work and the async tail of earlier tests. Only
+     * calls for this test's own namespace prove anything about this test.
+     */
+    const dynamoCallsHere = (spy: { mock: { calls: unknown[][] } }) =>
+        spy.mock.calls.filter(
+            (call) =>
+                (call[1] as { namespace?: string } | undefined)?.namespace ===
+                namespace,
+        );
+
     describe('get', () => {
         it('answers a repeat read without touching the underlying store', async () => {
             await seed('k', 'cached-value');
@@ -312,7 +324,7 @@ describe('SystemKVStore read cache', () => {
             await target.get({ key: 'k' }, opts);
             await settle();
             await target.get({ key: 'k' }, opts);
-            expect(blocked).toHaveBeenCalledTimes(2);
+            expect(dynamoCallsHere(blocked)).toHaveLength(2);
             blocked.mockRestore();
 
             await sleep(BLOCK_SECONDS * 1000 + 200);
@@ -322,7 +334,7 @@ describe('SystemKVStore read cache', () => {
             const after = vi.spyOn(server.clients.dynamo, 'get');
             const result = await target.get({ key: 'k' }, opts);
             expect(result.res).toBe('new');
-            expect(after).not.toHaveBeenCalled();
+            expect(dynamoCallsHere(after)).toHaveLength(0);
         });
     });
 

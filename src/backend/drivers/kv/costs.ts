@@ -27,10 +27,10 @@ export const KV_CACHED_READ_RATE_SHARE = 0.1;
 // Microcents per underlying DynamoDB capacity unit, as reported by
 // SystemKVStore.KVUsage. Cost is `KV_COSTS[op] * usage.<op>`.
 export const KV_COSTS = {
-    'kv:read': 17,
-    'kv:write': 90,
+    'kv:read': 50,
+    'kv:write': 250,
     // 10% of `kv:read` — kept as a literal so the reported rate is exactly this
     // and not a float artifact of the multiplication. The unit count is the one
     // the equivalent uncached read consumed.
-    'kv:read:cached': 1.7,
+    'kv:read:cached': 5,
 } as const;

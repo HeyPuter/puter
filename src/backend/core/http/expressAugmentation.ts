@@ -58,13 +58,11 @@ declare global {
             appBlocked?: { reason?: string };
 
             requiresReauth?: {
-                reason: 'token_v1' | 'session_revoked' | 'session_expired';
+                reason: 'session_revoked' | 'session_expired';
                 auth_id?: string;
                 /**
-                 * Short-lived server-signed JWT that proves the bearer was
-                 * identified as `auth_id` by the rejected session. The GUI must
-                 * echo this back (not the raw `auth_id`) on the next
-                 * login/signup so the controller can rebind to the same user.
+                 * Short-lived JWT proving the bearer was `auth_id`; the GUI
+                 * echoes it on the next login to rebind.
                  */
                 reauth_token?: string;
             };

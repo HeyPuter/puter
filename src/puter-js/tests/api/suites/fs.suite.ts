@@ -540,6 +540,17 @@ export default suite('fs', {
         );
     },
 
+    'revokeReadURL revokes a URL from getReadURL': async (t) => {
+        const path = `${home(t)}/fs-suite-revoke-readurl.txt`;
+        await t.puter.fs.write(path, 'revoke me');
+        const url = await t.puter.fs.getReadURL(path);
+        t.assert.equal((await fetch(url)).status, 200);
+
+        await t.puter.fs.revokeReadURL(url);
+        const status = (await fetch(url)).status;
+        t.assert.ok(status !== 200, `expected revoked URL to stop serving, got ${status}`);
+    },
+
     'upload stores multiple files into a directory': async (t) => {
         const dir = `${home(t)}/fs-suite-upload`;
         await t.puter.fs.mkdir(dir);
@@ -553,6 +564,29 @@ export default suite('fs', {
         t.assert.deepEqual(names, ['up-1.txt', 'up-2.txt']);
         const blob = await t.puter.fs.read(`${dir}/up-2.txt`);
         t.assert.equal(await blob.text(), 'upload two');
+    },
+
+    'upload keeps same-named files apart by the directory they came from': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-nested`;
+        await t.puter.fs.mkdir(dir);
+        const files = [
+            droppedFile('content a', 'folder-a/file.txt'),
+            droppedFile('content b', 'folder-b/file.txt'),
+        ];
+
+        await t.puter.fs.upload(files, dir, {
+            parsedDataTransferItems: true,
+            createFileParent: true,
+        });
+
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/folder-a/file.txt`)).text(),
+            'content a',
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/folder-b/file.txt`)).text(),
+            'content b',
+        );
     },
 
     'upload of a single File resolves to one entry, not an array': async (t) => {
@@ -775,61 +809,53 @@ export default suite('fs', {
         );
     },
 
-    // Directory uploads only work on the signed batch-write path. The legacy
-    // `/batch` fallback (node, workers) sends a mkdir operation the backend
-    // does not accept, so these are pinned where the behaviour is correct
-    // rather than asserted everywhere and quietly relaxed. What the legacy
-    // path does instead is asserted below, in the legacy upload tests.
-    'upload of parsed drop entries creates the dropped directory tree': {
-        platforms: ['browser'],
-        fn: async (t) => {
-            const dir = `${home(t)}/fs-suite-upload-drop`;
-            await t.puter.fs.mkdir(dir);
-            await t.puter.fs.upload(
-                [
-                    { isDirectory: true, fullPath: 'dropped' },
-                    droppedFile('inside the dropped dir', 'dropped/inside.txt'),
-                ] as never,
-                dir,
-                { parsedDataTransferItems: true },
-            );
-            t.assert.equal(
-                Boolean((await t.puter.fs.stat(`${dir}/dropped`)).is_dir),
-                true,
-            );
-            t.assert.equal(
-                await (await t.puter.fs.read(`${dir}/dropped/inside.txt`)).text(),
-                'inside the dropped dir',
-            );
-        },
+    // Directory uploads only work on the signed batch-write path, which every
+    // platform now takes. What the legacy `/batch` fallback does instead is
+    // asserted below, in the legacy upload tests.
+    'upload of parsed drop entries creates the dropped directory tree': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-drop`;
+        await t.puter.fs.mkdir(dir);
+        await t.puter.fs.upload(
+            [
+                { isDirectory: true, fullPath: 'dropped' },
+                droppedFile('inside the dropped dir', 'dropped/inside.txt'),
+            ] as never,
+            dir,
+            { parsedDataTransferItems: true },
+        );
+        t.assert.equal(
+            Boolean((await t.puter.fs.stat(`${dir}/dropped`)).is_dir),
+            true,
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/dropped/inside.txt`)).text(),
+            'inside the dropped dir',
+        );
     },
 
-    'upload with createFileParent builds the directories the files sit in': {
-        platforms: ['browser'],
-        fn: async (t) => {
-            const dir = `${home(t)}/fs-suite-upload-parents`;
-            await t.puter.fs.mkdir(dir);
-            await t.puter.fs.upload(
-                [
-                    droppedFile('leaf a', 'nested/a.txt'),
-                    droppedFile('leaf b', 'nested/deep/b.txt'),
-                ] as never,
-                dir,
-                { parsedDataTransferItems: true, createFileParent: true },
-            );
-            t.assert.equal(
-                Boolean((await t.puter.fs.stat(`${dir}/nested/deep`)).is_dir),
-                true,
-            );
-            t.assert.equal(
-                await (await t.puter.fs.read(`${dir}/nested/a.txt`)).text(),
-                'leaf a',
-            );
-            t.assert.equal(
-                await (await t.puter.fs.read(`${dir}/nested/deep/b.txt`)).text(),
-                'leaf b',
-            );
-        },
+    'upload with createFileParent builds the directories the files sit in': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-parents`;
+        await t.puter.fs.mkdir(dir);
+        await t.puter.fs.upload(
+            [
+                droppedFile('leaf a', 'nested/a.txt'),
+                droppedFile('leaf b', 'nested/deep/b.txt'),
+            ] as never,
+            dir,
+            { parsedDataTransferItems: true, createFileParent: true },
+        );
+        t.assert.equal(
+            Boolean((await t.puter.fs.stat(`${dir}/nested/deep`)).is_dir),
+            true,
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/nested/a.txt`)).text(),
+            'leaf a',
+        );
+        t.assert.equal(
+            await (await t.puter.fs.read(`${dir}/nested/deep/b.txt`)).text(),
+            'leaf b',
+        );
     },
 
     'upload skips .DS_Store entries': async (t) => {
@@ -1183,6 +1209,92 @@ export default suite('fs', {
             'thumb-b.txt',
         ]);
         t.assert.equal(await (await t.puter.fs.read(`${dir}/thumb-a.txt`)).text(), 'a');
+    },
+
+    'upload thumbnail callbacks can delegate to the built-in generator': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-delegation`;
+        await t.puter.fs.mkdir(dir);
+        let delegated = false;
+        await t.puter.fs.upload(new File(['original bytes'], 'document.txt'), dir, {
+            thumbnailGenerator: async (file, context) => {
+                t.assert.equal(typeof context.defaultGenerator, 'function');
+                t.assert.equal(context.signal?.aborted, false);
+                const result = await context.defaultGenerator(file);
+                t.assert.equal(result, undefined);
+                delegated = true;
+                return result;
+            },
+        });
+        t.assert.equal(delegated, true);
+        t.assert.equal(await (await t.puter.fs.read(`${dir}/document.txt`)).text(), 'original bytes');
+    },
+
+    'upload cancellation during thumbnail generation does not write files': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-cancel`;
+        await t.puter.fs.mkdir(dir);
+        let request: XMLHttpRequest;
+        let aborted = 0;
+        let signalAborted = false;
+        let started = false;
+        const error = await t.assert.rejects(() => t.puter.fs.upload(
+            new File(['must not upload'], 'cancelled.pdf'), dir, {
+                init: (_operationId, xhr) => { request = xhr; },
+                start: () => { started = true; },
+                abort: () => { aborted++; },
+                thumbnailGenerator: async (_file, { signal }) => {
+                    request.abort();
+                    request.abort();
+                    signalAborted = signal.aborted;
+                    return undefined;
+                },
+            },
+        ));
+        t.assert.equal((error as { code: string }).code, 'upload_aborted');
+        t.assert.equal(signalAborted, true);
+        t.assert.equal(started, false);
+        t.assert.equal(aborted, 1);
+        t.assert.equal((await t.puter.fs.readdir(dir)).length, 0);
+    },
+
+    'upload remains cancelled when a pending thumbnail generator finishes late': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-cancel-late`;
+        await t.puter.fs.mkdir(dir);
+        let request: XMLHttpRequest;
+        let finish: (thumbnail: string) => void;
+        let entered: () => void;
+        let started = false;
+        const generating = new Promise<void>(resolve => { entered = resolve; });
+        const result = t.puter.fs.upload(new File(['original'], 'cancelled.pdf'), dir, {
+            init: (_operationId, xhr) => { request = xhr; },
+            start: () => { started = true; },
+            thumbnailGenerator: () => new Promise<string>(resolve => {
+                finish = resolve;
+                entered();
+            }),
+        });
+        const rejection = t.assert.rejects(() => result);
+        await generating;
+        request.abort();
+        t.assert.equal(((await rejection) as { code: string }).code, 'upload_aborted');
+        finish(`data:image/png;base64,${TINY_PNG_BASE64}`);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        t.assert.equal(started, false);
+        t.assert.equal((await t.puter.fs.readdir(dir)).length, 0);
+    },
+
+    'upload cancellation in init does not invoke thumbnail generation': async (t) => {
+        const dir = `${home(t)}/fs-suite-thumb-cancel-init`;
+        await t.puter.fs.mkdir(dir);
+        let generated = false;
+        const error = await t.assert.rejects(() => t.puter.fs.upload(
+            new File(['must not upload'], 'cancelled.pdf'), dir, {
+                init: (_operationId, xhr) => xhr.abort(),
+                thumbnailGenerator: async () => { generated = true; return undefined; },
+            },
+        ));
+        t.assert.equal((error as { code: string }).code, 'upload_aborted');
+        t.assert.equal(generated, false);
+        t.assert.equal((await t.puter.fs.readdir(dir)).length, 0);
     },
 
     'upload survives a thumbnail generator that throws': async (t) => {

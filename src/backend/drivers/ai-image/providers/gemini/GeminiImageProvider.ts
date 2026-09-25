@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { closestAspectRatio } from '../../imageDimensions.js';
+import { assertImagePrompt } from '../../imageValidation.js';
 import { GenerateContentResponse, GoogleGenAI } from '@google/genai';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
@@ -24,7 +26,6 @@ import {
     GEMINI_DEFAULT_RATIO,
     GEMINI_ESTIMATED_IMAGE_TOKENS,
     GEMINI_IMAGE_GENERATION_MODELS,
-    IGeminiImageModel,
 } from './models.js';
 import type {
     IGenerateParams,
@@ -32,6 +33,7 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { isHttpUrl, toBase64DataUri } from '../../inputImage.js';
+import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
@@ -74,34 +76,22 @@ export class GeminiImageProvider implements IImageProvider {
         let { ratio, input_images, quality } = params;
 
         const selectedModel =
-            (this.models() as IGeminiImageModel[]).find(
-                (m) => m.id === model,
-            ) ||
-            (this.models() as IGeminiImageModel[]).find(
-                (m) => m.id === this.getDefaultModel(),
-            )!;
+            this.models().find(
+                (m) => m.id === model || m.aliases?.includes(model ?? ''),
+            ) || this.models().find((m) => m.id === this.getDefaultModel())!;
 
         if (test_mode) {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new HttpError(400, '`prompt` must be a non-empty string', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        if (selectedModel.apiType === 'generateImages') {
-            return this.#generateWithImagen(prompt, selectedModel, params);
-        }
+        assertImagePrompt(prompt);
 
         const allowedRatios = selectedModel.allowedRatios ?? [
             GEMINI_DEFAULT_RATIO,
         ];
-        ratio =
-            ratio && this.#isValidRatio(ratio, allowedRatios)
-                ? ratio
-                : allowedRatios[0];
+        ratio = ratio
+            ? closestAspectRatio(ratio, allowedRatios)
+            : allowedRatios[0];
 
         // Backwards compat: merge singular input_image into input_images
         if (input_image && (!input_images || input_images.length === 0)) {
@@ -135,6 +125,11 @@ export class GeminiImageProvider implements IImageProvider {
         }
 
         const actor = Context.get('actor');
+        if (!actor) {
+            throw new HttpError(401, 'actor not found in context', {
+                legacyCode: 'unauthorized',
+            });
+        }
 
         // --- Pre-flight cost estimation ---
         const inputImageCount = input_images?.length ?? 0;
@@ -146,10 +141,29 @@ export class GeminiImageProvider implements IImageProvider {
             selectedModel.costs.input,
         );
 
-        if (!quality) {
-            quality = selectedModel.allowedQualityLevels?.[0] ?? '';
-            params.quality = quality;
+        // Tiered models resolve `quality` case-insensitively against their
+        // catalog levels, as Together and xAI do; a tier the model lacks is
+        // the caller's mistake, not a missing token-table entry.
+        const tiers = (selectedModel.allowedQualityLevels ?? []).filter(
+            Boolean,
+        );
+        if (quality) {
+            const wanted = quality.trim().toLowerCase();
+            const requestedTier = tiers.find(
+                (tier) => tier.toLowerCase() === wanted,
+            );
+            if (tiers.length && !requestedTier) {
+                throw new HttpError(
+                    400,
+                    `Unsupported quality tier: ${quality}. Expected ${tiers.join(', ')}`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            quality = requestedTier ?? '';
+        } else {
+            quality = tiers[0] ?? '';
         }
+        params.quality = quality;
 
         // Estimate output image tokens
         const imageTokenKey = quality
@@ -269,105 +283,6 @@ export class GeminiImageProvider implements IImageProvider {
         return url;
     }
 
-    async #generateWithImagen(
-        prompt: string,
-        selectedModel: IGeminiImageModel,
-        params: IGenerateParams,
-    ): Promise<string> {
-        const actor = Context.get('actor');
-        if (!actor) {
-            throw new HttpError(401, 'actor not found in context', {
-                legacyCode: 'unauthorized',
-            });
-        }
-        const costCents = selectedModel.costs?.['per-image'];
-        if (costCents === undefined) {
-            throw new HttpError(
-                400,
-                `No per-image cost configured for model '${selectedModel.id}'`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        const costInMicroCents = Math.ceil(costCents * 1_000_000);
-
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
-            actor,
-            costInMicroCents,
-        );
-        if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
-            );
-        }
-
-        const allowedRatios = selectedModel.allowedRatios ?? [
-            GEMINI_DEFAULT_RATIO,
-        ];
-        const ratio =
-            params.ratio && this.#isValidRatio(params.ratio, allowedRatios)
-                ? params.ratio
-                : allowedRatios[0];
-        const aspectRatio = `${ratio.w}:${ratio.h}`;
-
-        const config: Record<string, unknown> = {
-            numberOfImages: 1,
-            aspectRatio,
-        };
-
-        if (
-            params.quality &&
-            selectedModel.allowedQualityLevels?.includes(params.quality)
-        ) {
-            config.imageSize = params.quality;
-        }
-
-        const response = await this.#client.models.generateImages({
-            model: selectedModel.id,
-            prompt,
-            config,
-        });
-
-        const generated = response?.generatedImages;
-        if (!generated || generated.length === 0) {
-            throw new HttpError(
-                400,
-                'Imagen response did not include an image',
-                { legacyCode: 'unknown_error' },
-            );
-        }
-
-        const entry = generated[0];
-        if (entry.raiFilteredReason) {
-            throw new HttpError(
-                400,
-                `Image was filtered: ${entry.raiFilteredReason}`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-
-        const image = entry.image;
-        if (!image?.imageBytes) {
-            throw new HttpError(
-                400,
-                'Imagen response did not include image bytes',
-                { legacyCode: 'unknown_error' },
-            );
-        }
-
-        const usageKey = `gemini:${selectedModel.id}`;
-        await this.#meteringService.incrementUsage(
-            actor,
-            usageKey,
-            1,
-            costInMicroCents,
-        );
-
-        const mimeType = image.mimeType ?? 'image/png';
-        return `data:${mimeType};base64,${image.imageBytes}`;
-    }
-
     #buildContents(
         prompt: string,
         input_images?: string[],
@@ -441,12 +356,7 @@ export class GeminiImageProvider implements IImageProvider {
         if (text.length === 0) return 0;
 
         // Same approximation used by chat billing flow.
-        return Math.max(
-            1,
-            Math.floor(
-                (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
-            ),
-        );
+        return Math.max(1, estimateTextTokens(text));
     }
 
     #calculateTokenCostInCents(
@@ -457,7 +367,7 @@ export class GeminiImageProvider implements IImageProvider {
         if (!Number.isFinite(centsPerMillion) || (centsPerMillion ?? 0) <= 0)
             return 0;
 
-        return (tokenCount / 1_000_000) * (centsPerMillion as number);
+        return (tokenCount * (centsPerMillion as number)) / 1_000_000;
     }
 
     #toMicroCents(cents: number): number {
@@ -516,12 +426,5 @@ export class GeminiImageProvider implements IImageProvider {
         if (mimeType.length === 0) return undefined;
 
         return { mimeType, base64: data.substring(commaIdx + 1) };
-    }
-
-    #isValidRatio(
-        ratio: { w: number; h: number },
-        allowedRatios: { w: number; h: number }[],
-    ) {
-        return allowedRatios.some((r) => r.w === ratio.w && r.h === ratio.h);
     }
 }

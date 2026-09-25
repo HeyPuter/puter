@@ -23,7 +23,8 @@ import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
 import UIWindowSignup from './UIWindowSignup.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
-import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
+import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
+import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
 
 // ── 2FA Login CSS (injected once) ───────────────────────────────────────────
 const LOGIN_2FA_CSS = `
@@ -274,11 +275,20 @@ async function UIWindowLogin (options) {
         // logo
         const logo_clickable = !!options.window_options?.cover_page && !window.embedded_in_popup;
         h += '<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">';
-        h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;${logo_clickable ? ' cursor: pointer;' : ''}">`;
+        h += authLogoHeader({
+            logoSrc: window.icons['logo-white.svg'],
+            logoClickable: logo_clickable,
+            openerOrigin: window.embedded_in_popup ? window.openerOrigin : '',
+            openerFallbackSrc: window.icons['website.svg'],
+        });
         h += '</div>';
         // title
         h += '<div style="padding:10px 20px; text-align:center; margin-bottom:0;">';
-        h += `<h1 style="font-size:18px; margin-bottom:0;">${i18n('log_in')}</h1>`;
+        h += `<h1 class="login-form-title">${i18n('log_in')}</h1>`;
+        // In a sign-in popup, say which site brought the user here.
+        if (window.embedded_in_popup && window.openerOrigin) {
+            h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(window.openerOrigin).hostname])}</p>`;
+        }
         h += '</div>';
         // form
         h += '<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">';
@@ -378,6 +388,8 @@ async function UIWindowLogin (options) {
             },
         });
 
+        wireAuthLogoHeader(el_window);
+
         if ( logo_clickable ) {
             $(el_window).find('.auth-logo').on('click', function () {
                 // keep desktop users on the desktop; everyone else goes to the root dashboard
@@ -389,7 +401,10 @@ async function UIWindowLogin (options) {
             UIWindowRecoverPassword({
                 window_options: {
                     backdrop: true,
-                    stay_on_top: isMobile.phone,
+                    // A stay-on-top login window (dashboard mode) sits in the
+                    // 99999999+ band; this dialog must join it there or it
+                    // opens buried under the login window's backdrop.
+                    stay_on_top: isMobile.phone || !!options.window_options?.stay_on_top,
                     close_on_backdrop_click: false,
                 },
             });
@@ -424,6 +439,10 @@ async function UIWindowLogin (options) {
                         const referrer = options.referrer ?? window.referrerStr ?? window.openerOrigin;
                         if ( referrer ) {
                             url += `&referrer=${encodeURIComponent(referrer)}`;
+                        }
+                        // A provider login can create the account, so a signup link's code rides along.
+                        if ( window.signup_bonus_code ) {
+                            url += `&bonusCode=${encodeURIComponent(window.signup_bonus_code)}`;
                         }
                         if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
                             url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
@@ -714,11 +733,17 @@ async function UIWindowLogin (options) {
 
                         // ── Recovery code handling ──
                         $w.find('.login-2fa-recovery-input').on('input', async function () {
-                            const value = $(this).val();
+                            // Codes are 8-char base32; a pasted one usually
+                            // carries the newline it was copied with.
+                            const value = $(this).val().trim().toUpperCase();
                             if ( value.length !== 8 ) return;
                             let error_i18n_key = 'something_went_wrong';
                             try {
-                                const resp = await fetch(`${window.api_origin}/login/recovery-code`, {
+                                // Root origin, like `/login/otp` above: the
+                                // route is `guiOriginOnly` and carries no
+                                // `subdomain`, so on `api_origin` the
+                                // subdomain gate skips it and Express 404s.
+                                const resp = await fetch(`${window.gui_origin}/login/recovery-code`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({

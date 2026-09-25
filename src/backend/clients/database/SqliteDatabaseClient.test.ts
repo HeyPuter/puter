@@ -18,7 +18,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +27,15 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 63;
+const CURRENT_SCHEMA_VERSION = 83;
+
+/**
+ * These suites migrate real files on disk. Idle they finish in well under a
+ * second, but the whole migration chain runs against the filesystem — enough
+ * that a loaded runner blows the 5s default and reports a timeout where there
+ * is no fault.
+ */
+const DISK_MIGRATION_TIMEOUT_MS = 30_000;
 const SYSTEM_USER_UUID = '5d4adce0-a381-4982-9c02-6e2540026238';
 
 const sqliteConfig = (
@@ -52,7 +60,7 @@ const userVersionOf = async (client: SqliteDatabaseClient): Promise<number> => {
     return row.user_version as number;
 };
 
-describe('SqliteDatabaseClient — boot and migrations', () => {
+describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATION_TIMEOUT_MS }, () => {
     let client: SqliteDatabaseClient;
 
     beforeEach(async () => {
@@ -73,6 +81,312 @@ describe('SqliteDatabaseClient — boot and migrations', () => {
         expect(await userVersionOf(client)).toBe(CURRENT_SCHEMA_VERSION);
     });
 
+    it('stamps a version whose migration did not run (known off-by-one)', async () => {
+        // Existing behaviour, not an endorsement: the stamp overshoots the
+        // applied work by one entry, so 70 is reported without 0074 running.
+        const partial = await bootClient({ targetVersion: 70 });
+        try {
+            expect(await userVersionOf(partial)).toBe(70);
+            await expect(
+                partial.read(
+                    "SELECT 1 FROM pragma_table_info('group') WHERE name = 'handle'",
+                ),
+            ).resolves.toEqual([]);
+        } finally {
+            partial.onServerShutdown();
+        }
+    });
+
+    it('applies the team columns and indexes from 0076', async () => {
+        const columnsOf = async (table: string) =>
+            (
+                (await client.read(
+                    `SELECT name FROM pragma_table_info('${table}')`,
+                )) as { name: string }[]
+            ).map((r) => r.name);
+
+        expect(await columnsOf('group')).toEqual(
+            expect.arrayContaining([
+                'kind',
+                'name',
+                'handle',
+                'deleted_at',
+            ]),
+        );
+        expect(await columnsOf('jct_user_group')).toContain('org_owned');
+        expect(await columnsOf('user')).toContain('requires_password_change');
+
+        const indexes = (await client.read(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?)",
+            ['idx_group_handle', 'idx_group_owner', 'idx_jct_user_group_group'],
+        )) as { name: string }[];
+        expect(indexes.map((r) => r.name).sort()).toEqual([
+            'idx_group_handle',
+            'idx_group_owner',
+            'idx_jct_user_group_group',
+        ]);
+    });
+
+    it('applies the event_subscriptions indexes from 0081', async () => {
+        const indexes = (await client.read(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?)",
+            [
+                'idx_event_subscriptions_app_handler',
+                'idx_event_subscriptions_expires',
+                'idx_event_subscriptions_suspended',
+            ],
+        )) as { name: string }[];
+        expect(indexes.map((r) => r.name).sort()).toEqual([
+            'idx_event_subscriptions_app_handler',
+            'idx_event_subscriptions_expires',
+            'idx_event_subscriptions_suspended',
+        ]);
+    });
+
+    it('keeps `handle` unique but lets the seeded groups share a NULL one', async () => {
+        const seeded = (await client.read(
+            'SELECT COUNT(*) AS n FROM `group` WHERE `handle` IS NULL',
+        )) as { n: number }[];
+        expect(seeded[0].n).toBeGreaterThan(1);
+
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['taken'],
+        );
+        await expect(
+            client.write(
+                'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MAX(`id`) FROM `group`)',
+                ['taken'],
+            ),
+        ).rejects.toThrow(/UNIQUE/iu);
+    });
+
+    it('treats `handle` case-insensitively, as usernames are treated', async () => {
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['design-team'],
+        );
+        // Without NOCASE this differs per engine: mysql rejects, the others accept.
+        await expect(
+            client.write(
+                'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MAX(`id`) FROM `group`)',
+                ['Design-Team'],
+            ),
+        ).rejects.toThrow(/UNIQUE/iu);
+    });
+
+    it('matches a handle case-insensitively on lookup, not just on insert', async () => {
+        // Index-only NOCASE would leave `WHERE handle = ?` case-sensitive here while
+        // mysql's utf8mb4_unicode_ci column matched -- one query, two behaviours.
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['design-team'],
+        );
+        await expect(
+            client.read('SELECT `handle` FROM `group` WHERE `handle` = ?', [
+                'Design-Team',
+            ]),
+        ).resolves.toEqual([{ handle: 'design-team' }]);
+    });
+
+    it('rejects a duplicate membership pair after 0078', async () => {
+        const [{ user_id, group_id }] = (await client.read(
+            'SELECT (SELECT MIN(`id`) FROM `user`) AS user_id, ' +
+                '(SELECT MIN(`id`) FROM `group`) AS group_id',
+        )) as { user_id: number; group_id: number }[];
+
+        const insert = () =>
+            client.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [user_id, group_id],
+            );
+
+        await insert();
+        // `GroupStore.addUsers` has no conflict clause, so before 0075 this
+        // second call silently doubled every group permission the user reads.
+        await expect(insert()).rejects.toThrow(/UNIQUE/iu);
+    });
+
+    it('applies the audit table and group-share columns from 0079', async () => {
+        const columns = (await client.read(
+            "SELECT name FROM pragma_table_info('audit_team_membership')",
+        )) as { name: string }[];
+        expect(columns.map((r) => r.name)).toEqual([
+            'id',
+            'group_id',
+            'group_id_keep',
+            'user_id',
+            'user_id_keep',
+            'actor_user_id',
+            'action',
+            'reason',
+            'created_at',
+        ]);
+
+        const shareColumns = (await client.read(
+            "SELECT name FROM pragma_table_info('share')",
+        )) as { name: string }[];
+        expect(shareColumns.map((r) => r.name)).toContain('holder_group_id');
+
+        const indexes = (await client.read(
+            "SELECT name FROM sqlite_master WHERE type = 'index' " +
+                'AND (name LIKE ? OR name LIKE ?)',
+            ['idx_audit_team_membership%', 'idx_share_holder_group%'],
+        )) as { name: string }[];
+        expect(indexes.map((r) => r.name).sort()).toEqual([
+            // The `_fk` three stop a user or group delete scanning the audit table.
+            'idx_audit_team_membership_actor_fk',
+            'idx_audit_team_membership_group',
+            'idx_audit_team_membership_group_fk',
+            'idx_audit_team_membership_user',
+            'idx_audit_team_membership_user_fk',
+            'idx_share_holder_group',
+            'idx_share_holder_group_entry_issuer',
+        ]);
+    });
+
+    it('keeps an audit row after its group is deleted, blanking only the FK', async () => {
+        // 0043 leaves `PRAGMA foreign_keys = ON`, so this is real behaviour.
+        const [group] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `group`',
+        )) as { id: number }[];
+        const [user] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `user`',
+        )) as { id: number }[];
+
+        await client.write(
+            'INSERT INTO `audit_team_membership` ' +
+                '(`group_id`, `group_id_keep`, `user_id`, `user_id_keep`, ' +
+                '`actor_user_id`, `action`) VALUES (?, ?, ?, ?, ?, ?)',
+            [group.id, group.id, user.id, user.id, user.id, 'reset_member_password'],
+        );
+
+        await client.write('DELETE FROM `group` WHERE `id` = ?', [group.id]);
+
+        await expect(
+            client.read(
+                'SELECT `group_id`, `group_id_keep`, `action` FROM `audit_team_membership`',
+            ),
+        ).resolves.toEqual([
+            {
+                group_id: null,
+                group_id_keep: group.id,
+                action: 'reset_member_password',
+            },
+        ]);
+    });
+
+    it('deletes the subdomain rows an app owns when the app is deleted', async () => {
+        const [user] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `user`',
+        )) as { id: number }[];
+        await client.write(
+            'INSERT INTO `apps` (`uid`, `owner_user_id`, `name`, `title`, `index_url`) ' +
+                'VALUES (?, ?, ?, ?, ?)',
+            [
+                'app-cascade-test',
+                user.id,
+                'cascade-test',
+                'cascade-test',
+                'https://cascade.test/',
+            ],
+        );
+        const [app] = (await client.read(
+            'SELECT `id` FROM `apps` WHERE `uid` = ?',
+            ['app-cascade-test'],
+        )) as { id: number }[];
+        const insertSubdomain = (
+            uuid: string,
+            name: string,
+            appOwner: number | null,
+        ) =>
+            client.write(
+                'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`, `app_owner`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [uuid, name, user.id, appOwner],
+            );
+        await insertSubdomain('sd-cascade-owned', 'cascade-owned', app.id);
+        await insertSubdomain('sd-cascade-unowned', 'cascade-unowned', null);
+
+        await client.write('DELETE FROM `apps` WHERE `id` = ?', [app.id]);
+
+        await expect(
+            client.read(
+                'SELECT `subdomain` FROM `subdomains` WHERE `subdomain` LIKE ? ORDER BY `id`',
+                ['cascade-%'],
+            ),
+        ).resolves.toEqual([{ subdomain: 'cascade-unowned' }]);
+    });
+
+    it('keeps every subdomains column through the 0086 rebuild', async () => {
+        const columns = (await client.read(
+            "SELECT `name` FROM pragma_table_info('subdomains') ORDER BY `cid`",
+        )) as { name: string }[];
+        expect(columns.map((c) => c.name)).toEqual([
+            'id',
+            'uuid',
+            'subdomain',
+            'user_id',
+            'root_dir_id',
+            'associated_app_id',
+            'ts',
+            'app_owner',
+            'protected',
+            'domain',
+            'database_id',
+            'preamble_version',
+        ]);
+    });
+
+    it('constrains team shares that the user-holder index cannot', async () => {
+        const [user] = (await client.read(
+            'SELECT MIN(`id`) AS id FROM `user`',
+        )) as { id: number }[];
+        const groups = (await client.read(
+            'SELECT `id` FROM `group` ORDER BY `id` LIMIT 2',
+        )) as { id: number }[];
+
+        await client.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `user_id`, `modified`) ' +
+                'VALUES (?, ?, ?, ?)',
+            ['11111111-1111-4111-8111-111111111111', 'shared.txt', user.id, 0],
+        );
+        const [entry] = (await client.read(
+            'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+            ['11111111-1111-4111-8111-111111111111'],
+        )) as { id: number }[];
+
+        const insertShare = (uid: string, groupId: number) =>
+            client.write(
+                'INSERT INTO `share` ' +
+                    '(`uid`, `issuer_user_id`, `recipient_email`, `holder_user_id`, ' +
+                    '`holder_group_id`, `fsentry_id`) VALUES (?, ?, ?, NULL, ?, ?)',
+                [uid, user.id, 'team@test.local', groupId, entry.id],
+            );
+
+        await insertShare('share-team-a', groups[0].id);
+        // Different group, same file and issuer -- allowed.
+        await insertShare('share-team-b', groups[1].id);
+        // Both have `holder_user_id` NULL, so the user-holder index permitted them.
+        await expect(insertShare('share-team-c', groups[0].id)).rejects.toThrow(
+            /UNIQUE/iu,
+        );
+    });
+
+    it('matches a handle case-insensitively on lookup, not just on insert', async () => {
+        // Index-only NOCASE would leave `WHERE handle = ?` case-sensitive here while
+        // mysql's utf8mb4_unicode_ci column matched -- one query, two behaviours.
+        await client.write(
+            'UPDATE `group` SET `handle` = ? WHERE `id` = (SELECT MIN(`id`) FROM `group`)',
+            ['design-team'],
+        );
+        await expect(
+            client.read('SELECT `handle` FROM `group` WHERE `handle` = ?', [
+                'Design-Team',
+            ]),
+        ).resolves.toEqual([{ handle: 'design-team' }]);
+    });
+
     it('runs the javascript migrations, not just the .sql ones', async () => {
         // The `system` user only exists because 0025 (a .dbmig.js file) ran
         // inside the migration VM.
@@ -81,6 +395,289 @@ describe('SqliteDatabaseClient — boot and migrations', () => {
             [SYSTEM_USER_UUID],
         );
         expect(rows).toEqual([{ username: 'system' }]);
+    });
+
+    // 0070 sweeps three by-hand groups no code reads. Both tables it can reach
+    // cascade on delete, so the guard is the point: a group that still carries
+    // permissions or members has to survive, or the sweep silently revokes
+    // them. Re-running the statement is safe — it is a plain conditional DELETE.
+    describe('0070 drop-orphaned-default-groups', () => {
+        const MIGRATION = readFileSync(
+            new URL(
+                './migrations/sqlite/0070_drop-orphaned-default-groups.sql',
+                import.meta.url,
+            ),
+            'utf8',
+        );
+
+        const seedGroup = async (name: string): Promise<number> => {
+            const [system] = await client.read(
+                'SELECT `id` FROM `user` WHERE `uuid` = ?',
+                [SYSTEM_USER_UUID],
+            );
+            const uid = `grp-${name}-${Math.random().toString(36).slice(2, 10)}`;
+            await client.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [uid, system.id, JSON.stringify({ name }), '{}'],
+            );
+            const [row] = await client.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [uid],
+            );
+            return Number(row.id);
+        };
+
+        const stillThere = async (id: number): Promise<boolean> => {
+            const rows = await client.read(
+                'SELECT `id` FROM `group` WHERE `id` = ?',
+                [id],
+            );
+            return rows.length > 0;
+        };
+
+        it('drops an orphaned freeai/experimental/dangerous group', async () => {
+            const ids = await Promise.all(
+                ['freeai', 'experimental', 'dangerous'].map(seedGroup),
+            );
+            await client.write(MIGRATION);
+            for (const id of ids) expect(await stillThere(id)).toBe(false);
+        });
+
+        it('spares one that still carries a permission row', async () => {
+            const id = await seedGroup('freeai');
+            const [system] = await client.read(
+                'SELECT `id` FROM `user` WHERE `uuid` = ?',
+                [SYSTEM_USER_UUID],
+            );
+            await client.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [system.id, id, 'service:some-paid-thing', '{}'],
+            );
+
+            await client.write(MIGRATION);
+
+            expect(await stillThere(id)).toBe(true);
+            // And the grant it carries is still intact, not cascaded away.
+            const perms = await client.read(
+                'SELECT `permission` FROM `user_to_group_permissions` WHERE `group_id` = ?',
+                [id],
+            );
+            expect(perms).toEqual([{ permission: 'service:some-paid-thing' }]);
+        });
+
+        it('spares one that still has members', async () => {
+            const id = await seedGroup('experimental');
+            const [system] = await client.read(
+                'SELECT `id` FROM `user` WHERE `uuid` = ?',
+                [SYSTEM_USER_UUID],
+            );
+            await client.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [system.id, id],
+            );
+
+            await client.write(MIGRATION);
+
+            expect(await stillThere(id)).toBe(true);
+        });
+
+        it('leaves the groups the platform actually depends on alone', async () => {
+            // system, admin, user and temp are named by config or code.
+            await client.write(MIGRATION);
+            const rows = await client.read(
+                "SELECT json_extract(`extra`, '$.name') AS name FROM `group`",
+            );
+            const names = rows.map((r) => String(r.name));
+            for (const name of ['system', 'admin', 'user']) {
+                expect(names).toContain(name);
+            }
+        });
+    });
+
+    // 0072 rebuilds `notification` for the scope tuple, and picks up the
+    // user_id index and the delete cascade mysql and postgres already had.
+    describe('0072 notification-scope', () => {
+        // Only the backfill re-runs: the rebuild half is once-only by
+        // construction, but mysql and postgres replay their whole file on
+        // every boot, so these statements have to be safe twice.
+        const BACKFILL = readFileSync(
+            new URL(
+                './migrations/sqlite/0072_notification-scope.sql',
+                import.meta.url,
+            ),
+            'utf8',
+        )
+            .split(/;\s*\n/)
+            .map((s) => s.trim())
+            .filter((s) => /(^|\n)UPDATE /.test(s));
+
+        const seedUser = async (): Promise<number> => {
+            const name = `notif-${Math.random().toString(36).slice(2, 10)}`;
+            await client.write(
+                'INSERT INTO `user` (`username`, `uuid`) VALUES (?, ?)',
+                [name, `${name}-uuid`],
+            );
+            const [row] = await client.read(
+                'SELECT `id` FROM `user` WHERE `username` = ?',
+                [name],
+            );
+            return Number(row.id);
+        };
+
+        const seedLegacy = async (
+            userId: number,
+            value: Record<string, unknown> | string,
+        ): Promise<string> => {
+            const uid = `n-${Math.random().toString(36).slice(2, 12)}`;
+            await client.write(
+                'INSERT INTO `notification` (`uid`, `user_id`, `value`) VALUES (?, ?, ?)',
+                [
+                    uid,
+                    userId,
+                    typeof value === 'string' ? value : JSON.stringify(value),
+                ],
+            );
+            return uid;
+        };
+
+        const scopeOf = async (uid: string) => {
+            const [row] = await client.read(
+                'SELECT `type`, `audience`, `app_uid` FROM `notification` WHERE `uid` = ?',
+                [uid],
+            );
+            return row;
+        };
+
+        const runBackfill = async () => {
+            for (const stmt of BACKFILL) await client.write(stmt);
+        };
+
+        it('carries every backfill statement', () => {
+            expect(BACKFILL).toHaveLength(3);
+        });
+
+        it('classifies the markers legacy rows actually carried', async () => {
+            const userId = await seedUser();
+            const received = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'file-shared-with-you',
+            });
+            const claimed = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'file-shared-before-you-joined',
+            });
+            const deployed = await seedLegacy(userId, {
+                source: 'worker',
+                title: 'Successfully deployed https://x.puter.work',
+                template: 'user-requesting-share',
+            });
+            const failed = await seedLegacy(userId, {
+                source: 'worker',
+                title: 'Failed to deploy x! boom',
+                template: 'user-requesting-share',
+            });
+
+            await runBackfill();
+
+            expect(await scopeOf(received)).toEqual({
+                type: 'share.received',
+                audience: 'account',
+                app_uid: null,
+            });
+            expect(await scopeOf(claimed)).toEqual({
+                type: 'share.claimed',
+                audience: 'account',
+                app_uid: null,
+            });
+            // The app is unrecoverable — the payload only ever named a worker.
+            expect(await scopeOf(deployed)).toEqual({
+                type: 'app.worker.deployed',
+                audience: 'developer',
+                app_uid: null,
+            });
+            expect(await scopeOf(failed)).toEqual({
+                type: 'app.worker.deployFailed',
+                audience: 'developer',
+                app_uid: null,
+            });
+        });
+
+        it('leaves anything it does not recognise reading as legacy', async () => {
+            const userId = await seedUser();
+            const unknown = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'something-else',
+            });
+            const bare = await seedLegacy(userId, { title: 'hi' });
+            const notJson = await seedLegacy(userId, 'plain text');
+
+            await runBackfill();
+
+            for (const uid of [unknown, bare, notJson]) {
+                expect(await scopeOf(uid)).toEqual({
+                    type: '',
+                    audience: 'account',
+                    app_uid: null,
+                });
+            }
+        });
+
+        it('does not reclassify on replay', async () => {
+            const userId = await seedUser();
+            const uid = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'file-shared-with-you',
+            });
+
+            await runBackfill();
+            // A row already classified as something else must survive a
+            // second pass untouched.
+            await client.write(
+                'UPDATE `notification` SET `audience` = ?, `app_uid` = ? WHERE `uid` = ?',
+                ['app-user', 'app-1234', uid],
+            );
+            await runBackfill();
+
+            expect(await scopeOf(uid)).toEqual({
+                type: 'share.received',
+                audience: 'app-user',
+                app_uid: 'app-1234',
+            });
+        });
+
+        it('indexes user_id and the scope tuple', async () => {
+            const rows = await client.read('PRAGMA index_list(`notification`)');
+            const names = rows.map((r) => String(r.name));
+            expect(names).toContain('idx_notification_user_id');
+            expect(names).toContain('idx_notification_scope');
+        });
+
+        it('retires a deleted user rows', async () => {
+            const [{ foreign_keys: enforcing }] = await client.read(
+                'PRAGMA foreign_keys',
+            );
+            expect(enforcing).toBe(1);
+
+            const userId = await seedUser();
+            const uid = await seedLegacy(userId, { title: 'orphan-to-be' });
+            await client.write('DELETE FROM `user` WHERE `id` = ?', [userId]);
+
+            expect(
+                await client.read(
+                    'SELECT `uid` FROM `notification` WHERE `uid` = ?',
+                    [uid],
+                ),
+            ).toEqual([]);
+        });
+    });
+
+    it('indexes notification.created_at for the retention sweep', async () => {
+        const rows = await client.read('PRAGMA index_list(`notification`)');
+        expect(rows.map((r) => String(r.name))).toContain(
+            'idx_notification_created_at',
+        );
     });
 
     it('leaves an already-migrated database untouched on a second boot', async () => {
@@ -116,6 +713,66 @@ describe('SqliteDatabaseClient — boot and migrations', () => {
         }
     });
 
+    it('deduplicates pre-existing membership rows when 0078 applies', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'puter-sqlite-dedup-'));
+        const path = join(dir, 'puter.sqlite');
+        try {
+            // Stop at 67 so the duplicates exist the way a live database's do:
+            // written before the unique index, not after it.
+            const before = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path, targetVersion: 67 }),
+            );
+            await before.onServerStart();
+
+            const [{ user_id, group_id }] = (await before.read(
+                'SELECT (SELECT MIN(`id`) FROM `user`) AS user_id, ' +
+                    '(SELECT MIN(`id`) FROM `group`) AS group_id',
+            )) as { user_id: number; group_id: number }[];
+
+            for (const pair of [
+                [user_id, group_id],
+                [user_id, group_id],
+                [user_id, group_id],
+                [user_id, group_id + 1],
+            ]) {
+                await before.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                    pair,
+                );
+            }
+            const seeded = (await before.read(
+                'SELECT `id`, `group_id` FROM `jct_user_group` ORDER BY `id`',
+            )) as { id: number; group_id: number }[];
+            expect(seeded).toHaveLength(4);
+            before.onServerShutdown();
+
+            const after = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path }),
+            );
+            await after.onServerStart();
+            expect(await userVersionOf(after)).toBe(CURRENT_SCHEMA_VERSION);
+
+            // Three copies collapse to the lowest id; the distinct pair is left
+            // alone. Losing the higher ids costs nothing -- `addUsers` writes
+            // only the two id columns, so `extra` and `metadata` are NULL.
+            await expect(
+                after.read(
+                    'SELECT `id`, `group_id` FROM `jct_user_group` ORDER BY `id`',
+                ),
+            ).resolves.toEqual([seeded[0], seeded[3]]);
+
+            await expect(
+                after.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                    [user_id, group_id],
+                ),
+            ).rejects.toThrow(/UNIQUE/iu);
+            after.onServerShutdown();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it('stops early at a configured target version', async () => {
         const partial = await bootClient({ targetVersion: 5 });
         try {
@@ -137,7 +794,10 @@ describe('SqliteDatabaseClient — boot and migrations', () => {
     });
 });
 
-describe('SqliteDatabaseClient — legacy version inference', () => {
+describe(
+    'SqliteDatabaseClient — legacy version inference',
+    { timeout: DISK_MIGRATION_TIMEOUT_MS },
+    () => {
     let dir: string;
 
     beforeEach(() => {

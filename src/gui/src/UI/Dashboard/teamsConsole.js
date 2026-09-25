@@ -1,0 +1,270 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// Pure logic behind the team admin console. No DOM, no network.
+
+/**
+ * Whether the team may permanently delete this account. The API refuses a live
+ * one, so offering the button before it is disabled only ever produces an error.
+ *
+ * @param {{ orgOwned?: boolean, disabled?: boolean }} member
+ * @returns {boolean}
+ */
+export function canDeleteAccount (member) {
+    return member?.orgOwned === true && member?.disabled === true;
+}
+
+/** i18n keys for the actions a team's audit log records. */
+const AUDIT_ACTION_KEYS = {
+    provision: 'teams_audit_provision',
+    disable: 'teams_audit_disable',
+    enable: 'teams_audit_enable',
+    delete_team: 'teams_audit_delete_team',
+    reset_member_password: 'teams_audit_reset_member_password',
+    activate: 'teams_audit_activate',
+    delete_account: 'teams_audit_delete_account',
+    directory_enabled: 'teams_audit_directory_enabled',
+    directory_disabled: 'teams_audit_directory_disabled',
+};
+
+/** i18n keys for the reasons the team attaches to an action. */
+const AUDIT_REASON_KEYS = {
+    team_deleted: 'teams_audit_reason_team_deleted',
+};
+
+/**
+ * Whether each account is currently suspended, read off the audit log.
+ *
+ * The member listing carries no suspension flag, but every suspension and
+ * restoration is recorded, so the newest `disable`/`enable` per account is the
+ * current state. Entries arrive newest first, so the first match wins.
+ *
+ * @param {Array<{ action: string, username: string | null, reason: string | null, createdAt: string }>} entries
+ * @returns {Record<string, { disabled: boolean, reason: string | null, at: string }>}
+ */
+export function memberStatesFromAudit (entries) {
+    /** @type {Record<string, { disabled: boolean, reason: string | null, at: string }>} */
+    const states = {};
+    for ( const entry of entries ?? [] ) {
+        const username = entry?.username;
+        if ( ! username || username in states ) continue;
+        if ( entry.action !== 'disable' && entry.action !== 'enable' ) continue;
+        states[username] = {
+            disabled: entry.action === 'disable',
+            reason: entry.reason ?? null,
+            at: entry.createdAt,
+        };
+    }
+    return states;
+}
+
+/**
+ * The member listing with each account's suspension state folded in.
+ *
+ * Only accounts the team provisioned can be suspended by it, so an
+ * account that merely joined is always reported active.
+ *
+ * @param {Array<{ username: string, orgOwned: boolean, createdAt: string }>} members
+ * @param {Array<{ action: string, username: string | null, reason: string | null, createdAt: string }>} auditEntries
+ * @returns {Array<{ username: string, orgOwned: boolean, createdAt: string, disabled: boolean, disabledReason: string | null }>}
+ */
+export function annotateMembers (members, auditEntries) {
+    const states = memberStatesFromAudit(auditEntries);
+    return (members ?? []).map(member => {
+        const state = member.orgOwned ? states[member.username] : undefined;
+        return {
+            ...member,
+            disabled: state?.disabled === true,
+            disabledReason: state?.disabled === true ? (state.reason ?? null) : null,
+        };
+    });
+}
+
+/**
+ * What the team is currently being charged for. Suspended accounts are
+ * counted separately because they stop costing a per-account charge and keep
+ * costing for the bytes they hold — an administrator deciding what to clean up
+ * needs the two apart.
+ *
+ * @param {Array<{ orgOwned: boolean, disabled: boolean }>} annotated
+ * @returns {{ total: number, billed: number, disabled: number, joined: number }}
+ */
+export function membersBillingSummary (annotated) {
+    const summary = { total: 0, billed: 0, disabled: 0, joined: 0 };
+    for ( const member of annotated ?? [] ) {
+        summary.total++;
+        if ( ! member.orgOwned ) summary.joined++;
+        else if ( member.disabled ) summary.disabled++;
+        else summary.billed++;
+    }
+    return summary;
+}
+
+/**
+ * What plan a row in the accounts table is on.
+ *
+ * `payer` is the owner, who keeps their personal plan. A suspended seat is
+ * `not_billed` -- it stops costing a per-account charge. Everyone else follows
+ * the team: its tier if it bought one, otherwise the reduced free allowance.
+ *
+ * @param {{ orgOwned: boolean, disabled: boolean }} member
+ * @param {{ current: { tier: string, name_en?: string } | null } | null} plan
+ * @returns {{ kind: 'payer'|'not_billed'|'free'|'tier', name?: string }}
+ */
+export function memberPlanLabel (member, plan) {
+    if ( ! member?.orgOwned ) return { kind: 'payer' };
+    if ( member.disabled ) return { kind: 'not_billed' };
+    // Per seat: a team can buy for some accounts and not others.
+    const tier = plan?.seatTiers?.[member.uuid];
+    if ( ! tier ) return { kind: 'free' };
+    const offering = (plan.offerings ?? []).find(o => o.tier === tier);
+    return { kind: 'tier', name: offering?.name_en || tier };
+}
+
+/**
+ * The i18n key for an audit action, or `null` for one this build does not know
+ * about — a new backend action must show as itself rather than as nothing.
+ *
+ * @param {string} action
+ * @returns {string | null}
+ */
+export function auditActionKey (action) {
+    return AUDIT_ACTION_KEYS[action] ?? null;
+}
+
+/**
+ * The i18n key for a recorded reason, or `null` when there is none to show.
+ *
+ * @param {string | null} reason
+ * @returns {string | null}
+ */
+export function auditReasonKey (reason) {
+    return reason ? (AUDIT_REASON_KEYS[reason] ?? null) : null;
+}
+
+/**
+ * Members ordered for display: suspended accounts last, then provisioned
+ * before joined, then by username. Suspended accounts stay on the list rather
+ * than being hidden, because they are still on the bill.
+ *
+ * @template {{ username: string, orgOwned: boolean, disabled: boolean }} T
+ * @param {T[]} annotated
+ * @returns {T[]}
+ */
+export function sortMembers (annotated) {
+    return [...(annotated ?? [])].sort((a, b) => {
+        if ( a.disabled !== b.disabled ) return a.disabled ? 1 : -1;
+        if ( a.orgOwned !== b.orgOwned ) return a.orgOwned ? -1 : 1;
+        return a.username.localeCompare(b.username);
+    });
+}
+
+/**
+ * One page of the record, with the numbers the pager prints. Clamps the page:
+ * deleting an account shortens the record, and a stale number would otherwise
+ * show an empty table with no way back.
+ *
+ * @template T
+ * @param {T[]} entries
+ * @param {number} page - Zero-based.
+ * @param {number} size
+ * @returns {{ items: T[], page: number, pages: number, from: number, to: number, total: number }}
+ */
+export function auditSlice (entries, page, size) {
+    const all = entries ?? [];
+    const total = all.length;
+    const perPage = size > 0 ? size : 1;
+    const pages = Math.max(1, Math.ceil(total / perPage));
+    const current = Math.min(Math.max(0, Math.trunc(page) || 0), pages - 1);
+    const start = current * perPage;
+    const items = all.slice(start, start + perPage);
+    return {
+        items,
+        page: current,
+        pages,
+        from: total === 0 ? 0 : start + 1,
+        to: start + items.length,
+        total,
+    };
+}
+
+/**
+ * A timestamp off the wire as a Date, or `null` when it is not one. Team
+ * audit rows carry unix seconds; members and teams carry an ISO string, so
+ * one reader covers both rather than each column guessing.
+ *
+ * @param {unknown} value
+ * @returns {Date | null}
+ */
+export function parseTimestamp (value) {
+    if ( value === null || value === undefined || value === '' ) return null;
+    let date;
+    if ( typeof value === 'number' ) {
+        // Anything below 1e12 cannot be milliseconds for a date after 2001.
+        date = new Date(value < 1e12 ? value * 1000 : value);
+    } else if ( typeof value === 'string' && /^\d+$/.test(value) ) {
+        return parseTimestamp(Number(value));
+    } else {
+        date = new Date(/** @type {string} */ (value));
+    }
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * The letter an avatar tile shows for a name. Uppercased so a lowercase
+ * username and a display name read the same in a row of tiles.
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function initialOf (name) {
+    const text = typeof name === 'string' ? name.trim() : '';
+    if ( ! text ) return '?';
+    // A leading handle sigil or bracket says nothing about the name.
+    const letter = text.replace(/^[^\p{L}\p{N}]+/u, '') || text;
+    return [...letter][0].toUpperCase();
+}
+
+/**
+ * Which billing sentence fits the summary. The count of suspended accounts
+ * only earns a mention when there are any -- "0 suspended cost nothing" is
+ * noise on a healthy team.
+ *
+ * @param {{ billed: number, disabled: number }} summary
+ * @returns {'teams_billing_summary_one'|'teams_billing_summary'|'teams_billing_summary_one_none'|'teams_billing_summary_none'}
+ */
+export function billingSummaryKey (summary) {
+    const one = summary?.billed === 1;
+    if ( (summary?.disabled ?? 0) > 0 ) return one ? 'teams_billing_summary_one' : 'teams_billing_summary';
+    return one ? 'teams_billing_summary_one_none' : 'teams_billing_summary_none';
+}
+
+/**
+ * A stable hue for a name's avatar tile, so the same account gets the same
+ * colour in every row and the tiles are told apart at a glance.
+ *
+ * @param {unknown} name
+ * @returns {number} degrees, 0-359
+ */
+export function avatarHue (name) {
+    const text = typeof name === 'string' ? name : '';
+    let hash = 0;
+    for ( const ch of text ) hash = (hash * 31 + ch.codePointAt(0)) % 360;
+    return hash;
+}

@@ -1,0 +1,59 @@
+// Shared by every worker preamble: the Cloudflare EventTarget fix and
+// `init_puter_portable`, which builds a puter.js client around one token.
+// Included by `puter-portable.template` (the router runtime, which also gets a
+// `me` built from the deployed worker's own token) and by
+// `puter-events.template` (the events runtime, which has no such token).
+//
+// This file is not actually in the webpack project, it is handled separately.
+if (globalThis.Cloudflare) {
+    // Cloudflare Workers has a faulty EventTarget implementation which doesn't
+    // bind "this" to the event handler.
+    // https://github.com/cloudflare/workerd/issues/4453
+    const CfEventTarget = EventTarget;
+    globalThis.EventTarget = class EventTarget extends CfEventTarget {
+        constructor(...args) {
+            super(...args);
+        }
+
+        addEventListener(type, listener, options) {
+            super.addEventListener(type, listener.bind(this), options);
+        }
+    };
+}
+
+globalThis.init_puter_portable = (auth, apiOrigin, type, options = {}) => {
+    if (type === 'userPuter') {
+        const goodContext = {};
+        Object.getOwnPropertyNames(globalThis).forEach((name) => {
+            try {
+                goodContext[name] = globalThis[name];
+            } catch {}
+        });
+        goodContext.globalThis = goodContext;
+        goodContext.WorkerGlobalScope = WorkerGlobalScope;
+        goodContext.ServiceWorkerGlobalScope = ServiceWorkerGlobalScope;
+        goodContext.location = new URL('https://puter.work');
+        goodContext.addEventListener = () => {};
+        goodContext.atob = globalThis.atob?.bind(globalThis);
+        goodContext.btoa = globalThis.btoa?.bind(globalThis);
+        // Read by puter.js's own constructor: the FileSystem module opens its
+        // socket eagerly during `initSubmodules()`, before this function gets
+        // `goodContext.puter` back, so the opt-out has to be in place first.
+        if (options.socket === false) {
+            goodContext.puter_socket_enabled = false;
+        }
+        // @ts-ignore
+        with (goodContext) {
+            #include "../../puter-js/dist/puter.js"
+        }
+        goodContext.puter.setAPIOrigin(apiOrigin);
+        goodContext.puter.setAuthToken(auth);
+        return goodContext.puter;
+    }
+
+    #include "../../puter-js/dist/puter.js"
+
+    puter.setAPIOrigin(apiOrigin);
+    puter.setAuthToken(auth);
+};
+

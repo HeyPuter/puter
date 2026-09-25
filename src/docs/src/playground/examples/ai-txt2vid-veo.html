@@ -1,0 +1,15 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.ai.txt2vid("A hummingbird hovering over a red flower, macro lens, soft morning light", {
+            model: "veo-3.1-fast",
+            seconds: 6,
+            size: "1280x720",
+            negative_prompt: "blurry, text, watermark, people"
+        }).then((video) => {
+            document.body.appendChild(video);
+        }).catch(console.error);
+    </script>
+</body>
+</html>

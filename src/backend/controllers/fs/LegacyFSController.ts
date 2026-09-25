@@ -24,6 +24,7 @@ import { posix as pathPosix } from 'node:path';
 import {
     assertResolvedActor,
     isAccessTokenActor,
+    isAppActor,
     makeActor,
 } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -37,12 +38,21 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import type { SignedFile } from '../../util/fileSigning.js';
-import { verifySignature } from '../../util/fileSigning.js';
+import {
+    NON_OWNER_SIGNATURE_TTL_SECONDS,
+    verifySignature,
+} from '../../util/fileSigning.js';
+import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
+import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { maskEntryPath } from '../../services/fs/sharePathMask.js';
 import {
     buildHostedBackingDenial,
     hostedIndexUrlBackingIsUnavailable,
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
+import { listClientShares } from '../share/clientShare.js';
+import { SHARE_LIST_LIMIT } from '../share/limits.js';
+import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterController } from '../types.js';
 import {
     FS_BATCH_CONCURRENT,
@@ -66,6 +76,7 @@ import {
     asRecord,
     assertAccess,
     assertCanCreate,
+    assertCanMoveInto,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
@@ -136,14 +147,16 @@ export class LegacyFSController extends PuterController {
         // draw from the same per-user budget as their v2 counterparts rather
         // than handing a caller a second allowance for the same operation.
         const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
-        router.post(
-            '/stat',
-            { ...apiOptions, rateLimit: FS_STAT_LIMIT },
-            this.stat,
-        );
+        // Read-side routes admit scoped access tokens: the ACL check each
+        // handler runs already intersects a token's grant with its issuer's,
+        // so the token reaches exactly what it was minted for. That is what a
+        // background events handler acts through — its `user` is a token
+        // scoped to the subscription's grant.
+        const reads = { ...apiOptions, allowAccessToken: true } as RouteOptions;
+        router.post('/stat', { ...reads, rateLimit: FS_STAT_LIMIT }, this.stat);
         router.post(
             '/readdir',
-            { ...apiOptions, rateLimit: FS_READDIR_LIMIT },
+            { ...reads, rateLimit: FS_READDIR_LIMIT },
             this.readdir,
         );
         router.post('/mkdir', mutate, this.mkdir);
@@ -165,6 +178,7 @@ export class LegacyFSController extends PuterController {
             '/read',
             {
                 ...spends,
+                allowAccessToken: true,
                 rateLimit: FS_READ_LIMIT,
                 concurrent: FS_READ_CONCURRENT,
             },
@@ -286,6 +300,14 @@ export class LegacyFSController extends PuterController {
                     ? await recommendedSvc.getRecommendedApps()
                     : [];
 
+                // The direct icon URL names a size; honour the one the
+                // caller asked for so the client isn't handed a 256px PNG for
+                // a 64px slot. `icon` keeps the raw column either way.
+                const requestedIconSize = Number(req.query.icon_size);
+                const iconSize = APP_ICON_SIZES.includes(requestedIconSize)
+                    ? requestedIconSize
+                    : undefined;
+
                 let recent: unknown[] = [];
                 const userId = req.actor?.user?.id;
                 if (userId) {
@@ -339,6 +361,13 @@ export class LegacyFSController extends PuterController {
                             name: app.name,
                             title: app.title,
                             icon: app.icon ?? null,
+                            // Direct subdomain URL for the client to try
+                            // before `icon`.
+                            iconCdnUrl: getAppIconCdnUrl(
+                                app,
+                                this.config,
+                                iconSize,
+                            ),
                             godmode: Boolean(app.godmode),
                             maximize_on_start: Boolean(app.maximize_on_start),
                             index_url: backingGone ? null : app.index_url,
@@ -432,12 +461,12 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
-        entry.suggestedApps =
-            await this.services.suggestedApps.getSuggestedApps(entry);
-
-        const appsById = await loadLegacyAssociatedApps(this.stores.app, [
-            entry,
+        const [suggestedApps, appsById, shareFlags] = await Promise.all([
+            this.services.suggestedApps.getSuggestedApps(entry),
+            loadLegacyAssociatedApps(this.stores.app, [entry]),
+            this.services.share.shareFlags(actor, [entry]),
         ]);
+        entry.suggestedApps = suggestedApps;
 
         const shaped = await toLegacyEntry(this.clients.event, entry, {
             fsEntryStore: this.stores.fsEntry,
@@ -447,6 +476,7 @@ export class LegacyFSController extends PuterController {
                 ) => Promise<Record<string, unknown> | null>;
             },
             appsById,
+            isShared: shareFlags.get(entry.uuid) ?? null,
         });
 
         // Optional hydrations:
@@ -456,13 +486,24 @@ export class LegacyFSController extends PuterController {
                 entry.path,
             );
         }
-        // Legacy clients sometimes ask for `return_versions`, `return_shares`.
-        // We don't have parity for these yet — return empty arrays to avoid
-        // breaking `response.x.forEach(...)` patterns. `return_owner` is a
-        // no-op flag here: the `owner` field is already populated by
-        // `toLegacyEntry` as `{ username }`.
+        // `return_versions` has no parity yet; the empty array keeps `forEach`
+        // callers working. `return_owner` is a no-op — `owner` is always set.
         if (getBoolean(body, 'return_versions')) shaped.versions = [];
-        if (getBoolean(body, 'return_shares')) shaped.shares = [];
+        if (getBoolean(body, 'return_shares')) {
+            // Share-listing work spends the share-listing budget, not just
+            // `fs:stat`'s.
+            if (!(await consumeRouteRateLimit(req, SHARE_LIST_LIMIT))) {
+                throw new HttpError(429, 'Too many requests.', {
+                    legacyCode: 'too_many_requests',
+                });
+            }
+            shaped.shares = await listClientShares(
+                this.services.share,
+                this.clients.event,
+                actor,
+                entry.uuid,
+            );
+        }
 
         res.json(shaped);
     };
@@ -484,7 +525,6 @@ export class LegacyFSController extends PuterController {
             const rootChildren = await listRootEntries(
                 actor,
                 this.stores.fsEntry,
-                this.services.permission,
             );
             const rootSuggestions =
                 await this.services.suggestedApps.getSuggestedAppsForEntries(
@@ -496,14 +536,15 @@ export class LegacyFSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
-            const rootAppsById = await loadLegacyAssociatedApps(
-                this.stores.app,
-                rootChildren,
-            );
+            const [rootAppsById, rootShareFlags] = await Promise.all([
+                loadLegacyAssociatedApps(this.stores.app, rootChildren),
+                this.services.share.shareFlags(actor, rootChildren),
+            ]);
             const shaped = await Promise.all(
                 rootChildren.map((c) =>
                     toLegacyEntry(this.clients.event, c, {
                         appsById: rootAppsById,
+                        isShared: rootShareFlags.get(c.uuid) ?? null,
                     }),
                 ),
             );
@@ -577,14 +618,17 @@ export class LegacyFSController extends PuterController {
             }
         }
 
-        const appsById = await loadLegacyAssociatedApps(
-            this.stores.app,
-            children,
-        );
+        const [appsById, shareFlags] = await Promise.all([
+            loadLegacyAssociatedApps(this.stores.app, children),
+            this.services.share.shareFlags(actor, children),
+        ]);
 
         const shaped = await Promise.all(
             children.map((c) =>
-                toLegacyEntry(this.clients.event, c, { appsById }),
+                toLegacyEntry(this.clients.event, c, {
+                    appsById,
+                    isShared: shareFlags.get(c.uuid) ?? null,
+                }),
             ),
         );
 
@@ -624,10 +668,7 @@ export class LegacyFSController extends PuterController {
                 typeof body.parent === 'string' &&
                 (body.parent.startsWith('/') || body.parent.startsWith('~'))
             ) {
-                parentPath = this.#expandTilde(
-                    body.parent,
-                    actor.user?.username,
-                );
+                parentPath = expandTildePath(body.parent, actor.user?.username);
             } else {
                 const parent = await resolveV1Selector(
                     this.stores.fsEntry,
@@ -790,12 +831,12 @@ export class LegacyFSController extends PuterController {
             source.path,
             'write',
         );
-        await assertAccess(
+        await assertCanMoveInto(
             this.services.acl,
             this.services.fs,
             actor,
-            destinationParent.path,
-            'write',
+            source,
+            destinationParent,
         );
 
         // The v1 wire contract reports the entry an overwrite replaced
@@ -944,7 +985,8 @@ export class LegacyFSController extends PuterController {
             'write',
         );
 
-        const renamed = await this.services.fs.rename(entry, newName);
+        const userId = this.#getActorUserId(req);
+        const renamed = await this.services.fs.rename(userId, entry, newName);
         await this.#emitGuiEvent('outer.gui.item.updated', renamed);
         res.json(await toLegacyEntry(this.clients.event, renamed));
     };
@@ -1257,15 +1299,14 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const isApp = Boolean((actor as { app?: unknown }).app);
+        const actingApp = actor.effectiveApp;
         const signingCfg = signingConfigFromAppConfig(this.config);
 
         // Apps can only sign inside their AppData root.
         let appDataRoot: string | null = null;
-        if (isApp) {
-            const username = (actor as { user?: { username?: string } }).user
-                ?.username;
-            const appUid = (actor as { app?: { uid?: string } }).app?.uid;
+        if (actingApp) {
+            const username = actor.user?.username;
+            const appUid = actingApp.uid;
             if (!username || !appUid)
                 throw new HttpError(403, 'Forbidden', {
                     legacyCode: 'forbidden',
@@ -1331,6 +1372,11 @@ export class LegacyFSController extends PuterController {
                 );
                 let finalAction: 'read' | 'write' = 'read';
                 if (action === 'write') {
+                    // The real path, not the masked one: ACL reads the path
+                    // string itself for its short-circuits (own home, an app's
+                    // AppData under another user), and a mask hides the
+                    // `AppData/<appUid>` shape those match on. Nothing here
+                    // publishes the descriptor, so there is nothing to hide.
                     const writeOk = await this.services.acl.check(
                         actor,
                         {
@@ -1354,12 +1400,20 @@ export class LegacyFSController extends PuterController {
                     );
                 }
 
-                const signed = signEntry(entry, signingCfg);
+                const signed = signEntry(entry, signingCfg, {
+                    actorUserId: actor.user?.id,
+                });
                 if (finalAction !== 'write') {
                     const { write_url: _, ...rest } = signed;
-                    result.signatures.push({ ...rest, path: entry.path });
+                    result.signatures.push({
+                        ...rest,
+                        path: maskEntryPath(entry),
+                    });
                 } else {
-                    result.signatures.push({ ...signed, path: entry.path });
+                    result.signatures.push({
+                        ...signed,
+                        path: maskEntryPath(entry),
+                    });
                 }
             } catch {
                 // Silently skip unresolvable items.
@@ -1465,8 +1519,10 @@ export class LegacyFSController extends PuterController {
                 'outer.gui.item.added',
                 uploadResult.fsEntry,
             );
-            const signed = signEntry(uploadResult.fsEntry, signingCfg);
-            res.json({ ...signed, path: uploadResult.fsEntry.path });
+            const signed = signEntry(uploadResult.fsEntry, signingCfg, {
+                actorUserId: callerActor.user?.id,
+            });
+            res.json({ ...signed, path: maskEntryPath(uploadResult.fsEntry) });
             return;
         }
 
@@ -1494,7 +1550,12 @@ export class LegacyFSController extends PuterController {
                 dedupeName: true,
             });
             await this.#emitGuiEvent('outer.gui.item.added', entry);
-            res.json({ ...signEntry(entry, signingCfg), path: entry.path });
+            res.json({
+                ...signEntry(entry, signingCfg, {
+                    actorUserId: callerActor.user?.id,
+                }),
+                path: maskEntryPath(entry),
+            });
             return;
         }
         if (operation === 'rename') {
@@ -1511,9 +1572,18 @@ export class LegacyFSController extends PuterController {
                 targetEntry.path,
                 'write',
             );
-            const renamed = await this.services.fs.rename(targetEntry, newName);
+            const renamed = await this.services.fs.rename(
+                userId,
+                targetEntry,
+                newName,
+            );
             await this.#emitGuiEvent('outer.gui.item.updated', renamed);
-            res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
+            res.json({
+                ...signEntry(renamed, signingCfg, {
+                    actorUserId: callerActor.user?.id,
+                }),
+                path: maskEntryPath(renamed),
+            });
             return;
         }
         if (operation === 'delete' || operation === 'trash') {
@@ -1581,7 +1651,12 @@ export class LegacyFSController extends PuterController {
                     ? { old_path: targetEntry.path }
                     : undefined,
             );
-            res.json({ ...signEntry(result, signingCfg), path: result.path });
+            res.json({
+                ...signEntry(result, signingCfg, {
+                    actorUserId: callerActor.user?.id,
+                }),
+                path: maskEntryPath(result),
+            });
             return;
         }
 
@@ -1643,11 +1718,18 @@ export class LegacyFSController extends PuterController {
         // Directory: return a signed listing of direct children.
         // The caller only proved read access, so strip write_url from
         // each child to prevent privilege escalation via /writeFile.
+        //
+        // Child paths are the owner's real ones — there is no actor here to
+        // mask for. Accepted: a signature is minted and handed out by the
+        // owner, so the layout it reveals is theirs to reveal, and the child
+        // signatures expire; the paths are the only part that outlives them.
         if (entry.isDir) {
             const children = await this.services.fs.listDirectory(entry.uuid);
             const signedChildren = children.map((child) => {
-                const { write_url: _, ...rest } = signEntry(child, signingCfg);
-                return { ...rest, path: child.path };
+                const { write_url: _, ...rest } = signEntry(child, signingCfg, {
+                    ttlSeconds: NON_OWNER_SIGNATURE_TTL_SECONDS,
+                });
+                return { ...rest, path: maskEntryPath(child) };
             });
             res.json(signedChildren);
             return;
@@ -1719,7 +1801,7 @@ export class LegacyFSController extends PuterController {
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
-        if ((actor as { app?: unknown }).app) {
+        if (actor.effectiveApp) {
             throw new HttpError(
                 403,
                 'This endpoint is only available to user sessions',
@@ -1741,6 +1823,7 @@ export class LegacyFSController extends PuterController {
         // read. `/writeFile`'s ACL re-check would still block the write, but
         // returning `write_url` to a read-only caller is the same
         // privilege-leak shape that `/sign` and `/readdir` strip.
+        // Real path — see the note on the other `acl.check` above.
         const writeOk = await this.services.acl.check(
             actor,
             {
@@ -1754,7 +1837,7 @@ export class LegacyFSController extends PuterController {
         const suggested =
             (await this.services.suggestedApps?.getSuggestedApps({
                 name: entry.name,
-                path: entry.path,
+                path: maskEntryPath(entry),
             })) ?? [];
 
         let token: string | null = null;
@@ -1777,12 +1860,14 @@ export class LegacyFSController extends PuterController {
         }
 
         const signingCfg = signingConfigFromAppConfig(this.config);
-        const signed = signEntry(entry, signingCfg);
+        const signed = signEntry(entry, signingCfg, {
+            actorUserId: actor.user?.id,
+        });
         const signature = writeOk
-            ? { ...signed, path: entry.path }
+            ? { ...signed, path: maskEntryPath(entry) }
             : (() => {
                   const { write_url: _, ...rest } = signed;
-                  return { ...rest, path: entry.path };
+                  return { ...rest, path: maskEntryPath(entry) };
               })();
         res.json({
             signature,
@@ -1794,6 +1879,12 @@ export class LegacyFSController extends PuterController {
     /**
      * POST /auth/request-app-root-dir — an app-under-user requests stat on its
      * own app root directory. The app must own itself.
+     *
+     * `check: true` answers whether the caller may claim it and stops there,
+     * for callers asking the question rather than acting on the answer —
+     * otherwise `puter.perms.check('appRootDir', …)` would provision a
+     * directory just by being asked. Answering is the whole response: a caller
+     * that may not claim it gets the 403 below either way.
      */
     requestAppRootDir = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1804,8 +1895,10 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const actorApp = (actor as { app?: { uid?: string } }).app;
-        if (!actorApp?.uid || actorApp.uid !== appUid) {
+        // The app acting directly, not one that merely issued the credential:
+        // claiming a root dir is the app itself asking, and a token is not it.
+        const callerApp = isAppActor(actor) ? actor.effectiveApp : null;
+        if (callerApp?.uid !== appUid) {
             throw new HttpError(
                 403,
                 'Only the app itself may request its root dir',
@@ -1819,6 +1912,11 @@ export class LegacyFSController extends PuterController {
             throw new HttpError(401, 'Unauthorized', {
                 legacyCode: 'unauthorized',
             });
+
+        if (getBoolean(body, 'check')) {
+            res.json({ allowed: true });
+            return;
+        }
 
         const rootPath = `/${username}/AppData/${appUid}`;
         // Auto-create the AppData/<uid> tree on first call.
@@ -1834,7 +1932,7 @@ export class LegacyFSController extends PuterController {
      * access to a subject FS entry.
      */
     checkAppAcl = async (req: Request, res: Response): Promise<void> => {
-        this.#requireActor(req);
+        const actor = this.#requireActor(req);
         const body = asRecord(req.body);
 
         const subjectRef = body.subject;
@@ -1846,10 +1944,28 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const subject = await resolveV1Selector(
-            this.stores.fsEntry,
-            subjectRef,
-        );
+        // A missing subject and one the caller can't see get the same 404,
+        // so this can't be used to probe for other users' entries.
+        let subject: import('../../stores/fs/FSEntry.js').FSEntry | null = null;
+        try {
+            subject = await resolveV1Selector(this.stores.fsEntry, subjectRef);
+        } catch (err) {
+            if (!(err instanceof HttpError && err.statusCode === 404))
+                throw err;
+        }
+        let ancestors: Promise<Array<{ uid: string; path: string }>> | null =
+            null;
+        const descriptor = subject && {
+            path: subject.path,
+            resolveAncestors: () =>
+                (ancestors ??= this.services.fs.getAncestorChain(subject.path)),
+        };
+        const acl = this.services.acl as ACLService;
+        if (!descriptor || !(await acl.check(actor, descriptor, 'see')))
+            throw new HttpError(404, 'Subject does not exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+
         let app: { uid: string } | null = null;
         if (typeof appRef === 'string') {
             app =
@@ -1863,19 +1979,10 @@ export class LegacyFSController extends PuterController {
 
         // Build an actor-under-user shape for the check.
         const actorForApp = makeActor({
-            user: req.actor!.user,
+            user: actor.user,
             app: { uid: (app as { uid: string }).uid },
         });
-        const descriptor = {
-            path: subject.path,
-            resolveAncestors: () =>
-                this.services.fs.getAncestorChain(subject.path),
-        };
-        const allowed = await (this.services.acl as ACLService).check(
-            actorForApp,
-            descriptor,
-            mode,
-        );
+        const allowed = await acl.check(actorForApp, descriptor, mode);
         res.json({ allowed });
     };
 
@@ -2132,7 +2239,7 @@ export class LegacyFSController extends PuterController {
                         });
                     }
                     const parentPath = getString(record, 'path') ?? '';
-                    const expandedParent = this.#expandTilde(
+                    const expandedParent = expandTildePath(
                         parentPath,
                         username,
                     );
@@ -2197,7 +2304,7 @@ export class LegacyFSController extends PuterController {
                             legacyCode: 'bad_request',
                         });
                     }
-                    const expandedParent = this.#expandTilde(
+                    const expandedParent = expandTildePath(
                         parentPath,
                         username,
                     );
@@ -2250,7 +2357,7 @@ export class LegacyFSController extends PuterController {
                         this.stores.fsEntry,
                         { uid: shortcutToUid },
                     );
-                    const expandedParent = this.#expandTilde(
+                    const expandedParent = expandTildePath(
                         parentPath,
                         username,
                     );
@@ -2296,12 +2403,12 @@ export class LegacyFSController extends PuterController {
                         source.path,
                         'write',
                     );
-                    await assertAccess(
+                    await assertCanMoveInto(
                         this.services.acl,
                         this.services.fs,
                         actor,
-                        destinationParent.path,
-                        'write',
+                        source,
+                        destinationParent,
                     );
                     const moved = await this.services.fs.move(userId, {
                         source,
@@ -2482,16 +2589,6 @@ export class LegacyFSController extends PuterController {
         if (Array.isArray(body.operations)) return body.operations;
         if (Array.isArray(body.ops)) return body.ops;
         return [];
-    }
-
-    #expandTilde(path: string, username: string | undefined): string {
-        if (!path) return path;
-        if (path !== '~' && !path.startsWith('~/')) return path;
-        if (!username)
-            throw new HttpError(400, 'Unable to resolve home path', {
-                legacyCode: 'bad_request',
-            });
-        return `/${username}${path.slice(1)}`;
     }
 
     #serializeBatchError(err: unknown): Record<string, unknown> {

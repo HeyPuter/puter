@@ -1,5 +1,5 @@
 import * as utils from '../../lib/utils.js';
-import { assertKeySize } from './lib/validate.js';
+import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 
 /** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 
@@ -23,6 +23,7 @@ import { assertKeySize } from './lib/validate.js';
  * @returns {Promise<boolean>}
  */
 export async function expireAt (key, timestamp, optConfig) {
+    assertKeyPresent(key);
     assertKeySize(key);
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'expireAt', argNames: ['key', 'timestamp'], puter: this.puter })({ key, timestamp, optConfig });
 }

@@ -20,7 +20,7 @@
 /**
  * Integration test for the xAI (Grok) provider.
  *
- * Uses `grok-3-mini` — the cheapest small variant. Skipped when
+ * Uses `grok-build-0.1` — the cheapest coding/build variant. Skipped when
  * `PUTER_TEST_AI_XAI_API_KEY` is unset.
  */
 
@@ -37,7 +37,7 @@ import { XAIProvider } from './XAIProvider.js';
 const ENV_VAR = 'PUTER_TEST_AI_XAI_API_KEY';
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))('XAIProvider (integration)', () => {
-    it('returns a non-empty completion from grok-3-mini', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+    it('returns a non-empty completion from grok-build-0.1', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
         const provider = new XAIProvider(
             { apiKey: optionalEnv(ENV_VAR)! },
             makeMeteringStub(),
@@ -45,7 +45,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))('XAIProvider (integration)', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'grok-3-mini',
+                model: 'grok-build-0.1',
                 messages: [{ role: 'user', content: 'Say hi in one word.' }],
                 max_tokens: 16,
             }),

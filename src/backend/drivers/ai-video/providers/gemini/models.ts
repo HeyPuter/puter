@@ -52,7 +52,11 @@ export const GEMINI_VIDEO_GENERATION_MODELS: IGeminiVideoModel[] = [
         id: 'veo-3.1-fast-generate-preview',
         name: 'Veo 3.1 Fast',
         costs_currency: 'usd-cents',
-        costs: { 'per-second': 15, 'per-second-4k': 35 },
+        costs: {
+            'per-second': 10,
+            'per-second-1080p': 12,
+            'per-second-4k': 30,
+        },
         output_cost_key: 'per-second',
         durationSeconds: [4, 6, 8],
         dimensions: DIMENSIONS_WITH_4K,
@@ -73,6 +77,6 @@ export const GEMINI_VIDEO_GENERATION_MODELS: IGeminiVideoModel[] = [
         aspectRatios: ['16:9', '9:16'],
         resolutions: ['720p', '1080p'],
         supportsImageInput: true,
-        supportsReferenceImages: false,
+        supportsReferenceImages: true,
     },
 ];

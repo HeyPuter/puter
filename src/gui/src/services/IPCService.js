@@ -28,13 +28,13 @@ class InternalConnection {
         this.reverse = reverse;
     }
 
-    send (data) {
+    send (data, options) {
         const svc_process = this.services.get('process');
         const process = svc_process.get_by_uuid(this.target);
         const channel = {
             returnAddress: this.reverse,
         };
-        process.send(channel, data);
+        process.send(channel, data, options);
     }
 }
 

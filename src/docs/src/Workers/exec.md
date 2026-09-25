@@ -1,6 +1,6 @@
 ---
 title: puter.workers.exec()
-description: Execute workers as an authenticated user.
+description: Call a worker as the calling user, while the worker's code acts on the worker owner's shared KV and storage.
 platforms: [websites, apps, nodejs]
 ---
 

@@ -35,6 +35,8 @@ These apply everywhere — backend, puter.js, and GUI.
 
 Keep comments light; prefer self-documenting code. Comment only when the _why_ is non-obvious or a usage detail would trip the next reader. Use `//` for single lines and `/** ... */` JSDoc when it genuinely needs more — if a comment runs long, it's probably too long. Don't restate the code and don't reference the current task, PR, or version — those rot. **No ticket references** (`PUT-1234`, `// fix for FOO-99`) in code, comments, or test names; describe the why in domain terms, not project-management terms. Use plain ASCII `-` in comment section dividers (`// -- Section --`), never box-drawing characters.
 
+**Be concise — a comment is a sentence or two, not a paragraph block.** One or two lines for `//`, a few for JSDoc. Don't narrate the history ("used to swallow the failure, which meant…"), don't argue the design at length, and don't explain each parameter when the signature already does. State the constraint and stop. If the reasoning genuinely needs paragraphs, it belongs in a design doc, not above the function.
+
 ### Security & privacy
 
 Before opening a PR, scan the diff for:
@@ -52,6 +54,37 @@ When in doubt, return less. Auth-, permission-, or data-export-related changes d
 - **Test new behavior.** Every new function, endpoint, driver method, or logic branch gets a test; every bug fix gets a regression test that fails before the fix. If something is genuinely hard to test, skip it but say so in the PR.
 - **Boy Scout Rule, proportional to the change.** Fix the obvious typo or dead import in files you're already touching; don't ride a refactor along with a bug fix.
 - **Understand what you commit.** AI assistance is fine; shipping code you couldn't defend in review is not.
+- **A limit change is not done until the docs change with it.** Every rate limit, concurrency cap, quota, and allowance in the code is published in [src/docs/src/rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) — an undisclosed limit is one developers discover as a service failure. If a PR moves any of these numbers, the same PR updates that page. The numbers live in `src/backend/controllers/fs/limits.ts` (filesystem), `src/backend/drivers/util/aiLimits.ts` (all AI drivers), per-driver `rateLimit`/`concurrent` configs, and `src/backend/data/subPolicies/` (free-tier allowances).
+
+---
+
+## Local development configuration
+
+To test a local Docker build, create `docker-compose.override.yml` in the repository
+root (or merge into the existing file):
+
+```yaml
+services:
+  puter:
+    pull_policy: never
+    build:
+      context: .
+```
+
+Compose merges it automatically. Run `docker compose up -d --build` to build and
+start the stack, and repeat after source changes. Keep local build settings in
+this gitignored override instead of editing `docker-compose.yml`, so they stay
+out of pull requests and do not conflict when pulling updates. See
+[Self-Hosting Puter](doc/self-hosting.md#building-from-source-instead-of-pulling)
+for the required runtime configuration.
+
+For local API testing, agents may decide whether to set `"unlimitedMetering": true`
+when budget checks block unrelated tests; no additional approval is needed.
+Merge it into the ignored `config.json` for `npm start` or
+`puter/config/config.json` for Docker, then restart Puter. It applies to all
+accounts on that local instance, including guests, and usage is still recorded.
+Keep normal settings when testing budget or subscription enforcement, and leave
+shared defaults unchanged.
 
 ---
 
@@ -91,6 +124,7 @@ Follow the same layered structure inside an extension — unless it only needs a
 - Vitest; test files sit next to the code they test (`*.test.ts` / `*.test.js`). Run with `npm run test:backend`.
 - **Mock data, not methods.** Stub inputs (fixtures, fake rows, payloads), not the function under test or the layer beneath it — over-mocking produces tests that pass while production breaks. If you must mock, mock at a real boundary (a client/external service).
 - **Prefer the test server over mocking deps.** `setupPuterTestEnv()` in [src/backend/testUtil.ts](src/backend/testUtil.ts) boots a fully in-memory backend; hit a real database/client shape where reasonable — integration shapes catch what mocked unit tests miss.
+- **Test code, not docs.** Never write a test that reads a file under `src/docs/` and asserts on its wording or numbers. Docs are kept in step by the PR (see the limits rule above) and checked in review; a test that greps a markdown page fails on every rewording and verifies nothing about behavior.
 
 ---
 
@@ -111,17 +145,15 @@ Declare a shape where it belongs, and reference it with an `import(...)` type fr
 Use `@typedef {Object}` + `@property` for any shape whose fields need documenting — it is the only JSDoc form that carries a doc comment per field into the generated declaration. Keep the inline object-literal form for small internal shapes with nothing to say about each field, and prefer `unknown` over `*`:
 
 ```js
-/** @typedef {{ key: string, value: unknown }} KVEntry */
+/** @typedef {{ key: string; value: unknown }} KVEntry */
 ```
 
-Public (exposed) methods must carry JSDoc types — parameters and return value — with one `@overload` block per accepted call form, since those overloads *are* the published signature. Unexposed/private helpers are typed at the contributor's discretion: annotate where it helps the next reader, and either way keep them clean. Members tagged `@internal` are stripped from the generated declarations, so use that tag rather than `@private` to keep something off the public surface.
+Public (exposed) methods must carry JSDoc types — parameters and return value — with one `@overload` block per accepted call form, since those overloads _are_ the published signature. Unexposed/private helpers are typed at the contributor's discretion: annotate where it helps the next reader, and either way keep them clean. Members tagged `@internal` are stripped from the generated declarations, so use that tag rather than `@private` to keep something off the public surface.
 
 Typing in JS files is encouraged: annotate with JSDoc `@type`/`@param`/`@returns` using the TypeScript type system, and define shared shapes with `@typedef`. API types must not be `unknown` or untyped `...args` — spell out the real parameter and return shapes; the only exception is values passed through transparently to an upstream layer that owns their type. For example:
 
 ```js
-/**
- * @typedef {{key:string, value: unknown}} KVEntry
- */
+/** @typedef {{ key: string; value: unknown }} KVEntry */
 
 /** @type {KVEntry[]} */
 let entries = [];

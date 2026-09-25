@@ -89,6 +89,26 @@ export const loadPuterJsTestOptions = (
     const capabilities: string[] = [];
     let configOverrides: ConfigOverrides = {
         workers: { localServer: 'true' },
+        // The seeded accounts are on the free plan, and these suites are about
+        // whether the SDK and the wire surfaces behave — not about who is
+        // entitled to them. Leaving the plan gate on would turn every
+        // subscriber-only route (the OpenAI/Anthropic-compatible ones) into a
+        // 402 here. The gate itself is covered against those exact routes in
+        // `controllers/puterai/PuterAIController.subscription.http.test.ts`.
+        meteringEnforcement: { subscriptions: false },
+        // ~500 tests share one account; 'unlimited' means paid-base limits.
+        unlimitedMetering: true,
+        // `puter.events` is a socket surface, so the suite needs the server
+        // half switched on. Off, every subscribe answers `events_disabled` and
+        // the suite would only ever cover that one branch.
+        events: { enabled: true },
+        // Off, `/teams` isn't registered at all and the whole suite would only
+        // ever cover the 404 branch.
+        teams_enabled: true,
+        // The shipped default is 1, and the suite creates a team per case
+        // against one shared account, so every case after the first would
+        // fail on `team_limit_reached` rather than on what it tests.
+        max_teams_per_user: 100,
     };
 
     for (const mapping of MAPPINGS) {

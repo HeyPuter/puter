@@ -44,24 +44,35 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { v4 as uuidv4 } from 'uuid';
+
+import type { Actor } from '../../../../core/actor.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
+import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
 
 // ── Anthropic SDK mock ──────────────────────────────────────────────
 
-const { messagesCreateMock, messagesStreamMock, anthropicCtor } = vi.hoisted(
-    () => ({
-        messagesCreateMock: vi.fn(),
-        messagesStreamMock: vi.fn(),
-        anthropicCtor: vi.fn(),
-    }),
-);
+const {
+    messagesCreateMock,
+    messagesStreamMock,
+    anthropicCtor,
+    filesUploadMock,
+    filesDeleteMock,
+} = vi.hoisted(() => ({
+    messagesCreateMock: vi.fn(),
+    messagesStreamMock: vi.fn(),
+    anthropicCtor: vi.fn(),
+    filesUploadMock: vi.fn(),
+    filesDeleteMock: vi.fn(),
+}));
 
 vi.mock('@anthropic-ai/sdk', () => {
     const Anthropic = vi.fn().mockImplementation(function (
@@ -76,14 +87,20 @@ vi.mock('@anthropic-ai/sdk', () => {
         // Beta files surface — only consulted when puter_path uploads run, so
         // tests that exercise text-only paths never hit these stubs.
         this.beta = {
-            files: { delete: vi.fn() },
+            files: { upload: filesUploadMock, delete: filesDeleteMock },
             messages: {
                 create: messagesCreateMock,
                 stream: messagesStreamMock,
             },
         };
     });
-    return { default: Anthropic };
+    return {
+        default: Anthropic,
+        toFile: async (data: unknown, filename: string) => ({
+            data,
+            filename,
+        }),
+    };
 });
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -122,16 +139,59 @@ const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
 
 const makeStreamLike = (events: unknown[], finalUsage?: unknown) => {
     // Anthropic's `messages.stream(...)` returns an object that is itself
-    // both an async iterable (the events) AND has a `.finalMessage()`
-    // promise. The provider awaits both.
+    // an async iterable (the events), has a `.withResponse()` promise that
+    // settles once the upstream accepts the request, AND has a
+    // `.finalMessage()` promise. The provider awaits all three.
     const iter = asAsyncIterable(events);
     return {
         [Symbol.asyncIterator]: iter[Symbol.asyncIterator].bind(iter),
+        withResponse: () => Promise.resolve({}),
         finalMessage: () =>
             Promise.resolve({
                 usage: finalUsage ?? { input_tokens: 0, output_tokens: 0 },
             }),
     };
+};
+
+/**
+ * A user with one real FS entry, for the `puter_path` upload branch. Only the
+ * Files API calls are stubbed; the read goes through the wired FSService.
+ */
+const makeUserWithFile = async () => {
+    const username = `clsp-${Math.random().toString(36).slice(2, 10)}`;
+    const created = await server.stores.user.create({
+        username,
+        uuid: uuidv4(),
+        password: null,
+        email: `${username}@test.local`,
+        free_storage: 100 * 1024 * 1024,
+        requires_email_confirmation: false,
+    });
+    await generateDefaultFsentries(
+        server.clients.db,
+        server.stores.user,
+        created,
+    );
+    const user = (await server.stores.user.getById(created.id))!;
+    const actor = {
+        user: {
+            id: user.id,
+            uuid: user.uuid,
+            username: user.username,
+            email: user.email ?? null,
+            email_confirmed: true,
+        } as Actor['user'],
+    };
+    const path = `/${username}/Documents/pic.png`;
+    await withTestActor(
+        () =>
+            server.services.fs.write(user.id, {
+                fileMetadata: { path, size: 4, contentType: 'image/png' },
+                fileContent: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            }),
+        actor,
+    );
+    return { actor, path };
 };
 
 const makeCapturingChatStream = () => {
@@ -158,6 +218,8 @@ beforeEach(() => {
     messagesCreateMock.mockReset();
     messagesStreamMock.mockReset();
     anthropicCtor.mockReset();
+    filesUploadMock.mockReset();
+    filesDeleteMock.mockReset();
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
@@ -213,6 +275,117 @@ describe('ClaudeProvider.complete request shape', () => {
         usage: { input_tokens: 1, output_tokens: 1 },
     };
 
+    it('translates canonical image_url parts into url-source image blocks without touching the caller\'s parts', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        const imagePart = {
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/doge.jpeg', detail: 'low' },
+            cache_control: { type: 'ephemeral' },
+        };
+        const message = {
+            role: 'user',
+            content: [{ type: 'text', text: 'What do you see?' }, imagePart],
+        };
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [message],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages[0].content).toEqual([
+            { type: 'text', text: 'What do you see?' },
+            {
+                type: 'image',
+                source: { type: 'url', url: 'https://cdn.test/doge.jpeg' },
+                cache_control: { type: 'ephemeral' },
+            },
+        ]);
+        // The driver hands these same objects to the next route on fallback;
+        // an OpenAI-format reseller cannot read an Anthropic image block.
+        expect(imagePart).toEqual({
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/doge.jpeg', detail: 'low' },
+            cache_control: { type: 'ephemeral' },
+        });
+        expect(message.content[1]).toBe(imagePart);
+    });
+
+    it('translates data-URL images into base64 sources carrying the media type', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            // The untyped puter.js shorthand, as sent by
+                            // `puter.ai.chat(prompt, file)`.
+                            { image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages[0].content).toEqual([
+            {
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: 'image/png',
+                    data: 'iVBORw0KGgo=',
+                },
+            },
+        ]);
+    });
+
+    it('replaces video parts with an inline note and leaves text-only messages by identity', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        const textOnly = {
+            role: 'user',
+            content: [{ type: 'text', text: 'first' }],
+        };
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    textOnly,
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'video_url',
+                                video_url: { url: 'https://cdn.test/a.mp4' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages[0]).toBe(textOnly);
+        expect(args.messages[1].content[0].type).toBe('text');
+        expect(args.messages[1].content[0].text).toMatch(
+            /video input is not supported/,
+        );
+    });
+
+    it('tells the driver it resolves puter_path parts itself', () => {
+        const { provider } = makeProvider();
+        expect(provider.resolvesPuterPaths).toBe(true);
+    });
+
     it('forwards model + messages and threads max_tokens through', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -251,6 +424,52 @@ describe('ClaudeProvider.complete request shape', () => {
 
         const [args] = messagesCreateMock.mock.calls[0]!;
         expect(args.max_tokens).toBe(0);
+    });
+
+    // With no explicit max_tokens the ceiling has to come from the entry being
+    // called. Deriving it from a second lookup by name-or-alias instead capped
+    // at 4096 every id the catalog doesn't also list among that entry's own
+    // aliases -- which is every dated id.
+    it.each(CLAUDE_MODELS.map((m) => ({ id: m.id, ceiling: m.max_tokens })))(
+        'defaults max_tokens to the catalog ceiling for $id',
+        async ({ id, ceiling }) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: id,
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            );
+
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect(args.max_tokens).toBe(ceiling);
+        },
+    );
+
+    // A name with no catalog entry is silently served by the default model,
+    // so the ceiling is that entry's own — not the 4096 floor the old second
+    // lookup fell back to. Unreachable through ChatCompletionDriver (which
+    // rejects unknown ids), but pinned here so the fallback's cost profile
+    // can't drift unnoticed for direct callers.
+    it('defaults max_tokens to the default model ceiling for an unknown name', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-model-that-does-not-exist',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        const fallback = CLAUDE_MODELS.find(
+            (m) => m.id === provider.getDefaultModel(),
+        )!;
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.model).toBe(fallback.id);
+        expect(args.max_tokens).toBe(fallback.max_tokens);
     });
 
     it('extracts system messages and forwards them as the top-level `system` field', async () => {
@@ -316,6 +535,193 @@ describe('ClaudeProvider.complete request shape', () => {
         // String arguments are JSON-parsed into a dictionary because Claude
         // requires tool_use.input to be a dict.
         expect(toolUse!.input).toEqual({ q: 'puter' });
+    });
+
+    it('splices round-tripped reasoning_details back in ahead of the content', async () => {
+        // The replay contract for a normalized Claude turn: the caller resends
+        // the whole message, and the thinking blocks have to reach Anthropic
+        // with their signature intact and leading the content array (Anthropic
+        // rejects both a missing signature and a trailing thinking block).
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    { role: 'user', content: 'think then call a tool' },
+                    {
+                        role: 'assistant',
+                        content: 'here you go',
+                        reasoning: 'step one',
+                        refusal: null,
+                        reasoning_details: [
+                            {
+                                type: 'thinking',
+                                thinking: 'step one',
+                                signature: 'sig_1',
+                            },
+                            { type: 'redacted_thinking', data: 'ENC' },
+                        ],
+                        tool_calls: [
+                            {
+                                id: 'call_1',
+                                type: 'function',
+                                function: {
+                                    name: 'lookup',
+                                    arguments: '{\"q\":\"puter\"}',
+                                },
+                            },
+                        ],
+                    } as never,
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const assistant = args.messages[1] as Record<string, unknown>;
+        const content = assistant.content as Array<Record<string, unknown>>;
+        // Thinking blocks lead, verbatim; string content became a text block;
+        // the tool_use block is appended after.
+        expect(content).toEqual([
+            { type: 'thinking', thinking: 'step one', signature: 'sig_1' },
+            { type: 'redacted_thinking', data: 'ENC' },
+            { type: 'text', text: 'here you go' },
+            {
+                type: 'tool_use',
+                id: 'call_1',
+                name: 'lookup',
+                input: { q: 'puter' },
+            },
+        ]);
+        // Output-only fields Anthropic rejects are stripped.
+        expect('reasoning_details' in assistant).toBe(false);
+        expect('reasoning' in assistant).toBe(false);
+        expect('refusal' in assistant).toBe(false);
+    });
+
+    it('leaves the caller\'s message objects intact', async () => {
+        // The driver reuses the same messages array across fallback attempts,
+        // so stripping the output-only fields has to happen on a copy.
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        const callerMessage = Object.freeze({
+            role: 'assistant',
+            content: 'here you go',
+            reasoning: 'step one',
+            refusal: null,
+            reasoning_details: Object.freeze([
+                Object.freeze({
+                    type: 'thinking',
+                    thinking: 'step one',
+                    signature: 'sig_1',
+                }),
+            ]),
+        });
+        const before = JSON.parse(JSON.stringify(callerMessage));
+
+        // A frozen message would throw on `delete` in strict mode.
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [callerMessage as never],
+            }),
+        );
+
+        expect(callerMessage).toEqual(before);
+        // ...and the provider still sent the spliced content upstream.
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const sent = args.messages[0] as Record<string, unknown>;
+        expect('reasoning_details' in sent).toBe(false);
+        expect(
+            (sent.content as Array<Record<string, unknown>>)[0],
+        ).toMatchObject({ type: 'thinking', signature: 'sig_1' });
+    });
+
+    it('survives the same messages array being sent twice', async () => {
+        // This is the fallback hazard the copy-on-write exists for: the driver
+        // reuses one messages array across attempts, so if attempt 1 strips
+        // `reasoning_details` in place, attempt 2 sends a message with no
+        // thinking blocks and Anthropic rejects the continuation. Two
+        // sequential calls over one shared array reproduce that at the
+        // provider level; the real fallback loop is driven end-to-end by
+        // "hands every fallback attempt the same messages array" in
+        // ChatCompletionDriver.test.ts.
+        const { provider } = makeProvider();
+        messagesCreateMock
+            .mockResolvedValueOnce(baseResponse)
+            .mockResolvedValueOnce(baseResponse);
+
+        const messages = [
+            { role: 'user', content: 'think then call a tool' },
+            {
+                role: 'assistant',
+                content: 'here you go',
+                reasoning: 'step one',
+                refusal: null,
+                reasoning_details: [
+                    {
+                        type: 'thinking',
+                        thinking: 'step one',
+                        signature: 'sig_1',
+                    },
+                ],
+            },
+        ];
+        const before = structuredClone(messages);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: messages as never,
+            }),
+        );
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: messages as never,
+            }),
+        );
+
+        // The caller's array is untouched by either attempt...
+        expect(messages).toEqual(before);
+        // ...so both attempts sent the thinking block with its signature.
+        for (const call of messagesCreateMock.mock.calls.slice(0, 2)) {
+            const sent = call[0].messages[1] as Record<string, unknown>;
+            const content = sent.content as Array<Record<string, unknown>>;
+            expect(content[0]).toEqual({
+                type: 'thinking',
+                thinking: 'step one',
+                signature: 'sig_1',
+            });
+        }
+    });
+
+    it('strips output-only reasoning fields even with no reasoning_details', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: 'plain reply',
+                        reasoning: 'leftover',
+                        refusal: null,
+                    } as never,
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const assistant = args.messages[0] as Record<string, unknown>;
+        expect('reasoning' in assistant).toBe(false);
+        expect('refusal' in assistant).toBe(false);
+        // Content is untouched when there was nothing to splice.
+        expect(assistant.content).toBe('plain reply');
     });
 
     it('converts a tool-role message with tool_call_id into a user-role tool_result block', async () => {
@@ -384,6 +790,72 @@ describe('ClaudeProvider.complete request shape', () => {
         });
     });
 
+    it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5'])(
+        'omits temperature for %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    temperature: 0.5,
+                }),
+            );
+
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect('temperature' in args).toBe(false);
+        },
+    );
+
+    it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5'])(
+        'uses adaptive thinking and output effort on %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning_effort: 'high',
+                } as never),
+            );
+
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect(args.thinking).toEqual({
+                type: 'adaptive',
+                display: 'summarized',
+            });
+            expect(args.output_config).toEqual({ effort: 'high' });
+            expect('temperature' in args).toBe(false);
+        },
+    );
+
+    it('forwards reasoning_effort as adaptive thinking + output_config effort on opus 5.5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus-5-5',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'low',
+                temperature: 0.5,
+            } as never),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        // Opus 5.5 rejects disabled thinking, `budget_tokens`, and sampling params.
+        expect(args.thinking).toEqual({
+            type: 'adaptive',
+            display: 'summarized',
+        });
+        expect(args.output_config).toEqual({ effort: 'low' });
+        expect('temperature' in args).toBe(false);
+    });
+
     it('builds an enabled thinking budget from reasoning_effort on older Sonnet models', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -437,6 +909,38 @@ describe('ClaudeProvider model resolution', () => {
         );
     });
 
+    it('routes the bare claude-fable alias to fable 5.1 rather than fable 5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-fable',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+            'claude-fable-5-1',
+        );
+    });
+
+    it('routes the bare claude-opus alias to opus 5.5 rather than opus 5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+            'claude-opus-5-5',
+        );
+    });
+
     it('falls back to the default model when given an unknown id', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
@@ -457,6 +961,60 @@ describe('ClaudeProvider model resolution', () => {
 // ── Non-stream completion ───────────────────────────────────────────
 
 describe('ClaudeProvider.complete non-stream output', () => {
+    it.each([
+        ['claude-opus-5-5', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
+        [
+            'anthropic/claude-opus-5-5',
+            'claude-opus-5-5',
+            400,
+            500,
+            800,
+            20,
+            2000,
+        ],
+        ['claude-opus', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
+        ['claude-opus-latest', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
+        ['claude-opus-5-latest', 'claude-opus-5', 500, 625, 1000, 50, 2500],
+        ['claude-sonnet-5', 'claude-sonnet-5', 200, 250, 400, 20, 1000],
+    ])(
+        'resolves and meters %s at its current rates',
+        async (model, canonicalId, input, write5m, write1h, cached, output) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'ok' }],
+                usage: {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cache_creation_input_tokens: 30,
+                    cache_creation: {
+                        ephemeral_5m_input_tokens: 10,
+                        ephemeral_1h_input_tokens: 20,
+                    },
+                    cache_read_input_tokens: 1000,
+                },
+            });
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+            expect(await provider.list()).toContain(model);
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect(args.model).toBe(canonicalId);
+            expect(args.max_tokens).toBe(128_000);
+            const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe(`claude:${canonicalId}`);
+            expect(overrides).toMatchObject({
+                input_tokens: 100 * Number(input),
+                output_tokens: 50 * Number(output),
+                ephemeral_5m_input_tokens: 10 * Number(write5m),
+                ephemeral_1h_input_tokens: 20 * Number(write1h),
+                cache_read_input_tokens: 1000 * Number(cached),
+            });
+        },
+    );
+
     it('returns the message verbatim and meters input/output/cache token costs', async () => {
         const { provider } = makeProvider();
         const msg = {
@@ -500,6 +1058,46 @@ describe('ClaudeProvider.complete non-stream output', () => {
         );
         expect(overrides.cache_read_input_tokens).toBe(
             10 * Number(haiku.costs.cache_read_input_tokens),
+        );
+    });
+
+    it('meters fable 5.1 cache reads at its reduced rate, not the 0.1x used elsewhere', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'ok' }],
+            usage: {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_input_tokens: 1000,
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-fable-5-1',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const fable51 = CLAUDE_MODELS.find((m) => m.id === 'claude-fable-5-1')!;
+        const fable5 = CLAUDE_MODELS.find((m) => m.id === 'claude-fable-5')!;
+        // Same per-token price as Fable 5 except cache reads at a quarter of the rate.
+        expect(fable51.costs.input_tokens).toBe(fable5.costs.input_tokens);
+        expect(fable51.costs.output_tokens).toBe(fable5.costs.output_tokens);
+        expect(Number(fable51.costs.cache_read_input_tokens)).toBeCloseTo(
+            Number(fable5.costs.cache_read_input_tokens) / 4,
+        );
+
+        const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+        expect(prefix).toBe('claude:claude-fable-5-1');
+        expect(overrides.input_tokens).toBe(
+            100 * Number(fable51.costs.input_tokens),
+        );
+        expect(overrides.output_tokens).toBe(
+            50 * Number(fable51.costs.output_tokens),
+        );
+        expect(overrides.cache_read_input_tokens).toBeCloseTo(
+            1000 * Number(fable51.costs.cache_read_input_tokens),
         );
     });
 
@@ -553,6 +1151,111 @@ describe('ClaudeProvider.complete non-stream output', () => {
 // ── Streaming deltas ────────────────────────────────────────────────
 
 describe('ClaudeProvider.complete streaming', () => {
+    it('rejects from complete() when the upstream refuses the stream, so the driver can fall back', async () => {
+        const { provider } = makeProvider();
+        const refused = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([]),
+            withResponse: () => Promise.reject(refused),
+        });
+
+        // Thrown here, before a populator exists — a populator that failed
+        // later would already have a 200 on the wire.
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [{ role: 'user', content: 'say hi' }],
+                    stream: true,
+                }),
+            ),
+        ).rejects.toBe(refused);
+    });
+
+    it('deletes the uploaded files and hands back the puter_path when the stream is refused', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_stream_1' });
+        const refused = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([]),
+            withResponse: () => Promise.reject(refused),
+        });
+
+        const part: Record<string, unknown> = { puter_path: path };
+        await expect(
+            withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [{ role: 'user', content: [part] }],
+                        stream: true,
+                    }),
+                actor,
+            ),
+        ).rejects.toBe(refused);
+
+        expect(filesUploadMock).toHaveBeenCalledTimes(1);
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_stream_1', {
+            betas: [FILES_API_BETA],
+        });
+        // The driver reuses this object on the fallback route, which has no
+        // way to resolve a file we just deleted from our own account.
+        expect(part).toEqual({ puter_path: path });
+    });
+
+    it('surfaces a failure the event iterator swallowed instead of ending the stream clean', async () => {
+        const { provider } = makeProvider();
+        const dropped = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        // The SDK hands an error only to a reader already waiting on it; one
+        // that lands earlier leaves the iterator reporting a plain end of
+        // stream, so `errored` is the only thing left to go on.
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([
+                { type: 'message_start' },
+                {
+                    type: 'content_block_start',
+                    content_block: { type: 'text' },
+                },
+                {
+                    type: 'content_block_delta',
+                    delta: { type: 'text_delta', text: 'half an ans' },
+                },
+            ]),
+            errored: true,
+            finalMessage: () => Promise.reject(dropped),
+        });
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'say hi' }],
+                stream: true,
+            }),
+        );
+
+        const harness = makeCapturingChatStream();
+        await expect(
+            (
+                result as {
+                    init_chat_stream: (p: {
+                        chatStream: unknown;
+                    }) => Promise<void>;
+                }
+            ).init_chat_stream({ chatStream: harness.chatStream }),
+        ).rejects.toBe(dropped);
+
+        // A truncated response reported as a success would also have been
+        // billed for the tokens it did produce.
+        expect(recordSpy).not.toHaveBeenCalled();
+    });
+
     it('streams text_delta events as text and meters usage from message_delta + finalMessage', async () => {
         const { provider } = makeProvider();
         messagesStreamMock.mockReturnValueOnce(

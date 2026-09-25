@@ -1,6 +1,6 @@
 import * as utils from '../../lib/utils.js';
 import { parseCounterArgs } from './lib/args.js';
-import { assertKeySize } from './lib/validate.js';
+import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 
 /** @typedef {import('./types.js').KVIncrementPath} KVIncrementPath */
 /** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
@@ -33,6 +33,7 @@ import { assertKeySize } from './lib/validate.js';
  */
 export async function incr (keyOrOptions, amountOrMap, optConfig) {
     const options = parseCounterArgs(keyOrOptions, amountOrMap, optConfig);
+    assertKeyPresent(options.key);
     assertKeySize(options.key);
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'incr', argNames: ['key'], puter: this.puter })(options);
 }

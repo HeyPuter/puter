@@ -24,70 +24,39 @@ import {
     DRIVER_NAME_KEY,
     DRIVER_NO_USER_SESSION_KEY,
     DRIVER_RATE_LIMIT_KEY,
+    DRIVER_REQUIRE_REPUTATION_KEY,
+    DRIVER_REQUIRE_SUBSCRIPTION_KEY,
     validateDriverConcurrent,
     validateDriverRateLimit,
+    validateDriverRequireReputation,
+    validateDriverRequireSubscription,
     type DriverConcurrentConfig,
     type DriverRateLimitConfig,
+    type DriverRequireReputationConfig,
+    type DriverRequireSubscriptionConfig,
 } from './meta';
 
-/** Options for the `@Driver` class decorator. */
+/**
+ * Options for the `@Driver` class decorator. Each policy takes `{ default?,
+ * methods? }`; a method covered by neither is ungated (rate limits fall through
+ * to the global driver default). See `DriverMeta` for semantics.
+ */
 export interface DriverOptions {
-    /**
-     * Unique name for this implementation within its interface. Defaults to the
-     * class name.
-     */
+    /** Unique within the interface. Defaults to the class name. */
     name?: string;
-    /** When true, this driver is the default for its interface. */
+    /** The default driver for its interface. */
     default?: boolean;
-    /**
-     * Rate-limit policy. Each driver method can declare its own limit / window
-     * / storage backend; methods not listed inherit `default`, and undeclared
-     * methods fall through to the global driver default (600/min in
-     * `checkDriverRateLimit`).
-     *
-     * ```ts
-     * @Driver('puter-kvstore', {
-     *     rateLimit: {
-     *         default: { limit: 600, window: 60_000 },
-     *         methods: {
-     *             list: { limit: 60,  window: 60_000, backend: 'kv' },
-     *             set:  { limit: 200, window: 60_000, backend: 'redis' },
-     *         },
-     *     },
-     * })
-     * ```
-     */
     rateLimit?: DriverRateLimitConfig;
-    /**
-     * Concurrent in-flight policy. Same envelope as `rateLimit` minus `window`.
-     * Adds `bySubscription` to scale the cap by subscription tier
-     * (`SubscriptionPolicy.id` from MeteringService).
-     *
-     * ```ts
-     * @Driver('puter-chat-completion', {
-     *     concurrent: {
-     *         default: { limit: 5, backend: 'redis' },
-     *         methods: {
-     *             complete: {
-     *                 limit: 5,
-     *                 bySubscription: { user_free: 1, unlimited: 50 },
-     *                 backend: 'redis',
-     *             },
-     *         },
-     *     },
-     * })
-     * ```
-     *
-     * Methods that don't appear in either `default` or `methods` are unbounded
-     * — matching today's behaviour where nothing is gated.
-     */
     concurrent?: DriverConcurrentConfig;
-    /**
-     * When true, `/drivers/call` rejects bare account-session ("root") tokens
-     * for this driver — callers need an app/worker token or a dashboard-minted
-     * API token. See `DriverMeta.noUserSession`.
-     */
+    /** Reject bare account-session tokens on `/drivers/call`. */
     noUserSession?: boolean;
+    /**
+     * `true` accepts any non-free plan; an array of `SubscriptionPolicy.id`s
+     * only those.
+     */
+    requireSubscription?: DriverRequireSubscriptionConfig;
+    /** Reputation tier names; thresholds come from `reputationGate.tiers`. */
+    requireReputation?: DriverRequireReputationConfig;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,6 +99,14 @@ export function Driver(interfaceName: string, opts: DriverOptions = {}) {
         opts.concurrent !== undefined
             ? validateDriverConcurrent(opts.concurrent, label)
             : undefined;
+    const requireSubscription =
+        opts.requireSubscription !== undefined
+            ? validateDriverRequireSubscription(opts.requireSubscription, label)
+            : undefined;
+    const requireReputation =
+        opts.requireReputation !== undefined
+            ? validateDriverRequireReputation(opts.requireReputation, label)
+            : undefined;
 
     return <T extends AnyCtor>(
         value: T,
@@ -141,6 +118,10 @@ export function Driver(interfaceName: string, opts: DriverOptions = {}) {
         proto[DRIVER_DEFAULT_KEY] = opts.default ?? false;
         if (rateLimit) proto[DRIVER_RATE_LIMIT_KEY] = rateLimit;
         if (concurrent) proto[DRIVER_CONCURRENT_KEY] = concurrent;
+        if (requireSubscription)
+            proto[DRIVER_REQUIRE_SUBSCRIPTION_KEY] = requireSubscription;
+        if (requireReputation)
+            proto[DRIVER_REQUIRE_REPUTATION_KEY] = requireReputation;
         if (opts.noUserSession) proto[DRIVER_NO_USER_SESSION_KEY] = true;
     };
 }

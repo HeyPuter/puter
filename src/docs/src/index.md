@@ -166,15 +166,15 @@ Puter.js is powered by [Puter](https://github.com/HeyPuter/puter), the open-sour
 
 <div class="example-content" data-section="ai" style="display:block;">
 
-#### Chat with GPT-5.4 nano
+#### Chat with GPT-5.6 Luna
 
 ```html;intro-chatgpt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        // Chat with GPT-5.4 nano
-        puter.ai.chat(`What is life?`, { model: "gpt-5.4-nano" }).then(puter.print);
+        // Chat with GPT-5.6 Luna
+        puter.ai.chat(`What is life?`, { model: "gpt-5.6-luna" }).then(puter.print);
     </script>
 </body>
 </html>
@@ -190,7 +190,7 @@ Puter.js is powered by [Puter](https://github.com/HeyPuter/puter), the open-sour
     <script>
         puter.ai
             .chat(`What do you see?`, `https://assets.puter.site/doge.jpeg`, {
-                model: "gpt-5.4-nano",
+                model: "gpt-5.6-luna",
             })
             .then(puter.print);
     </script>

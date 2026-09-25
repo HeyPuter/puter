@@ -17,7 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { assertImagePrompt } from '../../imageValidation.js';
 import Replicate from 'replicate';
+import { formatAspectRatio } from '../../imageDimensions.js';
+import {
+    parseDataUri,
+    resolveSingleInputImage,
+    toUrlOrDataUri,
+} from '../../inputImage.js';
 import sharp from 'sharp';
 import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
@@ -29,15 +36,77 @@ import {
     REPLICATE_IMAGE_GENERATION_MODELS,
     type ReplicateImageModel,
 } from './models.js';
+import {
+    buildCatalogInput,
+    catalogImageInputs,
+    catalogOutputMegapixels,
+    catalogCostComponents,
+} from './catalogRequest.js';
+import {
+    CONTENT_FILTER_PATTERN,
+    isUpstreamTimeoutError,
+    sanitizeUpstreamMessage,
+} from '../../../util/upstreamErrors.js';
 
 const DEFAULT_MODEL = 'black-forest-labs/flux-schnell';
 const DEFAULT_RATIO = { w: 1024, h: 1024 };
+
+const PREDICTION_WINDOW_MS = 10 * 60 * 1000;
+const CLEANUP_WINDOW_MS = 30_000;
+
+// Input images are caller-supplied URLs fetched before the credit gate can
+// price them, so the fan-out is bounded in count, concurrency, bytes and time.
+const MAX_INPUT_IMAGES = 10;
+const INPUT_MEASURE_CONCURRENCY = 4;
+const INPUT_MEASURE_MAX_BYTES = 30 * 1024 * 1024;
+const INPUT_MEASURE_TIMEOUT_MS = 30_000;
+
+const PREDICTION_FAILED_PREFIX = 'Prediction failed:';
+
+/** Buffer a response body, refusing to hold more than `maxBytes` of it. */
+async function readBounded(
+    response: Response,
+    maxBytes: number,
+): Promise<Buffer> {
+    const reader = response.body?.getReader();
+    if (!reader) return Buffer.alloc(0);
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+            await reader.cancel();
+            throw new HttpError(400, `Input image exceeds ${maxBytes} bytes`, {
+                legacyCode: 'bad_request',
+                code: 'input_too_large',
+            });
+        }
+        chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+}
+
+function hasUpstreamStatus(err: unknown): boolean {
+    const e = err as {
+        status?: unknown;
+        statusCode?: unknown;
+        response?: { status?: unknown };
+    };
+    return (
+        typeof e.status === 'number' ||
+        typeof e.statusCode === 'number' ||
+        typeof e.response?.status === 'number'
+    );
+}
 
 export class ReplicateImageGenerationProvider implements IImageProvider {
     static readonly #CORE_PARAMS: readonly string[] = [
         'prompt',
         'model',
         'ratio',
+        'imageSize',
         'quality',
         'provider',
         'test_mode',
@@ -53,12 +122,62 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         if (!config.apiKey) {
             throw new Error('Replicate image generation requires an API key');
         }
-        this.#client = new Replicate({ auth: config.apiKey });
+        // The SDK replays any thrown fetch error up to six times with the same
+        // init object, POSTs included. A create that timed out may already
+        // have started a billable prediction, so its failure is replayed to
+        // the retry loop instead of the request being sent again.
+        const failedCreates = new WeakMap<object, unknown>();
+        this.#client = new Replicate({
+            auth: config.apiKey,
+            fetch: async (url, options) => {
+                const headers = new Headers(options?.headers);
+                const creating =
+                    options?.method === 'POST' &&
+                    String(url).endsWith('/predictions');
+                if (creating && options && failedCreates.has(options)) {
+                    throw failedCreates.get(options);
+                }
+                if (creating)
+                    headers.set(
+                        'Cancel-After',
+                        `${PREDICTION_WINDOW_MS / 1000}s`,
+                    );
+                const timeout = AbortSignal.timeout(creating ? 90_000 : 30_000);
+                try {
+                    return await fetch(url, {
+                        ...options,
+                        headers,
+                        signal: options?.signal
+                            ? AbortSignal.any([options.signal, timeout])
+                            : timeout,
+                    });
+                } catch (error) {
+                    if (creating && options) failedCreates.set(options, error);
+                    throw error;
+                }
+            },
+        });
         this.#meteringService = meteringService;
     }
 
+    // Read at construction so the catalog is consulted per instance.
+    #unavailable = REPLICATE_IMAGE_GENERATION_MODELS.filter(
+        (model) => model.unavailableReason,
+    ).flatMap((model) =>
+        [model.id, model.puterId!, ...(model.aliases ?? [])].map(
+            (name) => [name, model.unavailableReason!] as const,
+        ),
+    );
+
+    readonly retiredModelAliases = this.#unavailable.map(([name]) => name);
+
+    readonly retiredModelReasons: Readonly<Record<string, string>> =
+        Object.fromEntries(this.#unavailable);
+
     models() {
-        return REPLICATE_IMAGE_GENERATION_MODELS;
+        return REPLICATE_IMAGE_GENERATION_MODELS.filter(
+            (model) => !model.unavailableReason,
+        );
     }
 
     getDefaultModel(): string {
@@ -75,11 +194,10 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             return 'https://puter-sample-data.puter.site/image_example.png';
         }
 
-        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
-            throw new HttpError(400, '`prompt` must be a non-empty string', {
-                legacyCode: 'bad_request',
-            });
-        }
+        assertImagePrompt(prompt);
+        const catalogInput = selectedModel.inputSchema
+            ? buildCatalogInput(selectedModel, params)
+            : undefined;
 
         const actor = Context.get('actor');
         if (!actor) {
@@ -87,6 +205,13 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                 legacyCode: 'unauthorized',
             });
         }
+
+        const signal = Context.get('abortSignal') as AbortSignal | undefined;
+        const aborted = () =>
+            new HttpError(400, 'Image generation request aborted', {
+                legacyCode: 'client_aborted',
+            });
+        if (signal?.aborted) throw aborted();
 
         const filtered = this.#filterAllowedParams(params, selectedModel);
         const aliased = this.#applyParamAliases(filtered, selectedModel);
@@ -118,67 +243,205 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         }
         let singleImage: string | undefined;
         if (selectedModel.singleImageInputKey) {
-            if (typeof params.input_image === 'string') {
-                singleImage = params.input_image;
-            } else {
+            singleImage = resolveSingleInputImage(params, 'Replicate');
+            if (!singleImage) {
                 const nativeVal = (params as Record<string, unknown>)[
                     selectedModel.singleImageInputKey
                 ];
                 if (typeof nativeVal === 'string') singleImage = nativeVal;
             }
         }
-        const allInputUrls = singleImage ? [singleImage] : inputImages;
-        const inputMp =
-            allInputUrls.length > 0
-                ? await this.#measureInputMegapixels(allInputUrls)
-                : 0;
-
-        const outputMp = this.#resolveOutputMegapixels(
-            params.output_megapixels as string | undefined,
-        );
-
-        const totalCostMicroCents = this.#estimateCost(
-            selectedModel,
-            outputMp,
-            goFast,
-            inputMp,
-            generationMode,
-        );
-        if (totalCostMicroCents <= 0) {
+        for (let index = 0; index < inputImages.length; index++) {
+            inputImages[index] = toUrlOrDataUri(
+                inputImages[index],
+                params.input_image_mime_type,
+            );
+        }
+        if (singleImage)
+            singleImage = toUrlOrDataUri(
+                singleImage,
+                params.input_image_mime_type,
+            );
+        const allInputUrls = catalogInput
+            ? catalogImageInputs(catalogInput)
+            : singleImage
+              ? [singleImage]
+              : inputImages;
+        if (allInputUrls.length > MAX_INPUT_IMAGES) {
             throw new HttpError(
                 400,
-                `Error calculating cost for Replicate model ${selectedModel.id}`,
-                { legacyCode: 'unknown_error' },
+                `Replicate accepts at most ${MAX_INPUT_IMAGES} input images`,
+                { legacyCode: 'bad_request' },
             );
         }
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
-            actor,
-            totalCostMicroCents,
-        );
-        if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
+
+        // A megapixel hint the model cannot take never reaches Replicate, so
+        // it must not inflate the estimate either.
+        const forwardsMegapixels =
+            selectedModel.allowed_params?.includes('output_megapixels') ?? true;
+        const outputMp = catalogInput
+            ? catalogOutputMegapixels(catalogInput)
+            : this.#resolveOutputMegapixels(
+                  forwardsMegapixels
+                      ? (params.output_megapixels as string | undefined)
+                      : undefined,
+              );
+
+        const assertCredits = async (inputMegapixels: number) => {
+            const totalCostMicroCents = catalogInput
+                ? catalogCostComponents(selectedModel, catalogInput, {
+                      inputMp: inputMegapixels,
+                      outputMp,
+                      seconds: 60,
+                  }).reduce((sum, component) => sum + component.costOverride, 0)
+                : this.#estimateCost(
+                      selectedModel,
+                      outputMp,
+                      goFast,
+                      inputMegapixels,
+                      generationMode,
+                  );
+            if (totalCostMicroCents <= 0) {
+                throw new HttpError(
+                    400,
+                    `Error calculating cost for Replicate model ${selectedModel.id}`,
+                    { legacyCode: 'unknown_error' },
+                );
+            }
+            const usageAllowed = await this.#meteringService.hasEnoughCredits(
+                actor,
+                totalCostMicroCents,
+            );
+            if (!usageAllowed) {
+                throw new HttpError(
+                    402,
+                    'Insufficient credits for image generation',
+                    {
+                        legacyCode: 'insufficient_funds',
+                    },
+                );
+            }
+        };
+        // Measuring input images fetches caller-supplied URLs, so the credit
+        // gate runs on the output-only estimate before any of that I/O and
+        // again once the input surcharge is known.
+        await assertCredits(0);
+        const inputMp =
+            allInputUrls.length > 0
+                ? await this.#measureInputMegapixels(
+                      allInputUrls,
+                      !catalogInput,
+                  )
+                : 0;
+        if (inputMp > 0) await assertCredits(inputMp);
+
+        const input =
+            catalogInput ??
+            this.#buildRequest(selectedModel, {
+                prompt,
+                ratio,
+                transformed,
+                inputImages,
+                singleImage,
+            });
+
+        const deadline = Date.now() + PREDICTION_WINDOW_MS;
+        const expired = () => Date.now() >= deadline;
+        const timeout = () =>
+            new HttpError(
+                504,
+                'Timed out waiting for Replicate image generation',
                 {
-                    legacyCode: 'insufficient_funds',
+                    legacyCode: 'upstream_timeout',
+                    fields: { provider: 'replicate' },
                 },
             );
+        let interrupted: unknown;
+        let output: unknown;
+        let predictionSeconds: number | undefined;
+        try {
+            // Keep the creation response so a disconnect cannot discard the ID needed to cancel.
+            let prediction = await this.#client.predictions.create({
+                ...(selectedModel.replicateVersion
+                    ? { version: selectedModel.replicateVersion }
+                    : {
+                          model: selectedModel.replicateId as `${string}/${string}`,
+                      }),
+                input,
+                wait: 60,
+            });
+            const pending = () =>
+                prediction.status === 'starting' ||
+                prediction.status === 'processing';
+            if (pending() && !signal?.aborted && !expired()) {
+                try {
+                    prediction = await this.#client.wait(
+                        prediction,
+                        { interval: 2000 },
+                        async (current) =>
+                            signal?.aborted ||
+                            expired() ||
+                            !['starting', 'processing'].includes(
+                                current.status,
+                            ),
+                    );
+                } catch (error) {
+                    // Only our own abort or deadline is an interruption worth
+                    // cancelling for. A poll failure or the SDK's "Prediction
+                    // failed" throw is the prediction's real outcome: it must
+                    // not cancel a healthy run or bill a stale one.
+                    if (!signal?.aborted && !expired()) throw error;
+                }
+            }
+            if (signal?.aborted) interrupted = aborted();
+            else if (expired()) interrupted = timeout();
+            if (interrupted && pending()) {
+                try {
+                    prediction = await this.#client.predictions.cancel(
+                        prediction.id,
+                    );
+                } catch {
+                    // Recheck briefly for a completed result; the upstream deadline bounds remaining work.
+                }
+                if (pending()) {
+                    const cleanupDeadline = Date.now() + CLEANUP_WINDOW_MS;
+                    prediction = await this.#client.wait(
+                        prediction,
+                        { interval: 2000 },
+                        async (current) =>
+                            Date.now() >= cleanupDeadline ||
+                            !['starting', 'processing'].includes(
+                                current.status,
+                            ),
+                    );
+                }
+            }
+            if (prediction.status !== 'succeeded' && interrupted) {
+                throw interrupted;
+            }
+            if (
+                prediction.status === 'failed' ||
+                prediction.status === 'canceled' ||
+                (prediction.status as string) === 'aborted'
+            ) {
+                if (signal?.aborted) throw aborted();
+                throw new Error(
+                    `Prediction failed: ${prediction.error || prediction.status}`,
+                );
+            }
+            output = prediction.output;
+            predictionSeconds = prediction.metrics?.predict_time;
+        } catch (err) {
+            if (signal?.aborted) throw aborted();
+            if (expired()) throw timeout();
+            throw this.#translatePredictionFailure(err);
         }
 
-        const input = this.#buildRequest(selectedModel, {
-            prompt,
-            ratio,
-            transformed,
-            inputImages,
-            singleImage,
-        });
-
-        const output = await this.#client.run(
-            selectedModel.replicateId as `${string}/${string}`,
-            { input },
-        );
-
-        const url = this.#extractUrl(output);
+        const selectedOutput =
+            selectedModel.outputIndex !== undefined && Array.isArray(output)
+                ? output[selectedModel.outputIndex]
+                : output;
+        const url = this.#extractUrl(selectedOutput);
         if (!url) {
             throw new HttpError(
                 400,
@@ -187,15 +450,46 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             );
         }
 
-        this.#recordUsage(
-            actor,
-            selectedModel,
-            outputMp,
-            goFast,
-            inputMp,
-            generationMode,
-        );
+        if (catalogInput) {
+            const seconds = predictionSeconds ?? 0;
+            if (
+                selectedModel.costs.second !== undefined &&
+                (!Number.isFinite(predictionSeconds) || seconds < 0)
+            ) {
+                throw new HttpError(
+                    502,
+                    'Replicate response did not include billable runtime',
+                    {
+                        legacyCode: 'upstream_failed',
+                    },
+                );
+            }
+            const measuredOutputMp = selectedModel.billingRates?.some(
+                (rate) => rate.costs.output_mp !== undefined,
+            )
+                ? await this.#measureMegapixels(url, false)
+                : outputMp;
+            this.#meteringService.batchIncrementUsages(
+                actor,
+                catalogCostComponents(selectedModel, catalogInput, {
+                    inputMp,
+                    outputMp: measuredOutputMp,
+                    seconds,
+                }).filter((component) => component.usageAmount > 0),
+            );
+        } else
+            this.#recordUsage(
+                actor,
+                selectedModel,
+                outputMp,
+                goFast,
+                inputMp,
+                generationMode,
+            );
 
+        if (signal?.aborted) throw aborted();
+        // A prediction that finished during deadline cleanup is paid for and
+        // usable, so the caller gets the image rather than a 504.
         return url;
     }
 
@@ -205,6 +499,55 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             (m) => m.id === model || m.aliases?.includes(model ?? ''),
         );
         return found ?? models.find((m) => m.id === DEFAULT_MODEL)!;
+    }
+
+    /**
+     * A prediction that ran and ended `failed` reaches us as a plain Error with
+     * no HTTP status, so the driver boundary cannot classify it and it would
+     * surface as an unhandled 500. Content-filter refusals are the caller's to
+     * act on; anything else is an upstream fault. Errors that do carry a status
+     * (the SDK's ApiError) pass through untouched so the boundary translator
+     * still sees it.
+     */
+    #translatePredictionFailure(err: unknown): unknown {
+        if (err instanceof HttpError) return err;
+        if (!(err instanceof Error)) return err;
+        const fields = { provider: 'replicate' };
+
+        if (!err.message.startsWith(PREDICTION_FAILED_PREFIX)) {
+            // Status-bearing SDK errors and timeouts are classified at the
+            // driver boundary; a bare transport failure while creating or
+            // polling has no status and would otherwise surface as a 500.
+            if (hasUpstreamStatus(err) || isUpstreamTimeoutError(err))
+                return err;
+            return new HttpError(
+                502,
+                'Lost contact with Replicate during image generation',
+                { legacyCode: 'upstream_failed', fields, cause: err },
+            );
+        }
+
+        const detail = sanitizeUpstreamMessage(
+            err.message.slice(PREDICTION_FAILED_PREFIX.length),
+        );
+
+        if (CONTENT_FILTER_PATTERN.test(detail)) {
+            return new HttpError(
+                400,
+                detail || 'Prompt or output was rejected by the content filter',
+                {
+                    legacyCode: 'bad_request',
+                    code: 'moderation_flagged',
+                    fields,
+                    cause: err,
+                },
+            );
+        }
+        return new HttpError(502, detail || 'Replicate prediction failed', {
+            legacyCode: 'upstream_failed',
+            fields,
+            cause: err,
+        });
     }
 
     /**
@@ -227,7 +570,7 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
 
         const input: Record<string, unknown> = {
             prompt,
-            aspect_ratio: this.#toAspectRatio(ratio),
+            aspect_ratio: formatAspectRatio(ratio)!,
         };
 
         const handled = new Set<string>(
@@ -272,6 +615,11 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
 
         const filtered: Record<string, unknown> = {};
         for (const key of Object.keys(params)) {
+            // `resolution` is the cross-provider tier option (xAI's '1k'/'2k').
+            // On Replicate it is only meaningful as a native key a model
+            // whitelists; admitting it as an alias target would send
+            // `resolution: '2k MP'` to flux-2-pro.
+            if (key === 'resolution' && !allowedSet.includes(key)) continue;
             if (
                 ReplicateImageGenerationProvider.#CORE_PARAMS.includes(key) ||
                 allowedSet.includes(key) ||
@@ -335,18 +683,9 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         const w = Number(ratio?.w);
         const h = Number(ratio?.h);
         if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-            return { w: Math.round(w), h: Math.round(h) };
+            return { w, h };
         }
         return { ...DEFAULT_RATIO };
-    }
-
-    #toAspectRatio(ratio: { w: number; h: number }): string {
-        const g = this.#gcd(ratio.w, ratio.h);
-        return `${ratio.w / g}:${ratio.h / g}`;
-    }
-
-    #gcd(a: number, b: number): number {
-        return b === 0 ? a : this.#gcd(b, a % b);
     }
 
     #resolveOutputMegapixels(userValue?: string): number {
@@ -357,24 +696,74 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         return 1;
     }
 
-    async #measureInputMegapixels(imageUrls: string[]): Promise<number> {
-        let totalMp = 0;
-        for (const url of imageUrls) {
-            try {
-                // User-supplied URLs: SSRF-guarded + (optionally) proxied.
-                const res = await secureFetch(url);
-                const buffer = Buffer.from(await res.arrayBuffer());
-                const meta = await sharp(buffer).metadata();
-                if (meta.width && meta.height) {
-                    totalMp += Math.ceil(
-                        (meta.width * meta.height) / 1_000_000,
-                    );
-                }
-            } catch {
-                totalMp += 1;
+    async #measureInputMegapixels(
+        imageUrls: string[],
+        roundUp = true,
+    ): Promise<number> {
+        const measurements: number[] = new Array(imageUrls.length).fill(0);
+        let next = 0;
+        const worker = async () => {
+            while (next < imageUrls.length) {
+                const index = next++;
+                measurements[index] = await this.#measureMegapixels(
+                    imageUrls[index],
+                    roundUp,
+                    true,
+                );
             }
+        };
+        await Promise.all(
+            Array.from(
+                {
+                    length: Math.min(
+                        INPUT_MEASURE_CONCURRENCY,
+                        imageUrls.length,
+                    ),
+                },
+                worker,
+            ),
+        );
+        return measurements.reduce(
+            (total, megapixels) => total + megapixels,
+            0,
+        );
+    }
+
+    /**
+     * Unreadable images fall back to a one-megapixel estimate. A caller's
+     * reference over the byte cap is refused instead: it would be forwarded
+     * upstream while billed as if it were small.
+     */
+    async #measureMegapixels(
+        url: string,
+        roundUp = true,
+        callerInput = false,
+    ): Promise<number> {
+        try {
+            const inlineImage = parseDataUri(url);
+            const buffer = inlineImage
+                ? Buffer.from(inlineImage.base64, 'base64')
+                : await readBounded(
+                      await secureFetch(url, {
+                          signal: AbortSignal.timeout(INPUT_MEASURE_TIMEOUT_MS),
+                      }),
+                      INPUT_MEASURE_MAX_BYTES,
+                  );
+            const meta = await sharp(buffer).metadata();
+            const megapixels =
+                meta.width && meta.height
+                    ? (meta.width * meta.height) / 1_000_000
+                    : 1;
+            return roundUp ? Math.ceil(megapixels) : megapixels;
+        } catch (error) {
+            if (
+                callerInput &&
+                error instanceof HttpError &&
+                error.code === 'input_too_large'
+            )
+                throw error;
+            return 1;
         }
-        return totalMp;
     }
 
     #resolveCosts(
@@ -490,13 +879,25 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
     }
 
     #extractUrl(output: unknown): string | undefined {
-        if (typeof output === 'string') return output;
+        if (typeof output === 'string')
+            return /^(https?:\/\/|data:image\/)/.test(output)
+                ? output
+                : undefined;
         if (Array.isArray(output)) {
-            const first = output[0];
-            if (typeof first === 'string') return first;
-            if (first && typeof first === 'object') return String(first);
+            for (const value of output) {
+                const url = this.#extractUrl(value);
+                if (url) return url;
+            }
         }
-        if (output && typeof output === 'object') return String(output);
+        if (output && typeof output === 'object') {
+            const object = output as Record<string, unknown>;
+            for (const key of ['image', 'url', 'output', 'images']) {
+                const url = this.#extractUrl(object[key]);
+                if (url) return url;
+            }
+            const value = String(output);
+            if (/^https?:\/\//.test(value)) return value;
+        }
         return undefined;
     }
 }

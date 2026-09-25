@@ -30,6 +30,7 @@ import type { Actor } from '../../core/actor.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import { MANAGE_PERM_PREFIX } from '../../services/permission/consts.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
@@ -176,7 +177,7 @@ export class SubdomainDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        await this.services.fs.checkFSAccess(entry, actor);
+        await this.#checkPublishAccess(entry, actor);
 
         // A name some other user's app still points at is not free either.
         // Deleting a hosted subdomain leaves the app row's `index_url` intact,
@@ -219,7 +220,7 @@ export class SubdomainDriver extends PuterDriver {
                 subdomain,
                 rootDirId,
                 associatedAppId: null,
-                appOwner: actor.app?.id ?? null,
+                appOwner: actor.effectiveApp?.id ?? null,
             });
         } catch (err) {
             if (!isUniqueViolation(err)) throw err;
@@ -284,7 +285,7 @@ export class SubdomainDriver extends PuterDriver {
             (await this.#hasPermission(actor, 'read-all-subdomains'));
 
         // App actors only see subdomains they own; read-all bypasses scoping.
-        const appOwner = !widenToAll && actor.app ? actor.app.id : undefined;
+        const appOwner = widenToAll ? undefined : actor.effectiveApp?.id;
         // Worker deployments live in the same table but aren't sites —
         // they're listed through the workers driver instead.
         const listOpts = {
@@ -367,7 +368,7 @@ export class SubdomainDriver extends PuterDriver {
                 });
             }
             if (rootDirId !== (row.root_dir_id ?? null)) {
-                await this.services.fs.checkFSAccess(entry, actor);
+                await this.#checkPublishAccess(entry, actor);
             }
             patch.root_dir_id = rootDirId;
         }
@@ -389,7 +390,10 @@ export class SubdomainDriver extends PuterDriver {
         try {
             this.clients.event.emit(
                 'subdomain.update',
-                { subdomain: row.subdomain as string },
+                {
+                    subdomain: row.subdomain as string,
+                    uid: String(row.uuid),
+                },
                 {},
             );
         } catch {
@@ -434,7 +438,10 @@ export class SubdomainDriver extends PuterDriver {
         try {
             this.clients.event.emit(
                 'subdomain.delete',
-                { subdomain: row.subdomain as string },
+                {
+                    subdomain: row.subdomain as string,
+                    uid: String(row.uuid),
+                },
                 {},
             );
         } catch {
@@ -550,9 +557,7 @@ export class SubdomainDriver extends PuterDriver {
      * of its branches; this is the same rule, written as nesting.
      *
      * The inner check is the predicate `select` applies in SQL: an app sees
-     * what it created, not everything its user owns. Read `effectiveApp`, not
-     * `app` — an app-minted access token carries no `app` of its own and would
-     * otherwise slip past as though no app were involved.
+     * what it created, not everything its user owns.
      */
     async #checkReadAccess(
         row: Record<string, unknown>,
@@ -568,15 +573,49 @@ export class SubdomainDriver extends PuterDriver {
         throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
+    /**
+     * Gate on pointing a subdomain at a directory. Hosting serves everything
+     * under the root dir with the ACL bypassed, so publishing makes that
+     * subtree world-readable — for good, and including whatever is written
+     * there later. That is the owner's call to make.
+     *
+     * `write` is not it. A shared folder's writer would be exposing the owner's
+     * tree, the row belongs to the writer's account, and nothing the owner can
+     * list would show it. `manage` — "Can edit & share" — is the grant that
+     * delegates the decision.
+     */
+    async #checkPublishAccess(entry: FSEntry, actor: Actor): Promise<void> {
+        // First, because this is the check that masks a directory the caller
+        // cannot see at all as a 404.
+        await this.services.fs.checkFSAccess(entry, actor);
+        if (entry.userId === actor.user?.id) return;
+        try {
+            await this.services.fs.checkFSAccess(
+                entry,
+                actor,
+                MANAGE_PERM_PREFIX,
+            );
+        } catch {
+            // Reached only with access to the directory, so its existence is
+            // not news and there is nothing to mask.
+            throw new HttpError(
+                403,
+                'Publishing this directory is up to whoever owns it',
+                { legacyCode: 'access_denied' },
+            );
+        }
+    }
+
     async #checkWriteAccess(
         row: Record<string, unknown>,
         actor: Actor,
     ): Promise<void> {
         // App actor matching app_owner
+        const app = actor.effectiveApp;
         let hasAccess = false;
-        if (!actor.app?.id) {
+        if (!app?.id) {
             hasAccess = actor.user?.id === row.user_id;
-        } else if (actor.app.id === row.app_owner) {
+        } else if (app.id === row.app_owner) {
             hasAccess = actor.user?.id === row.user_id;
         }
         // System-wide write

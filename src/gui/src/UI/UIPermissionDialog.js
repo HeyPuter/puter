@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { fsCreateKindFor } from '../helpers/fsCreateKind.js';
+
 // Keeps a second request for the same (entity, permission) from stacking a
 // duplicate dialog; both callers await the same user decision.
 const pending_dialogs = new Map();
@@ -55,6 +57,9 @@ const LOOKUP_TIMEOUT_MS = 10000;
  * @param {string} [options.app_name] - Registered name of the requesting app;
  *   used for display, never as the grant target.
  * @param {string} [options.origin] - Origin of the requesting site (popup flow).
+ * @param {boolean|'dir'|'file'} [options.create] - Create the fs path if it
+ *   does not exist, after the user approves. Defaults to `true`; `false` opts
+ *   out. Forwarded to the grant only.
  * @returns {Promise<boolean>} `true` only if the permission was granted.
  */
 async function UIPermissionDialog (options) {
@@ -70,8 +75,13 @@ async function UIPermissionDialog (options) {
         return false;
     }
     // Sorted so two requests for the same set share one in-flight prompt
-    // regardless of the order the caller listed them in.
-    options = { ...options, permissions: [...permissions].sort() };
+    // regardless of the order the caller listed them in. `create` is resolved
+    // here so the pending key, the dialog body and the grant all see one value.
+    options = {
+        ...options,
+        permissions: [...permissions].sort(),
+        create: options.create ?? true,
+    };
 
     // Never prompt the user on behalf of a requester the grant can't name.
     // Only `app_uid` and `origin` are sent to /auth/grant-user-app, so an
@@ -96,7 +106,7 @@ async function UIPermissionDialog (options) {
     // `||`, not `??`: the gate above treats an empty uid as absent, so the key
     // has to fall through to the origin too — otherwise two different origins
     // arriving with a blank uid would share one decision.
-    const pending_key = `${options.app_uid || options.origin || ''}\n${options.permissions.join('\n')}`;
+    const pending_key = `${options.app_uid || options.origin || ''}\n${options.permissions.join('\n')}\n${options.create ?? ''}`;
     if ( pending_dialogs.has(pending_key) ) {
         return pending_dialogs.get(pending_key);
     }
@@ -274,6 +284,9 @@ async function show_permission_dialog (options) {
                         // can't survive a rejected scope — and the
                         // uncertain-commit handling below stays single-flight.
                         permissions: options.permissions,
+                        // Always sent, so an explicit `false` reaches the
+                        // server instead of falling back to its default.
+                        create: options.create,
                     }),
                     method: 'POST',
                     ...(controller ? { signal: controller.signal } : {}),
@@ -545,6 +558,9 @@ function permission_icon_svg (icon) {
     return icons[icon] ?? icons.shield;
 }
 
+/** Access modes an `fs:` permission can ask for; anything else is not shown. */
+const FS_ACCESS_MODES = ['see', 'list', 'read', 'write'];
+
 /**
  * Generates a user-friendly description of a permission string.
  *
@@ -561,6 +577,11 @@ async function get_permission_description (permission, options = {}) {
         const [resource_type, resource_id, action, interface_name = null] = parts;
 
         if ( resource_type === 'fs' ) {
+            // No mode means no verb to put in front of the user, and a
+            // modeless `fs:` grant is one the backend refuses anyway.
+            if ( ! FS_ACCESS_MODES.includes(action) ) {
+                return null;
+            }
             // Check for standard folders using whoami().directories
             const standard_folder_description = await get_standard_folder_description(resource_id, action);
             if ( standard_folder_description ) {
@@ -583,6 +604,23 @@ async function get_permission_description (permission, options = {}) {
                     icon: fsentry.is_dir ? 'folder' : 'file',
                 };
             } catch (e) {
+                // The path doesn't exist, but `create` will make it on Allow.
+                // Named from the permission string itself, since there is
+                // nothing to stat yet.
+                if ( options.create ) {
+                    const slash = resource_id.lastIndexOf('/');
+                    const name = slash >= 0 ? resource_id.slice(slash + 1) : resource_id;
+                    const dirpath = slash > 0 ? resource_id.slice(0, slash) : '/';
+                    // An explicit `'dir'`/`'file'` wins; `create: true` falls
+                    // back to the same basename heuristic the backend uses.
+                    const kind = options.create === 'dir' || options.create === 'file'
+                        ? options.create
+                        : fsCreateKindFor(name);
+                    return {
+                        html: i18n(kind === 'dir' ? 'perm_fs_create_dir' : 'perm_fs_create_file', { name, path: dirpath, access: action }),
+                        icon: kind === 'dir' ? 'folder' : 'file',
+                    };
+                }
                 // Can't stat, use resource_id directly
                 return {
                     html: i18n('perm_fs_resource_access', {
@@ -646,6 +684,14 @@ async function get_permission_description (permission, options = {}) {
         return await get_app_data_description(parts, options);
     }
 
+    if ( parts[0] === 'manage' && parts[1] === 'kv-share' ) {
+        return await get_kv_share_description(parts, options);
+    }
+
+    if ( parts[0] === 'events' && parts[1] === 'background' ) {
+        return { html: i18n('perm_events_background'), icon: 'zap' };
+    }
+
     if ( parts[0] === 'app-root-dir' ) {
         // Format: app-root-dir:<app_uid>:<read|write>
         if ( parts[2] === 'read' ) {
@@ -703,6 +749,36 @@ async function get_app_by_uid (uid) {
 }
 
 /**
+ * The uid of the app making the request, for the describers that compare it
+ * against a uid the permission itself names.
+ *
+ * The in-GUI path knows the uid outright (IPC.js passes it); the popup and
+ * iframe flows know the requester only by origin, so it is resolved here. It is
+ * resolved for the description alone and never sent to /auth/grant-user-app,
+ * which keeps receiving the origin and re-resolving it server-side: an origin
+ * with no app row of its own resolves to a synthetic `app-<uuidv5(origin)>`,
+ * and the grant endpoint reads its `app_uid` as uid-or-name, so a forwarded
+ * synthetic uid would hand the grant to whoever registered an app under that
+ * literal name.
+ *
+ * Null when there is nothing to resolve or the lookup fails —
+ * `getAppUIDFromOrigin` reports failure by resolving to a null or undefined uid
+ * rather than throwing (a refused origin comes back as an error body with no
+ * uid), and throws only when the call itself cannot be made.
+ */
+async function resolve_requesting_app_uid (options) {
+    if ( options.app_uid ) return options.app_uid;
+    if ( ! options.origin ) return null;
+    try {
+        const uid = await window.getAppUIDFromOrigin(options.origin);
+        return uid ?? null;
+    } catch (e) {
+        console.error('Failed to resolve requesting app', options.origin, e);
+        return null;
+    }
+}
+
+/**
  * Describes `app-data:<uid>[:<store>[:<op>]]` — one app using another's data.
  *
  * Returns null (which denies without prompting) when there is nothing to ask:
@@ -715,7 +791,12 @@ export async function get_app_data_description (parts, options) {
     if ( ! target_uid ) return null;
 
     // An app already reaches its own data; approving that would mean nothing.
-    if ( options.app_uid && target_uid === options.app_uid ) return null;
+    // A requester that will not resolve is not fatal here, unlike in the
+    // delegation describer below: this check only suppresses a prompt that
+    // would mean nothing, and denying on a failed lookup would refuse a
+    // cross-app request that is perfectly good.
+    const requester_app_uid = await resolve_requesting_app_uid(options);
+    if ( requester_app_uid && target_uid === requester_app_uid ) return null;
 
     const app = await get_app_by_uid(target_uid);
     if ( ! app ) return null;
@@ -751,6 +832,42 @@ export async function get_app_data_description (parts, options) {
     return {
         html: i18n(`perm_app_data_${verb}`, { subject }),
         icon: store === 'fs' ? 'folder' : 'shield',
+    };
+}
+
+/**
+ * Describes `manage:kv-share:<owner>:<app>:<key segments>` — the app handing a
+ * region of the data it keeps for this user to other people it picks.
+ *
+ * Returns null (which denies without prompting) for anything this copy cannot
+ * honestly bound: another user's data, a requester this copy cannot name, a
+ * namespace that is not the requester's own, or a request naming no region —
+ * that last one is the whole of the app's data, which is a different decision
+ * and not one a prompt can put in a line.
+ */
+export async function get_kv_share_description (parts, options) {
+    const [, , owner_uuid, namespace_app_uid, ...segments] = parts;
+    if ( ! owner_uuid || ! namespace_app_uid || segments.length === 0 ) return null;
+
+    // An app reaches its own namespace and no other, so a request naming
+    // another one describes access it could not use. Checking that at all
+    // needs the requester named, so an origin that will not resolve is refused
+    // here rather than prompted for.
+    const requester_app_uid = await resolve_requesting_app_uid(options);
+    if ( ! requester_app_uid || namespace_app_uid !== requester_app_uid ) return null;
+
+    const whoami = await puter.auth.whoami();
+    if ( whoami.uuid !== owner_uuid ) return null;
+
+    const app = await get_app_by_uid(namespace_app_uid);
+    if ( ! app ) return null;
+
+    return {
+        html: i18n('perm_kv_share_manage', {
+            app: app.title || app.name || options.app_name,
+            region: `${segments.join(':')}:`,
+        }),
+        icon: 'shield',
     };
 }
 

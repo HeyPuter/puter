@@ -20,12 +20,10 @@
 /**
  * Offline unit tests for GeminiImageProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs GeminiImageProvider directly against the
- * live wired `MeteringService` so the recording side runs end-to-end.
- * The Google GenAI SDK is mocked at the module boundary — that's the
- * real network egress point. Both the `generateContent` (Flash) and
- * `generateImages` (Imagen) code paths are covered.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs GeminiImageProvider directly against the live wired
+ * `MeteringService` so the recording side runs end-to-end. The Google GenAI SDK
+ * is mocked at the module boundary — that's the real network egress point.
  */
 
 import {
@@ -49,10 +47,9 @@ import { GeminiImageProvider } from './GeminiImageProvider.js';
 
 // ── Google GenAI SDK mock ───────────────────────────────────────────
 
-const { generateContentMock, generateImagesMock, googleAICtor } = vi.hoisted(
+const { generateContentMock, googleAICtor } = vi.hoisted(
     () => ({
         generateContentMock: vi.fn(),
-        generateImagesMock: vi.fn(),
         googleAICtor: vi.fn(),
     }),
 );
@@ -65,7 +62,6 @@ vi.mock('@google/genai', () => {
         googleAICtor(opts);
         this.models = {
             generateContent: generateContentMock,
-            generateImages: generateImagesMock,
         };
     });
     return { GoogleGenAI };
@@ -103,7 +99,6 @@ const makeProvider = () =>
 
 beforeEach(() => {
     generateContentMock.mockReset();
-    generateImagesMock.mockReset();
     toBase64DataUriMock.mockReset();
     googleAICtor.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
@@ -168,7 +163,6 @@ describe('GeminiImageProvider.generate test_mode', () => {
         );
         expect(hasCreditsSpy).not.toHaveBeenCalled();
         expect(generateContentMock).not.toHaveBeenCalled();
-        expect(generateImagesMock).not.toHaveBeenCalled();
     });
 });
 
@@ -202,6 +196,90 @@ describe('GeminiImageProvider.generate argument validation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(generateContentMock).not.toHaveBeenCalled();
     });
+
+    it.each([
+        ['gemini-3-pro-image', 'high'],
+        ['gemini-3-pro-image', ' 8K '],
+        ['gemini-3.1-flash-lite-image', '2K'],
+    ])(
+        'rejects an unsupported quality tier %s/%j before pricing',
+        async (model, quality) => {
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({ model, prompt: 'hi', quality }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                message: expect.stringContaining('Unsupported quality tier'),
+            });
+            expect(hasCreditsSpy).not.toHaveBeenCalled();
+            expect(generateContentMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('resolves quality case-insensitively to the catalog tier', async () => {
+        generateContentMock.mockResolvedValueOnce({
+            candidates: [
+                {
+                    content: {
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: 'image/png',
+                                    data: 'BASE64IMG',
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+            usageMetadata: { promptTokenCount: 12 },
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'gemini-3-pro-image',
+                prompt: 'hi',
+                quality: ' 2k ',
+            }),
+        );
+        expect(generateContentMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                config: expect.objectContaining({
+                    imageConfig: expect.objectContaining({ imageSize: '2K' }),
+                }),
+            }),
+        );
+    });
+
+    it('ignores quality on a model without tiers', async () => {
+        generateContentMock.mockResolvedValueOnce({
+            candidates: [
+                {
+                    content: {
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: 'image/png',
+                                    data: 'BASE64IMG',
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+            usageMetadata: { promptTokenCount: 12 },
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'gemini-2.5-flash-image',
+                prompt: 'hi',
+                quality: 'high',
+            }),
+        );
+        const config = generateContentMock.mock.calls[0][0].config;
+        expect(config.imageConfig).not.toHaveProperty('imageSize');
+    });
 });
 
 // ── generateContent (Flash) path ────────────────────────────────────
@@ -232,6 +310,30 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         },
     };
 
+    it.each(['gemini-3-pro-image-preview', 'gemini-3.1-flash-image-preview'])(
+        'routes %s to its stable endpoint and accepts equivalent pixel ratios',
+        async (model) => {
+            generateContentMock.mockResolvedValueOnce(inlineImageResponse);
+            await withTestActor(() =>
+                makeProvider().generate({
+                    model,
+                    prompt: 'a landscape',
+                    ratio: { w: 1600, h: 900 },
+                }),
+            );
+            expect(generateContentMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    model: model.replace('-preview', ''),
+                    config: expect.objectContaining({
+                        imageConfig: expect.objectContaining({
+                            aspectRatio: '16:9',
+                        }),
+                    }),
+                }),
+            );
+        },
+    );
+
     it('forwards prompt + aspectRatio config and routes to generateContent', async () => {
         const provider = makeProvider();
         generateContentMock.mockResolvedValueOnce(inlineImageResponse);
@@ -249,10 +351,9 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         expect(sent.contents[0]).toEqual({ text: 'a tiny red dot' });
         expect(sent.config.responseModalities).toEqual(['TEXT', 'IMAGE']);
         expect(sent.config.imageConfig.aspectRatio).toBe('16:9');
-        expect(generateImagesMock).not.toHaveBeenCalled();
     });
 
-    it('falls back to the first allowedRatio when an invalid ratio is supplied', async () => {
+    it('snaps an unlisted ratio to the nearest allowed aspect', async () => {
         const provider = makeProvider();
         generateContentMock.mockResolvedValueOnce(inlineImageResponse);
 
@@ -374,84 +475,46 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
     });
 });
 
-// ── generateImages (Imagen) path ────────────────────────────────────
-
-describe('GeminiImageProvider.generate Imagen path (generateImages)', () => {
-    const imagenResponse = {
-        generatedImages: [
-            { image: { mimeType: 'image/png', imageBytes: 'BASE64IMAGEN' } },
+it('maps a nearby aspect hint to the closest Gemini aspect', async () => {
+    generateContentMock.mockResolvedValueOnce({
+        candidates: [
+            {
+                content: {
+                    parts: [
+                        { inlineData: { mimeType: 'image/png', data: 'AAAA' } },
+                    ],
+                },
+            },
         ],
-    };
-
-    it('routes generateImages-typed models to the Imagen API and returns a base64 data URL', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce(imagenResponse);
-
-        const result = await withTestActor(() =>
-            provider.generate({
-                // imagen-4.0-fast has apiType='generateImages'.
-                model: 'imagen-4.0-fast-generate-001',
-                prompt: 'a cat',
-                ratio: { w: 1, h: 1 },
-            }),
-        );
-
-        expect(generateContentMock).not.toHaveBeenCalled();
-        expect(generateImagesMock).toHaveBeenCalledTimes(1);
-        const sent = generateImagesMock.mock.calls[0]![0];
-        expect(sent.model).toBe('imagen-4.0-fast-generate-001');
-        expect(sent.config.aspectRatio).toBe('1:1');
-        expect(sent.config.numberOfImages).toBe(1);
-
-        expect(result).toBe('data:image/png;base64,BASE64IMAGEN');
     });
+    await withTestActor(() =>
+        makeProvider().generate({
+            prompt: 'hi',
+            model: 'gemini-2.5-flash-image',
+            ratio: { w: 17, h: 10 },
+        }),
+    );
+    expect(
+        generateContentMock.mock.calls[0][0].config.imageConfig.aspectRatio,
+    ).toBe('16:9');
+});
 
-    it('meters one usage at the per-image cents rate × 1e6', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce(imagenResponse);
-
-        await withTestActor(() =>
-            provider.generate({
-                model: 'imagen-4.0-fast-generate-001',
-                prompt: 'a cat',
-            }),
-        );
-
-        // imagen-4.0-fast: 2 cents/image → 2_000_000 microcents.
-        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
-        const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
-        expect(usageType).toBe('gemini:imagen-4.0-fast-generate-001');
-        expect(count).toBe(1);
-        expect(cost).toBe(2 * 1_000_000);
-    });
-
-    it('throws 400 when the Imagen response carries no image bytes', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce({ generatedImages: [] });
-
-        await expect(
-            withTestActor(() =>
-                provider.generate({
-                    model: 'imagen-4.0-fast-generate-001',
-                    prompt: 'hi',
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('throws 400 when the Imagen response was filtered for safety', async () => {
-        const provider = makeProvider();
-        generateImagesMock.mockResolvedValueOnce({
-            generatedImages: [{ raiFilteredReason: 'unsafe content' }],
+describe('Gemini image standard pricing', () => {
+    it('meters Flash Image 3.1 input and text at standard rather than batch rates', async () => {
+        generateContentMock.mockResolvedValueOnce({
+            candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA' } }] } }],
+            usageMetadata: {
+                promptTokenCount: 100,
+                candidatesTokenCount: 1200,
+                candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1120 }, { modality: 'TEXT', tokenCount: 80 }],
+                thoughtsTokenCount: 20,
+            },
         });
-
-        await expect(
-            withTestActor(() =>
-                provider.generate({
-                    model: 'imagen-4.0-fast-generate-001',
-                    prompt: 'hi',
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+        await withTestActor(() => makeProvider().generate({ model: 'gemini-3.1-flash-image', prompt: 'A cup' }));
+        expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(expect.anything(), expect.arrayContaining([
+            expect.objectContaining({ usageType: 'gemini:gemini-3.1-flash-image:input', costOverride: 5000 }),
+            expect.objectContaining({ usageType: 'gemini:gemini-3.1-flash-image:output:text', costOverride: 30000 }),
+            expect.objectContaining({ usageType: 'gemini:gemini-3.1-flash-image:output:image', costOverride: 6720000 }),
+        ]));
     });
 });

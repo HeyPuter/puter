@@ -1,0 +1,1247 @@
+/**
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import { subscriptionSatisfies } from '../metering/enforcement.js';
+import { REGISTERED_USER_FREE } from '../../data/subPolicies/registeredUserFreePolicy.js';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import { PuterServer } from '../../server.ts';
+import { setupTestServer } from '../../testUtil.ts';
+
+describe('TeamService', () => {
+    let server: PuterServer;
+    let service: PuterServer['services']['team'];
+    let owner: { id: number };
+    let ownerUsername: string;
+    let ownerUuid: string;
+
+    const makeUser = async (): Promise<{ id: number; username: string }> => {
+        const username = `svc_${Math.random().toString(36).slice(2, 10)}`;
+        const created = (await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+        })) as unknown as { id: number };
+        return { id: created.id, username };
+    };
+
+    const freeHandle = () => `ws-${Math.random().toString(36).slice(2, 10)}`;
+
+    /** A team with the owner admitted and one provisioned member. */
+    const makeTeam = async () => {
+        const team = await service.createTeam(owner.id, {
+            name: 'Acme',
+            handle: freeHandle(),
+        });
+        const member = await makeUser();
+        await server.stores.team.addMember(team.uid, member.id, {
+            orgOwned: true,
+        });
+        return { team, member };
+    };
+
+    const suspensionOf = async (userId: number) => {
+        const [row] = (await server.clients.db.read(
+            'SELECT `suspended`, `suspended_at`, `suspended_reason` FROM `user` WHERE `id` = ?',
+            [userId],
+        )) as {
+            suspended: number | null;
+            suspended_at: number | null;
+            suspended_reason: string | null;
+        }[];
+        return row;
+    };
+
+    beforeAll(async () => {
+        // The policy and resolver are gated on the same flag as the routes.
+        // The cap has its own suite; these tests need many teams.
+        server = await setupTestServer({
+            teams_enabled: true,
+            max_teams_per_user: 100,
+            max_seats_per_team: 100,
+        } as never);
+        service = server.services.team;
+        owner = await makeUser();
+        const ownerRow = (await server.stores.user.getById(owner.id))!;
+        ownerUsername = ownerRow.username;
+        ownerUuid = ownerRow.uuid;
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    // -- creating a team -----------------------------------------
+
+    it('creates a team and admits its creator as the team owner', async () => {
+        const team = await service.createTeam(owner.id, {
+            name: 'Acme Design',
+            handle: freeHandle(),
+        });
+
+        expect(team.owner_user_id).toBe(owner.id);
+        const membership = await server.stores.team.getMembership(
+            team.uid,
+            owner.id,
+        );
+        // 0 is what makes the owner pay for itself.
+        expect(Number(membership?.org_owned)).toBe(0);
+    });
+
+    it('holds the owner invariant that no dialect can express', async () => {
+        const { team } = await makeTeam();
+        await expect(service.checkOwnerInvariant(team.uid)).resolves.toBe(true);
+    });
+
+    it('breaks the invariant if a second account is admitted as the payer', async () => {
+        const { team } = await makeTeam();
+        const other = await makeUser();
+        await server.stores.team.addMember(team.uid, other.id, {
+            orgOwned: false,
+        });
+
+        // The check exists precisely because the schema cannot refuse this.
+        await expect(service.checkOwnerInvariant(team.uid)).resolves.toBe(false);
+    });
+
+    // -- authority ----------------------------------------------------
+
+    it('refuses a member who is not the team owner', async () => {
+        const { team, member } = await makeTeam();
+        await expect(
+            service.requireOwner(team.uid, member.id),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('gives a stranger 404 rather than 403, so it is not an oracle', async () => {
+        const { team } = await makeTeam();
+        const stranger = await makeUser();
+        await expect(
+            service.requireMembership(team.uid, stranger.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        await expect(
+            service.requireOwner(team.uid, stranger.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('refuses the team owner as the target of a member route', async () => {
+        const { team } = await makeTeam();
+        await expect(
+            service.requireOrgAccount(team.uid, owner.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    // -- disable and re-enable ----------------------------------------
+
+    it('sets the column the request gate actually reads', async () => {
+        const { team, member } = await makeTeam();
+
+        await service.disableMember(team.uid, owner.id, member.id);
+
+        const row = await suspensionOf(member.id);
+        // `userProtected` rejects on `suspended`; the others gate nothing.
+        expect(Boolean(row.suspended)).toBe(true);
+        expect(row.suspended_at).toBeGreaterThan(0);
+        expect(row.suspended_reason).toBe('disabled_by_team');
+    });
+
+    it('drops the disabled account\'s sessions', async () => {
+        const { team, member } = await makeTeam();
+        await server.clients.db.write(
+            'INSERT INTO `sessions` (`uuid`, `user_id`) VALUES (?, ?)',
+            [uuidv4(), member.id],
+        );
+
+        await service.disableMember(team.uid, owner.id, member.id);
+
+        // Revoked, not deleted: the row keeps last_ip / last_user_agent.
+        const live = await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL',
+            [member.id],
+        );
+        expect(Number(live[0].n)).toBe(0);
+
+        const kept = await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `sessions` WHERE `user_id` = ?',
+            [member.id],
+        );
+        expect(Number(kept[0].n)).toBe(1);
+    });
+
+    it('restores the account exactly as it was on re-enable', async () => {
+        const { team, member } = await makeTeam();
+        await service.disableMember(team.uid, owner.id, member.id);
+
+        await service.enableMember(team.uid, owner.id, member.id);
+
+        const row = await suspensionOf(member.id);
+        expect(Boolean(row.suspended)).toBe(false);
+        expect(row.suspended_at).toBeNull();
+        expect(row.suspended_reason).toBeNull();
+    });
+
+    it('leaves the disabled account\'s files alone', async () => {
+        const { team, member } = await makeTeam();
+        await server.clients.db.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `user_id`, `modified`) VALUES (?, ?, ?, ?)',
+            [uuidv4(), 'kept.txt', member.id, 0],
+        );
+
+        await service.disableMember(team.uid, owner.id, member.id);
+
+        const rows = await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `fsentries` WHERE `user_id` = ?',
+            [member.id],
+        );
+        expect(Number(rows[0].n)).toBe(1);
+    });
+
+    it('refuses to disable the team owner', async () => {
+        const { team } = await makeTeam();
+        await expect(
+            service.disableMember(team.uid, owner.id, owner.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        expect(Boolean((await suspensionOf(owner.id)).suspended)).toBe(false);
+    });
+
+    it('refuses a disable ordered by someone who is not the owner', async () => {
+        const { team, member } = await makeTeam();
+        const other = await makeUser();
+        await server.stores.team.addMember(team.uid, other.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            service.disableMember(team.uid, other.id, member.id),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(Boolean((await suspensionOf(member.id)).suspended)).toBe(false);
+    });
+
+    it('refuses to disable a member of another team', async () => {
+        const a = await makeTeam();
+        const b = await makeTeam();
+
+        await expect(
+            service.disableMember(a.team.uid, owner.id, b.member.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+    it('refuses to lift a suspension the team did not impose', async () => {
+        const { team, member } = await makeTeam();
+        // What a platform abuse suspension looks like.
+        await server.stores.user.update(member.id, {
+            suspended: 1,
+            suspended_at: Math.floor(Date.now() / 1000),
+            suspended_reason: 'abuse_detected',
+        });
+
+        await expect(
+            service.enableMember(team.uid, owner.id, member.id),
+        ).rejects.toMatchObject({ statusCode: 409 });
+
+        const row = await suspensionOf(member.id);
+        expect(Boolean(row.suspended)).toBe(true);
+        expect(row.suspended_reason).toBe('abuse_detected');
+    });
+
+    it('lifts its own suspension normally', async () => {
+        const { team, member } = await makeTeam();
+        await service.disableMember(team.uid, owner.id, member.id);
+
+        await service.enableMember(team.uid, owner.id, member.id);
+        expect(Boolean((await suspensionOf(member.id)).suspended)).toBe(false);
+    });
+
+
+    // -- provisioning -------------------------------------------------
+
+    it('creates an account the team owns, pending a password change', async () => {
+        const { team } = await makeTeam();
+        const username = `prov_${Math.random().toString(36).slice(2, 9)}`;
+
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        expect(result.username).toBe(username);
+        const user = await server.stores.user.getById(result.userId);
+        expect(Boolean(user?.requires_password_change)).toBe(true);
+
+        const membership = await server.stores.team.getMembership(
+            team.uid,
+            result.userId,
+        );
+        expect(Number(membership?.org_owned)).toBe(1);
+    });
+
+    it('gives the new account its default filesystem tree', async () => {
+        const { team } = await makeTeam();
+        const username = `tree_${Math.random().toString(36).slice(2, 9)}`;
+
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const user = await server.stores.user.getById(result.userId);
+        expect(user?.trash_uuid).toBeTruthy();
+    });
+
+    it('returns a temporary password the admin delivers out of band', async () => {
+        const { team } = await makeTeam();
+        const username = `link_${Math.random().toString(36).slice(2, 9)}`;
+
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        expect(result.temporaryPassword).toHaveLength(16);
+        const user = await server.stores.user.getById(result.userId);
+        // Hashed, and the account cannot do anything until it is changed.
+        expect(user?.password).not.toBe(result.temporaryPassword);
+        expect(Boolean(user?.requires_password_change)).toBe(true);
+    });
+
+    it('writes nothing when the username is taken', async () => {
+        const { team } = await makeTeam();
+        const taken = await makeUser();
+        const before = await server.stores.team.listMembers(team.uid);
+
+        await expect(
+            service.provisionAccount(team.uid, owner.id, {
+                username: taken.username,
+                email: 'someone@test.local',
+            }),
+        ).rejects.toMatchObject({ statusCode: 409 });
+
+        // Checked before any row is written, so the team is untouched.
+        const after = await server.stores.team.listMembers(team.uid);
+        expect(after.items).toHaveLength(before.items.length);
+    });
+
+    it('offers free alternatives instead of modifying the name', async () => {
+        const taken = await makeUser();
+        const suggestions = await service.suggestUsernames(taken.username);
+
+        expect(suggestions.length).toBeGreaterThan(0);
+        for (const suggestion of suggestions) {
+            expect(suggestion).not.toBe(taken.username);
+            await expect(
+                server.stores.user.getByUsername(suggestion),
+            ).resolves.toBeFalsy();
+        }
+    });
+
+    it('refuses provisioning by anyone but the team owner', async () => {
+        const { team, member } = await makeTeam();
+        await expect(
+            service.provisionAccount(team.uid, member.id, {
+                username: `nope_${Math.random().toString(36).slice(2, 9)}`,
+                email: 'nope@test.local',
+            }),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('re-issues a different credential each time', async () => {
+        const { team } = await makeTeam();
+        const username = `again_${Math.random().toString(36).slice(2, 9)}`;
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        const again = await service.reissueCredential(
+            team.uid,
+            owner.id,
+            result.userId,
+        );
+        expect(again.temporaryPassword).not.toBe(result.temporaryPassword);
+    });
+
+    it('refuses to re-issue once the member has chosen a password', async () => {
+        const { team } = await makeTeam();
+        const username = `done_${Math.random().toString(36).slice(2, 9)}`;
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        // Simulate the member choosing their own password.
+        await server.stores.user.update(result.userId, {
+            requires_password_change: 0,
+        });
+
+        await expect(
+            service.reissueCredential(team.uid, owner.id, result.userId),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    // -- password reset ------------------------------------------------
+
+    it('bounds an issued credential so an unused one dies', async () => {
+        const { team } = await makeTeam();
+        const username = `exp_${Math.random().toString(36).slice(2, 9)}`;
+        const result = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const user = await server.stores.user.getByProperty(
+            'id',
+            result.userId,
+            { force: true },
+        );
+        const expiry = Number(user?.temp_password_expires_at);
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        expect(expiry).toBeGreaterThan(nowSeconds);
+        expect(expiry).toBeLessThanOrEqual(nowSeconds + 24 * 60 * 60);
+    });
+
+    it('takes a live account back with a fresh credential', async () => {
+        const { team } = await makeTeam();
+        const username = `rst_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        // The member chose their own password, so reissue is closed to them.
+        await server.stores.user.update(created.userId, {
+            requires_password_change: 0,
+            temp_password_expires_at: null,
+        });
+
+        const { temporaryPassword } = await service.resetMemberPassword(
+            team.uid,
+            owner.id,
+            created.userId,
+        );
+
+        expect(temporaryPassword).toMatch(/^[A-Za-z2-9]{16}$/u);
+        const user = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(Number(user?.requires_password_change)).toBe(1);
+        expect(user?.password).not.toBe(temporaryPassword);
+    });
+
+    it('records the reset without recording the credential', async () => {
+        const { team } = await makeTeam();
+        const username = `aur_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const { temporaryPassword } = await service.resetMemberPassword(
+            team.uid,
+            owner.id,
+            created.userId,
+        );
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items.map((e) => e.action)).toEqual([
+            'reset_member_password',
+            'provision',
+        ]);
+        expect(items[0].actor_username).toBe(ownerUsername);
+        expect(JSON.stringify(items)).not.toContain(temporaryPassword);
+    });
+
+    it('leaves 2FA in place, so a reset alone is not takeover', async () => {
+        const { team } = await makeTeam();
+        const username = `otp_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await server.stores.user.update(created.userId, {
+            otp_enabled: 1,
+            otp_secret: 'ABCDEFGHIJKLMNOP',
+        });
+
+        await service.resetMemberPassword(team.uid, owner.id, created.userId);
+
+        const user = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(Boolean(user?.otp_enabled)).toBe(true);
+        expect(user?.otp_secret).toBe('ABCDEFGHIJKLMNOP');
+    });
+
+    it('records a re-issue too, so no credential is handed over unlogged', async () => {
+        const { team } = await makeTeam();
+        const username = `rei_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        await service.reissueCredential(team.uid, owner.id, created.userId);
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items.map((e) => e.action)).toEqual([
+            'reset_member_password',
+            'provision',
+        ]);
+    });
+
+    it('refuses a reset ordered by someone who is not the owner', async () => {
+        const { team, member } = await makeTeam();
+        const username = `nres_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        await expect(
+            service.resetMemberPassword(team.uid, member.id, created.userId),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('refuses to reset the team owner, who is not org-owned', async () => {
+        const { team } = await makeTeam();
+        await expect(
+            service.resetMemberPassword(team.uid, owner.id, owner.id),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('lets the member clear the gate and closes re-issue behind them', async () => {
+        const { team } = await makeTeam();
+        const username = `act_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        // What the change-password route writes once the member sets their own.
+        await server.stores.user.update(created.userId, {
+            requires_password_change: 0,
+            temp_password_expires_at: null,
+        });
+        await service.recordPasswordSelfChange(created.userId);
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items[0]).toMatchObject({
+            action: 'activate',
+            username,
+            actor_username: username,
+        });
+        await expect(
+            service.reissueCredential(team.uid, owner.id, created.userId),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('ignores a password change by an account no team owns', async () => {
+        const outsider = await makeUser();
+        await expect(
+            service.recordPasswordSelfChange(outsider.id),
+        ).resolves.toBeUndefined();
+    });
+    it('refuses an email that already belongs to an account', async () => {
+        const { team } = await makeTeam();
+        const existing = await makeUser();
+        const row = await server.stores.user.getById(existing.id);
+
+        await expect(
+            service.provisionAccount(team.uid, owner.id, {
+                username: `dup_${Math.random().toString(36).slice(2, 9)}`,
+                email: row!.email!,
+            }),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('refuses a username signup itself would reject', async () => {
+        const { team } = await makeTeam();
+        for (const username of ['has-hyphen', 'x'.repeat(46), 'admin']) {
+            await expect(
+                service.provisionAccount(team.uid, owner.id, {
+                    username,
+                    email: 'x@test.local',
+                }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    // PUT-1792: seats sign in by username, so an address is optional.
+    it('provisions with no email at all', async () => {
+        const { team } = await makeTeam();
+        const username = `noem_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+        });
+
+        const row = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(row?.email ?? null).toBeNull();
+        expect(created.temporaryPassword).toEqual(expect.any(String));
+    });
+
+    it('never demands confirmation, with or without an address', async () => {
+        // The gate is `requires_email_confirmation && !email_confirmed`.
+        const { team } = await makeTeam();
+        const bare = `bare_${Math.random().toString(36).slice(2, 9)}`;
+        const withEmail = `wem_${Math.random().toString(36).slice(2, 9)}`;
+
+        const a = await service.provisionAccount(team.uid, owner.id, {
+            username: bare,
+        });
+        const b = await service.provisionAccount(team.uid, owner.id, {
+            username: withEmail,
+            email: `${withEmail}@test.local`,
+        });
+
+        for (const id of [a.userId, b.userId]) {
+            const row = await server.stores.user.getByProperty('id', id, {
+                force: true,
+            });
+            expect(Boolean(row?.requires_email_confirmation)).toBe(false);
+        }
+    });
+
+    it('keeps an address when one is given', async () => {
+        const { team } = await makeTeam();
+        const username = `kept_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const row = await server.stores.user.getByProperty(
+            'id',
+            created.userId,
+            { force: true },
+        );
+        expect(row?.email).toBe(`${username}@test.local`);
+    });
+
+    it('does not collide two seats that both have no address', async () => {
+        // The uniqueness index is on the address; absent is not a value.
+        const { team } = await makeTeam();
+        for (const n of [1, 2]) {
+            await expect(
+                service.provisionAccount(team.uid, owner.id, {
+                    username: `dup${n}_${Math.random().toString(36).slice(2, 9)}`,
+                }),
+            ).resolves.toMatchObject({ username: expect.any(String) });
+        }
+    });
+
+    describe('a seat may not become an owner (PUT-1890)', () => {
+        it('refuses a provisioned seat creating a team of its own', async () => {
+            const { member } = await makeTeam();
+            await expect(
+                service.createTeam(member.id, {
+                    name: 'Seat-owned',
+                    handle: freeHandle(),
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('still admits the owner and a joined member', async () => {
+            // The owner is `org_owned = 0` in their own team, and a joined
+            // member is an ordinary self-paying account; neither is a seat.
+            const { team } = await makeTeam();
+            const joined = await makeUser();
+            await server.stores.team.addMember(team.uid, joined.id, {
+                orgOwned: false,
+            });
+            await expect(
+                service.createTeam(joined.id, {
+                    name: 'Joined-owned',
+                    handle: freeHandle(),
+                }),
+            ).resolves.toBeTruthy();
+            await expect(
+                service.createTeam(owner.id, {
+                    name: 'Owner-second',
+                    handle: freeHandle(),
+                }),
+            ).resolves.toBeTruthy();
+        });
+
+        it('refuses a seat provisioning, even given ownership', async () => {
+            const { team, member } = await makeTeam();
+            // Backstop: `createTeam` already keeps a seat from owning one.
+            await server.clients.db.write(
+                'UPDATE `group` SET `owner_user_id` = ? WHERE `uid` = ?',
+                [member.id, team.uid],
+            );
+            await server.stores.team.bustMember(team.uid, member.id);
+            const username = `sub_${Math.random().toString(36).slice(2, 8)}`;
+            await expect(
+                service.provisionAccount(team.uid, member.id, { username }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+    });
+
+    describe('what a seat of a free team gets', () => {
+        const policyFor = async (userId: number, uuid: string) => {
+            server.services.metering.invalidateActorSubscription(uuid);
+            return server.services.metering.getActorSubscription({
+                user: { id: userId, uuid },
+            } as never);
+        };
+
+        it('resolves half the free plan', async () => {
+            const { team } = await makeTeam();
+            const created = await service.provisionAccount(team.uid, owner.id, {
+                username: `half_${Math.random().toString(36).slice(2, 9)}`,
+            });
+            const row = (await server.stores.user.getById(created.userId))!;
+            const seat = await policyFor(created.userId, row.uuid);
+
+            expect(seat.id).toBe('org_seat_free');
+            expect(seat.monthUsageAllowance).toBe(
+                Math.floor(REGISTERED_USER_FREE.monthUsageAllowance / 2),
+            );
+            expect(seat.monthlyStorageAllowance).toBe(
+                Math.floor(REGISTERED_USER_FREE.monthlyStorageAllowance / 2),
+            );
+        });
+
+        it('leaves anyone who is not a seat alone', async () => {
+            const plain = await policyFor(owner.id, ownerUuid);
+            expect(plain.id).not.toBe('org_seat_free');
+        });
+
+        it('still counts as free, so plan gates refuse it', async () => {
+            // Nobody paid for it; it must not satisfy `requireSubscription`.
+            expect(subscriptionSatisfies('org_seat_free', true)).toBe(false);
+        });
+    });
+
+    describe('the seat cap', () => {
+        // 0 clears the absolute override, so the plan-derived caps apply.
+        const cfg = () =>
+            (service as unknown as { config: Record<string, unknown> }).config;
+        beforeEach(() => {
+            cfg().max_seats_per_team = 0;
+        });
+        afterEach(() => {
+            cfg().max_seats_per_team = 100;
+        });
+
+        const addSeat = (teamUid: string) =>
+            service.provisionAccount(teamUid, owner.id, {
+                username: `cap_${Math.random().toString(36).slice(2, 9)}`,
+            });
+
+        // makeTeam seeds one seat, so three more reaches four.
+        const fillToFour = async (teamUid: string) => {
+            for (let i = 0; i < 3; i++) await addSeat(teamUid);
+        };
+
+        it('stops a free owner at four seats', async () => {
+            const { team } = await makeTeam();
+            await fillToFour(team.uid);
+            await expect(addSeat(team.uid)).rejects.toMatchObject({
+                statusCode: 409,
+                fields: { limit: 4 },
+            });
+        });
+
+        it('lets a paid owner past four', async () => {
+            const { team } = await makeTeam();
+            const metering = server.services.metering as unknown as {
+                registerPolicy: (p: Record<string, unknown>) => void;
+                registerSubscriptionResolver: (fn: unknown) => void;
+                invalidateActorSubscription: (uuid: string) => void;
+            };
+            // A resolver naming an unregistered policy falls back to free.
+            metering.registerPolicy({
+                id: 'business',
+                monthUsageAllowance: 4_500_000_000,
+                monthlyStorageAllowance: 2_147_483_648_000,
+            });
+            metering.registerSubscriptionResolver(
+                (actor: { user?: { id?: number } }) =>
+                    actor?.user?.id === owner.id ? 'business' : null,
+            );
+            metering.invalidateActorSubscription(ownerUuid);
+
+            await fillToFour(team.uid);
+            await expect(addSeat(team.uid)).resolves.toMatchObject({
+                username: expect.any(String),
+            });
+        });
+    });
+
+    it('refuses an invalid email', async () => {
+        const { team } = await makeTeam();
+        await expect(
+            service.provisionAccount(team.uid, owner.id, {
+                username: `bad_${Math.random().toString(36).slice(2, 9)}`,
+                email: 'not-an-email',
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('only suggests usernames the next call would accept', async () => {
+        const taken = await makeUser();
+        for (const s of await service.suggestUsernames(taken.username)) {
+            expect(s.length).toBeLessThanOrEqual(45);
+            expect(s).toMatch(/^\w+$/u);
+        }
+    });
+    it('generates a different credential for every account', async () => {
+        const { team } = await makeTeam();
+        const seen = new Set<string>();
+        for (let i = 0; i < 3; i++) {
+            const u = `gen_${Math.random().toString(36).slice(2, 9)}`;
+            const r = await service.provisionAccount(team.uid, owner.id, {
+                username: u,
+                email: `${u}@test.local`,
+            });
+            expect(r.temporaryPassword).toMatch(/^[A-Za-z2-9]{16}$/u);
+            seen.add(r.temporaryPassword);
+        }
+        expect(seen.size).toBe(3);
+    });
+
+    it('survives having no email transport, since the notice carries nothing', async () => {
+        const { team } = await makeTeam();
+        const u = `noem_${Math.random().toString(36).slice(2, 9)}`;
+
+        // The credential is returned, so delivery failing loses nothing.
+        const r = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+        expect(r.temporaryPassword).toBeTruthy();
+    });
+    // -- audit --------------------------------------------------------
+
+    it('records provisioning, disabling and enabling as they happen', async () => {
+        const { team } = await makeTeam();
+        const username = `aud_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await service.disableMember(team.uid, owner.id, created.userId);
+        await service.enableMember(team.uid, owner.id, created.userId);
+
+        // Written by the service, so a caller bypassing the route cannot skip it.
+        const { items: entries } = await service.listAudit(team.uid, owner.id);
+        const forMember = entries.filter((e) => e.username === username);
+        expect(forMember.map((e) => e.action)).toEqual([
+            'enable',
+            'disable',
+            'provision',
+        ]);
+        expect(
+            forMember.every((e) => e.actor_username === ownerUsername),
+        ).toBe(true);
+    });
+
+    it('shows a member only their own entries', async () => {
+        const { team } = await makeTeam();
+        const a = `one_${Math.random().toString(36).slice(2, 9)}`;
+        const b = `two_${Math.random().toString(36).slice(2, 9)}`;
+        const first = await service.provisionAccount(team.uid, owner.id, {
+            username: a,
+            email: `${a}@test.local`,
+        });
+        await service.provisionAccount(team.uid, owner.id, {
+            username: b,
+            email: `${b}@test.local`,
+        });
+
+        const { items: own } = await service.listOwnAudit(team.uid, first.userId);
+        expect(own).toHaveLength(1);
+        expect(own[0].username).toBe(a);
+        // Internal ids must not reach a caller, as `toClientTeam` does for `id`.
+        expect(own[0]).not.toHaveProperty('user_id_keep');
+        expect(own[0]).not.toHaveProperty('actor_user_id');
+    });
+
+    // -- the member's own view ----------------------------------------
+
+    /**
+     * A sign-in row of the shape `sessions` records for a browser session.
+     * `secondsLater` moves it off the audit rows' timestamp -- within one
+     * second the order of two different sources is arbitrary, and asserting on
+     * it would be asserting on the tie-break rather than on the timeline.
+     */
+    const signIn = async (userId: number, ip: string, secondsLater = 0) => {
+        const created = (await server.stores.session.create(userId, {
+            kind: 'web',
+            last_ip: ip,
+            last_user_agent: 'Chrome/macOS',
+        })) as { uuid: string };
+        if (secondsLater) {
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `created_at` = `created_at` + ? WHERE `uuid` = ?',
+                [secondsLater, created.uuid],
+            );
+        }
+        return created;
+    };
+
+    it('shows the sign-in between a reset and the member noticing', async () => {
+        const { team } = await makeTeam();
+        const username = `tell_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await service.resetMemberPassword(team.uid, owner.id, created.userId);
+        await signIn(created.userId, '203.0.113.7', 60);
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        const tell = items.find((e) => e.action === 'sign_in');
+        expect(tell).toMatchObject({
+            username,
+            actor_username: null,
+            ip: '203.0.113.7',
+            user_agent: 'Chrome/macOS',
+        });
+        // Newest first, so the sign-in sits above the reset that preceded it.
+        expect(items.map((e) => e.action)).toEqual([
+            'sign_in',
+            'reset_member_password',
+            'provision',
+        ]);
+    });
+
+    it('shows no sign-in belonging to anyone else', async () => {
+        const { team } = await makeTeam();
+        const mine = `mine_${Math.random().toString(36).slice(2, 9)}`;
+        const theirs = `thrs_${Math.random().toString(36).slice(2, 9)}`;
+        const a = await service.provisionAccount(team.uid, owner.id, {
+            username: mine,
+            email: `${mine}@test.local`,
+        });
+        const b = await service.provisionAccount(team.uid, owner.id, {
+            username: theirs,
+            email: `${theirs}@test.local`,
+        });
+        await signIn(b.userId, '198.51.100.4');
+
+        const { items } = await service.listOwnAudit(team.uid, a.userId);
+        expect(items.map((e) => e.action)).not.toContain('sign_in');
+        expect(JSON.stringify(items)).not.toContain('198.51.100.4');
+        expect(JSON.stringify(items)).not.toContain(theirs);
+    });
+
+    it('counts only browser sign-ins, not credentials derived from one', async () => {
+        const { team } = await makeTeam();
+        const username = `drv_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await server.stores.session.create(created.userId, {
+            kind: 'access_token',
+            last_ip: '198.51.100.77',
+        });
+
+        const { items } = await service.listOwnAudit(team.uid, created.userId);
+        expect(items.map((e) => e.action)).not.toContain('sign_in');
+    });
+
+    it('leaves the team audit free of sign-ins', async () => {
+        const { team } = await makeTeam();
+        const username = `noss_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await signIn(created.userId, '192.0.2.9');
+
+        const { items } = await service.listAudit(team.uid, owner.id);
+        expect(items.map((e) => e.action)).not.toContain('sign_in');
+    });
+
+    it('pages both streams rather than dropping one of them', async () => {
+        const { team } = await makeTeam();
+        const username = `pgm_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await service.resetMemberPassword(team.uid, owner.id, created.userId);
+        await signIn(created.userId, '203.0.113.1');
+        await signIn(created.userId, '203.0.113.2');
+
+        // Four entries: provision, reset, and two sign-ins.
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < 8; page++) {
+            const result = await service.listOwnAudit(team.uid, created.userId, {
+                limit: 1,
+                cursor,
+            });
+            seen.push(...result.items.map((e) => e.action));
+            cursor = result.cursor;
+            if (!cursor) break;
+        }
+        expect(seen.sort()).toEqual([
+            'provision',
+            'reset_member_password',
+            'sign_in',
+            'sign_in',
+        ]);
+    });
+
+    it('keeps the audit from a member who is not the owner', async () => {
+        const { team, member } = await makeTeam();
+        await expect(
+            service.listAudit(team.uid, member.id),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('records a team deletion and survives the soft delete', async () => {
+        const { team } = await makeTeam();
+        await service.deleteTeam(team.uid, owner.id);
+
+        // Gone from reads, but its owner can still read what happened.
+        await expect(server.stores.team.getByUid(team.uid)).resolves.toBeNull();
+        const { items: entries } = await service.listAudit(team.uid, owner.id);
+        expect(entries.map((e) => e.action)).toContain('delete_team');
+    });
+    it('disables the accounts it created when the team is deleted', async () => {
+        const { team } = await makeTeam();
+        const u = `del_${Math.random().toString(36).slice(2, 9)}`;
+        const provisioned = await service.provisionAccount(team.uid, owner.id, {
+            username: u,
+            email: `${u}@test.local`,
+        });
+
+        await service.deleteTeam(team.uid, owner.id);
+
+        // Otherwise they keep working, unreachable through a deleted team.
+        const row = await suspensionOf(provisioned.userId);
+        expect(Boolean(row.suspended)).toBe(true);
+        expect(row.suspended_reason).toBe('disabled_by_team');
+    });
+
+    it('leaves the team owner alone when its team is deleted', async () => {
+        const { team } = await makeTeam();
+        await service.deleteTeam(team.uid, owner.id);
+
+        // org_owned = 0, so it pays for itself and is not the team's to close.
+        expect(Boolean((await suspensionOf(owner.id)).suspended)).toBe(false);
+    });
+
+    it('keeps memberships and group grants behind the deleted_at', async () => {
+        const { team } = await makeTeam();
+        const username = `grnt_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+        await server.clients.db.write(
+            'INSERT INTO `user_to_group_permissions` ' +
+                '(`user_id`, `group_id`, `permission`) VALUES (?, ?, ?)',
+            [owner.id, team.id, 'fs:some-uid:read'],
+        );
+
+        await service.deleteTeam(team.uid, owner.id);
+
+        // A hard DELETE would cascade both of these away with no audit row.
+        const members = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `jct_user_group` WHERE `group_id` = ?',
+            [team.id],
+        )) as { n: number }[];
+        expect(Number(members[0].n)).toBeGreaterThanOrEqual(2);
+
+        const grants = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `user_to_group_permissions` WHERE `group_id` = ?',
+            [team.id],
+        )) as { n: number }[];
+        expect(Number(grants[0].n)).toBe(1);
+
+        // And the account itself is disabled, not destroyed.
+        expect(await server.stores.user.getById(created.userId)).toBeTruthy();
+    });
+
+    // -- notifications -------------------------------------------------
+
+    /** Captures what would go out, without standing up a transport. */
+    const captureMail = () => {
+        const sent: { to: string; subject: string; html: string }[] = [];
+        const client = server.clients.email as unknown as {
+            sendRaw: (o: {
+                to?: string;
+                subject?: string;
+                html?: string;
+            }) => Promise<unknown>;
+        };
+        const original = client.sendRaw.bind(client);
+        client.sendRaw = async (options) => {
+            sent.push({
+                to: String(options.to ?? ''),
+                subject: String(options.subject ?? ''),
+                html: String(options.html ?? ''),
+            });
+            return null;
+        };
+        return { sent, restore: () => (client.sendRaw = original) };
+    };
+
+    it('emails the credential when an address is given', async () => {
+        const { team } = await makeTeam();
+        const username = `mail_${Math.random().toString(36).slice(2, 9)}`;
+
+        const mail = captureMail();
+        let created;
+        try {
+            created = await service.provisionAccount(team.uid, owner.id, {
+                username,
+                email: `${username}@test.local`,
+            });
+        } finally {
+            mail.restore();
+        }
+
+        expect(mail.sent).toHaveLength(1);
+        expect(mail.sent[0].to).toBe(`${username}@test.local`);
+        expect(mail.sent[0].html).toContain(username);
+        // The point of the address: without it this is the only copy.
+        expect(mail.sent[0].html).toContain(created.temporaryPassword);
+    });
+
+    it('sends nothing when no address is given', async () => {
+        const { team } = await makeTeam();
+        const mail = captureMail();
+        try {
+            await service.provisionAccount(team.uid, owner.id, {
+                username: `nomail_${Math.random().toString(36).slice(2, 9)}`,
+            });
+        } finally {
+            mail.restore();
+        }
+        expect(mail.sent).toHaveLength(0);
+    });
+
+    it('emails the fresh credential on re-issue, not the old one', async () => {
+        const { team } = await makeTeam();
+        const username = `re_${Math.random().toString(36).slice(2, 9)}`;
+        const first = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const mail = captureMail();
+        let again;
+        try {
+            again = await service.reissueCredential(
+                team.uid,
+                owner.id,
+                first.userId,
+            );
+        } finally {
+            mail.restore();
+        }
+
+        expect(mail.sent).toHaveLength(1);
+        expect(mail.sent[0].html).toContain(again.temporaryPassword);
+        expect(mail.sent[0].html).not.toContain(first.temporaryPassword);
+    });
+
+    it('tells a member their account was disabled', async () => {
+        const { team } = await makeTeam();
+        const username = `dis_${Math.random().toString(36).slice(2, 9)}`;
+        const created = await service.provisionAccount(team.uid, owner.id, {
+            username,
+            email: `${username}@test.local`,
+        });
+
+        const mail = captureMail();
+        try {
+            await service.disableMember(team.uid, owner.id, created.userId);
+        } finally {
+            mail.restore();
+        }
+
+        expect(mail.sent).toHaveLength(1);
+        expect(mail.sent[0].to).toBe(`${username}@test.local`);
+        expect(mail.sent[0].subject).toContain('disabled');
+    });
+
+    it('tells every member the team closed, and tells them once', async () => {
+        const { team } = await makeTeam();
+        const names = [
+            `cl1_${Math.random().toString(36).slice(2, 9)}`,
+            `cl2_${Math.random().toString(36).slice(2, 9)}`,
+        ];
+        for (const username of names) {
+            await service.provisionAccount(team.uid, owner.id, {
+                username,
+                email: `${username}@test.local`,
+            });
+        }
+
+        const mail = captureMail();
+        try {
+            await service.deleteTeam(team.uid, owner.id);
+        } finally {
+            mail.restore();
+        }
+
+        // The closure notice covers the disabling; two notices would be spam.
+        for (const username of names) {
+            const forMember = mail.sent.filter(
+                (m) => m.to === `${username}@test.local`,
+            );
+            expect(forMember).toHaveLength(1);
+            expect(forMember[0].subject).toContain('closed');
+        }
+        const ownerRow = await server.stores.user.getById(owner.id);
+        // The owner account is not the team's to close.
+        expect(mail.sent.map((m) => m.to)).not.toContain(ownerRow!.email);
+    });
+
+    it('pages the audit rather than truncating it', async () => {
+        const { team } = await makeTeam();
+        for (let i = 0; i < 2; i++) {
+            const u = `pg_${Math.random().toString(36).slice(2, 9)}`;
+            await service.provisionAccount(team.uid, owner.id, {
+                username: u,
+                email: `${u}@test.local`,
+            });
+        }
+
+        const first = await service.listAudit(team.uid, owner.id, { limit: 1 });
+        expect(first.items).toHaveLength(1);
+        expect(first.cursor).toBeTruthy();
+
+        // Older entries stay reachable instead of dropping off the view.
+        const second = await service.listAudit(team.uid, owner.id, { limit: 1 });
+        expect(second.items).toHaveLength(1);
+    });
+
+});

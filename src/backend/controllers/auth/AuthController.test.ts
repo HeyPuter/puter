@@ -21,12 +21,11 @@
  * E2E-style tests for AuthController signup, login, and token-grant flows.
  *
  * Drives the controller's extracted route-handler methods directly with
- * synthetic req/res shapes — that way we exercise the full controller
- * logic (DB writes via in-memory sqlite, real password hashing, real
- * JWT signing/verifying via TokenService, real PermissionService writes)
- * without needing the HTTP layer's middleware (rate limiting, captcha,
- * anti-CSRF) to play along. Aligns with AGENTS.md: "Prefer test server
- * over mocking deps."
+ * synthetic req/res shapes — that way we exercise the full controller logic (DB
+ * writes via in-memory sqlite, real password hashing, real JWT
+ * signing/verifying via TokenService, real PermissionService writes) without
+ * needing the HTTP layer's middleware (rate limiting, captcha, anti-CSRF) to
+ * play along. Aligns with AGENTS.md: "Prefer test server over mocking deps."
  */
 
 import bcrypt from 'bcrypt';
@@ -34,14 +33,20 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
-import type { TokenSource } from '../../core/http/types.js';
+import {
+    ROUTES_METADATA_KEY,
+    type CollectedRoute,
+    type TokenSource,
+} from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
+import { kvSharePermission } from '../../services/events/kvShares.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
+import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
 import { FS_READ_LIMIT } from '../fs/limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -72,6 +77,7 @@ type SignupValidateOverride = (data: {
     requires_email_confirmation: boolean;
     message: string | null;
     code: string | null;
+    ip: string | null;
 }) => void;
 
 let signupValidateOverride: SignupValidateOverride | null = null;
@@ -387,8 +393,7 @@ describe('concurrent claims on one email address', () => {
         expect(await countOwners(email)).toBe(1);
 
         const rejected = results.find((r) => r.status === 'rejected') as
-            | PromiseRejectedResult
-            | undefined;
+            PromiseRejectedResult | undefined;
         expect(rejected?.reason).toMatchObject({ statusCode: 400 });
     });
 
@@ -571,6 +576,54 @@ describe('AuthController.handleSignup', () => {
         ).toBe(true);
     });
 
+    it('keys the signup abuse signals on req.ip, not the x-forwarded-for header', async () => {
+        const username = `s_${uniq()}`;
+        const forged = 'evil, 198.51.100.1';
+        let seenValidateIp: string | null | undefined;
+
+        await withSignupValidateOverride(
+            (event) => {
+                seenValidateIp = event.ip;
+            },
+            async () => {
+                await controller.handleSignup(
+                    makeReq(
+                        {
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        },
+                        {
+                            ip: '203.0.113.9',
+                            headers: { 'x-forwarded-for': forged },
+                        },
+                    ),
+                    makeRes(),
+                );
+            },
+        );
+
+        // Validate hook, success hook and the persisted lookup column all have
+        // to agree, or a per-IP counter is written under one key and read
+        // under another.
+        expect(seenValidateIp).toBe('203.0.113.9');
+        expect(
+            heardSignupSuccess.find((e) => e.username === username)?.ip,
+        ).toBe('203.0.113.9');
+
+        const persisted = await server.stores.user.getByUsername(username);
+        expect(persisted!.signup_ip).toBe('203.0.113.9');
+        expect(persisted!.signup_ip_forwarded).toBe('203.0.113.9');
+        // The raw chain is still recorded, but only as audit metadata.
+        const audit = JSON.parse(
+            String(
+                (persisted as unknown as { audit_metadata: string })
+                    .audit_metadata,
+            ),
+        );
+        expect(audit.ip_fwd).toBe(forged);
+    });
+
     it('forces phone verification on every signup when always_require_phone_verification is set', async () => {
         const cfg = (controller as { config: Record<string, unknown> }).config;
         const prev = cfg.always_require_phone_verification;
@@ -650,6 +703,79 @@ describe('AuthController.handleSignup', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects 400 when the home path is already occupied by a foreign row', async () => {
+        const parked = `s_${uniq()}`;
+        const occupantUsername = `s_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username: occupantUsername,
+                email: `${occupantUsername}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const occupant = await server.stores.user.getByUsername(
+            occupantUsername,
+        );
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            occupant!.id,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}`, root.id],
+        );
+
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: parked,
+                    email: `${parked}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        await expect(
+            server.stores.user.getByUsername(parked, { force: true }),
+        ).resolves.toBeNull();
+    });
+
+    it('rejects 400 when only a foreign row sits under the home path', async () => {
+        const parked = `s_${uniq()}`;
+        const occupantUsername = `s_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username: occupantUsername,
+                email: `${occupantUsername}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${occupantUsername}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}/Documents`, docs.id],
+        );
+
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: parked,
+                    email: `${parked}@test.local`,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        await expect(
+            server.stores.user.getByUsername(parked, { force: true }),
+        ).resolves.toBeNull();
     });
 
     it('rejects reserved usernames (e.g. "admin")', async () => {
@@ -1273,6 +1399,18 @@ describe('AuthController.handleLogin', () => {
         // No session cookie set yet — login isn't complete.
         expect(res.cookies['puter_auth_token']).toBeUndefined();
     });
+
+    it('rejects with 400 (not a TypeError) when the request has no body', async () => {
+        await expect(
+            controller.handleLogin(
+                { ...makeReq({}), body: undefined },
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+    });
 });
 
 // ── Login: OTP / recovery-code branches ─────────────────────────────
@@ -1282,6 +1420,15 @@ describe('AuthController.handleLoginOtp + handleLoginRecoveryCode', () => {
         await expect(
             controller.handleLoginOtp(
                 makeReq({ token: 'not-a-jwt', code: '123456' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('handleLoginOtp rejects with 400 (not a TypeError) when the request has no body', async () => {
+        await expect(
+            controller.handleLoginOtp(
+                { ...makeReq({}), body: undefined },
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -1386,12 +1533,13 @@ describe('AuthController.handleElevate', () => {
         );
         expect(res.body).toMatchObject({ elevated: true });
         expect(res.cookies.puter_elevated).toBeDefined();
-        expect(res.cookies.puter_elevated.opts).toMatchObject({ httpOnly: true });
+        expect(res.cookies.puter_elevated.opts).toMatchObject({
+            httpOnly: true,
+        });
 
         // The minted cookie satisfies verifyStepUpSession for this same user.
-        const { verifyStepUpSession } = await import(
-            '../../core/http/middleware/stepUpSession.js'
-        );
+        const { verifyStepUpSession } =
+            await import('../../core/http/middleware/stepUpSession.js');
         const ok = verifyStepUpSession(
             {
                 cookies: { puter_elevated: res.cookies.puter_elevated.value },
@@ -1417,9 +1565,7 @@ describe('AuthController.handleElevate', () => {
 
     it('2FA account: a live TOTP code elevates; a wrong code is rejected', async () => {
         const { TOTP } = await import('otpauth');
-        const { createSecret } = await import(
-            '../../services/auth/OTPUtil.js'
-        );
+        const { createSecret } = await import('../../services/auth/OTPUtil.js');
         const { user, actor } = await makeUserAndActor();
         const { secret } = createSecret(user.username);
         await server.stores.user.update(user.id, {
@@ -1496,13 +1642,27 @@ describe('AuthController.handleElevate', () => {
 
     it('the elevation token is never honored as a main auth token', async () => {
         const { user } = await makeUserAndActor();
-        const { signStepUpToken } = await import(
-            '../../core/http/middleware/stepUpSession.js'
-        );
+        const { signStepUpToken } =
+            await import('../../core/http/middleware/stepUpSession.js');
         const token = signStepUpToken(server.services.token, {
             uuid: user.uuid,
         });
         const result = await server.services.auth.authenticate(token);
+        expect(result.actor).toBeUndefined();
+    });
+});
+
+describe('AuthController — forged non-v2 token mints no reauth_token hint', () => {
+    it('a forged token naming a victim uuid has nothing for /signup{reauth_token} to redeem', async () => {
+        // v1 is fully removed: a forged non-v2 token must not yield a
+        // `reauth` signal, so `signReauthToken` is never reachable for it.
+        const { user } = await makeUserAndActor();
+        const forged = jwt.sign(
+            { auth_id: user.uuid },
+            'attacker-controlled-secret',
+        );
+        const result = await server.services.auth.authenticate(forged);
+        expect(result.reauth).toBeUndefined();
         expect(result.actor).toBeUndefined();
     });
 });
@@ -1597,10 +1757,8 @@ describe('AuthController account-lifecycle route gating', () => {
         const gate = requireUserActorGate();
         const run = (actor: Partial<Actor>) =>
             new Promise<unknown>((resolve) => {
-                gate(
-                    { actor } as never,
-                    {} as never,
-                    (err?: unknown) => resolve(err),
+                gate({ actor } as never, {} as never, (err?: unknown) =>
+                    resolve(err),
                 );
             });
 
@@ -1679,59 +1837,6 @@ describe('AuthController grant flows', () => {
                 email_confirmed: true,
             },
         } as Actor;
-    });
-
-    it('grant-user-user: rejects missing target_username/permission with 400', async () => {
-        await expect(
-            controller.handleGrantUserUser(
-                makeReq({ permission: 'fs:read' }, { actor: issuerActor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('grant-user-user: persists the permission and PermissionService.check sees it', async () => {
-        const permission = `service:test-grant-${uuidv4()}:ii:read`;
-        // The controller calls PermissionService.grantUserUserPermission,
-        // which gates on `manage:<permission>` for non-system actors. Pre-
-        // bootstrap the manage flag directly through the permission store
-        // (the system actor would skip this gate, but its in-memory shape
-        // has no user.id, so it can't issue grants). Then the controller
-        // call exercises persist + check end-to-end.
-        await server.stores.permission.setFlatUserPerm(
-            issuer.id,
-            `manage:${permission}`,
-            {
-                permission: `manage:${permission}`,
-                deleted: false,
-                issuer_user_id: issuer.id,
-            } as never,
-        );
-
-        const res = makeRes();
-        await inCtx(issuerActor, () =>
-            controller.handleGrantUserUser(
-                makeReq(
-                    {
-                        target_username: target.username,
-                        permission,
-                        extra: { reason: 'unit-test' },
-                    },
-                    { actor: issuerActor },
-                ),
-                res,
-            ),
-        );
-        expect(res.body).toEqual({});
-
-        // The target now sees the permission via the user-to-user grant.
-        const targetActor = {
-            user: { ...target, email_confirmed: true },
-        } as Actor;
-        const granted = await server.services.permission
-            .check(targetActor, permission)
-            .catch(() => false);
-        expect(granted).toBeTruthy();
     });
 
     it('grant-user-app: persists a user→app permission grant', async () => {
@@ -1859,7 +1964,10 @@ describe('AuthController grant flows', () => {
             { origin: { host: 'evil' }, permission: 'service:x:ii:read' },
             { origin: 'https://a.test', permission: ['service:x:ii:read'] },
             { app_uid: 12345, permission: 'service:x:ii:read' },
-            { origin: `https://${'a'.repeat(5000)}.test`, permission: 'service:x:ii:read' },
+            {
+                origin: `https://${'a'.repeat(5000)}.test`,
+                permission: 'service:x:ii:read',
+            },
         ];
         for (const body of cases) {
             await expect(
@@ -2053,6 +2161,50 @@ describe('AuthController grant flows', () => {
         expect(res.body).toEqual({});
     });
 
+    it('grant-user-app: refuses a key-value delegation over a whole namespace', async () => {
+        // The prompt for it would read "let this app show your app data to
+        // whoever it picks", which describes no bounded capability — so the
+        // request is refused where it is made, not after the user answers it.
+        const appName = `tkv-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestKvShareApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const namespace = `manage:kv-share:${issuer.uuid}:${app.uid}`;
+
+        await expect(
+            inCtx(issuerActor, () =>
+                controller.handleGrantUserApp(
+                    makeReq(
+                        { app_uid: app.uid, permission: namespace },
+                        { actor: issuerActor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ legacyCode: 'invalid_kv_share_prefix' });
+
+        // A region under it is exactly what the flow is for.
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    {
+                        app_uid: app.uid,
+                        permission: `${namespace}:team:abc`,
+                    },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
+
     it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
         // 300 chars is under the 4096 input cap but over `varchar(255)`, so it
         // used to reach the INSERT and fault on MySQL/Postgres. The check runs
@@ -2174,7 +2326,8 @@ describe('AuthController grant flows', () => {
         const NOTHING = 'nothing-in-particular';
         server.services.permission.registerRewriter({
             id: `test-grant-only-${prefix}`,
-            matches: (permission: string) => permission.startsWith(`${prefix}:`),
+            matches: (permission: string) =>
+                permission.startsWith(`${prefix}:`),
             // The real rewriter's condition, verbatim.
             rewrite: async (permission: string) =>
                 Context.get('is_grant_user_app_permission')
@@ -2220,20 +2373,526 @@ describe('AuthController grant flows', () => {
         // And it must not have written the sentinel as a row of its own.
         expect(await storedPermissions()).not.toContain(NOTHING);
     });
+});
 
-    it('grant-user-group: 404 when the group does not exist', async () => {
-        await expect(
-            controller.handleGrantUserGroup(
-                makeReq(
-                    {
-                        group_uid: `does-not-exist-${uuidv4()}`,
-                        permission: 'service:foo:ii:read',
-                    },
-                    { actor: issuerActor },
-                ),
+// ── grant-user-app `create` flag ────────────────────────────────────
+
+describe('AuthController.handleGrantUserApp `create` flag', () => {
+    let user: { id: number; uuid: string; username: string };
+    let target: { username: string };
+    let userActor: Actor;
+    let appActor: Actor;
+    let appUid: string;
+    let appId: number;
+
+    beforeAll(async () => {
+        const uname = `fc_${uuidv4().slice(0, 8)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: uname,
+                email: `${uname}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const u = await server.stores.user.getByUsername(uname);
+        await server.stores.user.update(u!.id, { email_confirmed: 1 });
+        user = { id: u!.id, uuid: u!.uuid, username: u!.username };
+        userActor = {
+            user: {
+                id: user.id,
+                uuid: user.uuid,
+                username: user.username,
+                email: u!.email!,
+                email_confirmed: true,
+            },
+        } as Actor;
+
+        const tname = `fct_${uuidv4().slice(0, 8)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: tname,
+                email: `${tname}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        target = { username: tname };
+
+        const app = await server.stores.app.create(
+            {
+                name: `fc-app-${uuidv4()}`,
+                title: 'FsCreateApp',
+                index_url: 'https://example.test/fs-create',
+            },
+            { ownerUserId: user.id },
+        );
+        appUid = app.uid;
+        appId = app.id;
+        appActor = makeActor({
+            user: userActor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+    });
+
+    const grant = (body: Record<string, unknown>) =>
+        inCtx(userActor, () =>
+            controller.handleGrantUserApp(
+                makeReq({ app_uid: appUid, ...body }, { actor: userActor }),
                 makeRes(),
             ),
-        ).rejects.toMatchObject({ statusCode: 404 });
+        );
+
+    const revoke = (body: Record<string, unknown>) =>
+        inCtx(userActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq({ app_uid: appUid, ...body }, { actor: userActor }),
+                makeRes(),
+            ),
+        );
+
+    /** Reads permission held by the app as granted by `user`, via a real check. */
+    const checkAsApp = async (permission: string): Promise<boolean> => {
+        const res = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor: appActor }),
+                res,
+            ),
+        );
+        return (res.body as { permissions: Record<string, boolean> })
+            .permissions[permission];
+    };
+
+    const grantedPermissions = async (): Promise<string[]> =>
+        (
+            (await server.clients.db.read(
+                'SELECT `permission` FROM `user_to_app_permissions` ' +
+                    'WHERE `user_id` = ? AND `app_id` = ?',
+                [user.id, appId],
+            )) as Array<{ permission: string }>
+        ).map((r) => r.permission);
+
+    const path = (name: string) => `/${user.username}/${name}`;
+    const rand = () => uuidv4().slice(0, 6);
+
+    it('creates a missing directory by default, grants it, and a subsequent check reports it held', async () => {
+        const p = path(`.mail-${rand()}`);
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+
+        await grant({ permission: `fs:${p}:write` });
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(entry?.isDir).toBe(true);
+        expect(await grantedPermissions()).toContain(`fs:${entry!.uuid}:write`);
+        expect(await checkAsApp(`fs:${p}:write`)).toBe(true);
+    });
+
+    it('creates a missing file when `create: true` and the basename has a dot', async () => {
+        const p = path(`notes-${rand()}.txt`);
+        await grant({ permission: `fs:${p}:write`, create: true });
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(entry?.isDir).toBe(false);
+    });
+
+    it('applies the basename heuristic end-to-end for each documented shape', async () => {
+        const cases: Array<[string, boolean]> = [
+            [`.mail-${rand()}`, true],
+            [`.config-${rand()}`, true],
+            [`Docs-${rand()}`, true],
+            [`notes-${rand()}.txt`, false],
+            [`.env-${rand()}.local`, false],
+            [`archive-${rand()}.tar.gz`, false],
+        ];
+        for (const [name, expectDir] of cases) {
+            const p = path(name);
+            await grant({ permission: `fs:${p}:write`, create: true });
+            const entry = await server.stores.fsEntry.getEntryByPath(p);
+            expect(entry?.isDir).toBe(expectDir);
+        }
+    });
+
+    it('an explicit `dir`/`file` overrides the heuristic', async () => {
+        const mailPath = path(`.mail-${rand()}`);
+        await grant({ permission: `fs:${mailPath}:write`, create: 'file' });
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(mailPath))?.isDir,
+        ).toBe(false);
+
+        const notesPath = path(`notes-${rand()}.txt`);
+        await grant({ permission: `fs:${notesPath}:write`, create: 'dir' });
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(notesPath))?.isDir,
+        ).toBe(true);
+    });
+
+    it('`create: false` opts out: a missing path 404s and nothing is created', async () => {
+        const p = path(`missing-${rand()}`);
+        await expect(
+            grant({ permission: `fs:${p}:write`, create: false }),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+    });
+
+    it('creates missing intermediate directories along with the leaf', async () => {
+        const seg = rand();
+        const dirA = path(`a-${seg}`);
+        const leaf = path(`a-${seg}/.mail`);
+
+        await grant({ permission: `fs:${leaf}:write`, create: true });
+
+        const parentEntry = await server.stores.fsEntry.getEntryByPath(dirA);
+        expect(parentEntry?.isDir).toBe(true);
+        const leafEntry = await server.stores.fsEntry.getEntryByPath(leaf);
+        expect(leafEntry?.isDir).toBe(true);
+        expect(await grantedPermissions()).toContain(
+            `fs:${leafEntry!.uuid}:write`,
+        );
+    });
+
+    it('rolls back only the leaf, not auto-created intermediate directories, when a later phase fails', async () => {
+        const seg = rand();
+        const dirA = path(`b-${seg}`);
+        const leaf = path(`b-${seg}/.mail`);
+
+        // Same short-then-too-wide rewrite trick as the rollback test above:
+        // phase A's pre-flight passes, phase C's re-check then fails, so the
+        // leaf (and its auto-created parent) already exist by the time the
+        // request unwinds.
+        const prefix = `rbparent-${uuidv4()}`;
+        let calls = 0;
+        server.services.permission.registerRewriter({
+            id: prefix,
+            matches: (permission: string) => permission === `${prefix}:x`,
+            rewrite: async () => {
+                calls += 1;
+                return calls === 1
+                    ? `${prefix}:short`
+                    : `${prefix}:${'x'.repeat(300)}`;
+            },
+        });
+
+        await expect(
+            grant({
+                permissions: [`fs:${leaf}:write`, `${prefix}:x`],
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // The intermediate directory created along the way is left in place...
+        const parentEntry = await server.stores.fsEntry.getEntryByPath(dirA);
+        expect(parentEntry?.isDir).toBe(true);
+        // ...but the leaf that `#createGrantTarget` created is rolled back.
+        expect(await server.stores.fsEntry.getEntryByPath(leaf)).toBeFalsy();
+    });
+
+    it("refuses to create under AppData or Trash, even inside the caller's own home", async () => {
+        // AppData itself exists as a standard home folder since signup, but
+        // the app-uid directory below it does not — with parents now
+        // auto-created, that subdirectory is an intermediate parent this
+        // guard must still refuse to seed on the way to the leaf.
+        const appDataSubdir = path(`AppData/some-app-${rand()}`);
+        const appDataPath = `${appDataSubdir}/x`;
+        await expect(
+            grant({ permission: `fs:${appDataPath}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(appDataPath),
+        ).toBeFalsy();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(appDataSubdir),
+        ).toBeFalsy();
+
+        const trashPath = path(`Trash/x-${rand()}`);
+        await expect(
+            grant({ permission: `fs:${trashPath}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(trashPath),
+        ).toBeFalsy();
+    });
+
+    it('rejects a path more than the depth limit below home, creating nothing', async () => {
+        const deep = path(
+            Array.from({ length: 17 }, () => `d-${rand()}`).join('/'),
+        );
+        await expect(
+            grant({ permission: `fs:${deep}:write`, create: true }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'directory_depth_limit_exceeded',
+        });
+        expect(await server.stores.fsEntry.getEntryByPath(deep)).toBeFalsy();
+    });
+
+    it('caps how many entries one request may create, and creates nothing once over the cap', async () => {
+        const paths = Array.from({ length: 5 }, () => path(`.cap-${rand()}`));
+        await expect(
+            grant({
+                permissions: paths.map((p) => `fs:${p}:write`),
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        for (const p of paths) {
+            expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+        }
+    });
+
+    it('conflicts with 409 when an explicit kind disagrees with an existing entry, and grants nothing', async () => {
+        const dirPath = path(`existing-dir-${rand()}`);
+        await server.services.fs.mkdir(user.id, {
+            path: dirPath,
+            createMissingParents: true,
+        });
+        await expect(
+            grant({ permission: `fs:${dirPath}:write`, create: 'file' }),
+        ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
+        const dirEntry = await server.stores.fsEntry.getEntryByPath(dirPath);
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${dirEntry!.uuid}:write`,
+        );
+
+        const filePath = path(`existing-file-${rand()}.txt`);
+        await server.services.fs.touch(user.id, {
+            path: filePath,
+            createMissingParents: true,
+        });
+        await expect(
+            grant({ permission: `fs:${filePath}:write`, create: 'dir' }),
+        ).rejects.toMatchObject({ statusCode: 409, legacyCode: 'conflict' });
+        const fileEntry = await server.stores.fsEntry.getEntryByPath(filePath);
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${fileEntry!.uuid}:write`,
+        );
+    });
+
+    it('`create: true` never conflicts with an existing entry, even when the heuristic disagrees', async () => {
+        // `.mail` alone would heuristically be a *dir*; create a *file* there
+        // first and confirm `create: true` still resolves it instead of
+        // erroring or overwriting it.
+        const p = path(`.mail-${rand()}`);
+        const created = await server.services.fs.touch(user.id, {
+            path: p,
+            createMissingParents: true,
+        });
+        expect(created.isDir).toBe(false);
+
+        await grant({ permission: `fs:${p}:write`, create: true });
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(entry?.isDir).toBe(false);
+        expect(entry?.uuid).toBe(created.uuid);
+        expect(await grantedPermissions()).toContain(`fs:${entry!.uuid}:write`);
+    });
+
+    it("rejects creating outside the caller's home directory, leaving the other user's tree untouched", async () => {
+        const p = `/${target.username}/evil-${rand()}`;
+        await expect(
+            grant({ permission: `fs:${p}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+    });
+
+    it('rejects a path traversal attempt with 400, and creates nothing', async () => {
+        const p = `/${user.username}/../${target.username}/evil-${rand()}`;
+        await expect(
+            grant({ permission: `fs:${p}:write`, create: true }),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('does not apply `create` to a `manage:` grant — 404 unchanged, nothing created', async () => {
+        const p = path(`manage-missing-${rand()}`);
+        await expect(
+            grant({ permission: `manage:fs:${p}:write` }),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+    });
+
+    it('a batch creates only the missing entry and grants both', async () => {
+        const existingPath = path(`already-there-${rand()}`);
+        await server.services.fs.mkdir(user.id, {
+            path: existingPath,
+            createMissingParents: true,
+        });
+        const missingPath = path(`.newmail-${rand()}`);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(missingPath),
+        ).toBeFalsy();
+
+        const mkdirSpy = vi.spyOn(server.services.fs, 'mkdir');
+        const touchSpy = vi.spyOn(server.services.fs, 'touch');
+        try {
+            await grant({
+                permissions: [
+                    `fs:${existingPath}:write`,
+                    `fs:${missingPath}:write`,
+                ],
+                create: true,
+            });
+            // Only the missing one is actually created.
+            expect(
+                mkdirSpy.mock.calls.length + touchSpy.mock.calls.length,
+            ).toBe(1);
+        } finally {
+            mkdirSpy.mockRestore();
+            touchSpy.mockRestore();
+        }
+
+        const existingEntry =
+            await server.stores.fsEntry.getEntryByPath(existingPath);
+        const createdEntry =
+            await server.stores.fsEntry.getEntryByPath(missingPath);
+        expect(createdEntry?.isDir).toBe(true);
+        const perms = await grantedPermissions();
+        expect(perms).toContain(`fs:${existingEntry!.uuid}:write`);
+        expect(perms).toContain(`fs:${createdEntry!.uuid}:write`);
+    });
+
+    it('creates a path named twice in one batch only once, and grants both entries', async () => {
+        const p = path(`.dupmail-${rand()}`);
+
+        const mkdirSpy = vi.spyOn(server.services.fs, 'mkdir');
+        const touchSpy = vi.spyOn(server.services.fs, 'touch');
+        try {
+            await grant({
+                permissions: [`fs:${p}:write`, `fs:${p}:read`],
+                create: true,
+            });
+            expect(
+                mkdirSpy.mock.calls.length + touchSpy.mock.calls.length,
+            ).toBe(1);
+        } finally {
+            mkdirSpy.mockRestore();
+            touchSpy.mockRestore();
+        }
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        const perms = await grantedPermissions();
+        expect(perms).toContain(`fs:${entry!.uuid}:write`);
+        expect(perms).toContain(`fs:${entry!.uuid}:read`);
+    });
+
+    it('creates and grants nothing when a later entry fails phase-A validation', async () => {
+        const goodPath = path(`.batchmail-${rand()}`);
+        await expect(
+            grant({
+                permissions: [`fs:${goodPath}:write`, 'x'.repeat(300)],
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(
+            await server.stores.fsEntry.getEntryByPath(goodPath),
+        ).toBeFalsy();
+    });
+
+    it('rolls back what phase B created when phase C fails afterward', async () => {
+        const missingPath = path(`.rollback-${rand()}`);
+
+        // A second entry whose rewrite is short during phase A's pre-flight
+        // (so nothing is rejected before anything is created) but has grown
+        // too wide by the time phase C re-runs it — modelling a grant that
+        // only fails once the fs path from the same batch already exists.
+        const prefix = `rbtest-${uuidv4()}`;
+        let calls = 0;
+        server.services.permission.registerRewriter({
+            id: `test-rollback-${prefix}`,
+            matches: (permission: string) => permission === `${prefix}:x`,
+            rewrite: async () => {
+                calls += 1;
+                return calls === 1
+                    ? `${prefix}:short`
+                    : `${prefix}:${'x'.repeat(300)}`;
+            },
+        });
+
+        await expect(
+            grant({
+                permissions: [`fs:${missingPath}:write`, `${prefix}:x`],
+                create: true,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // Phase B created the directory; phase C then failed on the second
+        // entry, and the rollback undid it.
+        expect(
+            await server.stores.fsEntry.getEntryByPath(missingPath),
+        ).toBeFalsy();
+    });
+
+    it('grant/revoke parity: revoking after a `create` grant removes the row and check no longer holds it', async () => {
+        const p = path(`.parity-${rand()}`);
+        await grant({ permission: `fs:${p}:write`, create: true });
+        expect(await checkAsApp(`fs:${p}:write`)).toBe(true);
+
+        await revoke({ permission: `fs:${p}:write` });
+        expect(await checkAsApp(`fs:${p}:write`)).toBe(false);
+
+        const entry = await server.stores.fsEntry.getEntryByPath(p);
+        expect(await grantedPermissions()).not.toContain(
+            `fs:${entry!.uuid}:write`,
+        );
+    });
+
+    it('check-permissions on a missing fs path answers false rather than 404ing, without poisoning a mixed batch', async () => {
+        const missingPath = path(`.checkmissing-${rand()}`);
+        // A held fs grant: the owning user holds it implicitly (is-owner), so
+        // the app-under-user delegation resolves without needing a separate
+        // flat grant on the user themselves.
+        const heldPath = path(`.checkheld-${rand()}`);
+        await grant({ permission: `fs:${heldPath}:write`, create: true });
+        const heldPermission = `fs:${heldPath}:write`;
+
+        const res = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    {
+                        permissions: [
+                            `fs:${missingPath}:write`,
+                            heldPermission,
+                        ],
+                    },
+                    { actor: appActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.statusCode).toBe(200);
+        const body = res.body as { permissions: Record<string, boolean> };
+        expect(body.permissions[`fs:${missingPath}:write`]).toBe(false);
+        expect(body.permissions[heldPermission]).toBe(true);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(missingPath),
+        ).toBeFalsy();
+    });
+
+    it('ignores `create` on a non-fs permission and grants it normally', async () => {
+        const permission = `apps-of-user:${user.uuid}:read`;
+        await grant({ permission, create: true });
+        expect(await grantedPermissions()).toContain(permission);
+    });
+
+    it('rejects an invalid `create` value with 400, before anything is created or granted', async () => {
+        for (const badCreate of ['sock', 1, {}]) {
+            const p = path(`.badcreate-${rand()}`);
+            await expect(
+                grant({
+                    permission: `fs:${p}:write`,
+                    create: badCreate as never,
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
+        }
     });
 });
 
@@ -2312,7 +2971,7 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
     // the latency with every test still passing.
     it('runs the permission grant, token mint and AppData mkdir concurrently', async () => {
         const order: string[] = [];
-        const defer = <T,>(label: string, value: T) => {
+        const defer = <T>(label: string, value: T) => {
             order.push(`${label}:start`);
             return new Promise<T>((resolve) =>
                 setTimeout(() => {
@@ -2384,6 +3043,35 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(typeof body.token).toBe('string');
     });
 
+    // What decides whether a cancelled "Sign in with Puter" still hands over a token.
+    it('check-app reports an app the user never opened as unauthorized, with no token', async () => {
+        const untouched = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string; id: number }>
+        )(
+            {
+                name: `ca-${uuidv4()}`,
+                title: 'Never opened',
+                index_url: 'https://never-opened.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckApp(
+                makeReq({ app_uid: untouched.uid }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({
+            app_uid: untouched.uid,
+            authenticated: false,
+        });
+    });
+
     it('check-app returns the {app_uid, authenticated} envelope shape', async () => {
         // Create a brand-new actor with no app-related history so the
         // permission scan can't cache-hit anything from prior tests, AND
@@ -2446,16 +3134,7 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
             authenticated: boolean;
             token?: string;
         };
-        expect(body.app_uid).toBe(otherApp.uid);
-        expect(typeof body.authenticated).toBe('boolean');
-        // Whether `authenticated` is true depends on the user's full
-        // permission set (default group, owned-app implicits, etc.) — this
-        // test only pins the response *shape*, since the substantive case
-        // (`authenticated: true` after a paired get-user-app-token) is
-        // covered by the test above.
-        if (!body.authenticated) {
-            expect(body.token).toBeUndefined();
-        }
+        expect(body).toEqual({ app_uid: otherApp.uid, authenticated: false });
     });
 
     it('falls back to origin → app_uid resolution and bootstraps a new app row', async () => {
@@ -2513,6 +3192,60 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(bootstrapped).toBeTruthy();
         expect(bootstrapped?.owner_user_id).toBe(owner!.id);
     });
+
+    it('canonicalizes alternate-host origins to one bootstrap row per subdomain', async () => {
+        const subdomain = `sd-${uuidv4().slice(0, 8)}`;
+        await server.stores.subdomain.create({ userId: user.id, subdomain });
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq(
+                    { origin: `https://${subdomain}.host.puter.localhost` },
+                    { actor },
+                ),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        const bootstrapped = await server.stores.app.getByUid(body.app_uid);
+        expect(bootstrapped?.index_url).toBe(
+            `http://${subdomain}.site.puter.localhost`,
+        );
+
+        const res2 = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq(
+                    { origin: `https://${subdomain}.app.puter.localhost` },
+                    { actor },
+                ),
+                res2,
+            ),
+        );
+        expect((res2.body as { app_uid: string }).app_uid).toBe(body.app_uid);
+    });
+
+    it('supports browser extension origins in handleGetUserAppToken', async () => {
+        // Random id: a pre-existing row for this origin would resolve through
+        // the canonical lookup and never exercise the bootstrap path.
+        const origin = `chrome-extension://${uuidv4()}`;
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        expect(body.app_uid).toBe(
+            `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`,
+        );
+        const bootstrapped = await server.stores.app.getByUid(body.app_uid);
+        expect(bootstrapped?.index_url).toBe(origin);
+        // Proves the row came from the bootstrap path, not an earlier test.
+        expect(bootstrapped?.description).toMatch(/^App created from origin /);
+    });
 });
 
 // ── Access tokens: create + revoke ─────────────────────────────────
@@ -2561,6 +3294,39 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
                 ),
                 makeRes(),
             ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it.each([
+        ['an object', {}],
+        ['an array', ['30d']],
+        ['a boolean', true],
+        ['a fraction', 1.5],
+        ['a negative', -60],
+        ['an unparseable duration', 'banana'],
+        ['an unknown unit', '30x'],
+    ])('rejects %s as expiresIn with 400', async (_label, expiresIn) => {
+        // Anything the signer can't read reaches it only after the session row
+        // is already inserted, so it has to be refused here.
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq(
+                    {
+                        permissions: ['fs:read'],
+                        expiresIn: expiresIn as unknown as string,
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('answers 400 when the request has no parsable body', async () => {
+        const req = makeReq({}, { actor });
+        (req as { body?: unknown }).body = undefined;
+        await expect(
+            controller.handleCreateAccessToken(req, makeRes()),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
@@ -2789,6 +3555,39 @@ describe('AuthController.handleSendConfirmEmail', () => {
         expect(after!.email_confirm_code).not.toBe(before!.email_confirm_code);
         expect(String(after!.email_confirm_code).length).toBe(6);
     });
+
+    // The resend is the recovery path for a lost code, so it must not fail
+    // silently either.
+    it('alarms — and still returns {} — when the resend send throws', async () => {
+        const { actor } = await makeUserAndActor();
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockRejectedValue(new Error('smtp down'));
+        try {
+            const res = makeRes();
+            await controller.handleSendConfirmEmail(
+                makeReq({}, { actor }),
+                res,
+            );
+            // Not the caller's fault; still a 200.
+            expect(res.body).toEqual({});
+
+            const raised = alarm.mock.calls.find(
+                (c) => c[0] === 'auth:confirmation-email-send-failed:resend',
+            );
+            expect(raised).toBeTruthy();
+            const fields = raised![2] as Record<string, unknown>;
+            expect(fields.stage).toBe('resend');
+            expect(fields.detail).toBe('smtp down');
+            expect(fields.error).toBeInstanceOf(Error);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
 });
 
 // The per-account / per-number SMS send caps used to live here as a hardcoded
@@ -2839,7 +3638,10 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         const { actor } = await makeUserAndActor();
         const createVerification = vi.fn(async () => ({ status: 'success' }));
         await withPrelude(
-            stubPrelude({ isCountrySupported: () => false, createVerification }),
+            stubPrelude({
+                isCountrySupported: () => false,
+                createVerification,
+            }),
             async () => {
                 await expect(
                     controller.handleSendConfirmPhone(
@@ -3011,7 +3813,10 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         const createVerification = vi.fn(async () => ({ status: 'success' }));
         await withPrelude(stubPrelude({ createVerification }), async () => {
             await controller.handleSendConfirmPhone(
-                makeReq({ phone: '+14155550123' }, { actor, ip: '203.0.113.7' }),
+                makeReq(
+                    { phone: '+14155550123' },
+                    { actor, ip: '203.0.113.7' },
+                ),
                 makeRes(),
             );
         });
@@ -3214,7 +4019,10 @@ describe('AuthController phone verification — staging & reuse', () => {
                 expect(res.body).toMatchObject({ phone_verified: true });
             },
         );
-        expect(checkVerification).toHaveBeenCalledWith('+14155550123', '123456');
+        expect(checkVerification).toHaveBeenCalledWith(
+            '+14155550123',
+            '123456',
+        );
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -3254,8 +4062,8 @@ describe('AuthController.handleConfirmPhone', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('short-circuits to verified when the gate is not set (no Prelude call)', async () => {
-        const { actor } = await makeUserAndActor();
+    it('short-circuits to verified when a verified number is on file (no Prelude call)', async () => {
+        const { actor } = await makeUserAndActor({ phone: '+14155550123' });
         const checkVerification = vi.fn();
         await withPrelude(stubPrelude({ checkVerification }), async () => {
             const res = makeRes();
@@ -3266,6 +4074,34 @@ describe('AuthController.handleConfirmPhone', () => {
             expect(res.body).toMatchObject({ phone_verified: true });
             expect(checkVerification).not.toHaveBeenCalled();
         });
+    });
+
+    it('verifies for real when the gate was never set but no number is on file', async () => {
+        // A route requiring a verified phone sends never-flagged users here;
+        // answering "verified" on the clear flag alone would store nothing and
+        // leave that route refusing them.
+        const { user, actor } = await makeUserAndActor();
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${user.id}`,
+            value: '+14155550123',
+        });
+        const checkVerification = vi.fn(async () => ({ status: 'success' }));
+        await withPrelude(stubPrelude({ checkVerification }), async () => {
+            const res = makeRes();
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor }),
+                res,
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
+        expect(checkVerification).toHaveBeenCalledWith(
+            '+14155550123',
+            '123456',
+        );
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.phone).toBe('+14155550123');
     });
 
     it('throws 400 when the gate is set but no phone is on file', async () => {
@@ -3417,14 +4253,31 @@ describe('AuthController.handleConfirmPhone', () => {
 });
 
 describe('AuthController.handleCardVerificationSetup', () => {
-    it('short-circuits to verified when the gate is not set', async () => {
-        const { actor } = await makeUserAndActor();
+    it('short-circuits to verified for an account with a card on file', async () => {
+        const { actor } = await makeUserAndActor({
+            card_fingerprint: 'fp_existing',
+        });
         const res = makeRes();
         await controller.handleCardVerificationSetup(
             makeReq({}, { actor }),
             res,
         );
         expect(res.body).toMatchObject({ card_verified: true });
+    });
+
+    it('starts the flow for an account that was never asked and never verified', async () => {
+        // A route requiring a verified card (`requireCardVerified`) sends a
+        // user here with the gate clear and no card on file. Answering
+        // "already verified" on the flag alone would bounce them between a
+        // dialog reporting success and a route that keeps refusing; reaching
+        // the extension (absent here, hence 503) is the flow actually running.
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleCardVerificationSetup(
+                makeReq({}, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 503 });
     });
 
     it('throws 403 when the account is suspended', async () => {
@@ -3527,14 +4380,28 @@ describe('AuthController.handleCardVerificationConfirm', () => {
         }
     });
 
-    it('short-circuits to verified when the gate is not set', async () => {
-        const { actor } = await makeUserAndActor();
+    it('short-circuits to verified for an account with a card on file', async () => {
+        const { actor } = await makeUserAndActor({
+            card_fingerprint: 'fp_existing',
+        });
         const res = makeRes();
         await controller.handleCardVerificationConfirm(
             makeReq({ setup_intent_id: 'seti_1' }, { actor }),
             res,
         );
         expect(res.body).toMatchObject({ card_verified: true });
+    });
+
+    it('runs the confirm for an account that was never asked and never verified', async () => {
+        // Same reason as setup: the pending flag says nobody asked, not that
+        // a card was checked, so a voluntary verification has to go through.
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleCardVerificationConfirm(
+                makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 503 });
     });
 
     it('throws 409 when phone verification must be completed first', async () => {
@@ -3691,31 +4558,180 @@ describe('AuthController SMS → card fallback', () => {
             value: true,
         });
 
-    it('offers the fallback on send once the attempt threshold is reached', async () => {
-        const { actor } = await makeUserAndActor({
+    it('offers the fallback on send only once SMS attempts are exhausted', async () => {
+        const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
         });
-        // No after_attempts → exercises the default threshold of 2.
+        // No after_attempts → the default is the send route's whole allowance,
+        // so the offer appears on the last send that limit allows and not
+        // before: the card path is for a phone that has run out of tries.
         await withFallbackConfig({ enabled: true }, async () => {
             await withPrelude(stubPrelude(), async () => {
-                const first = makeRes();
+                const early = makeRes();
                 await controller.handleSendConfirmPhone(
                     makeReq({ phone: '+14155550123' }, { actor }),
-                    first,
+                    early,
                 );
-                // First attempt is below the threshold — no offer yet.
-                expect(first.body).toEqual({});
+                // One attempt spent, nine still available — no offer.
+                expect(early.body).toEqual({});
 
-                const second = makeRes();
+                // Stop one short of the allowance: still nothing on offer.
+                await seedAttempts(user.id, 7);
+                const penultimate = makeRes();
                 await controller.handleSendConfirmPhone(
                     makeReq({ phone: '+14155550123' }, { actor }),
-                    second,
+                    penultimate,
                 );
-                expect(second.body).toEqual({
+                expect(penultimate.body).toEqual({});
+
+                // The tenth send is the last one the route will allow, so this
+                // is the point the user is out of SMS attempts.
+                const last = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    last,
+                );
+                expect(last.body).toEqual({
                     card_fallback_available: true,
                 });
             });
         });
+    });
+
+    // The card gate lives in an extension, so the backend asks for its status
+    // over the event bus. Stub that one client: `null` stands for no extension
+    // listening at all, which is what a stock build looks like.
+    const withCardStatus = async (
+        enabled: boolean | null,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { event: unknown } };
+        const real = ctrl.clients.event;
+        ctrl.clients.event = {
+            emitAndWait: async (
+                key: string,
+                event: Record<string, unknown>,
+            ) => {
+                if (key === 'puter.card-verification.status') {
+                    if (enabled !== null) event.enabled = enabled;
+                }
+            },
+            emit: () => undefined,
+        };
+        resetCardVerificationStatusCache();
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.event = real;
+            resetCardVerificationStatusCache();
+        }
+    };
+
+    it('defaults on when SMS and card verification are both available', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // No `phone_verification_card_fallback` at all: the pair it bridges is
+        // what decides, and here both halves work.
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(true, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({
+                        card_fallback_available: true,
+                    });
+                });
+            });
+        });
+    });
+
+    it('stays off by default with no card gate behind it', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // Nothing answers the status probe (stock build) — offering a card path
+        // here could only strand the user, so the default holds it closed.
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(null, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('stays off by default when the card gate reports itself disabled', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(false, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('honours an explicit opt-out even when both gates are available', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig({ enabled: false }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(true, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('clamps after_attempts to the send allowance so it stays reachable', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // A threshold above the send limit could never be crossed on its own
+        // terms — requests past the limit are rejected in middleware and never
+        // reach the counter — so it is clamped down to the allowance.
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 50 },
+            async () => {
+                await withPrelude(stubPrelude(), async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({
+                        card_fallback_available: true,
+                    });
+                });
+            },
+        );
     });
 
     it('never offers the fallback on send when disabled', async () => {
@@ -3773,28 +4789,25 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardSetupOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.client_secret = 'seti_secret';
-                        data.publishable_key = 'pk_test';
-                    },
-                    () =>
-                        controller.handleCardVerificationSetup(
-                            makeReq({}, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toEqual({
-                    client_secret: 'seti_secret',
-                    publishable_key: 'pk_test',
-                });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardSetupOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.client_secret = 'seti_secret';
+                    data.publishable_key = 'pk_test';
+                },
+                () =>
+                    controller.handleCardVerificationSetup(
+                        makeReq({}, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toEqual({
+                client_secret: 'seti_secret',
+                publishable_key: 'pk_test',
+            });
+        });
     });
 
     it('still 409s card setup when no send has opened the fallback', async () => {
@@ -3889,27 +4902,24 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardConfirmOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.verified = true;
-                    },
-                    () =>
-                        controller.handleCardVerificationConfirm(
-                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toMatchObject({
-                    card_verified: true,
-                    phone_verified: true,
-                });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardConfirmOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.verified = true;
+                },
+                () =>
+                    controller.handleCardVerificationConfirm(
+                        makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toMatchObject({
+                card_verified: true,
+                phone_verified: true,
+            });
+        });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -3923,24 +4933,21 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardConfirmOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.verified = true;
-                    },
-                    () =>
-                        controller.handleCardVerificationConfirm(
-                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toMatchObject({ phone_verified: true });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardConfirmOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.verified = true;
+                },
+                () =>
+                    controller.handleCardVerificationConfirm(
+                        makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -4174,6 +5181,102 @@ describe('AuthController.handleSaveAccount address conflicts', () => {
         expect(untouched!.email).toBeNull();
         expect(untouched!.password).toBeNull();
     });
+
+    it('refuses to promote a temp account when the home path is already occupied', async () => {
+        const parked = `save_home_${Math.random().toString(36).slice(2, 10)}`;
+        const { user: occupant } = await makeUserAndActor();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            occupant.id,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}`, root.id],
+        );
+
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempUser = (
+            tempRes.body as { user: { username: string; uuid: string } }
+        ).user;
+        const tempRow = await server.stores.user.getByUuid(tempUser.uuid);
+        const actor = {
+            user: {
+                id: tempRow!.id,
+                uuid: tempRow!.uuid,
+                username: tempRow!.username,
+                email: null,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await expect(
+            controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username: parked,
+                        email: `${parked}@test.local`,
+                        password: 'another-strong-password',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const untouched = await server.stores.user.getById(tempRow!.id, {
+            force: true,
+        });
+        expect(untouched!.username).toBe(tempRow!.username);
+        expect(untouched!.password).toBeNull();
+    });
+
+    it('refuses to promote a temp account when only a foreign row sits under the home path', async () => {
+        const parked = `save_home_${Math.random().toString(36).slice(2, 10)}`;
+        const { user: occupant } = await makeUserAndActor();
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${occupant.username}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}/Documents`, docs.id],
+        );
+
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempUser = (
+            tempRes.body as { user: { username: string; uuid: string } }
+        ).user;
+        const tempRow = await server.stores.user.getByUuid(tempUser.uuid);
+        const actor = {
+            user: {
+                id: tempRow!.id,
+                uuid: tempRow!.uuid,
+                username: tempRow!.username,
+                email: null,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await expect(
+            controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username: parked,
+                        email: `${parked}@test.local`,
+                        password: 'another-strong-password',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const untouched = await server.stores.user.getById(tempRow!.id, {
+            force: true,
+        });
+        expect(untouched!.username).toBe(tempRow!.username);
+        expect(untouched!.password).toBeNull();
+    });
 });
 
 // ── Password recovery flow ──────────────────────────────────────────
@@ -4208,6 +5311,34 @@ describe('AuthController password recovery', () => {
             force: true,
         });
         expect(after!.pass_recovery_token).toBeTruthy();
+    });
+
+    it('send-pass-recovery-email: refuses a team seat, and writes no token', async () => {
+        // The seat's address is admin-supplied and unverified; recovery there
+        // would be a takeover channel. Its recovery is the admin's reset.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        const res = makeRes();
+        await controller.handleSendPassRecoveryEmail(
+            makeReq({ username: seat.username }),
+            res,
+        );
+        expect((res.body as { message: string }).message).toMatch(
+            /If that account exists/i,
+        );
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
+        expect(after!.pass_recovery_token).toBeFalsy();
     });
 
     it('verify-pass-recovery-token: 400 on missing token', async () => {
@@ -4457,6 +5588,57 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('change-email: 403 for an account its team provisioned', async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeEmail(
+                makeReq(
+                    { new_email: `moved_${uniq()}@example.com` },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('change-username: 403 for an account its team provisioned', async () => {
+        // The console lists members by username and the audit log records them
+        // by it; a self-service rename would desync both.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        // addMember refuses to adopt an account that has one.
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(seat.username);
+    });
+
     it('change-username: persists the rename and emits user.username-changed', async () => {
         const { user, actor } = await makeUserAndActor();
         const newUsername = `r_${uniq()}`;
@@ -4489,6 +5671,62 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         } finally {
             void off; // listener stays attached; harmless for the rest of the suite.
         }
+    });
+
+    it('change-username: 400 when the home path is already occupied, before the rename', async () => {
+        const { user, actor } = await makeUserAndActor();
+        // A name no account holds, whose home path a stray row does. This is
+        // the shape of legacy drift; it used to leave two roots at one path.
+        const parked = `p_${uniq()}`;
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.id,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}`, root.id],
+        );
+        const { user: mover, actor: moverActor } = await makeUserAndActor();
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: parked }, { actor: moverActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        // The username claim is refused whole: the user row keeps its name.
+        const after = await server.stores.user.getById(mover.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(mover.username);
+        void actor;
+    });
+
+    it('change-username: 400 when only a foreign row sits under the target home path', async () => {
+        const { user } = await makeUserAndActor();
+        // Nothing sits at `/parked` itself — only a leftover child row does,
+        // the shape a partial cascade or a user-scoped cleanup leaves behind.
+        const parked = `p_${uniq()}`;
+        const docs = (await server.stores.fsEntry.getEntryByPath(
+            `/${user.username}/Documents`,
+        ))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE id = ?',
+            [`/${parked}/Documents`, docs.id],
+        );
+        const { user: mover, actor: moverActor } = await makeUserAndActor();
+
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: parked }, { actor: moverActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const after = await server.stores.user.getById(mover.id, {
+            force: true,
+        });
+        expect(after!.username).toBe(mover.username);
     });
 
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {
@@ -4780,16 +6018,24 @@ describe('AuthController permission revokes', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('revoke-user-group: 400 on missing group_uid/permission', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleRevokeUserGroup(
-                makeReq({ permission: 'fs:read' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+    // No in-tree caller, so a later cleanup would read it as dead: pin the gate.
+    it('revoke-user-user: stays registered as a user-actor route', () => {
+        const proto = Object.getPrototypeOf(controller) as Record<
+            string,
+            CollectedRoute[] | undefined
+        >;
+        const route = (proto[ROUTES_METADATA_KEY] ?? []).find(
+            (r) => r.path === '/auth/revoke-user-user',
+        );
+        expect(route, '/auth/revoke-user-user is not registered').toBeDefined();
+        expect(route!.method).toBe('post');
+        expect(route!.options).toMatchObject({
+            subdomain: 'api',
+            requireUserActor: true,
+        });
     });
 
+    // Why the deprecated route exists: older grants stay withdrawable.
     it('revoke-user-user: round-trips a grant + revoke without throwing', async () => {
         const { actor: issuerActor, user: issuer } = await makeUserAndActor();
         const { user: target } = await makeUserAndActor();
@@ -4803,24 +6049,17 @@ describe('AuthController permission revokes', () => {
                 issuer_user_id: issuer.id,
             } as never,
         );
-        // Grant first.
+        // Through the service: the grant route is retired, the revoke is not.
         await inCtx(issuerActor, () =>
-            controller.handleGrantUserUser(
-                makeReq(
-                    { target_username: target.username, permission },
-                    { actor: issuerActor },
-                ),
-                makeRes(),
+            server.services.permission.grantUserUserPermission(
+                issuerActor,
+                target.username,
+                permission,
             ),
         );
 
-        // Now revoke — must complete without throwing and return {}.
-        // We don't re-assert the post-revoke `check()` answer here: the
-        // Redis-mock scan cache is process-wide, and intervening grants
-        // from other tests have repeatedly been observed to leave the
-        // cached `true` answer in place even after a successful revoke.
-        // Verifying the controller path rather than the cache eviction
-        // semantics keeps this test focused.
+        // Asserts the controller path only: the process-wide Redis-mock scan
+        // cache makes a post-revoke `check()` unreliable across tests.
         const res = makeRes();
         await inCtx(issuerActor, () =>
             controller.handleRevokeUserUser(
@@ -4874,6 +6113,210 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ]);
     });
 
+    // What lets a permission request settle without a prompt. The second string
+    // is a consent scope nothing implies, so the first's `true` is the grant.
+    it('check-permissions: an app-under-user actor sees a grant made to that app', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cp-${uuidv4()}`,
+                title: 'TestCheckPermsApp',
+                index_url: 'https://check-perms.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const granted = `user:${user.uuid}:email:read`;
+        const ungranted = `apps-of-user:${user.uuid}:read`;
+
+        const appActor = makeActor({
+            user: actor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+        const before = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [granted, ungranted] },
+                    { actor: appActor },
+                ),
+                before,
+            ),
+        );
+        expect(before.body).toEqual({
+            permissions: { [granted]: false, [ungranted]: false },
+        });
+
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: granted, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const after = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [granted, ungranted] },
+                    { actor: appActor },
+                ),
+                after,
+            ),
+        );
+        expect(after.body).toEqual({
+            permissions: { [granted]: true, [ungranted]: false },
+        });
+    });
+
+    // What lets a launch settle a consent prompt it holds no app token for.
+    it('check-permissions: `app_uid` answers for that app, not for the asking user', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cpa-${uuidv4()}`,
+                title: 'TestCheckPermsAppUid',
+                index_url: 'https://check-perms-uid.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const permission = `user:${user.uuid}:email:read`;
+
+        // Held by the user, so asking as the user would answer `true`.
+        const asUser = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor }),
+                asUser,
+            ),
+        );
+        expect(asUser.body).toEqual({ permissions: { [permission]: true } });
+
+        const before = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: app.uid },
+                    { actor },
+                ),
+                before,
+            ),
+        );
+        expect(before.body).toEqual({ permissions: { [permission]: false } });
+
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq({ app_uid: app.uid, permission, extra: {} }, { actor }),
+                makeRes(),
+            ),
+        );
+
+        const after = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [permission], app_uid: app.uid },
+                    { actor },
+                ),
+                after,
+            ),
+        );
+        expect(after.body).toEqual({ permissions: { [permission]: true } });
+    });
+
+    it('check-permissions: an app cannot ask about another app, and an unknown app 404s', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cpx-${uuidv4()}`,
+                title: 'TestCheckPermsCrossApp',
+                index_url: 'https://check-perms-x.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const appActor = makeActor({
+            user: actor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+
+        await expect(
+            inCtx(appActor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: app.uid,
+                        },
+                        { actor: appActor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        await expect(
+            inCtx(actor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: `app-${uuidv4()}`,
+                        },
+                        { actor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        await expect(
+            inCtx(actor, () =>
+                controller.handleCheckPermissions(
+                    makeReq(
+                        {
+                            permissions: ['service:foo:ii:read'],
+                            app_uid: { not: 'a string' } as unknown as string,
+                        },
+                        { actor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    // Falling through to the user here would answer `true` for any file they own.
+    it('check-permissions: a present-but-empty `app_uid` is refused, not read as "no app"', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const permission = `user:${user.uuid}:email:read`;
+
+        for (const app_uid of ['', null]) {
+            await expect(
+                inCtx(actor, () =>
+                    controller.handleCheckPermissions(
+                        makeReq(
+                            { permissions: [permission], app_uid },
+                            { actor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        // Omitted entirely still means "what do I hold?".
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [permission] }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({ permissions: { [permission]: true } });
+    });
+
     it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
         const { user, actor } = await makeUserAndActor();
         const app = await server.stores.app.create(
@@ -4887,18 +6330,16 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         const permission = 'service:tl-app:ii:read';
         await inCtx(actor, () =>
             controller.handleGrantUserApp(
-                makeReq(
-                    { app_uid: app.uid, permission, extra: {} },
-                    { actor },
-                ),
+                makeReq({ app_uid: app.uid, permission, extra: {} }, { actor }),
                 makeRes(),
             ),
         );
 
         // A user→user grant must show up under `myself_to_user` for the
-        // issuer and `user_to_myself` for the holder. Grants gate on
-        // `manage:<permission>`, so bootstrap that flag first (mirrors the
-        // grant-user-user persistence test).
+        // issuer and `user_to_myself` for the holder. Seeded through the
+        // service: the grant route is retired, but the listing still has to
+        // report grants made before that, and the ones sharing writes.
+        // Grants gate on `manage:<permission>`, so bootstrap that flag first.
         const { user: holder, actor: holderActor } = await makeUserAndActor();
         const userPermission = 'service:tl-user:ii:read';
         await server.stores.permission.setFlatUserPerm(
@@ -4911,16 +6352,11 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             } as never,
         );
         await inCtx(actor, () =>
-            controller.handleGrantUserUser(
-                makeReq(
-                    {
-                        target_username: holder.username,
-                        permission: userPermission,
-                        extra: {},
-                    },
-                    { actor },
-                ),
-                makeRes(),
+            server.services.permission.grantUserUserPermission(
+                actor,
+                holder.username,
+                userPermission,
+                {},
             ),
         );
 
@@ -4948,12 +6384,69 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             holderRes,
         );
         expect(
-            (holderRes.body as { user_to_myself: Array<{ user: string; permission: string }> })
-                .user_to_myself,
+            (
+                holderRes.body as {
+                    user_to_myself: Array<{ user: string; permission: string }>;
+                }
+            ).user_to_myself,
         ).toContainEqual(
             expect.objectContaining({
                 user: user.username,
                 permission: userPermission,
+            }),
+        );
+    });
+
+    it('list-permissions: never shows a holder the key-value share grant behind their handle', async () => {
+        const { user: owner, actor: ownerActor } = await makeUserAndActor();
+        const { user: holder, actor: holderActor } = await makeUserAndActor();
+
+        // The grant a mint issues, seeded the same way: the owner implicator
+        // is what lets them issue it on their own namespace.
+        const permission = kvSharePermission(
+            owner.uuid as string,
+            'os-global',
+            'team:abc:',
+        );
+        await inCtx(ownerActor, () =>
+            server.services.permission.grantUserUserPermission(
+                ownerActor,
+                holder.username,
+                permission,
+                {},
+            ),
+        );
+
+        const holderRes = makeRes();
+        await controller.handleListPermissions(
+            makeReq({}, { actor: holderActor }),
+            holderRes,
+        );
+        const holderBody = holderRes.body as {
+            user_to_myself: Array<{ user: string; permission: string }>;
+        };
+        // Neither the grant nor the owner it names: the string carries their
+        // uuid and the granted prefix, and the handle is all the holder has.
+        expect(holderBody.user_to_myself).not.toContainEqual(
+            expect.objectContaining({ permission }),
+        );
+        expect(JSON.stringify(holderBody.user_to_myself)).not.toContain(
+            owner.uuid,
+        );
+
+        // The owner's own side is untouched — it is their record of what they
+        // shared out.
+        const ownerRes = makeRes();
+        await controller.handleListPermissions(
+            makeReq({}, { actor: ownerActor }),
+            ownerRes,
+        );
+        expect(
+            (ownerRes.body as { myself_to_user: unknown[] }).myself_to_user,
+        ).toContainEqual(
+            expect.objectContaining({
+                user: holder.username,
+                permission,
             }),
         );
     });
@@ -5050,10 +6543,7 @@ describe('AuthController session endpoints', () => {
         const uuid = (sessionRes.session as { uuid: string }).uuid;
         await expect(
             controller.handleRenameSession(
-                makeReq(
-                    { label: 'pwned' },
-                    { actor: a2, params: { uuid } },
-                ),
+                makeReq({ label: 'pwned' }, { actor: a2, params: { uuid } }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
@@ -5349,6 +6839,33 @@ describe('AuthController 2FA flows', () => {
         ).toHaveLength(10);
     });
 
+    it('a recovery code minted by configure-2fa setup satisfies /login/recovery-code', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        const setupRes = makeRes();
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'setup' } }),
+            setupRes,
+        );
+        const { codes } = setupRes.body as { codes: string[] };
+
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'enable' } }),
+            makeRes(),
+        );
+
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: user.uuid, purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        const res = makeRes();
+        await controller.handleLoginRecoveryCode(
+            makeReq({ token: otpJwt, code: codes[0] }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+    });
+
     it('configure-2fa setup: 409 when 2FA is already enabled', async () => {
         const { actor } = await makeUserAndActor({ otp_enabled: 1 });
         await expect(
@@ -5440,130 +6957,6 @@ describe('AuthController.handleGetDevProfile', () => {
             joined_incentive_program: false,
             paypal: null,
         });
-    });
-});
-
-// ── Group endpoints ────────────────────────────────────────────────
-
-describe('AuthController group endpoints', () => {
-    it('group/create: rejects non-object extra/metadata with 400', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupCreate(
-                makeReq({ extra: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        await expect(
-            controller.handleGroupCreate(
-                makeReq({ metadata: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/create + add-users + remove-users: full owner-driven lifecycle', async () => {
-        const { actor: owner } = await makeUserAndActor();
-        const { user: target } = await makeUserAndActor();
-
-        // Create.
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({ metadata: { name: 'g' } }, { actor: owner }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        expect(typeof uid).toBe('string');
-
-        // Add.
-        const addRes = makeRes();
-        await controller.handleGroupAddUsers(
-            makeReq({ uid, users: [target.username] }, { actor: owner }),
-            addRes,
-        );
-        expect(addRes.body).toEqual({});
-
-        // Remove.
-        const remRes = makeRes();
-        await controller.handleGroupRemoveUsers(
-            makeReq({ uid, users: [target.username] }, { actor: owner }),
-            remRes,
-        );
-        expect(remRes.body).toEqual({});
-    });
-
-    it('group/add-users: 400 on missing uid or non-array users', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ users: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ uid: 'g-1' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/add-users: 404 on unknown uid; 403 when caller doesn’t own the group', async () => {
-        const { actor: a1 } = await makeUserAndActor();
-        const { actor: a2 } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq(
-                    { uid: `does-not-exist-${uuidv4()}`, users: [] },
-                    { actor: a1 },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-
-        // Group owned by a1; a2 tries to add → 403.
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({}, { actor: a1 }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ uid, users: [] }, { actor: a2 }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
-
-    it('group/list: forwards to GroupStore listByOwner/listByMember (or surfaces the source-side method-name mismatch)', async () => {
-        const { actor } = await makeUserAndActor();
-        const res = makeRes();
-        try {
-            await controller.handleGroupList(makeReq({}, { actor }), res);
-            const body = res.body as {
-                owned_groups: unknown[];
-                in_groups: unknown[];
-            };
-            expect(Array.isArray(body.owned_groups)).toBe(true);
-            expect(Array.isArray(body.in_groups)).toBe(true);
-        } catch (e) {
-            // The handler calls `stores.group.listByOwner(...)`, but the
-            // GroupStore implementation may expose a differently-named
-            // method. Surface the mismatch so a future GroupStore rename
-            // re-enables the assertion above.
-            expect((e as Error).message).toMatch(
-                /listByOwner|listByMember|is not a function/,
-            );
-        }
-    });
-
-    it('group/public-groups: returns {user, temp} from config', async () => {
-        const res = makeRes();
-        await controller.handleGroupPublicGroups(makeReq({}), res);
-        const body = res.body as { user: string | null; temp: string | null };
-        expect(body).toHaveProperty('user');
-        expect(body).toHaveProperty('temp');
     });
 });
 
@@ -5680,6 +7073,30 @@ describe('AuthController.handleDeleteOwnUser', () => {
             force: true,
         });
         expect(after).toBeFalsy();
+    });
+
+    it('refuses, and keeps the row, for an account its team provisioned', async () => {
+        // The team is billed for the seat and closing it is theirs to do, from
+        // the console that keeps the audit trail.
+        const { user: owner } = await makeUserAndActor();
+        const { user: seat, actor } = await makeUserAndActor();
+        const team = await server.stores.team.create({
+            ownerUserId: owner.id,
+            name: 'Acme',
+        });
+        await server.stores.user.update(seat.id, { password: null });
+        await server.stores.team.addMember(team.uid, seat.id, {
+            orgOwned: true,
+        });
+
+        await expect(
+            controller.handleDeleteOwnUser(makeReq({}, { actor }), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const after = await server.stores.user.getById(seat.id, {
+            force: true,
+        });
+        expect(after).toBeTruthy();
     });
 
     it('emits user.delete with the uuid + stripe customer id for downstream teardown', async () => {
@@ -6136,6 +7553,46 @@ describe('AuthController.handleSignup additional branches', () => {
             },
         );
     });
+
+    // No mail transport in the test server, so `send` returns null — the
+    // silent-drop case.
+    it('alarms when the signup confirmation email is not delivered', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            await withSignupValidateOverride(
+                (event) => {
+                    event.requires_email_confirmation = true;
+                },
+                async () => {
+                    const username = `cefail_${uniq()}`;
+                    await controller.handleSignup(
+                        makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        makeRes(),
+                    );
+                },
+            );
+
+            const raised = alarm.mock.calls.find(
+                (c) => c[0] === 'auth:confirmation-email-send-failed:signup',
+            );
+            expect(raised).toBeTruthy();
+            const fields = raised![2] as Record<string, unknown>;
+            expect(fields.stage).toBe('signup');
+            // No phone/card gate outstanding: stuck on the email alone.
+            expect(fields.sole_gate).toBe(true);
+            expect(fields.email_domain).toBe('test.local');
+            expect(raised![3]).toBe('warning');
+            expect(raised![4]).toEqual({ dedup: true });
+        } finally {
+            alarm.mockRestore();
+        }
+    });
 });
 
 describe('AuthController.handleSendPassRecoveryEmail additional branches', () => {
@@ -6452,16 +7909,6 @@ describe('AuthController grant/revoke additional branches', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('grant-user-group: 400 on missing group_uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGrantUserGroup(
-                makeReq({ permission: 'fs:read' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
     it('revoke-user-app: 400 when permission is "*" but app_uid is missing', async () => {
         const { actor } = await makeUserAndActor();
         await expect(
@@ -6576,58 +8023,6 @@ describe('AuthController.handleGetDevProfile additional branches', () => {
         await expect(
             controller.handleGetDevProfile(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 404 });
-    });
-});
-
-describe('AuthController group endpoints: additional branches', () => {
-    it('group/remove-users: 400 on missing uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ users: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/remove-users: 400 on non-array users', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ uid: 'g-1' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/remove-users: 404 on unknown uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq(
-                    { uid: `does-not-exist-${uuidv4()}`, users: [] },
-                    { actor },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('group/remove-users: 403 when caller does not own the group', async () => {
-        const { actor: a1 } = await makeUserAndActor();
-        const { actor: a2 } = await makeUserAndActor();
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({}, { actor: a1 }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ uid, users: [] }, { actor: a2 }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
     });
 });
 
@@ -6786,7 +8181,6 @@ describe('AuthController.handleRevokeSession additional branches', () => {
         expect((res.body as { sessions: unknown[] }).sessions).toBeDefined();
     });
 });
-
 
 // -- auth_id preservation on forced re-login --
 
@@ -7045,10 +8439,7 @@ describe('AuthController auth_id preservation on reauth', () => {
         const ip = `127.0.${Math.floor(Math.random() * 200)}.10`;
         await expect(
             controller.handleSignup(
-                makeReq(
-                    { is_temp: true, reauth_token: 'not-a-jwt' },
-                    { ip },
-                ),
+                makeReq({ is_temp: true, reauth_token: 'not-a-jwt' }, { ip }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 401 });
@@ -7102,9 +8493,9 @@ describe('AuthController auth_id preservation on reauth', () => {
 /**
  * The relay stands in for the popup's `postMessage` hand-off on
  * cross-origin-isolated openers, where COOP has severed `window.opener`.
- * postMessage is audience-bound for free (it posts with `targetOrigin`);
- * these tests pin the equivalent binding on the server-side path, since the
- * session id is a link-borne value and not a secret.
+ * postMessage is audience-bound for free (it posts with `targetOrigin`); these
+ * tests pin the equivalent binding on the server-side path, since the session
+ * id is a link-borne value and not a secret.
  */
 describe('AuthController.loginWait audience binding', () => {
     const OPENER = 'https://opener.test';
@@ -7113,15 +8504,18 @@ describe('AuthController.loginWait audience binding', () => {
     const mintAppToken = async (actor: Actor, origin: string) => {
         const res = makeRes();
         await inCtx(actor, () =>
-            controller.handleGetUserAppToken(makeReq({ origin }, { actor }), res),
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
         );
         return (res.body as { token: string }).token;
     };
 
     /**
-     * Start a wait, then relay `token` into it. The handler resolves the
-     * origin (async, DB-backed) before subscribing, so the emit is retried
-     * until the wait settles rather than fired after a fixed sleep.
+     * Start a wait, then relay `token` into it. The handler resolves the origin
+     * (async, DB-backed) before subscribing, so the emit is retried until the
+     * wait settles rather than fired after a fixed sleep.
      */
     const waitWithRelay = async (
         session: string,
@@ -7129,7 +8523,10 @@ describe('AuthController.loginWait audience binding', () => {
         token: string | null,
     ) => {
         const res = makeRes();
-        const waiting = controller.loginWait(makeReq({ session }, { headers }), res);
+        const waiting = controller.loginWait(
+            makeReq({ session }, { headers }),
+            res,
+        );
         const settled = waiting.then(
             () => 'ok' as const,
             (e: unknown) => e,
@@ -7199,6 +8596,27 @@ describe('AuthController.loginWait audience binding', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('answers 400 when the request has no parsable body', async () => {
+        // Destructuring an absent body is a TypeError, not a 400.
+        const req = makeReq({}, { headers: { origin: OPENER } });
+        (req as { body?: unknown }).body = undefined;
+        await expect(
+            controller.loginWait(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('rejects a non-string session id with 400', async () => {
+        await expect(
+            controller.loginWait(
+                makeReq(
+                    { session: { nested: true } as unknown as string },
+                    { headers: { origin: OPENER } },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('still rejects a malformed session id before looking at Origin', async () => {

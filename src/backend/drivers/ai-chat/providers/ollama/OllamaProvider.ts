@@ -26,10 +26,11 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 /**
- * OllamaService class - Provides integration with Ollama's API for chat completions
- * Extends BaseService to implement the puter-chat-completion interface.
- * Handles model management, message adaptation, streaming responses,
+ * OllamaService class - Provides integration with Ollama's API for chat
+ * completions Extends BaseService to implement the puter-chat-completion
+ * interface. Handles model management, message adaptation, streaming responses,
  * and usage tracking for Ollama's language models.
+ *
  * @extends BaseService
  */
 export class OllamaChatProvider implements IChatProvider {
@@ -182,6 +183,7 @@ export class OllamaChatProvider implements IChatProvider {
 
     /**
      * Returns the default model identifier for the Ollama service
+     *
      * @returns {string} The default model ID 'gpt-oss:20b'
      */
     getDefaultModel() {

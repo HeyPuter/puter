@@ -24,12 +24,12 @@ import type { IChatModel } from '../types.js';
 import {
     compareModelPreference,
     isIdentityKey,
+    modelLookupNames,
     normalizeModelKey,
 } from './modelRouting.js';
 
-// `#buildModelMap` mutates the catalogs providers hand back, and
 // `GeminiChatProvider.models()` returns the module-level `GEMINI_MODELS` by
-// reference — clone so these fixtures can't be perturbed by another suite.
+// reference — clone so these fixtures stay independent of it.
 const geminiModel = (id: string, provider = 'gemini'): IChatModel => {
     const found = GEMINI_MODELS.find((m) => m.id === id);
     if (!found) throw new Error(`no such gemini model: ${id}`);
@@ -51,6 +51,7 @@ const resoldModel = (
         input_cost_key: 'prompt',
         output_cost_key: 'completion',
         costs: { tokens: 1_000_000, prompt: promptCost, completion: 100 },
+        max_tokens: 8192,
         provider,
     }) as IChatModel;
 
@@ -132,10 +133,42 @@ describe('compareModelPreference', () => {
         const long = {
             ...geminiModel('gemini-2.5-flash'),
             id: 'some-vendor/gemini-x-2025-preview',
-            provider: 'azure-openai',
+            provider: 'xai',
         };
 
         expect(winner(long, short).id).toBe('gemini-x');
+    });
+
+    it('serves Azure ahead of the vendor it fronts, whichever registered first', () => {
+        // Azure's catalog copies the vendor's prices, so cost cannot decide
+        // and the winner used to be whichever provider registered first.
+        const azure = {
+            ...geminiModel('gemini-2.5-flash'),
+            id: 'gpt-x',
+            provider: 'azure-openai',
+        };
+        const vendor = { ...azure, provider: 'openai-completion' };
+
+        expect(winner(vendor, azure).provider).toBe('azure-openai');
+        expect(winner(azure, vendor).provider).toBe('azure-openai');
+    });
+
+    it('keeps Azure first even when its copied cost table drifts higher', () => {
+        const azure = {
+            ...geminiModel('gemini-2.5-pro'),
+            id: 'gpt-x',
+            provider: 'azure-openai',
+        };
+        const vendor = {
+            ...geminiModel('gemini-2.5-flash-lite'),
+            id: 'gpt-x',
+            provider: 'openai-completion',
+        };
+        expect(azure.costs.prompt_tokens).toBeGreaterThan(
+            vendor.costs.prompt_tokens as number,
+        );
+
+        expect(winner(vendor, azure).provider).toBe('azure-openai');
     });
 
     it('leaves a reseller serving models no vendor provider carries', () => {
@@ -184,5 +217,47 @@ describe('isIdentityKey', () => {
         // `'gpt-4o'.split('/').slice(1).join('/')` is '' — pooling models
         // under that key would put unrelated models in one bucket.
         expect(isIdentityKey('')).toBe(false);
+    });
+});
+
+describe('modelLookupNames', () => {
+    const m = (id: string, aliases?: string[]) =>
+        ({ id, ...(aliases ? { aliases } : {}) }) as IChatModel;
+
+    it('returns the id even when the entry declares no aliases', () => {
+        expect(modelLookupNames([m('solo')])).toEqual(['solo']);
+    });
+
+    it('keeps declaration order, id first', () => {
+        expect(modelLookupNames([m('a', ['vendor/a', 'a-latest'])])).toEqual([
+            'a',
+            'vendor/a',
+            'a-latest',
+        ]);
+    });
+
+    // The three shapes this helper exists to absorb, so no caller has to.
+    it('collapses an alias that merely repeats the entry id', () => {
+        expect(modelLookupNames([m('a', ['a', 'vendor/a'])])).toEqual([
+            'a',
+            'vendor/a',
+        ]);
+    });
+
+    it('collapses an alias repeated within one entry', () => {
+        expect(modelLookupNames([m('a', ['x', 'x'])])).toEqual(['a', 'x']);
+    });
+
+    it('collapses a name two entries both claim', () => {
+        expect(
+            modelLookupNames([m('a', ['shared']), m('b', ['shared'])]),
+        ).toEqual(['a', 'shared', 'b']);
+    });
+
+    it('is unchanged by stripping self-aliases from a catalog', () => {
+        // The property that makes removing them from the catalogs a no-op.
+        const withSelf = [m('a', ['a', 'vendor/a']), m('b', ['b'])];
+        const without = [m('a', ['vendor/a']), m('b')];
+        expect(modelLookupNames(withSelf)).toEqual(modelLookupNames(without));
     });
 });

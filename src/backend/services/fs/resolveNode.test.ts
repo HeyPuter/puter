@@ -24,6 +24,8 @@ import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import {
     assertNormalized,
     expandTildePath,
+    isOwnersTrash,
+    isTildePath,
     joinChildPath,
     normalizeAbsolutePath,
     resolveNode,
@@ -280,6 +282,19 @@ describe('normalizeAbsolutePath', () => {
     });
 });
 
+describe('isTildePath', () => {
+    it('accepts the two home-dir forms', () => {
+        expect(isTildePath('~')).toBe(true);
+        expect(isTildePath('~/Documents')).toBe(true);
+    });
+
+    it('rejects a name that merely starts with a tilde', () => {
+        expect(isTildePath('~backup')).toBe(false);
+        expect(isTildePath('/alice/~backup')).toBe(false);
+        expect(isTildePath('')).toBe(false);
+    });
+});
+
 describe('expandTildePath', () => {
     it('expands a bare tilde to the user home', () => {
         expect(expandTildePath('~', 'alice')).toBe('/alice');
@@ -344,6 +359,45 @@ describe('joinChildPath', () => {
     it('rejects a name containing a slash so callers cannot smuggle a path', () => {
         expect(() => joinChildPath('/alice', '../bob')).toThrowError(
             /Name cannot contain a slash/,
+        );
+    });
+});
+
+describe('isOwnersTrash', () => {
+    const trash = (over: Record<string, unknown> = {}) => ({
+        userId: 1,
+        isDir: true,
+        name: 'Trash',
+        path: '/alice/Trash',
+        ...over,
+    });
+
+    it('accepts the top-level Trash of the entry owner', () => {
+        expect(isOwnersTrash({ userId: 1 }, trash())).toBe(true);
+    });
+
+    it('rejects a Trash belonging to someone else', () => {
+        expect(isOwnersTrash({ userId: 2 }, trash())).toBe(false);
+    });
+
+    it('rejects a nested folder that happens to be named Trash', () => {
+        expect(
+            isOwnersTrash({ userId: 1 }, trash({ path: '/alice/Documents/Trash' })),
+        ).toBe(false);
+    });
+
+    it('rejects a folder inside Trash', () => {
+        expect(
+            isOwnersTrash(
+                { userId: 1 },
+                trash({ name: 'old', path: '/alice/Trash/old' }),
+            ),
+        ).toBe(false);
+    });
+
+    it('rejects a file named Trash', () => {
+        expect(isOwnersTrash({ userId: 1 }, trash({ isDir: false }))).toBe(
+            false,
         );
     });
 });

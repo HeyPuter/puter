@@ -598,11 +598,11 @@ describe('createAuthProbe — actor attachment + failure tracking', () => {
 // ── Reauth signal ───────────────────────────────────────────────────
 
 describe('createAuthProbe — reauth signal', () => {
-    it('sets requiresReauth with a signed token for a legacy v1 token', async () => {
+    it('sets requiresReauth with a signed token when authenticate returns a reauth signal', async () => {
         const stub = makeStubAuth();
         stub.setNextResult({
-            reauth: { reason: 'token_v1', auth_id: 'u-legacy' },
-            // Some legacy paths resolve an actor anyway (lazy-backfill).
+            reauth: { reason: 'session_expired', auth_id: 'u-legacy' },
+            // A reauth signal may arrive alongside a resolved actor.
             // The probe must still set requiresReauth; gate emits 401.
             actor: { user: { uuid: 'u-legacy' } },
         } as never);
@@ -612,7 +612,7 @@ describe('createAuthProbe — reauth signal', () => {
             makeReq({ headers: { authorization: 'Bearer v1-tok' } }),
         );
         expect(req.requiresReauth).toEqual({
-            reason: 'token_v1',
+            reason: 'session_expired',
             auth_id: 'u-legacy',
             reauth_token: 'reauth-jwt:u-legacy',
         });
@@ -716,7 +716,7 @@ describe('createAuthProbe — reauth signal', () => {
             const probe = createAuthProbe({ authService: stub.service });
             for (let i = 0; i < 5; i++) {
                 stub.setNextResult({
-                    reauth: { reason: 'token_v1', auth_id: 'u-noisy' },
+                    reauth: { reason: 'session_expired', auth_id: 'u-noisy' },
                 });
                 await runProbe(
                     probe,
@@ -739,7 +739,7 @@ describe('createAuthProbe — reauth signal', () => {
             const probe = createAuthProbe({ authService: stub.service });
             for (const authId of ['u-a', 'u-b']) {
                 stub.setNextResult({
-                    reauth: { reason: 'token_v1', auth_id: authId },
+                    reauth: { reason: 'session_expired', auth_id: authId },
                 });
                 await runProbe(
                     probe,
@@ -758,7 +758,7 @@ describe('createAuthProbe — reauth signal', () => {
     it('does not sign a reauth token until something reads it', async () => {
         const stub = makeStubAuth();
         stub.setNextResult({
-            reauth: { reason: 'token_v1', auth_id: 'u-lazy' },
+            reauth: { reason: 'session_expired', auth_id: 'u-lazy' },
         });
         const signSpy = vi.spyOn(stub.service, 'signReauthToken');
         const { req } = await runProbe(
@@ -838,18 +838,17 @@ describe('createAuthProbe (integration) — real session token → real actor', 
         expect(req.tokenAuthFailed).toBeUndefined();
     });
 
-    it('asks a garbage token to reauth rather than failing it outright', async () => {
-        // Nothing without `kid: 'v2'` can be verified since v1 was retired, so
-        // an unrecognizable token reads as "your token is from before the
-        // cutover" — the client gets `reauth_required` and can sign in again,
-        // instead of a bare token-failure 401 it can't act on.
+    it('sets tokenAuthFailed=true for a garbage token, with no reauth hint', async () => {
+        // v1 is fully removed: an unrecognizable token is an ordinary invalid
+        // token, same as any other bad signature — no reauth signal.
         const probe = createAuthProbe({ authService });
         const { req } = await runProbe(
             probe,
             makeReq({ headers: { authorization: 'Bearer not-a-real-jwt' } }),
         );
         expect(req.actor).toBeUndefined();
-        expect(req.requiresReauth?.reason).toBe('token_v1');
+        expect(req.tokenAuthFailed).toBe(true);
+        expect(req.requiresReauth).toBeUndefined();
     });
 
     it('sets tokenAuthFailed=true for a v2 token signed with the wrong secret', async () => {

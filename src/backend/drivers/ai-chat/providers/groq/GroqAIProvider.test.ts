@@ -305,16 +305,16 @@ describe('GroqAIProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gemma2-9b-it',
+                model: 'llama-3.3-70b-versatile',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('gemma2-9b-it');
+        expect(createMock.mock.calls[0]![0].model).toBe('llama-3.3-70b-versatile');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'groq:gemma2-9b-it',
+            'groq:llama-3.3-70b-versatile',
             expect.any(Object),
         );
     });

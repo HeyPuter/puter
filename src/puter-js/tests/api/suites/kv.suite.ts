@@ -256,6 +256,26 @@ export default suite('kv', {
         t.assert.ok(keys.includes('kv-suite-all-2'));
     },
 
+    'list reverse supports arrays, pages, cursor resume, and streams': async (t) => {
+        await t.assert.rejects(async () => t.puter.kv.list({ reverse: 'true' } as never));
+        const pattern = 'kv-suite-reverse-*';
+        const keys = ['kv-suite-reverse-a', 'kv-suite-reverse-b', 'kv-suite-reverse-c'];
+        for (let i = 0; i < keys.length; i++) await t.puter.kv.set(keys[i], i);
+        const descending = [...keys].reverse();
+        t.assert.deepEqual(await t.puter.kv.list({ pattern, reverse: true }), descending);
+        t.assert.deepEqual(await t.puter.kv.list({ pattern, reverse: false }), keys);
+        const first = await t.puter.kv.list({ pattern, reverse: true, returnValues: true, limit: 1 });
+        t.assert.deepEqual(first.items, [{ key: keys[2], value: 2 }]);
+        const rest = await t.puter.kv.list({ pattern, cursor: first.cursor, limit: 3 });
+        t.assert.deepEqual(rest.items, [keys[1], keys[0]]);
+        await t.assert.rejects(() => t.puter.kv.list({ pattern, cursor: first.cursor, reverse: false, limit: 1 }));
+        const streamed: string[] = [];
+        for await (const page of t.puter.kv.list({ pattern, reverse: true, stream: true, limit: 1 })) {
+            streamed.push(...page.items);
+        }
+        t.assert.deepEqual(streamed, descending);
+    },
+
     'list returns keys in lexicographic order': async (t) => {
         await t.puter.kv.set('kv-suite-sorted-c', 1);
         await t.puter.kv.set('kv-suite-sorted-a', 1);

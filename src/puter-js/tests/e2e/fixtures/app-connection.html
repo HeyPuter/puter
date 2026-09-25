@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>puter-js test fixture: AppConnection</title>
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 16px; }
+        button { padding: 8px 12px; margin-right: 8px; font-size: 14px; }
+        #log { margin-top: 16px; padding: 8px; background: #f5f5f5; border: 1px solid #ddd; min-height: 60px; font-family: monospace; white-space: pre-wrap; }
+        .ready #status { color: green; }
+    </style>
+</head>
+<body>
+    <h1>puter-js AppConnection fixture</h1>
+    <p id="status">Loading puter.js…</p>
+
+    <button id="send-transferable" disabled>Send a transferred buffer to a child app</button>
+
+    <div id="log" data-testid="log"></div>
+
+    <script>
+        // Point the SDK at the local Puter instance (env=web popup flow).
+        window.PUTER_ORIGIN = 'http://puter.localhost:4100';
+        // Must be the real api subdomain: the SDK sends credentialed CORS
+        // requests, and only the api host answers with
+        // Access-Control-Allow-Credentials — on the GUI host they all fail.
+        window.PUTER_API_ORIGIN = 'http://api.puter.localhost:4100';
+    </script>
+    <script src="/dist/puter.dev.js"></script>
+    <script>
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+
+        // This fixture is both apps in the exchange: launched with no name, it
+        // launches a copy of itself, and the copy takes the child branch.
+        const TO_CHILD = [1, 2, 3, 4];
+        const TO_PARENT = [9, 8, 7, 6];
+        const PORT_GREETING = 'hello over the port';
+
+        function log(entry) {
+            const line = document.createElement('div');
+            line.textContent = entry;
+            line.dataset.entry = entry;
+            logEl.appendChild(line);
+        }
+
+        const describe = (payload) => payload instanceof ArrayBuffer
+            ? `ArrayBuffer[${[...new Uint8Array(payload)].join(',')}]`
+            : `not-an-ArrayBuffer:${typeof payload}`;
+
+        const bufferOf = (bytes) => new Uint8Array(bytes).buffer;
+
+        function runAsChild(parent) {
+            parent.on('message', msg => {
+                if (msg?.kind !== 'transfer') return;
+                // A transferred port is a live channel that no longer goes
+                // through Puter at all.
+                msg.port.postMessage(PORT_GREETING);
+                const reply = bufferOf(TO_PARENT);
+                parent.postMessage({
+                    kind: 'result',
+                    received: describe(msg.payload),
+                    payload: reply,
+                }, [reply]);
+            });
+            // launchApp() resolves before this app has loaded, so the parent
+            // waits for this rather than posting into a window with no
+            // listener yet.
+            parent.postMessage({ kind: 'ready' });
+        }
+
+        function runAsParent() {
+            const button = document.getElementById('send-transferable');
+            button.addEventListener('click', async () => {
+                button.disabled = true;
+                try {
+                    const child = await puter.ui.launchApp();
+                    child.on('message', msg => {
+                        if (msg?.kind === 'ready') {
+                            const payload = bufferOf(TO_CHILD);
+                            const channel = new MessageChannel();
+                            channel.port1.onmessage = e => log(`port-message:${e.data}`);
+                            child.postMessage(
+                                { kind: 'transfer', payload, port: channel.port2 },
+                                [payload, channel.port2],
+                            );
+                            log(`sent:detached:${payload.byteLength === 0}`);
+                            return;
+                        }
+                        if (msg?.kind !== 'result') return;
+                        log(`child-received:${msg.received}`);
+                        log(`parent-received:${describe(msg.payload)}`);
+                        child.close();
+                    });
+                } catch (e) {
+                    log(`error:${e?.message ?? e}`);
+                }
+            });
+            button.disabled = false;
+        }
+
+        function ready() {
+            document.body.classList.add('ready');
+            const parent = puter.ui.parentApp();
+            statusEl.textContent = `Ready (env=${puter.env}, role=${parent ? 'child' : 'parent'})`;
+            if (parent) runAsChild(parent);
+            else runAsParent();
+        }
+
+        function waitForPuter() {
+            if (window.puter && puter.ui) ready();
+            else setTimeout(waitForPuter, 50);
+        }
+        waitForPuter();
+    </script>
+</body>
+</html>

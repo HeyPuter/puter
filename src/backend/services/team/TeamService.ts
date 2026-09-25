@@ -1,0 +1,1239 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import bcrypt from 'bcrypt';
+import validator from 'validator';
+import { v4 as uuidv4 } from 'uuid';
+import {
+    RESERVED_USERNAMES,
+    USERNAME_MAX_LENGTH,
+    USERNAME_REGEX,
+} from '../../controllers/auth/AuthController.js';
+import type { EmailTemplateName } from '../../clients/email/templates.js';
+import { subscriptionSatisfies } from '../metering/enforcement.js';
+import { ORG_SEAT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+
+// A free team is small on purpose; paying widens it. Both overridable in config.
+const FREE_SEAT_CAP = 4;
+const PAID_SEAT_CAP = 40;
+
+import type {
+    EventMap,
+    TeamBillingContext,
+    TeamBillingEvent,
+} from '../../clients/event/types';
+import { HttpError } from '../../core/http/HttpError.js';
+import {
+    AUDIT_PAGE_CAP,
+    AUDIT_PAGE_SIZE,
+    checkHandle,
+} from '../../stores/team/TeamStore.js';
+import type {
+    TeamAuditRow,
+    TeamMemberRow,
+    TeamRow,
+} from '../../stores/team/TeamStore';
+import {
+    decodeCursor,
+    encodeCursor,
+    normalizeLimit,
+    type PageResult,
+} from '../../util/pagination.js';
+import type { UserRow } from '../../stores/user/UserStore';
+import { cleanEmail } from '../../util/email.js';
+import {
+    generateTemporaryPassword,
+    temporaryPasswordExpiry,
+} from '../../util/temporaryPassword.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { PuterService } from '../types';
+
+/** Why an account was disabled. Free text in `0063`; this is the team one. */
+export const DISABLED_BY_TEAM = 'disabled_by_team';
+
+/**
+ * Cap-lock bounds. The lock is held for a count plus an insert, so 200ms of
+ * waiting is already far past the contended case; past it the request is
+ * refused, because running unserialized would leave the cap unenforced.
+ */
+const CAP_LOCK_ATTEMPTS = 8;
+const CAP_LOCK_RETRY_MS = 25;
+const CAP_LOCK_TTL_SECONDS = 10;
+
+/**
+ * Audit vocabulary. `reset_member_password` covers both a reissue before first
+ * use and a reset of a live account: from the member's side both mean the
+ * administrator now holds a working credential for their account.
+ */
+export const AUDIT_RESET_PASSWORD = 'reset_member_password';
+export const AUDIT_ACTIVATE = 'activate';
+
+/** Written before the row it names goes; `_keep` is what preserves it. */
+export const AUDIT_DELETE_ACCOUNT = 'delete_account';
+
+/** A disclosure change, so it is recorded like anything else the team does. */
+export const AUDIT_DIRECTORY_ON = 'directory_enabled';
+export const AUDIT_DIRECTORY_OFF = 'directory_disabled';
+
+/** Not an audit row: synthesised from `sessions` for the member's own view. */
+export const SIGN_IN_ACTION = 'sign_in';
+
+/** One line of a member's activity, whether recorded or a sign-in. */
+export interface MemberActivityEntry {
+    action: string;
+    reason: string | null;
+    /** Unix seconds, so the two sources sort on one axis on every dialect. */
+    created_at: number;
+    username: string | null;
+    actor_username: string | null;
+    ip: string | null;
+    user_agent: string | null;
+}
+
+/** `sessions` stores unix seconds; audit rows a timestamp the driver shapes. */
+const epochSeconds = (value: unknown): number => {
+    if (value instanceof Date) return Math.floor(value.getTime() / 1000);
+    if (typeof value === 'number') return Math.floor(value);
+    const text = String(value ?? '');
+    // sqlite returns UTC 'YYYY-MM-DD HH:MM:SS', which Date.parse reads as local.
+    const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u.test(text)
+        ? `${text.replace(' ', 'T')}Z`
+        : text;
+    const parsed = Date.parse(iso);
+    return Number.isNaN(parsed) ? 0 : Math.floor(parsed / 1000);
+};
+
+export class TeamService extends PuterService {
+    /** Half the free plan for a seat, unless a paid tier outranks it. */
+    override async onServerStart(): Promise<void> {
+        if (this.config.teams_enabled !== true) return;
+        this.services.metering.registerDefaultSubscriptionResolver(
+            async (actor) => {
+                const userId = actor?.user?.id;
+                if (typeof userId !== 'number') return null;
+                // Cached, negatives included: almost nothing is a seat.
+                const seat = await this.stores.team.getOrgSeat(userId);
+                return seat ? ORG_SEAT_FREE_SUBSCRIPTION : null;
+            },
+        );
+    }
+
+    // -- Billing ---- OSS emits; prod decides (see TEAMS-BILLING-SPLIT) ----
+
+    /** The team owner pays, so the charge is keyed to its customer id. */
+    async #billingContext(team: TeamRow): Promise<TeamBillingContext> {
+        return {
+            team_uid: team.uid,
+            owner_user_id: team.owner_user_id,
+        };
+    }
+
+    /** Bytes the account holds right now, for prod to price if it wants to. */
+    async #heldBytes(userId: number): Promise<number> {
+        try {
+            return await this.stores.fsEntry.getHeldBytes(userId);
+        } catch (e) {
+            // A missing figure must not fail the operation that reported it.
+            console.warn('[team-billing] held-bytes read failed:', e);
+            return 0;
+        }
+    }
+
+    /** Captured pre-delete: the membership row cascades away with the user. */
+    async captureSeatForBilling(
+        userId: number,
+    ): Promise<TeamBillingEvent | null> {
+        if (this.config.teams_enabled !== true) return null;
+        try {
+            const seat = await this.stores.team.getOrgSeat(userId);
+            if (!seat) return null;
+            return {
+                team_uid: seat.team_uid,
+                owner_user_id: seat.owner_user_id,
+                user_id: seat.user_id,
+                user_uuid: seat.uuid,
+                username: seat.username,
+            };
+        } catch (e) {
+            console.warn('[team-billing] seat capture failed:', e);
+            return null;
+        }
+    }
+
+    /** The membership cascaded away, so the cached reads over it must go too. */
+    async forgetSeat(seat: TeamBillingEvent): Promise<void> {
+        const team = await this.stores.team.getByUid(seat.team_uid);
+        await this.stores.team.bustMembership(team?.id ?? -1, seat.user_id);
+        await this.stores.team.bustMember(seat.team_uid, seat.user_id);
+    }
+
+    /** Paired with `captureSeatForBilling`, once the account is really gone. */
+    emitSeatDeleted(seat: TeamBillingEvent | null): void {
+        if (seat) this.#emitBilling('team.account.deleted', seat);
+    }
+
+    /** Fire-and-forget, as `user.delete` is: the charge is not our business. */
+    #emitBilling<K extends keyof EventMap>(name: K, payload: EventMap[K]) {
+        try {
+            this.clients.event?.emit(name, payload, {});
+        } catch (e) {
+            console.warn('[team-billing] emit failed:', name, e);
+        }
+    }
+    // -- Authority ---- the whole authorization model ------------------
+
+    /**
+     * Whether this account may enter the teams surface. Membership in any team
+     * always passes: an allowed owner brought them in.
+     */
+    async teamsAvailableTo(
+        userId: number,
+        email: string | null | undefined,
+    ): Promise<boolean> {
+        const domains = this.config.teams_allowed_email_domains;
+        if (!Array.isArray(domains) || domains.length === 0) return true;
+        const at = String(email ?? '').lastIndexOf('@');
+        const domain =
+            at === -1
+                ? ''
+                : String(email)
+                      .slice(at + 1)
+                      .toLowerCase();
+        if (
+            domain !== '' &&
+            domains.some((d) => String(d).toLowerCase() === domain)
+        ) {
+            return true;
+        }
+        return (await this.stores.team.listGroupIdsForUser(userId)).length > 0;
+    }
+
+    /**
+     * An account a team provisioned does not take on accounts of its own; that
+     * is the console's job, not a seat's (PUT-1890). Keyed on `org_owned = 1` —
+     * the owner is `org_owned = 0` in their own team, and a joined member is an
+     * ordinary self-paying account.
+     */
+    async #refuseIfOrgSeat(userId: number): Promise<void> {
+        const seat = await this.stores.team.getOrgSeat(userId);
+        if (!seat) return;
+        throw new HttpError(
+            403,
+            seat.team_name
+                ? `${seat.team_name} owns this account, so it cannot create a team of its own.`
+                : 'A team owns this account, so it cannot create a team of its own.',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
+    /** 404 to a non-member so the endpoint is not an existence oracle. */
+    async requireMembership(
+        teamUid: string,
+        actorUserId: number,
+    ): Promise<TeamRow> {
+        const team = await this.stores.team.getByUid(teamUid);
+        if (!team || !(await this.stores.team.isMember(teamUid, actorUserId))) {
+            throw new HttpError(404, 'Team not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+        return team;
+    }
+
+    /** Authority is one test: the caller is the account named by the team. */
+    async requireOwner(teamUid: string, actorUserId: number): Promise<TeamRow> {
+        const team = await this.requireMembership(teamUid, actorUserId);
+        if (team.owner_user_id !== actorUserId) {
+            throw new HttpError(403, 'Only the team owner can do that', {
+                legacyCode: 'not_the_team_owner',
+            });
+        }
+        return team;
+    }
+
+    /** The team owner is never a valid target of a member route. */
+    async requireOrgAccount(
+        teamUid: string,
+        targetUserId: number,
+        opts: { includeDeleted?: boolean } = {},
+    ): Promise<TeamMemberRow> {
+        const membership = opts.includeDeleted
+            ? await this.stores.team.getMembershipIncludingDeleted(
+                  teamUid,
+                  targetUserId,
+              )
+            : await this.stores.team.getMembership(teamUid, targetUserId);
+        // Tested explicitly, never inferred from NULL.
+        if (!membership || Number(membership.org_owned) !== 1) {
+            throw new HttpError(404, 'Not an account of this team', {
+                legacyCode: 'not_an_org_account',
+            });
+        }
+        return membership;
+    }
+
+    // -- Team lifecycle ------------------------------------------
+
+    // -- Caps ---- bounds, not billing; the charge is out of repo ---------
+
+    /** Live teams one user may own. */
+    #teamCap(): number {
+        const n = Number(this.config.max_teams_per_user);
+        return Number.isFinite(n) && n > 0 ? n : 1;
+    }
+
+    /** Depends on whether the owner pays; `max_seats_per_team` overrides both. */
+    async #seatCap(ownerUserId: number): Promise<number> {
+        const override = Number(this.config.max_seats_per_team);
+        if (Number.isFinite(override) && override > 0) return override;
+
+        const paid = await this.#ownerPays(ownerUserId);
+        const key = paid
+            ? 'max_seats_per_team_paid'
+            : 'max_seats_per_team_free';
+        const n = Number(this.config[key]);
+        if (Number.isFinite(n) && n > 0) return n;
+        return paid ? PAID_SEAT_CAP : FREE_SEAT_CAP;
+    }
+
+    /** A resolved policy outside the free set is a plan someone is paying for. */
+    async #ownerPays(ownerUserId: number): Promise<boolean> {
+        try {
+            const owner = await this.stores.user.getById(ownerUserId);
+            if (!owner?.uuid) return false;
+            // The whole row, not an id/uuid stub: a resolver may key on any
+            // field, and one that misses makes the cap depend on whether
+            // something else cached this user's plan first.
+            const policy = await this.services.metering.getActorSubscription({
+                user: owner,
+            } as never);
+            return subscriptionSatisfies(policy.id, true);
+        } catch (e) {
+            // Smaller cap on an unreadable plan: over-provisioning is worse.
+            console.warn('[team] seat cap plan lookup failed:', e);
+            return false;
+        }
+    }
+
+    /** A rejected handle is 400, a taken one 409, never an unhandled 500. */
+    async assertHandleUsable(handle: string): Promise<void> {
+        const rejection = checkHandle(handle);
+        if (rejection) {
+            throw new HttpError(400, `Unusable handle: ${rejection}`, {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (!(await this.stores.team.isHandleAvailable(handle))) {
+            throw new HttpError(409, 'That handle is taken', {
+                legacyCode: 'conflict',
+            });
+        }
+    }
+
+    /** The unique index is the arbiter, so a race still lands as a 409. */
+    async #asHttpErrors<T>(run: () => Promise<T>): Promise<T> {
+        try {
+            return await run();
+        } catch (e) {
+            if (e instanceof HttpError) throw e;
+            const message = String((e as Error)?.message ?? '');
+            if (/unusable team handle/iu.test(message)) {
+                throw new HttpError(400, message, {
+                    legacyCode: 'bad_request',
+                });
+            }
+            if (/unique|duplicate/iu.test(message)) {
+                throw new HttpError(409, 'That handle is taken', {
+                    legacyCode: 'conflict',
+                });
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Serializes a count-then-insert; same shape as `ACLService.#withNodeLock`.
+     * Refuses rather than running unserialized, or the cap is unenforced under
+     * concurrency. A lone create never contends.
+     */
+    async #withCapLock<T>(suffix: string, run: () => Promise<T>): Promise<T> {
+        const key = `team:cap:${suffix}`;
+        const token = `${process.pid}:${Date.now()}:${Math.random()}`;
+        let held = false;
+
+        try {
+            for (let attempt = 0; attempt < CAP_LOCK_ATTEMPTS; attempt++) {
+                const claimed = await this.clients.redis.set(
+                    key,
+                    token,
+                    'EX',
+                    CAP_LOCK_TTL_SECONDS,
+                    'NX',
+                );
+                if (claimed === 'OK') {
+                    held = true;
+                    break;
+                }
+                await new Promise((resolve) =>
+                    setTimeout(resolve, CAP_LOCK_RETRY_MS),
+                );
+            }
+        } catch (e) {
+            // Same answer as contention below — the caller retries either way.
+            // Logged, because unlike contention the cause is ours.
+            console.warn('[team] cap lock unavailable:', e);
+            held = false;
+        }
+        if (!held) {
+            throw new HttpError(409, 'Busy — try that again in a moment', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        try {
+            return await run();
+        } finally {
+            try {
+                // Only clear our own claim — a lapsed TTL may have reassigned it.
+                const current = await this.clients.redis.get(key);
+                if (current === token) await this.clients.redis.del(key);
+            } catch {
+                /* the TTL clears it */
+            }
+        }
+    }
+
+    /** Renames or re-handles a team, refusing an unusable handle. */
+    async updateTeam(
+        teamUid: string,
+        actorUserId: number,
+        changes: {
+            name?: string;
+            handle?: string | null;
+            directoryEnabled?: boolean;
+        },
+    ): Promise<TeamRow> {
+        const before = await this.requireOwner(teamUid, actorUserId);
+        if (changes.handle) await this.assertHandleUsable(changes.handle);
+
+        const team = await this.#asHttpErrors(() =>
+            this.stores.team.update(teamUid, changes),
+        );
+        if (!team) {
+            throw new HttpError(404, 'Team not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+
+        // Recorded because it changes who can read the member list, which is
+        // not something a team should be able to alter silently.
+        const was = Number(before.directory_enabled) === 1;
+        if (
+            changes.directoryEnabled !== undefined &&
+            changes.directoryEnabled !== was
+        ) {
+            await this.stores.team.appendAudit({
+                teamId: team.id,
+                userId: actorUserId,
+                actorUserId,
+                action: changes.directoryEnabled
+                    ? AUDIT_DIRECTORY_ON
+                    : AUDIT_DIRECTORY_OFF,
+            });
+        }
+        return team;
+    }
+
+    /** Whether the owner opened the team to the apps its members use. */
+    isDirectoryOpen(team: TeamRow): boolean {
+        return Number(team.directory_enabled) === 1;
+    }
+
+    /**
+     * 404 rather than 403: whether a team opened its directory is itself
+     * something an app should not be able to probe for.
+     */
+    assertDirectoryOpen(team: TeamRow): void {
+        if (!this.isDirectoryOpen(team)) {
+            throw new HttpError(404, 'Team not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+    }
+
+    /**
+     * The member list as an app may read it, once the team has opted in. The
+     * page carries only what a colleague already sees through `/members`.
+     */
+    async listDirectory(
+        teamUid: string,
+        actorUserId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ): Promise<PageResult<{ username: string; uuid: string }>> {
+        const team = await this.requireMembership(teamUid, actorUserId);
+        this.assertDirectoryOpen(team);
+
+        const page = await this.stores.team.listDirectory(teamUid, opts);
+        return {
+            items: page.items.map((m) => ({
+                username: m.username,
+                uuid: m.uuid,
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+        };
+    }
+
+    /** Creates a team and admits its creator as the team owner. */
+    async createTeam(
+        ownerUserId: number,
+        input: { name: string; handle?: string | null },
+    ): Promise<TeamRow> {
+        return this.#withCapLock(`owner:${ownerUserId}`, () =>
+            this.#createTeamLocked(ownerUserId, input),
+        );
+    }
+
+    async #createTeamLocked(
+        ownerUserId: number,
+        input: { name: string; handle?: string | null },
+    ): Promise<TeamRow> {
+        await this.#refuseIfOrgSeat(ownerUserId);
+        // First: a capped user should hear that, not that the name was taken.
+        const cap = this.#teamCap();
+        if ((await this.stores.team.countOwned(ownerUserId)) >= cap) {
+            throw new HttpError(
+                409,
+                `You may own ${cap} team${cap === 1 ? '' : 's'}`,
+                {
+                    legacyCode: 'team_limit_reached',
+                    fields: { limit: cap },
+                },
+            );
+        }
+
+        const handle = input.handle ?? null;
+        if (handle !== null) await this.assertHandleUsable(handle);
+
+        const team = await this.#asHttpErrors(() =>
+            this.stores.team.create({
+                ownerUserId,
+                name: input.name,
+                handle,
+            }),
+        );
+
+        // 0 makes the owner pay for itself; unchecked, it is unreachable.
+        const admitted = await this.stores.team.addMember(
+            team.uid,
+            ownerUserId,
+            {
+                orgOwned: false,
+            },
+        );
+        if (!admitted) {
+            await this.stores.team.softDelete(team.uid);
+            throw new HttpError(500, 'Could not create the team', {
+                legacyCode: 'internal_error',
+            });
+        }
+        return team;
+    }
+
+    /** The owner is a member with `org_owned = 0`, and the only such member. */
+    async checkOwnerInvariant(teamUid: string): Promise<boolean> {
+        const team = await this.stores.team.getByUid(teamUid);
+        if (!team) return false;
+
+        const owner = await this.stores.team.getMembership(
+            teamUid,
+            team.owner_user_id,
+        );
+        if (!owner || Number(owner.org_owned) !== 0) return false;
+
+        return (await this.stores.team.countPayers(team.id)) === 1;
+    }
+
+    /** Soft delete disables the accounts it created; recovery is via support. */
+    async deleteTeam(teamUid: string, actorUserId: number): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const billing = await this.#billingContext(team);
+        let disabled = 0;
+
+        // Otherwise they keep working, unreachable through a deleted team.
+        let page = await this.stores.team.listMembers(teamUid, { limit: 200 });
+        for (;;) {
+            for (const member of page.items) {
+                if (Number(member.org_owned) !== 1) continue;
+                await this.stores.team.appendAudit({
+                    teamId: team.id,
+                    userId: member.user_id,
+                    actorUserId,
+                    action: 'disable',
+                    reason: 'team_deleted',
+                });
+                const held = await this.#heldBytes(member.user_id);
+                await this.#suspend(member.user_id);
+                disabled++;
+
+                // Per seat, not one bulk event: the byte charge is per account.
+                this.#emitBilling('team.account.disabled', {
+                    ...billing,
+                    user_id: member.user_id,
+                    user_uuid: member.uuid,
+                    username: member.username,
+                    held_bytes: held,
+                });
+
+                // The team notice covers the disabling, so a member is
+                // told once rather than twice about the same event.
+                await this.#notifyMember(member.user_id, 'team_closed', team);
+            }
+            if (!page.cursor) break;
+            page = await this.stores.team.listMembers(teamUid, {
+                limit: 200,
+                cursor: page.cursor,
+            });
+        }
+
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: actorUserId,
+            actorUserId,
+            action: 'delete_team',
+        });
+        await this.stores.team.softDelete(teamUid);
+
+        this.#emitBilling('team.deleted', {
+            ...billing,
+            account_count: disabled,
+        });
+    }
+
+    /** Team owner only. Readable after deletion -- that is the point of it. */
+    async listAudit(
+        teamUid: string,
+        actorUserId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ) {
+        const team = await this.requireOwnedTeam(teamUid, actorUserId);
+        return this.#withUsernames(
+            await this.stores.team.listAudit(team.id, opts),
+        );
+    }
+
+    /**
+     * The caller's own entries, interleaved with sign-ins to their account. The
+     * only reader who is not the actor, and the only place a sign-in between an
+     * administrator's reset and the member's own password change becomes
+     * visible to the person it concerns.
+     */
+    async listOwnAudit(
+        teamUid: string,
+        actorUserId: number,
+        opts: { limit?: unknown; cursor?: string } = {},
+    ): Promise<PageResult<MemberActivityEntry>> {
+        const team = await this.requireMembership(teamUid, actorUserId);
+        const limit =
+            normalizeLimit(opts.limit, { cap: AUDIT_PAGE_CAP }) ??
+            AUDIT_PAGE_SIZE;
+        const cursor =
+            decodeCursor(opts.cursor, 'member activity cursor') ?? {};
+        const fromAudit = typeof cursor.a === 'number' ? cursor.a : undefined;
+        const fromSignIn = typeof cursor.s === 'number' ? cursor.s : null;
+
+        const audit = await this.stores.team.listAuditForUser(
+            team.id,
+            actorUserId,
+            {
+                limit,
+                cursor:
+                    fromAudit === undefined
+                        ? undefined
+                        : encodeCursor({ id: fromAudit }),
+            },
+        );
+        // One past the limit, so a page that consumes no sign-in still knows
+        // whether any remain.
+        const signIns = await this.stores.session.listSignIns(actorUserId, {
+            limit: limit + 1,
+            beforeId: fromSignIn,
+        });
+
+        const named = await this.#withUsernames(audit);
+        const self =
+            (await this.stores.user.getById(actorUserId))?.username ?? null;
+        const merged = [
+            ...named.items.map((entry, i) => ({
+                entry,
+                stream: 'a' as const,
+                id: audit.items[i].id,
+            })),
+            ...signIns.slice(0, limit).map((row) => ({
+                entry: {
+                    action: SIGN_IN_ACTION,
+                    reason: null,
+                    created_at: epochSeconds(row.created_at),
+                    username: self,
+                    actor_username: null,
+                    ip: row.last_ip,
+                    user_agent: row.last_user_agent,
+                } as MemberActivityEntry,
+                stream: 's' as const,
+                id: row.id,
+            })),
+        ].sort(
+            (x, y) =>
+                y.entry.created_at - x.entry.created_at ||
+                x.stream.localeCompare(y.stream) ||
+                y.id - x.id,
+        );
+
+        const page = merged.slice(0, limit);
+        const more =
+            merged.length > limit || !!audit.cursor || signIns.length > limit;
+        // A stream that contributed nothing keeps its old position: everything
+        // it still holds is older than this page, so it resumes where it was.
+        const next = {
+            ...(page.some((row) => row.stream === 'a')
+                ? { a: page.findLast((row) => row.stream === 'a')!.id }
+                : fromAudit === undefined
+                  ? {}
+                  : { a: fromAudit }),
+            ...(page.some((row) => row.stream === 's')
+                ? { s: page.findLast((row) => row.stream === 's')!.id }
+                : fromSignIn === null
+                  ? {}
+                  : { s: fromSignIn }),
+        };
+
+        return {
+            items: page.map((row) => row.entry),
+            ...(more ? { cursor: encodeCursor(next) } : {}),
+        };
+    }
+
+    /** Resolves a team the caller owns, soft-deleted or not. */
+    async requireOwnedTeam(
+        teamUid: string,
+        actorUserId: number,
+    ): Promise<TeamRow> {
+        const live = await this.stores.team.getByUid(teamUid);
+        if (live) return this.requireOwner(teamUid, actorUserId);
+
+        const deleted =
+            await this.stores.team.getByUidIncludingDeleted(teamUid);
+        if (!deleted || deleted.owner_user_id !== actorUserId) {
+            throw new HttpError(404, 'Team not found', {
+                legacyCode: 'team_not_found',
+            });
+        }
+        return deleted;
+    }
+
+    /** Internal user ids never reach the wire, as `toClientTeam` does for `id`. */
+    async #withUsernames(page: {
+        items: TeamAuditRow[];
+        cursor?: string;
+    }): Promise<PageResult<MemberActivityEntry>> {
+        const ids = new Set<number>();
+        for (const row of page.items) {
+            ids.add(row.user_id_keep);
+            if (row.actor_user_id !== null) ids.add(row.actor_user_id);
+        }
+        const users = await this.stores.user.getByIds([...ids]);
+        const name = (id: number | null) =>
+            id === null ? null : (users.get(id)?.username ?? null);
+
+        return {
+            items: page.items.map(
+                (row): MemberActivityEntry => ({
+                    action: row.action,
+                    reason: row.reason,
+                    created_at: epochSeconds(row.created_at),
+                    username: name(row.user_id_keep),
+                    actor_username: name(row.actor_user_id),
+                    // Only a sign-in carries these; the shape stays uniform.
+                    ip: null,
+                    user_agent: null,
+                }),
+            ),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+        };
+    }
+
+    // -- Provisioning ---- usernames come from the global pool ----------
+
+    /** Provisioning must not mint accounts signup itself would refuse. */
+    #usernameRejection(username: string): boolean {
+        return (
+            !USERNAME_REGEX.test(username) ||
+            username.length > USERNAME_MAX_LENGTH ||
+            RESERVED_USERNAMES.has(username.toLowerCase())
+        );
+    }
+
+    #assertUsableUsername(username: string): void {
+        if (this.#usernameRejection(username)) {
+            throw new HttpError(400, 'Invalid username', {
+                legacyCode: 'bad_request',
+            });
+        }
+    }
+
+    /** Free names near `username`, checked for availability. Never auto-applied. */
+    async suggestUsernames(username: string, count = 3): Promise<string[]> {
+        // Room for the suffix, or every suggestion breaks the length rule.
+        const base = username.slice(0, USERNAME_MAX_LENGTH - 3);
+        const found: string[] = [];
+        for (let n = 1; n <= 40 && found.length < count; n++) {
+            const candidate = `${base}${n}`;
+            if (this.#usernameRejection(candidate)) continue;
+            if (await this.stores.user.getByUsername(candidate)) continue;
+            if (
+                await this.stores.fsEntry.findHomePathConflict(
+                    candidate,
+                    undefined,
+                    { includeDescendants: true },
+                )
+            )
+                continue;
+            found.push(candidate);
+        }
+        return found;
+    }
+
+    /** Returns the activation link; the account has no password until used. */
+    async provisionAccount(
+        teamUid: string,
+        actorUserId: number,
+        input: { username: string; email?: string | null },
+    ): Promise<{
+        userId: number;
+        username: string;
+        temporaryPassword: string;
+    }> {
+        return this.#withCapLock(`team:${teamUid}`, () =>
+            this.#provisionAccountLocked(teamUid, actorUserId, input),
+        );
+    }
+
+    async #provisionAccountLocked(
+        teamUid: string,
+        actorUserId: number,
+        input: { username: string; email?: string | null },
+    ): Promise<{
+        userId: number;
+        username: string;
+        temporaryPassword: string;
+    }> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        // Unreachable while `createTeam` refuses a seat, since provisioning
+        // needs ownership; kept so the rule does not rest on that alone.
+        await this.#refuseIfOrgSeat(actorUserId);
+
+        // Counted, never derived from a stored total: seats come and go.
+        const cap = await this.#seatCap(team.owner_user_id);
+        if ((await this.stores.team.countSeats(team.id)) >= cap) {
+            throw new HttpError(409, `This team is limited to ${cap} seats`, {
+                legacyCode: 'seat_limit_reached',
+                fields: { limit: cap },
+            });
+        }
+
+        this.#assertUsableUsername(input.username);
+        const email = typeof input.email === 'string' ? input.email.trim() : '';
+        if (email && !validator.isEmail(email)) {
+            throw new HttpError(400, 'Invalid email', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        // Before any write, so a taken name fails cleanly. Also taken if free
+        // in the users table, but another account's rows still sit at or
+        // under its home path.
+        if (
+            (await this.stores.user.getByUsername(input.username)) ||
+            (await this.stores.fsEntry.findHomePathConflict(
+                input.username,
+                undefined,
+                { includeDescendants: true },
+            ))
+        ) {
+            throw new HttpError(409, 'That username is taken', {
+                legacyCode: 'username_already_in_use',
+                fields: {
+                    suggestions: await this.suggestUsernames(input.username),
+                },
+            });
+        }
+
+        // `idx_user_owned_email` is partial and skips password-null rows.
+        if (email && (await this.stores.user.findEmailOwner(email))) {
+            throw new HttpError(409, 'That email is already in use', {
+                legacyCode: 'email_already_in_use',
+            });
+        }
+
+        const user = await this.stores.user.create({
+            username: input.username,
+            uuid: uuidv4(),
+            password: null,
+            email: email || null,
+            clean_email: email ? cleanEmail(email) : null,
+            // Never demanded: the team creating the account is the trust anchor.
+            requires_email_confirmation: false,
+        });
+
+        await generateDefaultFsentries(this.clients.db, this.stores.user, user);
+
+        // Otherwise a vanished team leaves a real account nobody owns.
+        const admitted = await this.stores.team.addMember(teamUid, user.id, {
+            orgOwned: true,
+        });
+        if (!admitted) {
+            await this.services.userAccount.cascadeDelete(user.id);
+            throw new HttpError(409, 'That team is no longer available', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: user.id,
+            actorUserId,
+            action: 'provision',
+        });
+
+        // Returned once; forced change on first use is what bounds it.
+        const temporaryPassword = await this.#issueTemporaryPassword(user.id);
+        await this.#notifyUser(user, 'team_account_created', team, {
+            temporary_password: temporaryPassword,
+        });
+
+        // Last: the seat is only chargeable once it exists and can be used.
+        this.#emitBilling('team.account.created', {
+            ...(await this.#billingContext(team)),
+            user_id: user.id,
+            user_uuid: user.uuid,
+            username: user.username,
+        });
+
+        return {
+            userId: user.id,
+            username: user.username,
+            temporaryPassword,
+        };
+    }
+
+    /** Issues a fresh credential, invalidating the previous one. */
+    async reissueCredential(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<{ temporaryPassword: string }> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+
+        // Only before first use; changing a live account's password is reset.
+        if (!user.requires_password_change) {
+            throw new HttpError(409, 'That account is already activated', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        // Recorded first, so a failed append cannot leave an unlogged credential.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_PASSWORD,
+            reason: 'reissue',
+        });
+        const temporaryPassword =
+            await this.#issueTemporaryPassword(targetUserId);
+        await this.#notifyUser(user, 'team_account_created', team, {
+            temporary_password: temporaryPassword,
+        });
+        return { temporaryPassword };
+    }
+
+    /**
+     * Takes a live account back with a fresh temporary password. The one route
+     * from a team to member data, and the answer to a locked-out employee.
+     */
+    async resetMemberPassword(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<{ temporaryPassword: string }> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const user = await this.#requireTargetAccount(teamUid, targetUserId);
+
+        // Recorded first, so a failed append cannot leave an unlogged reset.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_RESET_PASSWORD,
+        });
+        const temporaryPassword =
+            await this.#issueTemporaryPassword(targetUserId);
+        // 2FA is deliberately untouched: a reset alone is not takeover.
+        await this.#dropSessions(targetUserId);
+        await this.#notifyUser(user, 'team_password_reset', team);
+        return { temporaryPassword };
+    }
+
+    /**
+     * Records that a member replaced the credential their administrator issued.
+     * A no-op for everyone who is not a seat, which is almost every account.
+     */
+    async recordPasswordSelfChange(userId: number): Promise<void> {
+        const seat = await this.stores.team.getOrgSeat(userId);
+        if (!seat) return;
+        const team = await this.stores.team.getByUidIncludingDeleted(
+            seat.team_uid,
+        );
+        if (!team) return;
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId,
+            actorUserId: userId,
+            action: AUDIT_ACTIVATE,
+        });
+    }
+
+    /** The target of a member route, read past the cache the caller just wrote. */
+    async #requireTargetAccount(
+        teamUid: string,
+        targetUserId: number,
+    ): Promise<UserRow> {
+        await this.requireOrgAccount(teamUid, targetUserId);
+        const user = await this.stores.user.getByProperty('id', targetUserId, {
+            force: true,
+        });
+        if (!user) {
+            throw new HttpError(404, 'Account not found', {
+                legacyCode: 'not_found',
+            });
+        }
+        return user as UserRow;
+    }
+
+    /** Never logged and never stored in plaintext; the caller shows it once. */
+    async #issueTemporaryPassword(userId: number): Promise<string> {
+        const temporaryPassword = generateTemporaryPassword();
+        await this.stores.user.update(userId, {
+            password: await bcrypt.hash(temporaryPassword, 8),
+            requires_password_change: 1,
+            temp_password_expires_at: temporaryPasswordExpiry(),
+        });
+        await this.stores.user.invalidateById(userId);
+        return temporaryPassword;
+    }
+
+    /** Best effort: the admin also gets the credential in the API response. */
+    async #notifyUser(
+        user: UserRow | null | undefined,
+        template: EmailTemplateName,
+        team: TeamRow,
+        vars: Record<string, string> = {},
+    ): Promise<void> {
+        if (!this.clients.email || !user?.email) return;
+        try {
+            const sent = await this.clients.email.send(user.email, template, {
+                username: user.username,
+                team_name: team.name ?? 'Your team',
+                ...vars,
+            });
+            // `sendRaw` returns null with no transport rather than throwing.
+            if (sent === null) {
+                console.warn(`[team] no email transport for ${template}`);
+            }
+        } catch (e) {
+            console.warn(`[team] ${template} notice failed:`, e);
+        }
+    }
+
+    /** The same notice, for a caller holding only the member's id. */
+    async #notifyMember(
+        userId: number,
+        template: EmailTemplateName,
+        team: TeamRow,
+    ): Promise<void> {
+        await this.#notifyUser(
+            await this.stores.user.getById(userId),
+            template,
+            team,
+        );
+    }
+
+    // -- Disable and re-enable ---- the whole of offboarding ------------
+
+    /** Rejects the account's next request; its files are untouched. */
+    async disableMember(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        const membership = await this.requireOrgAccount(teamUid, targetUserId);
+
+        // Already off: emitting again would open a second byte charge that
+        // only one `enabled` will ever close.
+        const current = await this.stores.user.getByProperty(
+            'id',
+            targetUserId,
+            {
+                force: true,
+            },
+        );
+        if (current?.suspended) return;
+
+        // Recorded first: a failed append must not leave an unlogged suspension.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: 'disable',
+        });
+        // Read before suspending, though a disabled account cannot change it.
+        const held = await this.#heldBytes(targetUserId);
+        await this.#suspend(targetUserId);
+
+        this.#emitBilling('team.account.disabled', {
+            ...(await this.#billingContext(team)),
+            user_id: targetUserId,
+            user_uuid: membership.uuid,
+            username: membership.username,
+            held_bytes: held,
+        });
+
+        // Their sessions are gone, so email is the only channel left.
+        await this.#notifyMember(targetUserId, 'team_account_disabled', team);
+    }
+
+    /** Nothing was destroyed, so the account returns as it was. */
+    async enableMember(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<void> {
+        const team = await this.requireOwner(teamUid, actorUserId);
+        await this.requireOrgAccount(teamUid, targetUserId);
+
+        // Forced read, as `userProtected` does: a cached row predates this.
+        const user = await this.stores.user.getByProperty('id', targetUserId, {
+            force: true,
+        });
+        // Only the team's own suspension; a platform one must not lift.
+        if (user?.suspended && user.suspended_reason !== DISABLED_BY_TEAM) {
+            throw new HttpError(409, 'That account was suspended by Puter', {
+                legacyCode: 'conflict',
+            });
+        }
+        // Never disabled, so there is no charge to close.
+        if (!user?.suspended) return;
+
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: 'enable',
+        });
+        await this.stores.user.update(targetUserId, {
+            suspended: 0,
+            suspended_at: null,
+            suspended_reason: null,
+        });
+        await this.stores.user.invalidateById(targetUserId);
+
+        // Closes the byte charge the disable opened, at the same figure.
+        this.#emitBilling('team.account.enabled', {
+            ...(await this.#billingContext(team)),
+            user_id: targetUserId,
+            user_uuid: user.uuid,
+            username: user.username,
+            held_bytes: await this.#heldBytes(targetUserId),
+        });
+    }
+
+    /** Disable is the reversible step in front of the irreversible one. */
+    async deleteMember(
+        teamUid: string,
+        actorUserId: number,
+        targetUserId: number,
+    ): Promise<void> {
+        // Deleted team included: the only self-serve way to retire its seats.
+        const team = await this.requireOwnedTeam(teamUid, actorUserId);
+        await this.requireOrgAccount(teamUid, targetUserId, {
+            includeDeleted: true,
+        });
+
+        // Forced, as `enableMember` is: a cached row predates the disable.
+        const user = await this.stores.user.getByProperty('id', targetUserId, {
+            force: true,
+        });
+        if (!user?.suspended) {
+            throw new HttpError(409, 'Disable the account before deleting it', {
+                legacyCode: 'account_must_be_disabled_first',
+            });
+        }
+        // Only the team's own suspension may be deleted, as `enableMember` holds.
+        if (user.suspended_reason !== DISABLED_BY_TEAM) {
+            throw new HttpError(409, 'That account was suspended by Puter', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        // Written first; `_keep` is what makes it outlive the account.
+        await this.stores.team.appendAudit({
+            teamId: team.id,
+            userId: targetUserId,
+            actorUserId,
+            action: AUDIT_DELETE_ACCOUNT,
+        });
+
+        // `cascadeDelete` emits `team.account.deleted` itself; a second emit
+        // here would close the storage charge twice.
+        await this.services.userAccount.cascadeDelete(targetUserId);
+    }
+
+    /** The three columns together; `suspended` is the one that gates requests. */
+    async #suspend(userId: number): Promise<void> {
+        await this.stores.user.update(userId, {
+            suspended: 1,
+            suspended_at: Math.floor(Date.now() / 1000),
+            suspended_reason: DISABLED_BY_TEAM,
+        });
+        await this.#dropSessions(userId);
+    }
+
+    /** Via the store: a raw DELETE leaves the session cache serving the row. */
+    async #dropSessions(userId: number): Promise<void> {
+        const rows = (await this.clients.db.read(
+            'SELECT `uuid` FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL',
+            [userId],
+        )) as { uuid: string }[];
+        for (const row of rows) {
+            await this.stores.session.removeByUuid(row.uuid);
+        }
+        await this.stores.user.invalidateById(userId);
+    }
+}

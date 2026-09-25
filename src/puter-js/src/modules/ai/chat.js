@@ -227,6 +227,19 @@ export async function chat (
         }
     }
 
+    // Response-format normalization. Both the per-call option and the
+    // SDK-wide `puter.ai.normalize` are tri-state: `true` forces the OpenAI
+    // shape regardless of release date, `false` forces the vendor-native
+    // shape, and unset defers — the per-call option to the SDK-wide flag,
+    // and the SDK-wide flag (unset by default) to the server's release-date
+    // policy, which normalizes models released on or after 2026-09-01. Only
+    // an explicit value rides the wire.
+    if (userParams.normalize !== undefined) {
+        requestParams.normalize = userParams.normalize;
+    } else if (this.normalize !== undefined) {
+        requestParams.normalize = this.normalize;
+    }
+
     // the legacy `driver` option is an alias for `provider`
     if (userParams.driver) {
         requestParams.provider = requestParams.provider || userParams.driver;

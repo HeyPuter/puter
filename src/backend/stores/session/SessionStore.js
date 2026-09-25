@@ -129,6 +129,44 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * @typedef {object} SignInRow
+     * @property {number} id
+     * @property {number} created_at Unix seconds.
+     * @property {string | null} last_ip
+     * @property {string | null} last_user_agent
+     */
+
+    /**
+     * Interactive sign-ins for a user, newest first, for the account's own
+     * activity view. Revoked rows are included -- a session someone opened and
+     * closed is exactly what the reader is looking for. Derived kinds (app,
+     * access token, asset, worker) are not sign-ins and stay out.
+     *
+     * Uncached and keyset-paginated on `id`: the caller merges this with
+     * another stream, so it asks for one page at a time rather than the whole
+     * history.
+     *
+     * @param {number} userId
+     * @param {{ limit: number; beforeId?: number | null }} opts
+     * @returns {Promise<SignInRow[]>}
+     */
+    async listSignIns(userId, { limit, beforeId = null }) {
+        const rows = await this.clients.db.read(
+            'SELECT `id`, `created_at`, `last_ip`, `last_user_agent` FROM `sessions` ' +
+                "WHERE `user_id` = ? AND `kind` = 'web'" +
+                (beforeId === null ? '' : ' AND `id` < ?') +
+                ' ORDER BY `id` DESC LIMIT ?',
+            beforeId === null ? [userId, limit] : [userId, beforeId, limit],
+        );
+        return rows.map((row) => ({
+            id: Number(row.id),
+            created_at: Number(row.created_at ?? 0),
+            last_ip: row.last_ip ?? null,
+            last_user_agent: row.last_user_agent ?? null,
+        }));
+    }
+
+    /**
      * Create a new session row.
      *
      * @param userId - User ID (numeric)
@@ -317,7 +355,11 @@ export class SessionStore extends PuterStore {
         // up to CACHE_TTL_SECONDS. `created_via` + `last_ip` +
         // `last_user_agent` ride along for the symmetric legacy-web
         // key derivation.
-        const rows = await this.clients.db.read(
+        // Primary read: a row minted moments ago (e.g. revoking a token
+        // right after creating it) may not have replicated yet, and a
+        // replica miss here would return early and silently skip the
+        // revoke. Revokes are rare, so the primary read is cheap.
+        const rows = await this.clients.db.pread(
             'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
             [uuid],
         );
@@ -346,9 +388,14 @@ export class SessionStore extends PuterStore {
      * Soft-revoke a root session and every derived session that points back to
      * it via `parent_session_id`. Broadcasts cache invalidation for each
      * affected row's uuid + composite keys.
+     *
+     * Returns which rows were revoked — `{ userId, uuids }`, or null when there
+     * was nothing active to revoke. Callers use it to tear down anything else
+     * holding the session open; the rows are read here anyway, so reporting
+     * them costs no extra query.
      */
     async revokeCascade(rootUuid) {
-        if (!rootUuid) return;
+        if (!rootUuid) return null;
 
         // Read each affected row's identity columns up-front — every
         // composite cache mapping (app, legacy-token, legacy-web) must
@@ -358,7 +405,7 @@ export class SessionStore extends PuterStore {
             'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
             [rootUuid, rootUuid],
         );
-        if (rows.length === 0) return;
+        if (rows.length === 0) return null;
 
         // Double-delete: see `removeByUuid` for rationale.
         const keys = [];
@@ -372,6 +419,11 @@ export class SessionStore extends PuterStore {
         );
 
         await this.publishCacheKeys({ keys, broadcast: true });
+
+        return {
+            userId: Number(rows[0].user_id),
+            uuids: rows.map((r) => String(r.uuid)),
+        };
     }
 
     /**
@@ -500,27 +552,14 @@ export class SessionStore extends PuterStore {
      */
     async getOrCreateWorker(userId, opts = {}) {
         if (!userId || !opts.workerName) return null;
+
+        const existing = await this.getWorker(userId, opts);
+        if (existing) return existing;
+
         const appUid = opts.appUid ?? null;
         const workerName = String(opts.workerName);
-
         const cacheKey = this.#cacheKeyWorker(userId, appUid, workerName);
         const now = nowSeconds();
-
-        const cached = await this.#readCacheKey(cacheKey);
-        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
-            return cached;
-        }
-
-        const existing = await this.#selectWorkerRow(
-            userId,
-            appUid,
-            workerName,
-        );
-        if (existing) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
-            return existing;
-        }
 
         const created = await this.#insertSession(
             userId,
@@ -549,6 +588,72 @@ export class SessionStore extends PuterStore {
         await this.#writeCacheKey(cacheKey, row);
         this.#writeCache(row).catch(() => {});
         return row;
+    }
+
+    /**
+     * Read-only counterpart to `getOrCreateWorker` — looks up the (user, app,
+     * worker_name) session row without creating one. `null` when no such
+     * session exists.
+     */
+    async getWorker(userId, opts = {}) {
+        if (!userId || !opts.workerName) return null;
+        const appUid = opts.appUid ?? null;
+        const workerName = String(opts.workerName);
+
+        const cacheKey = this.#cacheKeyWorker(userId, appUid, workerName);
+        const now = nowSeconds();
+
+        const cached = await this.#readCacheKey(cacheKey);
+        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
+            return cached;
+        }
+
+        const existing = await this.#selectWorkerRow(
+            userId,
+            appUid,
+            workerName,
+        );
+        if (existing) {
+            await this.#writeCacheKey(cacheKey, existing);
+            this.#writeCache(existing).catch(() => {});
+        }
+        return existing;
+    }
+
+    /**
+     * A page of live worker sessions for one worker name, oldest id first —
+     * what the stray-session sweep pages through to find rows whose app no
+     * longer exists. `idx_sessions_kind_user` gives `kind = 'worker'` as a
+     * leading equality, so this range-scans worker sessions only, not the whole
+     * table; the `worker_name` predicate is evaluated on that slice. No
+     * migration.
+     *
+     * @param {{
+     *     workerName: string;
+     *     afterId?: number;
+     *     limit?: number;
+     * }} args
+     *   - `workerName` selects the worker; `afterId` is the keyset cursor (0 for
+     *       the first page); `limit` bounds the page size.
+     */
+    async listWorkerSessions({ workerName, afterId = 0, limit = 500 } = {}) {
+        if (!workerName) return [];
+        const workerNameExpr = this.clients.db.jsonTextExtract('`meta`', [
+            'worker_name',
+        ]);
+        const rows = await this.clients.db.read(
+            `SELECT \`id\`, \`uuid\`, \`user_id\`, \`app_uid\` FROM \`sessions\` ` +
+                `WHERE \`kind\` = 'worker' AND \`revoked_at\` IS NULL AND ` +
+                `\`app_uid\` IS NOT NULL AND ${workerNameExpr} = ? AND \`id\` > ? ` +
+                'ORDER BY `id` LIMIT ?',
+            [workerName, afterId, Math.max(1, Math.floor(limit))],
+        );
+        return rows.map((row) => ({
+            id: Number(row.id),
+            uuid: String(row.uuid),
+            userId: Number(row.user_id),
+            appUid: String(row.app_uid),
+        }));
     }
 
     /**

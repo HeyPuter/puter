@@ -93,6 +93,11 @@ if ( window.user !== undefined && window.user !== null ) {
 }
 window.root_dirname = 'Puter';
 
+// Not a real directory — items shared with this user live under their owners'
+// paths. Deliberately not path-shaped so it can never collide with a folder
+// someone actually creates.
+window.shared_path = 'puter://shared';
+
 // user preferences, persisted across sessions, cached in localStorage
 try {
     window.user_preferences = JSON.parse(localStorage.getItem('user_preferences'));

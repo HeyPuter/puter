@@ -25,7 +25,7 @@
  * wired `MeteringService` so the recording side is exercised end-to-
  * end. Moonshot is OpenAI-compatible so the OpenAI SDK is mocked at
  * the module boundary; that's the real network egress point. Image-
- * inlining behaviour is covered by `imageHandling.test.ts`; here we
+ * inlining behaviour is covered by `utils/inlineImages.test.ts`; here we
  * stub `inlineHttpImageUrls` so http URLs in vision messages don't
  * trigger network fetches and only verify the provider invokes it
  * for vision-capable models. The companion integration test
@@ -78,13 +78,14 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
-// ── imageHandling stub ──────────────────────────────────────────────
+// ── inlineImages stub ──────────────────────────────────────────────
 
 const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
-    inlineHttpImageUrlsMock: vi.fn(async () => {}),
+    // Declared with the real function's arity so `mock.calls[0][0]` is typed.
+    inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
 }));
 
-vi.mock('./imageHandling.js', () => ({
+vi.mock('../../utils/inlineImages.js', () => ({
     inlineHttpImageUrls: inlineHttpImageUrlsMock,
 }));
 
@@ -377,7 +378,7 @@ describe('MoonshotProvider image inlining', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'kimi-k2.5', // kimi-k2.5 declares image input modality
+                model: 'kimi-k3', // kimi-k3 declares image input modality
                 messages: messages as unknown as { role: string; content: unknown }[],
             }),
         );
@@ -422,16 +423,16 @@ describe('MoonshotProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'moonshot-v1-32k',
+                model: 'kimi-k2.7-code',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('moonshot-v1-32k');
+        expect(createMock.mock.calls[0]![0].model).toBe('kimi-k2.7-code');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'moonshotai:moonshot-v1-32k',
+            'moonshotai:kimi-k2.7-code',
             expect.any(Object),
         );
     });

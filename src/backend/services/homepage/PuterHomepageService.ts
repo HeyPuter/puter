@@ -22,6 +22,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Request, Response } from 'express';
 import { PuterService } from '../types.js';
+import { notificationsFoldInEnabled } from '../notification/notificationSocket.js';
 import type { Actor } from '../../core/actor';
 
 interface Manifest {
@@ -63,6 +64,57 @@ interface PuterGuiAddonsEvent {
      */
     prependBodyContent: string;
 }
+
+/**
+ * Pre-paint gate for server-rendered anonymous markup.
+ *
+ * The shell is rendered from the session cookie alone, and a browser drops that
+ * cookie on quit while the GUI's localStorage token lives on. So a returning
+ * user is served the anonymous markup extensions splice in - the marketing
+ * homepage, an `/app/<name>` landing - and the GUI only tears it down once
+ * `whoami` answers, a network round-trip after first paint. That teardown is
+ * the flash.
+ *
+ * This runs in `<head>`, before any of that markup is parsed, so a browser
+ * holding a token never paints it: the rule is already in the cascade when the
+ * element arrives. `initgui` removes the nodes for good once `whoami` confirms
+ * the session, and puts them back if it doesn't (see `has-stored-session`
+ * there).
+ *
+ * Anonymous markup opts in with `class="hide-if-logged-in"`.
+ *
+ * SEO: the HTML is byte-identical for every client - nothing branches on
+ * user-agent. A crawler has no stored token, so it never adds the class and
+ * sees the landing exactly as served. Storage being unreadable (private modes,
+ * blocked site data) fails open the same way.
+ *
+ * The key is the one `gui/src/globals.js` boots `window.auth_token` from
+ * (`AUTH_TOKEN_KEY_V2`); the retired `auth_token` key can no longer
+ * authenticate, so a value under it must not hide anything.
+ */
+const SESSION_GATE = `
+    <style>html.has-stored-session .hide-if-logged-in{display:none!important}</style>
+    <script>
+    (function () {
+        try {
+            if (!localStorage.getItem('auth_token_v2')) return;
+        } catch (e) {
+            // Storage unreadable - fail open and show the markup.
+            return;
+        }
+        document.documentElement.classList.add('has-stored-session');
+        // Self-healing: the token is only a guess until \`whoami\` rules on it,
+        // and \`initgui\` is what settles the guess. If it never gets there -
+        // bundle blocked, boot threw - hiding the markup would leave a blank
+        // page for good, so hand it back.
+        window.addEventListener('load', function () {
+            setTimeout(function () {
+                if (window.__puter_session_settled) return;
+                document.documentElement.classList.remove('has-stored-session');
+            }, 12000);
+        });
+    })();
+    </script>`;
 
 /**
  * Serves the root HTML shell that bootstraps the Puter GUI.
@@ -178,6 +230,8 @@ export class PuterHomepageService extends PuterService {
                 this.config.disable_user_signup ||
                 this.config.gui_params?.disable_temp_users,
             ),
+            // Deployment-wide switch, or per user via the domain allowlist.
+            teams_ui: await this.#teamsUiFor(actor),
             domain: this.config.domain,
             env,
             api_base_url: this.config.api_base_url,
@@ -185,8 +239,16 @@ export class PuterHomepageService extends PuterService {
             app_origin: this.#originFromRequest(req),
             gui_origin: this.#originFromRequest(req),
             hosting_domain: this.config.static_hosting_domain,
+            // The GUI loads the SDK itself in bundled mode, so it needs this
+            // to serve its own build rather than the public CDN.
+            puterjs_bundle:
+                this.config.gui_puterjs_bundle ?? 'https://js.puter.com/v2/',
             asset_dir: assetDir,
             captchaRequired,
+            // Whether notifications are dispatched through the events layer,
+            // and so whether the GUI may take them from `puter.events`
+            // instead of the socket wire.
+            eventsNotifications: notificationsFoldInEnabled(this.config),
             ...meta,
             launch_options: launchOptions,
         };
@@ -267,6 +329,7 @@ export class PuterHomepageService extends PuterService {
 <html lang="en">
 <head>
     <title>${e(title)}</title>
+    ${SESSION_GATE}
     ${event.prependHeadContent}
 
     <link rel="preload" href="${guiBundle}" as="script" />
@@ -368,6 +431,27 @@ export class PuterHomepageService extends PuterService {
     <h1>${encode(String(message), { mode: 'nonAsciiPrintable' })}</h1>
 </body>
 </html>`;
+    }
+
+    /**
+     * The deployment-wide switch shows the teams UI to everyone; otherwise a
+     * signed-in user on the domain allowlist (or already in a team) gets it.
+     * The API gates real access either way — this only decides the render.
+     */
+    async #teamsUiFor(actor: Actor | null): Promise<boolean> {
+        if (this.config.gui_params?.teams_ui === true) return true;
+        const domains = this.config.teams_allowed_email_domains;
+        if (!Array.isArray(domains) || domains.length === 0) return false;
+        const user = actor?.user;
+        if (typeof user?.id !== 'number') return false;
+        try {
+            return await this.services.team.teamsAvailableTo(
+                user.id,
+                user.email ?? null,
+            );
+        } catch {
+            return false;
+        }
     }
 
     #originFromRequest(req: Request): string {

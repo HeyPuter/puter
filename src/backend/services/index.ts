@@ -27,6 +27,9 @@ import { AuthService } from './auth/AuthService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
+import { CacheReplicationService } from './cache/CacheReplicationService';
+import { EventForwardService } from './events/EventForwardService';
+import { EventsService } from './events/EventsService';
 import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
 import { ServerHealthService } from './health/ServerHealthService';
@@ -35,7 +38,11 @@ import { LocalWorkerService } from './localworker/LocalWorkerService';
 import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
+import { ProfileService } from './profile/ProfileService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
+import { ShareNotificationService } from './share/ShareNotificationService';
+import { ShareService } from './share/ShareService';
+import { TeamService } from './team/TeamService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
@@ -54,6 +61,9 @@ declare module './types' {
         appOriginBlocklist: AppOriginBlocklistService;
         permission: PermissionService;
         acl: ACLService;
+        share: ShareService;
+        shareNotification: ShareNotificationService;
+        profile: ProfileService;
         token: TokenService;
         auth: AuthService;
         fs: FSService;
@@ -62,15 +72,19 @@ declare module './types' {
         recommendedApps: RecommendedAppsService;
         suggestedApps: SuggestedAppsService;
         socket: SocketService;
+        events: EventsService;
+        eventForward: EventForwardService;
         notification: NotificationService;
         appFeedback: AppFeedbackService;
         broadcast: BroadcastService;
+        cacheReplication: CacheReplicationService;
         oidc: OIDCService;
         appIcon: AppIconService;
         defaultUser: DefaultUserService;
         homepage: PuterHomepageService;
         health: ServerHealthService;
         userAccount: UserAccountService;
+        team: TeamService;
     }
 }
 
@@ -93,9 +107,20 @@ export const puterServices = {
     token: TokenService,
     auth: AuthService,
     fs: FSService,
+    // Needs acl (setUserUser), permission (canManagePermission) and fs
+    // (ancestor chains), so it follows all three.
+    share: ShareService,
+    // Delivery only; it reaches `notification` at call time, so its position
+    // relative to that service does not matter.
+    shareNotification: ShareNotificationService,
+    // Reads and writes profile files through `fs` and asks `metering` about
+    // the owner's plan, so it follows both.
+    profile: ProfileService,
     // Declared after `fs` — account teardown tears the user's filesystem down
     // first.
     userAccount: UserAccountService,
+    // Leaf: team + user stores only.
+    team: TeamService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any
@@ -105,11 +130,19 @@ export const puterServices = {
     recommendedApps: RecommendedAppsService,
     suggestedApps: SuggestedAppsService,
     socket: SocketService,
+    // Delivers through `socket` and resolves paths through `fs`, so it follows
+    // both; `fs` reaches back for dispatch at call time only.
+    events: EventsService,
     notification: NotificationService,
     // Declared after `auth` (origin → app uid resolution happens through
     // AuthService.appUidFromOrigin).
     appFeedback: AppFeedbackService,
     broadcast: BroadcastService,
+    // Forwards through `broadcast` and puts deliveries down through `socket`,
+    // so it follows both; `events` reaches it at call time only.
+    eventForward: EventForwardService,
+    // Independent — only needs the event client and redis.
+    cacheReplication: CacheReplicationService,
     oidc: OIDCService,
     appIcon: AppIconService,
     defaultUser: DefaultUserService,

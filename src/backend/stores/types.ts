@@ -22,49 +22,21 @@ import type { IExtensionClientInstances } from '../clients/types';
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 
 /**
- * Built-in store instance registry. Forward-declared here and populated via
- * declaration merging from `stores/index.ts` to avoid the circular `typeof
- * puterStores` reference (stores extend `PuterStore`, whose `protected stores`
- * field references this type).
- *
- * Consumers see the merged `IPuterStoreInstances & IExtensionStoreInstances`
- * type — built-in keys + extension-augmented keys.
+ * Built-in store registry, populated by declaration merging from
+ * `stores/index.ts` to avoid a circular `typeof puterStores` reference.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IPuterStoreInstances {}
 
-/**
- * Extension-augmentable store registry. Extensions add their own store instance
- * types via TypeScript declaration merging:
- *
- *     declare module '@heyputer/backend/stores/types' {
- *         interface IExtensionStoreInstances {
- *             myStore: MyStore;
- *         }
- *     }
- *
- * Augmentations flow into `this.stores` (PuterStore, PuterService,
- * PuterController, PuterDriver) and into the `extension.import('store')`
- * proxy.
- */
+/** Extension-augmentable store registry; see `IExtensionClientInstances`. */
 export interface IExtensionStoreInstances {
-    /**
-     * Open index signature so reads of extension-only store keys return
-     * `unknown` instead of a type error. Concrete declaration-merged keys
-     * override this for that name.
-     */
     [key: string]: unknown;
 }
 
 /**
- * Stores may depend on clients and on _prior_ stores (those declared earlier in
- * the registry).
- *
- * Type contract caveat: `stores` is typed as the FULLY-populated registry, even
- * though at construction time only prior stores exist. Same trade-off as
- * `PuterService.services` — handler/lifecycle methods (the dominant read site)
- * run after all stores are wired, so typed access wins. Don't read
- * `this.stores.X` from a store constructor unless `X` is registered earlier.
+ * `stores` is typed as the full registry, but at construction time only stores
+ * declared earlier exist. Read `this.stores.X` from lifecycle or handler
+ * methods, not constructors.
  */
 export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (
     config: IConfig,

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import update_username_in_gui from '../helpers/update_username_in_gui.js';
+import update_username_in_gui from '../helpers/updateUsernameInGui.js';
 import { openRevalidatePopup } from '../util/openid.js';
 import { fetchWithSessionCookieRetry, isSessionAuthError } from '../util/sessionAuth.js';
 import UIWindow from './UIWindow.js';

@@ -100,6 +100,10 @@ const implicit_user_app_permissions = [
 const default_user_permissions = {
     driver: {},
     service: {},
+    // Every account may have events delivered to an app's handler while nobody
+    // is there; which app may is the per-app grant, which is what the user is
+    // actually asked about.
+    'events:background': {},
 };
 
 module.exports = {

@@ -62,6 +62,10 @@ export interface SignedMultipartPartUrlsInput {
     multipartUploadId: string;
     partNumbers: number[];
     expiresInSeconds: number;
+    // When both are known, each part URL is signed with the exact
+    // `Content-Length` that part must carry. Omit to leave parts unbound.
+    declaredTotalSize?: number;
+    multipartPartSize?: number;
 }
 
 export interface ServerUploadInput {

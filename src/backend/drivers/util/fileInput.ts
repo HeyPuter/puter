@@ -18,11 +18,12 @@
  */
 
 import { posix as pathPosix } from 'node:path';
+import { Readable } from 'node:stream';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSService } from '../../services/fs/FSService.js';
 import { expandTildePath, resolveNode } from '../../services/fs/resolveNode.js';
-import { hasNoBackingS3Object } from '../../stores/fs/FSEntry.js';
+import { hasNoBackingS3Object, type FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
@@ -38,6 +39,8 @@ import { secureFetch } from '../../util/secureHttp.js';
  * (`/alice/music/sample.mp3`) • an object with `{ path?, uid?, uuid? }`
  *
  * This helper collapses those shapes into `{ buffer, filename, mimeType }`.
+ * Drivers that can hand a stream to their downstream (a mail transport, an
+ * upload) use {@link openFileInputStream} instead and never hold the file.
  */
 
 export interface LoadedFile {
@@ -57,10 +60,29 @@ export interface LoadedFile {
     } | null;
 }
 
+/**
+ * A Puter FS reference as drivers receive it: a path string or `{ path?, uid?,
+ * uuid? }`.
+ */
+export type FileInputRef =
+    | string
+    | { path?: string; uid?: string; uuid?: string };
+
+export interface OpenedFileInput {
+    body: Readable;
+    /** Object size when the store reports it; null when it does not. */
+    contentLength: number | null;
+    filename: string;
+    mimeType: string;
+    fsEntry: NonNullable<LoadedFile['fsEntry']>;
+}
+
+type FileInputStores = { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
+
 const DATA_URL_PATTERN = /^data:([^;,]+)?(?:;([^,]*))?,(.*)$/s;
 
 export async function loadFileInput(
-    stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
+    stores: FileInputStores,
     fsService: FSService,
     actor: Actor,
     input: unknown,
@@ -71,11 +93,7 @@ export async function loadFileInput(
             legacyCode: 'bad_request',
         });
     }
-    if (!Number.isFinite(Number(actor?.user?.id ?? NaN))) {
-        throw new HttpError(401, 'Unauthorized', {
-            legacyCode: 'unauthorized',
-        });
-    }
+    requireActorUser(actor);
 
     // Data URL — decode base64/plain inline.
     if (typeof input === 'string' && input.startsWith('data:')) {
@@ -131,30 +149,47 @@ export async function loadFileInput(
     }
 
     // Path string or object reference → resolve into FSEntry, then S3 read.
-    const username = actor?.user?.username;
+    const opened = await openFileInputStream(
+        stores,
+        fsService,
+        actor,
+        input as FileInputRef,
+        options,
+    );
+    const buffer = await collectStream(opened.body, options.maxBytes);
+    return {
+        buffer,
+        filename: opened.filename,
+        mimeType: opened.mimeType,
+        fsEntry: opened.fsEntry,
+    };
+}
+
+/**
+ * Resolve a Puter FS reference to its entry, with the checks every driver read
+ * needs: it must be a file (not a directory, symlink or shortcut) and `actor`
+ * must be allowed to read it.
+ */
+export async function resolveFileInputEntry(
+    stores: FileInputStores,
+    fsService: FSService,
+    actor: Actor,
+    input: FileInputRef,
+): Promise<FSEntry> {
+    requireActorUser(actor);
+    const username = actor.user?.username;
     const expandPath = (path: string | undefined) =>
         path !== undefined ? expandTildePath(path, username) : undefined;
     const ref: { path?: string; uid?: string; uuid?: string } =
         typeof input === 'string'
             ? { path: expandPath(input) }
-            : (() => {
-                  const record = input as Record<string, unknown>;
-                  return {
-                      path: expandPath(
-                          typeof record.path === 'string'
-                              ? record.path
-                              : undefined,
-                      ),
-                      uid:
-                          typeof record.uid === 'string'
-                              ? record.uid
-                              : undefined,
-                      uuid:
-                          typeof record.uuid === 'string'
-                              ? record.uuid
-                              : undefined,
-                  };
-              })();
+            : {
+                  path: expandPath(
+                      typeof input.path === 'string' ? input.path : undefined,
+                  ),
+                  uid: typeof input.uid === 'string' ? input.uid : undefined,
+                  uuid: typeof input.uuid === 'string' ? input.uuid : undefined,
+              };
 
     const entry = await resolveNode(stores.fsEntry, ref, { required: true });
     if (!entry)
@@ -173,43 +208,72 @@ export async function loadFileInput(
     // ACL gate: resolveNode does global UID/UUID/ID/path lookups, no
     // namespace check. Without this check, an attacker controlling
     // `path`/`uid`/`uuid` (e.g. AI chat `puter_path` content parts) could
-    // exfiltrate any user's file. Must run before the S3 read below.
+    // exfiltrate any user's file. Must run before any read of the object.
     await fsService.checkFSAccess(entry, actor, 'read');
+    return entry;
+}
+
+/**
+ * Open a Puter FS reference as a stream of its bytes. Nothing is buffered: the
+ * caller pipes `body` wherever it goes and owns its lifetime. A known size over
+ * `maxBytes` is refused (413) before a byte is read; a size that is only
+ * discovered while reading is the caller's to enforce.
+ */
+export async function openFileInputStream(
+    stores: FileInputStores,
+    fsService: FSService,
+    actor: Actor,
+    input: FileInputRef,
+    options: { maxBytes?: number } = {},
+): Promise<OpenedFileInput> {
+    const entry = await resolveFileInputEntry(stores, fsService, actor, input);
+    const fsEntry = {
+        uuid: entry.uuid,
+        path: entry.path,
+        bucket: entry.bucket,
+        bucketRegion: entry.bucketRegion,
+        size: entry.size,
+        sqlId: entry.id,
+    };
     // Empty files (created via `touch`) have no backing S3 object —
     // getObjectStream would throw NoSuchKey, so return empty content.
     if (hasNoBackingS3Object(entry)) {
         return {
-            buffer: Buffer.alloc(0),
+            body: Readable.from([]),
+            contentLength: 0,
             filename: entry.name,
             mimeType: mimeFromName(entry.name) ?? 'application/octet-stream',
-            fsEntry: {
-                uuid: entry.uuid,
-                path: entry.path,
-                bucket: entry.bucket,
-                bucketRegion: entry.bucketRegion,
-                size: entry.size,
-                sqlId: entry.id,
-            },
+            fsEntry,
         };
     }
-    const objectKey = entry.uuid;
     const { body, contentType, contentLength } =
         await stores.s3Object.getObjectStream(
             {
                 bucket: stores.s3Object.resolveBucket(entry.bucket),
-                objectKey,
+                objectKey: entry.uuid,
             },
             stores.s3Object.resolveRegion(entry.bucketRegion),
         );
     if (contentLength && options.maxBytes && contentLength > options.maxBytes) {
         body.destroy();
-        throw new HttpError(
-            413,
-            `File exceeds max size (${options.maxBytes} bytes)`,
-            { legacyCode: 'storage_limit_reached' },
-        );
+        throw tooLarge(options.maxBytes);
     }
+    return {
+        body,
+        contentLength: contentLength ?? null,
+        filename: entry.name,
+        mimeType:
+            contentType ??
+            mimeFromName(entry.name) ??
+            'application/octet-stream',
+        fsEntry,
+    };
+}
 
+async function collectStream(
+    body: Readable,
+    maxBytes: number | undefined,
+): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let total = 0;
     for await (const chunk of body) {
@@ -217,33 +281,27 @@ export async function loadFileInput(
             ? chunk
             : Buffer.from(chunk as Uint8Array);
         total += buf.byteLength;
-        if (options.maxBytes && total > options.maxBytes) {
+        if (maxBytes && total > maxBytes) {
             body.destroy();
-            throw new HttpError(
-                413,
-                `File exceeds max size (${options.maxBytes} bytes)`,
-                { legacyCode: 'storage_limit_reached' },
-            );
+            throw tooLarge(maxBytes);
         }
         chunks.push(buf);
     }
-    const buffer = Buffer.concat(chunks, total);
-    const resolvedMime =
-        contentType ?? mimeFromName(entry.name) ?? 'application/octet-stream';
+    return Buffer.concat(chunks, total);
+}
 
-    return {
-        buffer,
-        filename: entry.name,
-        mimeType: resolvedMime,
-        fsEntry: {
-            uuid: entry.uuid,
-            path: entry.path,
-            bucket: entry.bucket,
-            bucketRegion: entry.bucketRegion,
-            size: entry.size,
-            sqlId: entry.id,
-        },
-    };
+function requireActorUser(actor: Actor): void {
+    if (!Number.isFinite(Number(actor?.user?.id ?? NaN))) {
+        throw new HttpError(401, 'Unauthorized', {
+            legacyCode: 'unauthorized',
+        });
+    }
+}
+
+function tooLarge(maxBytes: number): HttpError {
+    return new HttpError(413, `File exceeds max size (${maxBytes} bytes)`, {
+        legacyCode: 'storage_limit_reached',
+    });
 }
 
 function assertMax(buffer: Buffer, maxBytes?: number): void {

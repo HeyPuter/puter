@@ -20,24 +20,52 @@
 /**
  * Shared helpers for `input_images` (image-to-image) handling across image
  * providers. `input_images` is the canonical, cross-provider field; an entry
- * may be a public URL, a data-URI, or raw base64. Providers whose upstream
- * API needs base64 use these helpers to normalize URLs server-side (via the
- * SSRF-guarded `secureFetch`); providers that accept URLs natively (Replicate,
- * xAI) pass them through untouched.
+ * may be a public URL, a data-URI, or raw base64. The string-level helpers live
+ * in `drivers/util/imageInput.ts` so video providers share them; this module
+ * re-exports them and adds the `IGenerateParams`-shaped validation.
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
-import { secureFetch } from '../../util/secureHttp.js';
+import { assertInputImageString } from '../util/imageInput.js';
 import type { IGenerateParams } from './types.js';
 
-export function isHttpUrl(s: string): boolean {
-    return s.startsWith('http://') || s.startsWith('https://');
+export {
+    assertInputImageString,
+    fetchImageAsBase64,
+    fetchImageBytes,
+    isHttpUrl,
+    parseDataUri,
+    toBase64DataUri,
+    toUrlOrDataUri,
+} from '../util/imageInput.js';
+
+/**
+ * Validate `input_image` / `input_images` once, where the driver call arrives.
+ * Providers reach for `.startsWith` on these, and several do it without going
+ * through the helpers here, so the shape has to be settled before any of them
+ * runs.
+ */
+export function assertInputImagesShape(
+    params: Pick<IGenerateParams, 'input_image' | 'input_images'>,
+    label: string,
+): void {
+    if (params.input_image !== undefined && params.input_image !== null) {
+        assertInputImageString(params.input_image, label);
+    }
+    const imgs = params.input_images;
+    if (imgs === undefined || imgs === null) return;
+    if (!Array.isArray(imgs)) {
+        throw new HttpError(400, `${label}: input_images must be an array.`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    for (const img of imgs) assertInputImageString(img, label);
 }
 
 /**
- * Resolve the single input image for providers that only support one.
- * Throws 400 if `input_images` carries more than one entry. Returns the
- * chosen image string (URL / data-URI / raw base64) or undefined.
+ * Resolve the single input image for providers that only support one. Throws
+ * 400 if `input_images` carries more than one entry. Returns the chosen image
+ * string (URL / data-URI / raw base64) or undefined.
  */
 export function resolveSingleInputImage(
     params: Pick<IGenerateParams, 'input_image' | 'input_images'>,
@@ -51,52 +79,8 @@ export function resolveSingleInputImage(
             { legacyCode: 'bad_request' },
         );
     }
-    return params.input_image ?? imgs?.[0];
-}
-
-const DATA_URI_PATTERN = /^data:([^;,]+)?(?:;base64)?,(.*)$/s;
-
-/** Parse a `data:<mime>;base64,<payload>` URI into raw base64 + mime. */
-export function parseDataUri(
-    s: string,
-): { base64: string; mime: string } | null {
-    const m = DATA_URI_PATTERN.exec(s);
-    if (!m) return null;
-    return { base64: m[2] ?? '', mime: m[1] ?? 'image/png' };
-}
-
-/** Fetch an http(s) image and return raw base64 + mime (SSRF-guarded). */
-export async function fetchImageAsBase64(
-    url: string,
-): Promise<{ base64: string; mime: string }> {
-    const res = await secureFetch(url);
-    if (!res.ok) {
-        throw new HttpError(
-            400,
-            `Failed to fetch input image (status ${res.status})`,
-            { legacyCode: 'bad_request' },
-        );
-    }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const mime =
-        res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/png';
-    return { base64: buffer.toString('base64'), mime };
-}
-
-/**
- * Normalize any input-image string to a base64 data-URI:
- *   • http(s) URL  → fetched via secureFetch
- *   • data-URI     → returned as-is
- *   • raw base64   → wrapped with `mimeHint` (default image/png)
- */
-export async function toBase64DataUri(
-    img: string,
-    mimeHint?: string,
-): Promise<string> {
-    if (img.startsWith('data:')) return img;
-    if (isHttpUrl(img)) {
-        const { base64, mime } = await fetchImageAsBase64(img);
-        return `data:${mime};base64,${base64}`;
-    }
-    return `data:${mimeHint ?? 'image/png'};base64,${img}`;
+    const chosen = params.input_image ?? imgs?.[0];
+    return chosen === undefined
+        ? undefined
+        : assertInputImageString(chosen, providerLabel);
 }

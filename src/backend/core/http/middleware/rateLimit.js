@@ -21,6 +21,10 @@
 import crypto from 'node:crypto';
 import { withSpan } from '../../../util/span.js';
 import { HttpError } from '../HttpError.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    FREE_SUBSCRIPTION_IDS,
+} from '../../../services/metering/consts.js';
 
 /**
  * Sliding-window rate limiter with swappable, **co-resident** backends.
@@ -114,7 +118,36 @@ async function checkMemory(key, limit, windowMs) {
     return true;
 }
 
+/**
+ * Read a bucket's state without spending from it. For gates whose budget is
+ * consumed by something other than the request being admitted — a failed
+ * credential check, say — where charging the check itself would bill every
+ * caller for the attacker's attempts.
+ */
+async function peekMemory(key, limit, windowMs) {
+    const entry = memoryWindows.get(key);
+    if (!entry) return true;
+    const cutoff = Date.now() - windowMs;
+    const timestamps = entry.ts;
+    while (timestamps.length > 0 && timestamps[0] < cutoff) timestamps.shift();
+    return timestamps.length < limit;
+}
+
 // -- Redis backend ---------------------------------------------------
+
+// ioredis MULTI/EXEC reports per-command failures inside the exec() result
+// (as `[err, res]` pairs) rather than throwing, so a failed command's result
+// reads as `undefined` — and `Number(undefined)` is NaN, which every
+// comparison below treats as "under the limit". Pull results through this so
+// a command failure surfaces like a thrown one instead of silently admitting.
+function multiResult(results, i) {
+    const entry = results[i];
+    if (Array.isArray(entry)) {
+        if (entry[0]) throw entry[0];
+        return entry[1];
+    }
+    return entry;
+}
 
 async function checkRedis(
     /** @type {import('ioredis').Cluster} */
@@ -144,14 +177,22 @@ async function checkRedis(
         .pexpire(redisKey, windowMs)
         .exec();
 
-    const count = Number(
-        Array.isArray(results[2]) ? results[2][1] : results[2],
-    );
+    const count = Number(multiResult(results, 2));
     if (count > limit) {
         await redis.zrem(redisKey, member);
         return false;
     }
     return true;
+}
+
+async function peekRedis(redis, key, limit, windowMs) {
+    const redisKey = `rate:${key}`;
+    const results = await redis
+        .multi()
+        .zremrangebyscore(redisKey, 0, Date.now() - windowMs)
+        .zcard(redisKey)
+        .exec();
+    return Number(multiResult(results, 1)) < limit;
 }
 
 // -- KV backend ------------------------------------------------------
@@ -176,6 +217,18 @@ async function checkKv(kv, key, limit, windowMs) {
         expireAt: Math.ceil((now + windowMs) / 1000),
     });
     return true;
+}
+
+// `list` filters by TTL, so a non-expired row is in-window — same read
+// `checkKv` does, minus the write.
+async function peekKv(kv, key, limit) {
+    const { res } = await kv.list({
+        as: 'keys',
+        pattern: `rate:${key}:`,
+        limit: limit + 1,
+    });
+    const keys = Array.isArray(res) ? res : (res?.items ?? []);
+    return keys.length < limit;
 }
 
 // -- Concurrent in-flight backends -----------------------------------
@@ -216,7 +269,7 @@ async function acquireMemoryConcurrent(key, limit) {
     };
 }
 
-async function acquireRedisConcurrent(redis, key, limit) {
+async function acquireRedisConcurrent(redis, key, limit, retried = false) {
     const redisKey = `concurrent:${key}`;
     const member = `${Date.now()}-${crypto.randomUUID()}`;
     // One sorted-set member per held slot, scored by acquire time — the same
@@ -231,20 +284,32 @@ async function acquireRedisConcurrent(redis, key, limit) {
     // nobody is actually using. Here the sweep below drops each slot on its own
     // age, so a leak drains on schedule no matter how hard anyone retries.
     const now = Date.now();
-    const results = await redis
-        .multi()
-        // Slots older than the orphan window belonged to a process that died
-        // before releasing; drop them before counting.
-        .zremrangebyscore(redisKey, 0, now - ORPHAN_SAFETY_TTL_MS)
-        .zadd(redisKey, now, member)
-        .zcard(redisKey)
-        // Key-level TTL is only garbage collection for a bucket that goes
-        // quiet — the per-member sweep above is what bounds a live one.
-        .expire(redisKey, ORPHAN_SAFETY_TTL_SEC)
-        .exec();
-    const count = Number(
-        Array.isArray(results[2]) ? results[2][1] : results[2],
-    );
+    let count;
+    try {
+        const results = await redis
+            .multi()
+            // Slots older than the orphan window belonged to a process that
+            // died before releasing; drop them before counting.
+            .zremrangebyscore(redisKey, 0, now - ORPHAN_SAFETY_TTL_MS)
+            .zadd(redisKey, now, member)
+            .zcard(redisKey)
+            // Key-level TTL is only garbage collection for a bucket that goes
+            // quiet — the per-member sweep above is what bounds a live one.
+            .expire(redisKey, ORPHAN_SAFETY_TTL_SEC)
+            .exec();
+        count = Number(multiResult(results, 2));
+    } catch (err) {
+        // Keys left behind by the INCR-counter version of this backend are
+        // plain strings, so every zset command above fails WRONGTYPE — while
+        // the EXPIRE at the end still succeeds, meaning steady traffic keeps
+        // refreshing the stale key and it never ages out on its own. Drop the
+        // legacy key and count against a clean one.
+        if (!retried && /WRONGTYPE/.test(err?.message ?? '')) {
+            await redis.del(redisKey);
+            return acquireRedisConcurrent(redis, key, limit, true);
+        }
+        throw err;
+    }
     if (count > limit) {
         await redis.zrem(redisKey, member);
         return { ok: false };
@@ -324,6 +389,10 @@ function instrumentBackendPair(name, pair) {
             withSpan('rate_limit.check', attrs, () =>
                 pair.rate(key, limit, windowMs),
             ),
+        peek: (key, limit, windowMs) =>
+            withSpan('rate_limit.peek', attrs, () =>
+                pair.peek(key, limit, windowMs),
+            ),
         acquire: (key, limit) =>
             withSpan('rate_limit.acquire', attrs, () =>
                 pair.acquire(key, limit),
@@ -333,6 +402,7 @@ function instrumentBackendPair(name, pair) {
 
 const memoryBackendPair = instrumentBackendPair('memory', {
     rate: checkMemory,
+    peek: peekMemory,
     acquire: acquireMemoryConcurrent,
 });
 
@@ -379,12 +449,15 @@ export function configureRateLimit({
         backends.redis = instrumentBackendPair('redis', {
             rate: (key, limit, windowMs) =>
                 checkRedis(redis, key, limit, windowMs),
+            peek: (key, limit, windowMs) =>
+                peekRedis(redis, key, limit, windowMs),
             acquire: (key, limit) => acquireRedisConcurrent(redis, key, limit),
         });
     }
     if (kv) {
         backends.kv = instrumentBackendPair('kv', {
             rate: (key, limit, windowMs) => checkKv(kv, key, limit, windowMs),
+            peek: (key, limit) => peekKv(kv, key, limit),
             acquire: (key, limit) => acquireKvConcurrent(kv, key, limit),
         });
     }
@@ -409,10 +482,10 @@ export function listConfiguredRateLimitBackends() {
 }
 
 /**
- * Resolve the `{ rate, acquire }` backend pair for a named backend. Unknown /
- * unconfigured names log once and fall through to the default so a typo in a
- * route or driver decorator doesn't 500 every request — rate limiting is
- * best-effort security.
+ * Resolve the `{ rate, peek, acquire }` backend pair for a named backend.
+ * Unknown / unconfigured names log once and fall through to the default so a
+ * typo in a route or driver decorator doesn't 500 every request — rate limiting
+ * is best-effort security.
  */
 function resolveBackend(name) {
     if (!name) return backends[defaultBackendName];
@@ -432,7 +505,8 @@ function resolveBackend(name) {
  * Strategies: 'fingerprint' — network hash (IP + headers), refined by the
  * client's device fingerprint when one was supplied (default). Good for
  * unauthenticated endpoints where the same IP may serve many users (offices,
- * VPNs). 'ip' — bare IP. Simpler but coarser. 'user' — actor UUID. Use for
+ * VPNs). 'ip' — bare IP. Simpler but coarser. 'user' — the authenticated actor
+ * (user, plus the app and worker it acts through; see `actorKey`). Use for
  * authenticated endpoints where you want per-account limits regardless of IP.
  * function — custom `(req) => string`.
  */
@@ -451,7 +525,7 @@ function resolveKey(req, scope, strategy) {
                 // on requireAuth routes, but be safe)
                 return prefix + fingerprint(req);
             }
-            return prefix + id;
+            return prefix + actorKey(req.actor, id);
         }
         case 'ip':
             return prefix + ip(req);
@@ -459,6 +533,24 @@ function resolveKey(req, scope, strategy) {
         default:
             return prefix + fingerprint(req);
     }
+}
+
+/**
+ * Bucket identity for an authenticated actor: `<user>[:<app>][:<worker>]`.
+ *
+ * The app segment is the app the actor acts as, so an access token minted by an
+ * app lands in that app's bucket. The worker segment is the worker's session
+ * uid, unique per (user, app, worker name). Without these, a busy app or worker
+ * drains the limit shared by everything else the same user runs.
+ */
+function actorKey(actor, userId) {
+    const parts = [userId];
+    const appUid = actor.effectiveApp?.uid;
+    if (appUid) parts.push(appUid);
+    if (actor.session?.kind === 'worker' && actor.session.uid) {
+        parts.push(actor.session.uid);
+    }
+    return parts.join(':');
 }
 
 function ip(req) {
@@ -556,10 +648,18 @@ export function rateLimitGate(opts) {
 
 // -- Driver-call helper ----------------------------------------------
 
+function driverCaller(req) {
+    const actor = req.actor;
+    return actor?.user?.uuid
+        ? actorKey(actor, actor.user.uuid)
+        : fingerprint(req);
+}
+
 /**
  * Check rate limit for a driver call. Called from DriverController's /call
- * handler. Keyed by user + interface:method so different drivers and different
- * methods don't crowd each other.
+ * handler. Keyed by actor (user, app, worker — see `actorKey`) +
+ * interface:method so different drivers, methods, apps and workers don't crowd
+ * each other.
  *
  * `opts` is the resolved per-method spec from the driver's decorator (or
  * imperative `rateLimit` field) — see `resolveDriverRateLimit` in
@@ -572,8 +672,7 @@ export function rateLimitGate(opts) {
  */
 export async function checkDriverRateLimit(req, ifaceName, method, opts = {}) {
     const { window: windowMs = 60_000, backend } = opts;
-    const uid = req.actor?.user?.uuid || fingerprint(req);
-    const key = `driver:${ifaceName}:${method}:${uid}`;
+    const key = `driver:${ifaceName}:${method}:${driverCaller(req)}`;
     const backendPair = resolveBackend(backend);
     try {
         // Drivers can pin a per-subscription limit via `bySubscription`
@@ -607,6 +706,61 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
     } catch (err) {
         console.error(
             '[rate-limit] imperative check failed, failing open:',
+            err,
+        );
+        return true;
+    }
+}
+
+/**
+ * Charge a route-shaped rate-limit spec from inside a handler.
+ *
+ * `rateLimitGate` takes one static spec per route, which is wrong for a route
+ * whose cost depends on a request parameter: `stat` with `return_shares` does
+ * the same work as the share-listing route, and should spend from the same
+ * budget. This resolves the key and the per-subscription limit exactly as the
+ * gate does — same spec in, same bucket out — so a handler can charge a second
+ * scope conditionally. Returns true if allowed; fails open on backend error.
+ * Takes the array form too; windows charge in order, no refund on refusal.
+ */
+export async function consumeRouteRateLimit(req, spec) {
+    if (Array.isArray(spec)) {
+        for (const window of spec) {
+            if (!(await consumeRouteRateLimit(req, window))) return false;
+        }
+        return true;
+    }
+    const {
+        window: windowMs,
+        key: strategy = 'fingerprint',
+        scope,
+        backend,
+    } = spec;
+    const backendPair = resolveBackend(backend);
+    const key = resolveKey(req, scope ?? req.route?.path ?? 'route', strategy);
+    try {
+        const limit = await resolveSubscriptionLimit(req, spec);
+        return await backendPair.rate(key, limit, windowMs);
+    } catch (err) {
+        console.error('[rate-limit] handler charge failed, failing open:', err);
+        return true;
+    }
+}
+
+/**
+ * Read whether `key` still has budget, without spending any. The twin to
+ * `checkRateLimit` for gates whose budget is consumed by an outcome rather than
+ * by the request: a failed-credential counter has to be readable before the
+ * work that might fail, or the check itself charges every honest caller. Fails
+ * open on backend error, matching the rest of this module's policy.
+ */
+export async function peekRateLimit(key, limit, windowMs, backend) {
+    const bk = resolveBackend(backend);
+    try {
+        return await bk.peek(key, limit, windowMs);
+    } catch (err) {
+        console.error(
+            '[rate-limit] imperative peek failed, failing open:',
             err,
         );
         return true;
@@ -692,6 +846,15 @@ export const CONCURRENT_SLOT_TTL_MS = ORPHAN_SAFETY_TTL_MS;
  * actor, no metering, metering throws) falls through to the base — rate /
  * concurrency limiting should never _amplify_ a request failure path.
  */
+// An unlisted free plan would otherwise take `limit`, the paid cap.
+function overrideFor(bySubscription, subscriptionId) {
+    const own = bySubscription[subscriptionId];
+    if (typeof own === 'number') return own;
+    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
+        ? bySubscription[DEFAULT_FREE_SUBSCRIPTION]
+        : undefined;
+}
+
 async function resolveSubscriptionLimit(req, opts) {
     const base = opts.limit;
     if (!opts.bySubscription || !meteringService) return base;
@@ -699,7 +862,7 @@ async function resolveSubscriptionLimit(req, opts) {
     if (!actor?.user?.uuid) return base;
     try {
         const sub = await meteringService.getActorSubscription(actor);
-        const override = opts.bySubscription[sub.id];
+        const override = overrideFor(opts.bySubscription, sub.id);
         return typeof override === 'number' ? override : base;
     } catch {
         return base;
@@ -787,8 +950,7 @@ export async function acquireDriverConcurrent(req, ifaceName, method, opts) {
         return { ok: true, release: () => {} };
     }
     const { backend } = opts;
-    const uid = req.actor?.user?.uuid || fingerprint(req);
-    const key = `driver:${ifaceName}:${method}:${uid}`;
+    const key = `driver:${ifaceName}:${method}:${driverCaller(req)}`;
     const backendPair = resolveBackend(backend);
     try {
         const limit = await resolveSubscriptionLimit(req, opts);

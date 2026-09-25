@@ -45,6 +45,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { GeminiVideoProvider } from './GeminiVideoProvider.js';
 import { GEMINI_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -75,6 +76,16 @@ vi.mock('@google/genai', () => {
     });
     return { GoogleGenAI };
 });
+
+// Veo needs inline bytes, so URL inputs go through the SSRF-guarded fetch.
+const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
+
+vi.mock('../../../../util/secureHttp.js', async (importOriginal) => ({
+    ...(await importOriginal<
+        typeof import('../../../../util/secureHttp.js')
+    >()),
+    secureFetch: secureFetchMock,
+}));
 
 // ── Test harness ────────────────────────────────────────────────────
 
@@ -121,6 +132,7 @@ beforeEach(() => {
     generateVideosMock.mockReset();
     getVideosOperationMock.mockReset();
     googleAICtor.mockReset();
+    secureFetchMock.mockReset();
     remainingUsageSpy = vi.spyOn(server.services.metering, 'getRemainingUsage');
     remainingUsageSpy.mockResolvedValue(AMPLE_CREDIT);
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
@@ -153,10 +165,10 @@ describe('GeminiVideoProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('GeminiVideoProvider model catalog', () => {
-    it('getDefaultModel() returns the first catalog entry id', () => {
+    it('getDefaultModel() returns Veo 3.1 Lite', () => {
         const provider = makeProvider();
         expect(provider.getDefaultModel()).toBe(
-            GEMINI_VIDEO_GENERATION_MODELS[0].id,
+            'veo-3.1-lite-generate-preview',
         );
     });
 
@@ -422,11 +434,72 @@ describe('GeminiVideoProvider.generate polling', () => {
         }
     });
 
-    it('throws when the operation finishes with an error', async () => {
+    it('treats a failed poll as a missed poll rather than a failed job', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            generateVideosMock.mockResolvedValueOnce({ done: false });
+            getVideosOperationMock
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('unavailable'), { status: 503 }),
+                )
+                .mockResolvedValueOnce(completedOperation());
+
+            const promise = withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'veo-3.1-generate-preview',
+                }),
+            );
+            await vi.advanceTimersByTimeAsync(10_000);
+            await vi.advanceTimersByTimeAsync(10_000);
+
+            expect(await promise).toBe('https://gemini/out.mp4');
+            expect(getVideosOperationMock).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            generateVideosMock.mockResolvedValueOnce({ done: false });
+            getVideosOperationMock.mockResolvedValue({ done: false });
+
+            const rejection = withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'veo-3.1-generate-preview',
+                }),
+            ).catch((e: unknown) => e);
+
+            // Ten-minute wait window, polled every 10s.
+            await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 10_000);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 504,
+                legacyCode: 'upstream_timeout',
+                message:
+                    'Timed out waiting for Gemini video generation to complete',
+                fields: { provider: 'gemini' },
+            });
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('surfaces an operation that finishes with an error as HttpError 502 upstream_failed', async () => {
         const provider = makeProvider();
         generateVideosMock.mockResolvedValueOnce({
             done: true,
-            error: { message: 'rate limit' },
+            error: {
+                code: 13,
+                message: 'internal server issue',
+                status: 'INTERNAL',
+            },
             response: {},
         });
 
@@ -437,7 +510,12 @@ describe('GeminiVideoProvider.generate polling', () => {
                     model: 'veo-3.1-generate-preview',
                 }),
             ),
-        ).rejects.toThrow(/rate limit/);
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            message: 'internal server issue',
+            fields: { provider: 'gemini', upstreamCode: 'INTERNAL' },
+        });
     });
 
     it('throws 400 with the filter reason when raiMediaFilteredCount > 0', async () => {
@@ -460,7 +538,10 @@ describe('GeminiVideoProvider.generate polling', () => {
             ),
         ).rejects.toMatchObject({
             statusCode: 400,
+            legacyCode: 'disallowed_value',
+            code: 'moderation_flagged',
             message: expect.stringContaining('unsafe content'),
+            fields: { provider: 'gemini' },
         });
     });
 
@@ -607,5 +688,148 @@ describe('GeminiVideoProvider.generate error paths', () => {
             ),
         ).rejects.toBe(apiError);
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+// ── Catalog refresh ────────────────────────────────────────────────
+
+describe('GeminiVideoProvider catalog refresh', () => {
+    it('passes reference_images on veo-3.1-lite', async () => {
+        const provider = makeProvider();
+        generateVideosMock.mockResolvedValueOnce(completedOperation());
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'veo-3.1-lite-generate-preview',
+                reference_images: [
+                    'data:image/png;base64,A',
+                    'data:image/png;base64,B',
+                ] as never,
+            }),
+        );
+
+        const sent = generateVideosMock.mock.calls[0]![0];
+        expect(sent.config.referenceImages).toHaveLength(2);
+        expect(sent.config.durationSeconds).toBe(8);
+    });
+
+    it('meters veo-3.1-fast 1080p under its own :1080p tier rate', async () => {
+        const provider = makeProvider();
+        generateVideosMock.mockResolvedValueOnce(completedOperation());
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'veo-3.1-fast-generate-preview',
+                size: '1920x1080',
+                seconds: 8,
+            }),
+        );
+
+        const fast = GEMINI_VIDEO_GENERATION_MODELS.find(
+            (m) => m.id === 'veo-3.1-fast-generate-preview',
+        )!;
+        const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('gemini:veo-3.1-fast-generate-preview:1080p');
+        expect(count).toBe(8);
+        expect(cost).toBe(
+            8 * Math.ceil(fast.costs!['per-second-1080p'] * 1_000_000),
+        );
+    });
+});
+
+// ── Unified image inputs ───────────────────────────────────────────
+
+describe('GeminiVideoProvider.generate URL image inputs', () => {
+    const pngResponse = (bytes: string) =>
+        new Response(Buffer.from(bytes), {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+        });
+
+    it('fetches http(s) first/last frames server-side and inlines them', async () => {
+        const provider = makeProvider();
+        generateVideosMock.mockResolvedValueOnce(completedOperation());
+        // Keyed by URL: the provider inlines the last frame before the first.
+        secureFetchMock.mockImplementation(async (url: string) =>
+            pngResponse(url.includes('first') ? 'first-bytes' : 'last-bytes'),
+        );
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'veo-3.1-generate-preview',
+                input_reference: 'https://example.com/first.png',
+                last_frame: 'https://example.com/last.png',
+            }),
+        );
+
+        expect(secureFetchMock).toHaveBeenCalledWith(
+            'https://example.com/first.png',
+        );
+        expect(secureFetchMock).toHaveBeenCalledWith(
+            'https://example.com/last.png',
+        );
+        const sent = generateVideosMock.mock.calls[0]![0];
+        expect(sent.image).toEqual({
+            imageBytes: Buffer.from('first-bytes').toString('base64'),
+            mimeType: 'image/png',
+        });
+        expect(sent.config.lastFrame).toEqual({
+            imageBytes: Buffer.from('last-bytes').toString('base64'),
+            mimeType: 'image/png',
+        });
+    });
+
+    it('fetches URL reference_images and leaves data URIs untouched', async () => {
+        const provider = makeProvider();
+        generateVideosMock.mockResolvedValueOnce(completedOperation());
+        secureFetchMock.mockResolvedValueOnce(pngResponse('ref-bytes'));
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'veo-3.1-generate-preview',
+                reference_images: [
+                    'https://example.com/ref.png',
+                    'data:image/jpeg;base64,QUJD',
+                ] as never,
+            }),
+        );
+
+        expect(secureFetchMock).toHaveBeenCalledTimes(1);
+        const sent = generateVideosMock.mock.calls[0]![0];
+        expect(sent.config.referenceImages).toEqual([
+            {
+                image: {
+                    imageBytes: Buffer.from('ref-bytes').toString('base64'),
+                    mimeType: 'image/png',
+                },
+                referenceType: 'asset',
+            },
+            {
+                image: { imageBytes: 'QUJD', mimeType: 'image/jpeg' },
+                referenceType: 'asset',
+            },
+        ]);
+    });
+
+    it('surfaces a failed image fetch as 400 before calling Veo', async () => {
+        const provider = makeProvider();
+        secureFetchMock.mockResolvedValueOnce(
+            new Response('nope', { status: 404 }),
+        );
+
+        await expect(
+            withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'veo-3.1-generate-preview',
+                    input_reference: 'https://example.com/missing.png',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(generateVideosMock).not.toHaveBeenCalled();
     });
 });

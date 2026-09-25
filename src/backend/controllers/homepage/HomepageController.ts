@@ -28,6 +28,23 @@ import type {
     LaunchOptions,
 } from '../../services/homepage/PuterHomepageService';
 
+/** Longest description/og:description/twitter:description on `/app/<name>`. */
+export const APP_META_DESCRIPTION_MAX = 150;
+
+/**
+ * App descriptions can run long; search snippets and social cards want a
+ * short blurb. Collapses whitespace, then cuts at a word boundary with an
+ * ellipsis so the result never exceeds `APP_META_DESCRIPTION_MAX`.
+ */
+export function appMetaDescription(text: string): string {
+    const clean = text.replace(/\s+/g, ' ').trim();
+    if (clean.length <= APP_META_DESCRIPTION_MAX) return clean;
+    const head = clean.slice(0, APP_META_DESCRIPTION_MAX - 1);
+    const wordEnd = head.lastIndexOf(' ');
+    const cut = wordEnd > 0 ? head.slice(0, wordEnd) : head;
+    return `${cut.replace(/[\s,;:.!?…—-]+$/, '')}…`;
+}
+
 /**
  * Routes that render the Puter GUI shell, plus a catch-all static fallback
  * under `<gui_assets_root>/src` for non-dist/src paths (images, fonts, lib
@@ -114,10 +131,15 @@ export class HomepageController extends PuterController {
                 // through the apps driver before launching, and that read is
                 // where the entitlement gate and hosted-backing guard run.
                 const clientApp = toAppShellView(app);
+                // Feeds <meta name="description">, og:description and
+                // twitter:description; scrapers truncate long blurbs anyway.
+                const description = appMetaDescription(
+                    String(app.description ?? ''),
+                );
                 await sendShell(req, res, {
                     title: String(app.title ?? name),
-                    description: String(app.description ?? ''),
-                    short_description: String(app.description ?? ''),
+                    description,
+                    short_description: description,
                     icon: typeof app.icon === 'string' ? app.icon : undefined,
                     social_media_image:
                         typeof metadata.social_image === 'string'

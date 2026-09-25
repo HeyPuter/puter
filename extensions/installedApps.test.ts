@@ -9,6 +9,7 @@ import {
     vi,
 } from 'vitest';
 import { runWithContext } from '../src/backend/core/context.ts';
+import { extension } from '../src/backend/extensions.ts';
 import { PuterServer } from '../src/backend/server.ts';
 import { setupTestServer } from '../src/backend/testUtil.ts';
 import { handleInstalledApps } from './installedApps.ts';
@@ -51,13 +52,14 @@ const seedUser = async () => {
     });
 };
 
-const seedApp = async (ownerUserId: number) => {
+const seedApp = async (ownerUserId: number, overrides = {}) => {
     const slug = Math.random().toString(36).slice(2, 8);
     return server.stores.app.create(
         {
             name: `iaapp_${slug}`,
             title: `Installed App ${slug}`,
             index_url: `https://example.com/${slug}`,
+            ...overrides,
         },
         { ownerUserId },
     );
@@ -143,6 +145,43 @@ describe('installedApps extension — handleInstalledApps', () => {
         expect(
             Object.prototype.hasOwnProperty.call(list[0], 'owner_user_id'),
         ).toBe(false);
+    });
+
+    it('pairs iconUrl with the direct subdomain URL for a generated icon', async () => {
+        const user = await seedUser();
+        // The resize pipeline leaves an http(s) icon column behind, which is
+        // what says the sized PNG is on the icons subdomain.
+        const app = await seedApp(user.id as number, {
+            icon: 'https://api.puter.com/app-icon/x',
+        });
+        await grantInstalled(app!.id as number, user.id as number);
+
+        const { res, captured } = makeRes();
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleInstalledApps(makeReq({}), res),
+        );
+
+        const list = captured.body as Array<Record<string, unknown>>;
+        const { protocol, static_hosting_domain } = extension.config;
+        expect(list[0].iconCdnUrl).toBe(
+            `${protocol}://puter-app-icons.${static_hosting_domain}/${app!.uid}-256.png`,
+        );
+    });
+
+    it('reports no subdomain URL for an app with no generated icon', async () => {
+        const user = await seedUser();
+        const app = await seedApp(user.id as number);
+        await grantInstalled(app!.id as number, user.id as number);
+
+        const { res, captured } = makeRes();
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleInstalledApps(makeReq({}), res),
+        );
+
+        const list = captured.body as Array<Record<string, unknown>>;
+        expect(list[0].iconCdnUrl).toBeNull();
     });
 
     it('flags apps with no owner_user_id as external', async () => {

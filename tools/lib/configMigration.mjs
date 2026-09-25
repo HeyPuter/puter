@@ -340,7 +340,7 @@ export const transformToV2 = (source) => {
         'xai', 'openrouter', 'together-ai', 'ollama',
         'elevenlabs', 'aws-polly', 'aws-textract', 'mistral-ocr', 'cloudflare',
         'openai-completion', 'openai-responses',
-        'openai-image-generation', 'openai-video-generation',
+        'openai-image-generation',
         'gemini-image-generation', 'gemini-video-generation',
         'together-image-generation', 'together-video-generation',
         'cloudflare-image-generation', 'xai-image-generation',
@@ -389,7 +389,7 @@ export const transformToV2 = (source) => {
     // (e.g. `openai-completion`, `openai-image-generation`), so seed each
     // split id from the base id when the split key isn't already set.
     const FAN_OUT = {
-        openai:        ['openai-completion', 'openai-responses', 'openai-image-generation', 'openai-video-generation'],
+        openai:        ['openai-completion', 'openai-responses', 'openai-image-generation'],
         gemini:        ['gemini-image-generation', 'gemini-video-generation'],
         'together-ai': ['together-image-generation', 'together-video-generation'],
         xai:           ['xai-image-generation'],

@@ -1,6 +1,6 @@
 ---
 title: puter.kv.flush()
-description: Remove all key-value pairs from your app's store.
+description: Remove all key-value pairs from the user's own store for your app.
 platforms: [websites, apps, nodejs, workers]
 ---
 

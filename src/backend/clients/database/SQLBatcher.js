@@ -284,11 +284,16 @@ export class SQLBatcher {
         // individually below. Without this, MySQL would commit every
         // statement up to the failure point and a per-item retry would
         // misreport already-committed inserts as duplicate-key failures.
+        //
+        // A read-only batch has nothing to roll back, and the wrapper is not
+        // free: BEGIN and COMMIT are round trips of their own, which triples
+        // the cost of a read against a pool in another region.
+        const wrapInTransaction = !this.readOnly;
         let batchSucceeded = false;
         try {
-            await connection.beginTransaction();
+            if (wrapInTransaction) await connection.beginTransaction();
             const [results, fields] = await connection.query(query, values);
-            await connection.commit();
+            if (wrapInTransaction) await connection.commit();
             batchSucceeded = true;
             this.#consecutiveFailures = 0;
             for (let i = 0; i < batch.length; i++) {
@@ -296,10 +301,12 @@ export class SQLBatcher {
                 b.resolve([results[i], fields?.[i]]);
             }
         } catch (batchError) {
-            try {
-                await connection.rollback();
-            } catch (rollbackError) {
-                console.warn('SQLBatcher rollback failed:', rollbackError);
+            if (wrapInTransaction) {
+                try {
+                    await connection.rollback();
+                } catch (rollbackError) {
+                    console.warn('SQLBatcher rollback failed:', rollbackError);
+                }
             }
             console.warn(
                 'SQLBatcher batch failed; retrying items individually:',
@@ -311,10 +318,11 @@ export class SQLBatcher {
 
         if (batchSucceeded) return;
 
-        // Per-item fallback. The transaction was rolled back so no statement
-        // committed; re-running each item independently produces clean
-        // success/failure outcomes for each caller. Concurrency is capped to
-        // avoid briefly saturating the pool when a large batch fails.
+        // Per-item fallback. Nothing from the batch is live — it was rolled
+        // back, or carried only SELECTs — so re-running each item
+        // independently produces clean success/failure outcomes for each
+        // caller. Concurrency is capped to avoid briefly saturating the pool
+        // when a large batch fails.
         flushFailureCounter.add(1, this.#metricAttrs);
         fallbackInvocationsCounter.add(1, this.#metricAttrs);
 

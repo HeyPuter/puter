@@ -39,6 +39,12 @@ interface ContentPart {
 export interface ClaudeUploadResult {
     /** File IDs uploaded this request; caller deletes them after completion. */
     fileIds: string[];
+    /**
+     * Puts every rewritten part back to the `puter_path` it arrived as. Call it
+     * when the request fails: the driver hands the same message objects to the
+     * next fallback route, which cannot resolve our `file_id`s.
+     */
+    restore: () => void;
 }
 
 /**
@@ -66,15 +72,29 @@ export async function processPuterPathUploads(
             if (part?.puter_path) parts.push(part);
         }
     }
-    if (parts.length === 0) return { fileIds: [] };
+    if (parts.length === 0) return { fileIds: [], restore: () => {} };
 
     const fileIds: string[] = [];
+    const restores: Array<() => void> = [];
     await Promise.all(
         parts.map((part) =>
-            processPart(part, anthropic, stores, fsService, actor, fileIds),
+            processPart(
+                part,
+                anthropic,
+                stores,
+                fsService,
+                actor,
+                fileIds,
+                restores,
+            ),
         ),
     );
-    return { fileIds };
+    return {
+        fileIds,
+        restore: () => {
+            for (const undo of restores) undo();
+        },
+    };
 }
 
 async function processPart(
@@ -84,8 +104,19 @@ async function processPart(
     fsService: FSService,
     actor: Actor | undefined,
     fileIds: string[],
+    restores: Array<() => void>,
 ): Promise<void> {
     const path = part.puter_path!;
+    // Only the path needs to come back: `type`/`source` on success and
+    // `type`/`text` on failure are the sole fields written below, and the
+    // next provider's uploader keys off `puter_path` alone. Undoing those by
+    // name rather than snapshotting the part keeps nothing else alive.
+    restores.push(() => {
+        delete part.type;
+        delete part.text;
+        delete part.source;
+        part.puter_path = path;
+    });
     delete part.puter_path;
 
     if (!actor?.user?.id) {

@@ -181,7 +181,11 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
             formData.append('url', args.file as string);
         } else {
             // File must be the last field per xAI docs
-            const blob = new Blob([fileBuffer!], { type: mimeType });
+            // Copy into a plain Uint8Array — Node's Buffer type doesn't
+            // satisfy the DOM BlobPart signature.
+            const blob = new Blob([new Uint8Array(fileBuffer!)], {
+                type: mimeType,
+            });
             formData.append('file', blob, filename);
         }
 

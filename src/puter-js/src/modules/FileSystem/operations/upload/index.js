@@ -3,10 +3,10 @@
 // upload through the signed batch-write path (falling back to the legacy
 // `/batch` path when signed writes are unavailable).
 
+import { promptIfUpgradeRequired } from '../../../../lib/upgradePrompt.js';
 import * as utils from '../../../../lib/utils.js';
-import { showUsageLimitDialog } from '../../../UsageLimitDialog.js';
 import getAbsolutePathForApp from '../../utils/getAbsolutePathForApp.js';
-import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SIGNED_BATCH_SUPPORTED_ENVS, SPACE_CHECK_MIN_BYTES } from './constants.js';
+import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SPACE_CHECK_MIN_BYTES } from './constants.js';
 import { normalizeUploadEntries, separateFilesAndDirs } from './entries.js';
 import { generateThumbnails } from './thumbnails.js';
 import { performSignedBatchUpload } from './signedBatchUpload.js';
@@ -51,19 +51,15 @@ const uploadImpl = async function (items, dirPath, options = {}) {
             }
         }
 
+        // Native XHR.abort() does nothing before send(); preparation still needs cancellation.
+        const preparationController = new AbortController();
+
         const error = (e) => {
-            // Check for storage limit errors and show upgrade dialog
-            const isStorageError =
-                e?.code === 'NOT_ENOUGH_SPACE' ||
-                e?.status === 413 ||
-                e?.code === 'storage_limit_reached';
-            if ( isStorageError ) {
-                if ( puter.env === 'app' ) {
-                    puter.ui.requestUpgrade();
-                } else {
-                    showUsageLimitDialog('Not enough storage space available.<br>Please upgrade to continue.');
-                }
-            }
+            // Cancelling already settled the upload; a preparation step failing afterwards is not an error.
+            if ( preparationController.signal.aborted ) return;
+
+            // Out of storage or credit: prompt the user to upgrade, then reject as usual.
+            promptIfUpgradeRequired(e, { method: 'puter.fs.upload' });
 
             // if error callback is provided, call it
             if ( options.error && typeof options.error === 'function' )
@@ -94,11 +90,22 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         // fires at most once even when the signed path falls back to legacy.
         const flags = { startCallbackFired: false };
 
+        xhr.abort = () => {
+            if ( preparationController.signal.aborted ) return;
+            preparationController.abort();
+            try {
+                options.abort?.(operationId);
+            } finally {
+                reject({ code: 'upload_aborted', message: 'Upload aborted.' });
+            }
+        };
+
         // Call 'init' callback if provided
         // init is basically a hook that allows the user to get the operation ID and the XMLHttpRequest object
         if ( options.init && typeof options.init === 'function' ) {
             options.init(operationId, xhr);
         }
+        if ( preparationController.signal.aborted ) return;
 
         // Normalize the accepted input shapes (DataTransferItemList, FileList,
         // File, Blob, string, or arrays of these) into a flat list of entries.
@@ -108,6 +115,7 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         } catch (e) {
             return error(e);
         }
+        if ( preparationController.signal.aborted ) return;
 
         // Separate files from directories and tally the upload size.
         // This executor is async, so anything that throws here would settle
@@ -122,10 +130,11 @@ const uploadImpl = async function (items, dirPath, options = {}) {
                 return error({ code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.' });
             }
 
-            thumbnails = await generateThumbnails(files, options);
+            thumbnails = await generateThumbnails(files, options, preparationController.signal);
         } catch (e) {
             return error(e);
         }
+        if ( preparationController.signal.aborted ) return;
 
         // Check storage capacity.
         // We need to check the storage capacity before the upload starts because
@@ -151,13 +160,15 @@ const uploadImpl = async function (items, dirPath, options = {}) {
             }
         }
 
+        if ( preparationController.signal.aborted ) return;
+        delete xhr.abort;
+
         const signedDirectories = dirs.map((dir) => dir.path);
 
         const signedBatchWriteCapability = this[SIGNED_BATCH_WRITE_CAPABILITY_KEY];
         const signedBatchWriteAllowed = signedBatchWriteCapability !== false;
 
         const shouldAttemptSignedBatchWrite = (
-            SIGNED_BATCH_SUPPORTED_ENVS.includes(puter.env) &&
             !options.shortcutTo &&
             (files.length > 0 || signedDirectories.length > 0) &&
             signedBatchWriteAllowed

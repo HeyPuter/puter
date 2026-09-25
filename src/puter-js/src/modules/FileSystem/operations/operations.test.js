@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import copy from './copy.js';
 import deleteFSEntry from './deleteFSEntry.js';
 import getReadURL from './getReadUrl.js';
+import getShareLink from './getShareLink.js';
 import mkdir from './mkdir.js';
 import move from './move.js';
 import read from './read.js';
@@ -9,9 +10,11 @@ import readdir from './readdir.js';
 import readdirSubdomains from './readdirSubdomains.js';
 import rename from './rename.js';
 import revokeReadURL from './revokeReadUrl.js';
+import share from './share.js';
 import sign from './sign.js';
 import space from './space.js';
 import stat from './stat.js';
+import unshare from './unshare.js';
 import write from './write.js';
 
 /**
@@ -79,10 +82,13 @@ const makeFS = () => ({
     APIOrigin: 'https://api.test',
     authToken: 'test-token',
     socket: { id: 'socket-1' },
+    // getShareLink reads the GUI origin and the calling app off the instance.
+    get puter () { return globalThis.puter; },
     // write delegates to upload, which has its own tests.
     upload: vi.fn(async () => ({ uid: 'written' })),
-    copy, delete: deleteFSEntry, getReadURL, mkdir, move, read, readdir,
-    readdirSubdomains, rename, revokeReadURL, sign, space, stat, write,
+    copy, delete: deleteFSEntry, getReadURL, getShareLink, mkdir, move, read,
+    readdir, readdirSubdomains, rename, revokeReadURL, share, sign, space,
+    stat, unshare, write,
 });
 
 const makeCache = () => {
@@ -382,6 +388,121 @@ describe('stat', () => {
         await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
+
+    it('asks for shares and publishes them in the SDK shape', async () => {
+        FakeXHR.respondWith = () => ({
+            uid: 'u1',
+            is_dir: false,
+            is_shared: true,
+            shares: [
+                {
+                    uid: 's1',
+                    mode: 'write',
+                    uid_entry: 'u1',
+                    is_dir: false,
+                    holder: 'someone',
+                    inherited_from: null,
+                },
+            ],
+        });
+        const item = await fs.stat('/a/file.txt', { returnShares: true });
+        expect(lastBody()).toMatchObject({ return_shares: true });
+        expect(item.is_shared).toBe(true);
+        expect(item.shares[0]).toMatchObject({
+            uid: 's1',
+            mode: 'write',
+            entryUid: 'u1',
+            holder: 'someone',
+            inheritedFrom: null,
+        });
+    });
+
+    it('re-reads a cached item after its sharing changes', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: false });
+        await fs.stat('/a/file.txt');
+
+        FakeXHR.respondWith = () => ({ status: 'success', results: [{ status: 'success', uid: 's1', mode: 'read' }] });
+        await fs.share('/a/file.txt', 'friend', 'read');
+
+        // Without invalidation the stale is_shared: false would be served here.
+        FakeXHR.requests = [];
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: true });
+        const item = await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+        expect(item.is_shared).toBe(true);
+    });
+
+    it('sends a team recipient through instead of dropping it', async () => {
+        FakeXHR.respondWith = () => ({ status: 'success', results: [] });
+        await fs.share({
+            path: '/a/file.txt',
+            recipient: { team: 'ws-uid-1' },
+            mode: 'read',
+        });
+        // Dropped before this mapping existed, so the call shared with nobody
+        // and still reported success.
+        expect(lastBody().recipients).toEqual([{ team: 'ws-uid-1' }]);
+    });
+
+    it('sends a team handle under its own field', async () => {
+        FakeXHR.respondWith = () => ({ status: 'success', results: [] });
+        await fs.share({
+            path: '/a/file.txt',
+            recipient: { teamHandle: 'acme' },
+            mode: 'read',
+        });
+        expect(lastBody().recipients).toEqual([{ teamHandle: 'acme' }]);
+    });
+
+    it('publishes the team a share reached', async () => {
+        FakeXHR.respondWith = () => ({
+            uid: 'u1',
+            is_dir: false,
+            is_shared: true,
+            shares: [
+                {
+                    uid: 's1',
+                    mode: 'read',
+                    uid_entry: 'u1',
+                    is_dir: false,
+                    holder: null,
+                    holder_team: { uid: 'ws-uid-1', name: 'Acme', handle: 'acme' },
+                },
+            ],
+        });
+        const item = await fs.stat('/a/file.txt', { returnShares: true });
+        // `holder` is null for a team share, so without this the client
+        // is told the file is shared with nobody.
+        expect(item.shares[0].holderTeam).toEqual({
+            uid: 'ws-uid-1',
+            name: 'Acme',
+            handle: 'acme',
+        });
+        expect(item.shares[0].holder).toBe(null);
+    });
+
+    it('re-reads a cached item after a share is withdrawn', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: true });
+        await fs.stat('/a/file.txt');
+
+        FakeXHR.respondWith = () => ({ revoked: 1 });
+        await fs.unshare('/a/file.txt', 'friend');
+
+        FakeXHR.requests = [];
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: false });
+        const item = await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+        expect(item.is_shared).toBe(false);
+    });
+
+    it('keeps a share-carrying result out of the cache', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, shares: [] });
+        await fs.stat('/a/cached.txt', { returnShares: true });
+        FakeXHR.requests = [];
+        // Would be served from the cache had the previous call populated it.
+        await fs.stat({ path: '/a/cached.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+    });
 });
 
 describe('readdir', () => {
@@ -394,6 +515,15 @@ describe('readdir', () => {
         expect(lastRequest().url).toBe('https://api.test/fs/readdir');
         expect(lastBody()).toMatchObject({ path: '/a', auth_token: 'test-token' });
         expect(entries[0]).toMatchObject({ name: 'file.txt', is_dir: false, uid: 'u1' });
+    });
+
+    it('carries the share flag into the v1 shape', async () => {
+        FakeXHR.respondWith = () => [
+            { uuid: 'u1', name: 'mine.txt', path: '/a/mine.txt', isShared: true },
+            { uuid: 'u2', name: 'theirs.txt', path: '/a/theirs.txt', isShared: null },
+        ];
+        const entries = await fs.readdir('/a');
+        expect(entries.map((e) => e.is_shared)).toEqual([true, null]);
     });
 
     it('readdir(path, options) applies the options', async () => {
@@ -442,10 +572,28 @@ describe('getReadURL / revokeReadURL', () => {
         expect(FakeXHR.requests).toHaveLength(1);
     });
 
-    it('revokes by URL, token or uuid', async () => {
-        await expect(fs.revokeReadURL('  tok  ')).resolves.toBeUndefined();
-        expect(lastRequest().url).toBe('https://api.test/auth/revoke-access-token');
-        expect(lastBody()).toEqual({ tokenOrUuid: 'tok' });
+    const JWT = 'aaa.bbb.ccc';
+
+    it('revokes by bare JWT', async () => {
+        await expect(fs.revokeReadURL(`  ${JWT}  `)).resolves.toBeUndefined();
+        expect(lastRequest().url).toBe('https://api.test/auth/revoke-own-access-token');
+        expect(lastBody()).toEqual({ token: JWT });
+    });
+
+    it('revokes by the URL getReadURL() returns', async () => {
+        await expect(fs.revokeReadURL(`https://api.test/token-read?uid=u1&token=${JWT}`)).resolves.toBeUndefined();
+        expect(lastBody()).toEqual({ token: JWT });
+    });
+
+    it('rejects a value with no extractable JWT before sending a request', async () => {
+        await expect(fs.revokeReadURL('not-a-token')).rejects.toMatchObject({ code: 'field_invalid' });
+        await expect(fs.revokeReadURL(`https://api.test/token-read/${JWT}`)).rejects.toMatchObject({ code: 'field_invalid' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('rejects an empty value before sending a request', async () => {
+        await expect(fs.revokeReadURL('  ')).rejects.toMatchObject({ code: 'field_missing' });
+        expect(FakeXHR.requests).toHaveLength(0);
     });
 });
 
@@ -525,7 +673,7 @@ describe('authentication gate', () => {
         sign: () => fs.sign('app-1', { uid: 'one' }),
         space: () => fs.space(),
         stat: () => fs.stat('/a'),
-        revokeReadURL: () => fs.revokeReadURL('tok'),
+        revokeReadURL: () => fs.revokeReadURL('aaa.bbb.ccc'),
     };
 
     for ( const [ name, call ] of Object.entries(operations) ) {
@@ -541,5 +689,64 @@ describe('authentication gate', () => {
         });
         await fs.space();
         expect(FakeXHR.requests).toHaveLength(1);
+    });
+});
+
+describe('getShareLink', () => {
+    const FILE_UID = '2b7d8c1e-4f3a-4b6c-9d1e-0a1b2c3d4e5f';
+    const statFile = () => ({ uid: FILE_UID, is_dir: false });
+
+    beforeEach(() => {
+        globalThis.puter.defaultGUIOrigin = 'https://gui.test/';
+        globalThis.puter.appName = undefined;
+    });
+
+    it('stats the path and builds the app link on the file uid', async () => {
+        FakeXHR.respondWith = statFile;
+        const link = await fs.getShareLink('/a/file.txt', 'editor');
+        expect(lastRequest().url).toBe('https://api.test/stat');
+        expect(lastBody()).toMatchObject({ path: '/a/file.txt' });
+        expect(link).toBe(`https://gui.test/app/editor?file=${FILE_UID}`);
+    });
+
+    it('takes a uid in place of a path, and the options form', async () => {
+        FakeXHR.respondWith = statFile;
+        await fs.getShareLink(FILE_UID, 'editor');
+        expect(lastBody()).toMatchObject({ uid: FILE_UID });
+        expect(lastBody().path).toBeUndefined();
+
+        const link = await fs.getShareLink({ uid: FILE_UID, appName: 'my app' });
+        expect(link).toBe(`https://gui.test/app/my%20app?file=${FILE_UID}`);
+    });
+
+    it('defaults the app to the one the SDK runs in', async () => {
+        FakeXHR.respondWith = statFile;
+        globalThis.puter.appName = 'notepad';
+        expect(await fs.getShareLink('/a/file.txt')).toBe(`https://gui.test/app/notepad?file=${FILE_UID}`);
+    });
+
+    it('rejects before the network without a file or an app', async () => {
+        await expect(fs.getShareLink('/a/file.txt')).rejects.toMatchObject({ code: 'app_name_required' });
+        await expect(fs.getShareLink({ appName: 'editor' })).rejects.toMatchObject({ code: 'field_missing' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('rejects a directory', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'dir-uid', is_dir: true });
+        await expect(fs.getShareLink('/a/dir', 'editor')).rejects.toMatchObject({ code: 'not_a_file' });
+    });
+
+    it('feeds legacy callbacks the same result', async () => {
+        FakeXHR.respondWith = statFile;
+        const success = vi.fn();
+        const error = vi.fn();
+        const link = await fs.getShareLink('/a/file.txt', 'editor', success, error);
+        expect(success).toHaveBeenCalledWith(link);
+        expect(error).not.toHaveBeenCalled();
+
+        const failed = vi.fn();
+        await expect(fs.getShareLink('/a/file.txt', undefined, vi.fn(), failed))
+            .rejects.toMatchObject({ code: 'app_name_required' });
+        expect(failed).toHaveBeenCalledWith(expect.objectContaining({ code: 'app_name_required' }));
     });
 });

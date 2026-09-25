@@ -233,7 +233,14 @@ describe('SessionStore', () => {
                 parent_session_id: parent.uuid,
             });
 
-            await target.revokeCascade(parent.uuid);
+            const revoked = await target.revokeCascade(parent.uuid);
+
+            // Reported back so callers can tear down anything else holding
+            // one of these sessions open.
+            expect(revoked.userId).toBe(user.id);
+            expect(new Set(revoked.uuids)).toEqual(
+                new Set([parent.uuid, child1.uuid, child2.uuid]),
+            );
 
             expect(await target.getByUuid(parent.uuid)).toBeNull();
             expect(await target.getByUuid(child1.uuid)).toBeNull();
@@ -262,14 +269,12 @@ describe('SessionStore', () => {
         it('is a no-op when the root uuid does not exist', async () => {
             await expect(
                 target.revokeCascade('nonexistent-uuid'),
-            ).resolves.toBeUndefined();
+            ).resolves.toBeNull();
         });
 
         it('is a no-op when called with a falsy uuid', async () => {
-            await expect(target.revokeCascade('')).resolves.toBeUndefined();
-            await expect(
-                target.revokeCascade(undefined),
-            ).resolves.toBeUndefined();
+            await expect(target.revokeCascade('')).resolves.toBeNull();
+            await expect(target.revokeCascade(undefined)).resolves.toBeNull();
         });
     });
 
@@ -499,6 +504,107 @@ describe('SessionStore', () => {
                 workerName,
             });
             expect(second.uuid).not.toBe(first.uuid);
+        });
+    });
+
+    describe('listWorkerSessions', () => {
+        it('pages live sessions for one worker name, oldest id first', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const appA = `app-${uuidv4()}`;
+            const appB = `app-${uuidv4()}`;
+            const a = await target.getOrCreateWorker(user.id, {
+                appUid: appA,
+                workerName,
+            });
+            const b = await target.getOrCreateWorker(user.id, {
+                appUid: appB,
+                workerName,
+            });
+
+            const rows = await target.listWorkerSessions({ workerName });
+            const uuids = rows.map((row: { uuid: string }) => row.uuid);
+            expect(uuids).toContain(a.uuid);
+            expect(uuids).toContain(b.uuid);
+            expect(rows.every((row: { id: number }) => Number.isFinite(row.id)))
+                .toBe(true);
+        });
+
+        it('does not return a revoked session', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const row = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            await target.removeByUuid(row.uuid);
+
+            const rows = await target.listWorkerSessions({ workerName });
+            expect(rows.map((r: { uuid: string }) => r.uuid)).not.toContain(
+                row.uuid,
+            );
+        });
+
+        it('never returns a different worker name', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const wanted = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const other = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName: other,
+            });
+
+            const rows = await target.listWorkerSessions({
+                workerName: wanted,
+            });
+            expect(rows).toEqual([]);
+        });
+
+        it('a user-scoped worker (no app) is never returned', async () => {
+            // The stray-session sweep only ever finds rows with an app to
+            // check for existence — a worker session with no app has
+            // nothing for it to resolve.
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            await target.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName,
+            });
+
+            const rows = await target.listWorkerSessions({ workerName });
+            expect(rows).toEqual([]);
+        });
+
+        it('respects the keyset cursor and limit', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const first = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            const second = await target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+
+            const page = await target.listWorkerSessions({
+                workerName,
+                limit: 1,
+            });
+            expect(page).toHaveLength(1);
+            expect(page[0].uuid).toBe(first.uuid);
+
+            const next = await target.listWorkerSessions({
+                workerName,
+                afterId: page[0].id,
+            });
+            expect(next.map((r: { uuid: string }) => r.uuid)).toContain(
+                second.uuid,
+            );
+            expect(next.map((r: { uuid: string }) => r.uuid)).not.toContain(
+                first.uuid,
+            );
         });
     });
 

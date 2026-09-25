@@ -62,6 +62,7 @@ const FULL_PROVIDER_CONFIG = {
         'azure-openai': { apiKey: 'k', apiURL: 'https://azure.test/openai/v1' },
         'openai-completion': { apiKey: 'k' },
         gemini: { apiKey: 'k' },
+        meta: { apiKey: 'k' },
         groq: { apiKey: 'k' },
         deepseek: { apiKey: 'k' },
         mistral: { apiKey: 'k' },
@@ -73,7 +74,9 @@ const FULL_PROVIDER_CONFIG = {
         'together-ai': { apiKey: 'k' },
         openrouter: { apiKey: 'k', apiBaseUrl: 'https://openrouter.test' },
         infron: { apiKey: 'k' },
+        byteplus: { apiKey: 'k' },
         neuralwatt: { apiKey: 'k' },
+        hoonify: { apiKey: 'k' },
         // Suppress auto-discovery of a developer's local Ollama.
         ollama: { enabled: false },
     },
@@ -148,10 +151,13 @@ const completeFake = (args: Record<string, unknown>) =>
         } as never),
     );
 
-const errorFor = async (thrown: unknown): Promise<HttpError> => {
+const errorFor = async (
+    thrown: unknown,
+    args: Record<string, unknown> = {},
+): Promise<HttpError> => {
     vi.spyOn(FakeChatProvider.prototype, 'complete').mockRejectedValue(thrown);
     try {
-        await completeFake({});
+        await completeFake(args);
     } catch (e) {
         return e as HttpError;
     }
@@ -170,6 +176,7 @@ describe('ChatCompletionDriver provider registration', () => {
             'azure-openai',
             'openai-completion',
             'gemini',
+            'meta',
             'groq',
             'deepseek',
             'mistral',
@@ -181,7 +188,9 @@ describe('ChatCompletionDriver provider registration', () => {
             'together-ai',
             'openrouter',
             'infron',
+            'byteplus',
             'neuralwatt',
+            'hoonify',
             'fake-chat',
         ]) {
             expect(providers).toContain(expected);
@@ -248,6 +257,126 @@ describe('ChatCompletionDriver provider registration', () => {
 // -- Failure classification ------------------------------------------
 
 describe('ChatCompletionDriver exhausted-chain classification', () => {
+    const attemptsFrom = (err: HttpError) =>
+        (
+            err as unknown as {
+                fields: {
+                    attempts: Array<{
+                        error: string;
+                        status?: number;
+                        code?: string;
+                    }>;
+                };
+            }
+        ).fields.attempts;
+
+    it('maps an upstream 402 to alerted credit exhaustion and redacts its URL', async () => {
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        const err = await errorFor(
+            Object.assign(
+                new Error(
+                    'Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+                ),
+                { status: 402 },
+            ),
+        );
+
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+            message: 'AI provider out of credits',
+        });
+        expect(err.noAlarm).toBeFalsy();
+        expect(attemptsFrom(err)[0]!.error).toBe(
+            'Insufficient credits. Add more using',
+        );
+        expect(JSON.stringify(attemptsFrom(err))).not.toContain('http');
+        const failureLog = warn.mock.calls.find((call) =>
+            String(call[0]).startsWith('[ai-chat] all routes failed'),
+        );
+        expect(failureLog).toBeDefined();
+        expect(String(failureLog![0])).not.toContain('http');
+    });
+
+    it('classifies a 403 used-up credit message before authentication failures', async () => {
+        const err = await errorFor(
+            Object.assign(
+                new Error(
+                    'Your current credits have been used up and we are unable to process further requests. Please visit https://openrouter.ai/settings/credits to add credits.',
+                ),
+                { status: 403 },
+            ),
+        );
+
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
+        expect(err.legacyCode).not.toBe('upstream_auth_failed');
+    });
+
+    it('alerts on a free model whose required team balance is missing', async () => {
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        const err = await errorFor(
+            Object.assign(
+                new Error(
+                    'Free model requires Team balance greater than $4.999999. (request id: 20260921210512505339070jYB)',
+                ),
+                { status: 429 },
+            ),
+        );
+
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
+        expect(err.noAlarm).toBeFalsy();
+        expect(attemptsFrom(err)[0]!.error).toBe(
+            'Free model requires Team balance greater than $4.999999.',
+        );
+        expect(JSON.stringify(attemptsFrom(err))).not.toMatch(/request id/i);
+        expect(
+            warn.mock.calls.some((call) =>
+                String(call[0]).startsWith('[ai-chat] all routes failed'),
+            ),
+        ).toBe(true);
+    });
+
+    it('classifies the OpenAI insufficient_quota code before rate limits', async () => {
+        const err = await errorFor({
+            status: 429,
+            message: 'quota exhausted',
+            error: { code: 'insufficient_quota' },
+        });
+
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
+        expect(err.legacyCode).not.toBe('upstream_rate_limited');
+    });
+
+    it('strips HTML, URLs and request ids from serialized attempt details', async () => {
+        const err = await errorFor(
+            Object.assign(
+                new Error(
+                    '<html><body>Insufficient credits. Visit https://vendor.test/top-up (request id: req-secret)</body></html>',
+                ),
+                { status: 402 },
+            ),
+        );
+        const serialized = JSON.stringify(attemptsFrom(err));
+
+        expect(err.legacyCode).toBe('upstream_credits_exhausted');
+        expect(serialized).not.toContain('<');
+        expect(serialized).not.toContain('http');
+        expect(serialized).not.toMatch(/request id/i);
+    });
+
     it('maps an upstream 429 to 429 upstream_rate_limited', async () => {
         const err = await errorFor(
             Object.assign(new Error('slow down'), { status: 429 }),
@@ -257,10 +386,55 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         expect(err.message).toBe('AI provider rate limit exceeded');
     });
 
+    it('mutes the alarm when every rate-limited attempt was on a free model', async () => {
+        // `fake` is priced at zero throughout: an upstream throttle there is
+        // expected and costs nobody anything, so the caller still gets the
+        // 429 but nothing is recorded.
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        const err = await errorFor(
+            Object.assign(new Error('slow down'), { status: 429 }),
+        );
+        expect(err.noAlarm).toBe(true);
+        // Nothing to act on means nothing to log either.
+        expect(
+            warn.mock.calls.some((c) =>
+                String(c[0]).startsWith('[ai-chat] all routes failed'),
+            ),
+        ).toBe(false);
+    });
+
+    it('keeps the alarm when a paid model is the one being rate limited', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('slow down'), { status: 429 }),
+            { model: 'costly' },
+        );
+        expect(err).toMatchObject({ legacyCode: 'upstream_rate_limited' });
+        expect(err.noAlarm).toBe(false);
+    });
+
+    it('leaves non-rate-limit failures on a free model alarming as usual', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('invalid api key'), { status: 401 }),
+        );
+        expect(err.noAlarm).toBeFalsy();
+    });
+
     it('classifies a rate limit reported only in the message text', async () => {
         const err = await errorFor(new Error('Quota exceeded for this key'));
         expect(err.statusCode).toBe(429);
         expect(err).toMatchObject({ legacyCode: 'upstream_rate_limited' });
+    });
+
+    it('keeps a plain 429 in the rate-limit bucket', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('Rate limit exceeded'), { status: 429 }),
+        );
+        expect(err).toMatchObject({
+            statusCode: 429,
+            legacyCode: 'upstream_rate_limited',
+        });
     });
 
     it('maps an upstream 401 to a 500 upstream_auth_failed — our misconfiguration, not the callerdispute', async () => {
@@ -411,9 +585,9 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
             Object.assign(new Error('azure down'), { status: 503 }),
         );
         const openai = vi.spyOn(OpenAiChatProvider.prototype, 'complete');
-        vi.spyOn(server.services.metering, 'hasEnoughCredits')
-            .mockResolvedValueOnce(true) // pre-flight
-            .mockResolvedValue(false); // drained by a parallel request
+        vi.spyOn(server.services.metering, 'getRemainingUsage')
+            .mockResolvedValueOnce(1_000_000) // pre-flight
+            .mockResolvedValue(0); // drained by a parallel request
 
         await expect(completeShared()).rejects.toMatchObject({
             statusCode: 402,
@@ -444,7 +618,9 @@ describe('ChatCompletionDriver streaming failure handling', () => {
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValue({
             stream: true,
             init_chat_stream: async () => {
-                throw new Error('populator exploded');
+                throw new Error(
+                    'populator exploded; see https://vendor.test/request/secret',
+                );
             },
             finally_fn: cleanup,
         } as never);
@@ -459,7 +635,7 @@ describe('ChatCompletionDriver streaming failure handling', () => {
 
         const events = await collect(result.stream);
         expect(events).toEqual([
-            { type: 'error', message: 'populator exploded' },
+            { type: 'error', message: 'populator exploded; see' },
         ]);
         // The provider's cleanup hook still runs on the failure path.
         expect(cleanup).toHaveBeenCalledTimes(1);

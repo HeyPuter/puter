@@ -23,6 +23,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generate_identifier } from '../../util/identifier.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import {
     OIDCService as OIDCServiceClass,
     type OIDCService,
@@ -889,6 +891,103 @@ describe('OIDCService.createUserFromOIDC', () => {
         expect(signups).toHaveLength(1);
 
         server.clients.event.off('puter.signup.success', onSignup);
+    });
+
+    it('retries the generated username when its home path is already occupied', async () => {
+        // The RNG is input to the candidate generator, not the code under
+        // test: compute the same first candidate the service will try.
+        const expected = generate_identifier('_', () => 0);
+
+        const occupant = await server.stores.user.create({
+            username: `occ_${crypto.randomBytes(4).toString('hex')}`,
+            uuid: crypto.randomUUID(),
+            password: null,
+            email: `occ-${crypto.randomBytes(4).toString('hex')}@example.com`,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            occupant,
+        );
+        const occupantRoot = await server.stores.fsEntry.getRootEntryForUser(
+            occupant.id,
+        );
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [`/${expected}`, expected, occupantRoot!.id],
+        );
+
+        // Pin only long enough to reproduce the first candidate; the retry
+        // then draws from the real generator so it lands on something free.
+        const randomSpy = vi
+            .spyOn(Math, 'random')
+            .mockReturnValueOnce(0)
+            .mockReturnValueOnce(0)
+            .mockReturnValueOnce(0);
+        try {
+            const email = `retry-${crypto.randomBytes(4).toString('hex')}@example.com`;
+            const result = await runWithContext({ req }, () =>
+                oidc().createUserFromOIDC('google', {
+                    sub: `retry-sub-${crypto.randomBytes(4).toString('hex')}`,
+                    email,
+                    email_verified: true,
+                }),
+            );
+
+            expect(result.success).toBe(true);
+            expect(result.user!.username).not.toBe(expected);
+            const root = await server.stores.fsEntry.getEntryByPath(
+                `/${result.user!.username}`,
+            );
+            expect(root?.userId).toBe(result.user!.id);
+        } finally {
+            randomSpy.mockRestore();
+        }
+    });
+
+    it('keys the signup abuse signals on req.ip, not the x-forwarded-for header', async () => {
+        const forged = 'evil, 198.51.100.1';
+        const forgedReq = {
+            headers: {
+                'user-agent': 'test-agent',
+                origin: 'https://app.test',
+                'x-forwarded-for': forged,
+            },
+            ip: '203.0.113.9',
+            socket: { remoteAddress: '203.0.113.9' },
+        } as never;
+
+        const seen: Array<Record<string, unknown>> = [];
+        const record = (_k: string, data: unknown) =>
+            seen.push(data as Record<string, unknown>);
+        server.clients.event.on('puter.signup.validate', record);
+        server.clients.event.on('puter.signup.success', record);
+        try {
+            const email = `xff-${crypto.randomBytes(4).toString('hex')}@example.com`;
+            const result = await runWithContext({ req: forgedReq }, () =>
+                oidc().createUserFromOIDC('google', {
+                    sub: `xff-${email}`,
+                    email,
+                    email_verified: true,
+                }),
+            );
+            expect(result.success).toBe(true);
+            // Validate hook, success hook and the persisted lookup column all
+            // have to agree, or a per-IP counter is written under one key and
+            // read under another.
+            expect(seen).toHaveLength(2);
+            for (const event of seen) expect(event.ip).toBe('203.0.113.9');
+
+            const persisted = await server.stores.user.getById(
+                result.user!.id,
+                { force: true },
+            );
+            expect(persisted!.signup_ip).toBe('203.0.113.9');
+            expect(persisted!.signup_ip_forwarded).toBe('203.0.113.9');
+        } finally {
+            server.clients.event.off('puter.signup.validate', record);
+            server.clients.event.off('puter.signup.success', record);
+        }
     });
 
     it('honours a veto from the signup-validate hook, surfacing its code and trail id', async () => {

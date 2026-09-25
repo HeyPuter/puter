@@ -29,12 +29,13 @@ type EmitAndWait = (key: string, event: unknown, meta: unknown) => unknown;
 const makeService = (
     config: Record<string, unknown> = {},
     emitAndWait: EmitAndWait = async () => undefined,
+    services: Record<string, unknown> = {},
 ) => {
     const args = [
         { env: 'prod', domain: 'puter.test', ...config },
         { event: { emitAndWait: vi.fn(emitAndWait) } },
         {},
-        {},
+        services,
     ] as unknown as ConstructorParameters<typeof PuterHomepageService>;
     return new PuterHomepageService(...args);
 };
@@ -54,6 +55,7 @@ const render = async (
     req: Request = makeReq(),
     meta: Record<string, unknown> = { title: 'Puter' },
     launchOptions: Record<string, unknown> = {},
+    actor: unknown = null,
 ): Promise<string> => {
     let sent = '';
     const res = {
@@ -61,7 +63,11 @@ const render = async (
             sent = html;
         },
     } as unknown as Response;
-    await service.send({ req, res }, meta as never, launchOptions as never);
+    await service.send(
+        { req, res, actor } as never,
+        meta as never,
+        launchOptions as never,
+    );
     return sent;
 };
 
@@ -233,6 +239,67 @@ describe('PuterHomepageService — gui() parameters', () => {
         ).toEqual({ login: true, signup: true });
     });
 
+    it('shows the teams UI to everyone with the deployment switch on', async () => {
+        const on = makeService({ gui_params: { teams_ui: true } });
+        expect(guiParamsOf(await render(on)).teams_ui).toBe(true);
+        expect(guiParamsOf(await render(makeService())).teams_ui).toBe(false);
+    });
+
+    it('shows the teams UI per user on the domain allowlist, switch off', async () => {
+        const teamsAvailableTo = vi.fn(async () => true);
+        const service = makeService(
+            { teams_allowed_email_domains: ['puter.com'] },
+            undefined,
+            { team: { teamsAvailableTo } },
+        );
+
+        const staff = { user: { id: 7, email: 'j@puter.com' } };
+        expect(
+            guiParamsOf(await render(service, makeReq(), undefined, {}, staff))
+                .teams_ui,
+        ).toBe(true);
+        expect(teamsAvailableTo).toHaveBeenCalledWith(7, 'j@puter.com');
+
+        // Anonymous renders hide it; the API decides real access anyway.
+        expect(guiParamsOf(await render(service)).teams_ui).toBe(false);
+
+        teamsAvailableTo.mockResolvedValueOnce(false);
+        expect(
+            guiParamsOf(
+                await render(service, makeReq(), undefined, {}, {
+                    user: { id: 9, email: 'x@gmail.com' },
+                }),
+            ).teams_ui,
+        ).toBe(false);
+    });
+
+    it('advertises notification events only with the fold-in switched on', async () => {
+        expect(
+            guiParamsOf(await render(makeService())).eventsNotifications,
+        ).toBe(false);
+        expect(
+            guiParamsOf(
+                await render(makeService({ events: { enabled: true } })),
+            ).eventsNotifications,
+        ).toBe(false);
+        expect(
+            guiParamsOf(
+                await render(
+                    makeService({ events: { notificationsFoldIn: true } }),
+                ),
+            ).eventsNotifications,
+        ).toBe(false);
+        expect(
+            guiParamsOf(
+                await render(
+                    makeService({
+                        events: { enabled: true, notificationsFoldIn: true },
+                    }),
+                ),
+            ).eventsNotifications,
+        ).toBe(true);
+    });
+
     it('disables temp users when signup is off or the operator asked for it', async () => {
         expect(
             guiParamsOf(await render(makeService())).disable_temp_users,
@@ -399,5 +466,152 @@ describe('PuterHomepageService — head metadata', () => {
             '<meta property="og:description" content="short">',
         );
         expect(html).toContain('<meta name="description" content="long">');
+    });
+});
+
+describe('PuterHomepageService — pre-paint session gate', () => {
+    /** The gate's inline script, extracted so it can be run against a fake DOM. */
+    const gateScript = (html: string): string => {
+        const head = html.slice(0, html.indexOf('</head>'));
+        const block = [...head.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+            .map((m) => m[1])
+            .find((body) => body.includes('has-stored-session'));
+        if (!block) throw new Error('no session gate script in rendered head');
+        return block;
+    };
+
+    /** Run the gate with a given localStorage, and report the <html> classes. */
+    const runGate = (
+        html: string,
+        storage: { getItem: (k: string) => string | null },
+    ): string[] => {
+        const classes = new Set<string>();
+        const documentElement = {
+            classList: {
+                add: (c: string) => classes.add(c),
+                remove: (c: string) => classes.delete(c),
+            },
+        };
+        // eslint-disable-next-line no-new-func
+        new Function(
+            'localStorage',
+            'document',
+            'window',
+            gateScript(html),
+        )(storage, { documentElement }, { addEventListener: () => {} });
+        return [...classes];
+    };
+
+    it('hides opted-in markup for a browser holding a session token', async () => {
+        const html = await render(makeService());
+        expect(html).toContain(
+            'html.has-stored-session .hide-if-logged-in{display:none!important}',
+        );
+        expect(
+            runGate(html, { getItem: (k) => (k === 'auth_token_v2' ? 'tok' : null) }),
+        ).toEqual(['has-stored-session']);
+    });
+
+    it('leaves the markup visible for anonymous visitors and crawlers', async () => {
+        const html = await render(makeService());
+        expect(runGate(html, { getItem: () => null })).toEqual([]);
+    });
+
+    it('ignores a value under the retired token key', async () => {
+        const html = await render(makeService());
+        expect(
+            runGate(html, { getItem: (k) => (k === 'auth_token' ? 'old' : null) }),
+        ).toEqual([]);
+    });
+
+    it('fails open when storage is unreadable', async () => {
+        const html = await render(makeService());
+        expect(
+            runGate(html, {
+                getItem: () => {
+                    throw new Error('storage blocked');
+                },
+            }),
+        ).toEqual([]);
+    });
+
+    it('hands the markup back if the GUI never settles the guess', async () => {
+        const html = await render(makeService());
+        const classes = new Set<string>(['has-stored-session']);
+        const listeners: Array<() => void> = [];
+        const timers: Array<() => void> = [];
+        const win: Record<string, unknown> = {
+            addEventListener: (_e: string, fn: () => void) => listeners.push(fn),
+        };
+        // eslint-disable-next-line no-new-func
+        new Function(
+            'localStorage',
+            'document',
+            'window',
+            'setTimeout',
+            gateScript(html),
+        )(
+            { getItem: () => 'tok' },
+            {
+                documentElement: {
+                    classList: {
+                        add: (c: string) => classes.add(c),
+                        remove: (c: string) => classes.delete(c),
+                    },
+                },
+            },
+            win,
+            (fn: () => void) => timers.push(fn),
+        );
+        listeners.forEach((fn) => fn()); // window 'load'
+        timers.forEach((fn) => fn()); // the failsafe deadline
+        expect([...classes]).toEqual([]);
+
+        // ...and stands down once `initgui` has ruled on the token.
+        const settled = new Set<string>(['has-stored-session']);
+        const settledTimers: Array<() => void> = [];
+        const settledListeners: Array<() => void> = [];
+        // eslint-disable-next-line no-new-func
+        new Function(
+            'localStorage',
+            'document',
+            'window',
+            'setTimeout',
+            gateScript(html),
+        )(
+            { getItem: () => 'tok' },
+            {
+                documentElement: {
+                    classList: {
+                        add: (c: string) => settled.add(c),
+                        remove: (c: string) => settled.delete(c),
+                    },
+                },
+            },
+            {
+                addEventListener: (_e: string, fn: () => void) =>
+                    settledListeners.push(fn),
+                __puter_session_settled: true,
+            },
+            (fn: () => void) => settledTimers.push(fn),
+        );
+        settledListeners.forEach((fn) => fn());
+        settledTimers.forEach((fn) => fn());
+        expect([...settled]).toEqual(['has-stored-session']);
+    });
+
+    it('renders the gate ahead of any extension-contributed markup', async () => {
+        const service = makeService({}, async (_key, event) => {
+            const e = event as { prependHeadContent: string; prependBodyContent: string };
+            e.prependHeadContent += '<meta name="from-extension">';
+            e.prependBodyContent += '<main class="hide-if-logged-in">landing</main>';
+        });
+        const html = await render(service);
+        expect(html.indexOf('has-stored-session')).toBeLessThan(
+            html.indexOf('<meta name="from-extension">'),
+        );
+        expect(html.indexOf('has-stored-session')).toBeLessThan(
+            html.indexOf('<main class="hide-if-logged-in">'),
+        );
     });
 });

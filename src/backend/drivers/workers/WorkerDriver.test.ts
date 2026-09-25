@@ -9,7 +9,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { Actor } from '../../core/actor.js';
+import { Actor, makeActor as resolveActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -30,17 +30,18 @@ describe('WorkerDriver', () => {
     });
 
     let actor: Actor;
-    const makeActor = (overrides: Partial<Actor> = {}): Actor => ({
-        user: {
-            uuid: `test-user-${Math.random().toString(36).slice(2)}`,
-            id: 1,
-            username: 'test-user',
-            email: 'test@test.com',
-            email_confirmed: true,
-        },
-        app: { uid: 'test-app', id: 1 },
-        ...overrides,
-    });
+    const makeActor = (overrides: Partial<Actor> = {}): Actor =>
+        resolveActor({
+            user: {
+                uuid: `test-user-${Math.random().toString(36).slice(2)}`,
+                id: 1,
+                username: 'test-user',
+                email: 'test@test.com',
+                email_confirmed: true,
+            },
+            app: { uid: 'test-app', id: 1 },
+            ...overrides,
+        });
     beforeEach(() => {
         actor = makeActor();
     });
@@ -60,16 +61,17 @@ describe('WorkerDriver', () => {
     const actorFor = (
         user: { id: number; uuid: string; username: string },
         app?: { uid: string; id: number },
-    ): Actor => ({
-        user: {
-            uuid: user.uuid,
-            id: user.id,
-            username: user.username,
-            email: `${user.username}@test.com`,
-            email_confirmed: true,
-        },
-        app,
-    });
+    ): Actor =>
+        resolveActor({
+            user: {
+                uuid: user.uuid,
+                id: user.id,
+                username: user.username,
+                email: `${user.username}@test.com`,
+                email_confirmed: true,
+            },
+            app,
+        });
 
     describe('actor scoping', () => {
         it('rejects calls without an actor in context', async () => {
@@ -190,7 +192,7 @@ describe('WorkerDriver', () => {
         it('rejects reserved worker names', async () => {
             const serverWithReserved = await setupTestServer({
                 reserved_words: ['admin', 'api'],
-            });
+            } as never);
             const driverWithReserved = serverWithReserved.drivers
                 .workers as unknown as WorkerDriver;
             try {
@@ -486,6 +488,46 @@ describe('WorkerDriver', () => {
                 expect.arrayContaining([`${tag}-bound`, `${tag}-loose`]),
             );
         });
+
+        it('returns app_uid for sandboxed/app-bound workers and null for user-scoped workers', async () => {
+            const tag = `wkuid${Math.random().toString(36).slice(2, 8)}`;
+            const owner = await makeUser(tag);
+            const app = await server.stores.app.create(
+                {
+                    name: `app-${tag}`,
+                    title: `app-${tag}`,
+                    index_url: `https://app-${tag}.example.com/`,
+                },
+                { ownerUserId: owner.id },
+            );
+            await server.stores.subdomain.create({
+                userId: owner.id,
+                subdomain: `workers.puter.${tag}-bound`,
+                rootDirId: null,
+                associatedAppId: null,
+                appOwner: app.id,
+            });
+            await server.stores.subdomain.create({
+                userId: owner.id,
+                subdomain: `workers.puter.${tag}-plain`,
+                rootDirId: null,
+                associatedAppId: null,
+                appOwner: null,
+            });
+
+            const seen = (await inCtx(
+                () => target.getFilePaths({}),
+                actorFor(owner),
+            )) as Array<{ name: string; app_uid: string | null }>;
+
+            const bound = seen.find((r) => r.name === `${tag}-bound`);
+            const plain = seen.find((r) => r.name === `${tag}-plain`);
+
+            expect(bound).toBeDefined();
+            expect(bound?.app_uid).toBe(app.uid);
+            expect(plain).toBeDefined();
+            expect(plain?.app_uid).toBeNull();
+        });
     });
 
     describe('getFilePaths pagination', () => {
@@ -586,7 +628,7 @@ describe('WorkerDriver', () => {
         it('returns the configured loggingUrl', async () => {
             const serverWithLogging = await setupTestServer({
                 workers: { loggingUrl: 'https://logs.test/view' },
-            });
+            } as never);
             const driverWithLogging = serverWithLogging.drivers
                 .workers as unknown as WorkerDriver;
             try {
@@ -622,7 +664,7 @@ describe('WorkerDriver', () => {
         it('rejects an unverified account without the bypass', async () => {
             const strictServer = await setupTestServer({
                 strict_email_verification_required: true,
-            });
+            } as never);
             const strictDriver = strictServer.drivers
                 .workers as unknown as WorkerDriver;
             try {
@@ -646,7 +688,7 @@ describe('WorkerDriver', () => {
         it('lets the bypass past the verified-email gate', async () => {
             const strictServer = await setupTestServer({
                 strict_email_verification_required: true,
-            });
+            } as never);
             const strictDriver = strictServer.drivers
                 .workers as unknown as WorkerDriver;
             try {
@@ -725,7 +767,7 @@ describe('WorkerDriver', () => {
         it('cannot be forged through caller-supplied args', async () => {
             const strictServer = await setupTestServer({
                 strict_email_verification_required: true,
-            });
+            } as never);
             const strictDriver = strictServer.drivers
                 .workers as unknown as WorkerDriver;
             // Driver args reach the method as parsed JSON from the request

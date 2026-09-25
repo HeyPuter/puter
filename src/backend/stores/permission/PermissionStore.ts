@@ -28,6 +28,7 @@ import {
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from '../../services/permission/consts';
 import { kv } from '../../util/kvSingleton';
+import { decodeCursor, encodeCursor } from '../../util/pagination';
 import type { UserRow } from '../user/UserStore';
 
 // Short TTLs: FK CASCADE on user/app delete + PermissionService rewriters
@@ -35,6 +36,9 @@ import type { UserRow } from '../user/UserStore';
 const U2A_CACHE_TTL_SECONDS = 5 * 60;
 const U2U_CACHE_TTL_SECONDS = 5 * 60;
 const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
+
+const AUDIT_PAGE_SIZE = 50;
+const MAX_AUDIT_PAGE_SIZE = 200;
 
 // Re-export for back-compat — PermissionService et al. import `UserRow` from here.
 // The canonical definition lives in `UserStore`, which owns the user table.
@@ -82,8 +86,66 @@ export interface AccessTokenPermRow {
 export interface AuditEntry {
     action: 'grant' | 'revoke';
     reason: string;
+    /** Recorded on the row, and read back by whoever reads the trail. */
+    extra?: Record<string, unknown> | null;
     [k: string]: unknown;
 }
+
+/** One user-to-user audit row, as read back. */
+export interface UserUserAuditRow {
+    id: number;
+    /** Null once that account is deleted; the FK columns are ON DELETE SET NULL. */
+    issuer_user_id: number | null;
+    holder_user_id: number | null;
+    permission: string;
+    action: string | null;
+    extra: Record<string, unknown> | null;
+    created_at: unknown;
+}
+
+/** What a read of the user-to-user audit trail may be narrowed to. */
+export interface UserUserAuditFilter {
+    issuerUserId?: number;
+    holderUserId?: number;
+    permissions?: string[];
+}
+
+/** One entry in the flat KV view, as addressed by a delete. */
+export interface FlatPermRef {
+    holderUserId: number;
+    permission: string;
+}
+
+/**
+ * A prefix as `subtreeClause` wants it. A caller may write the delimiter it is
+ * matching under (`fs:`) or leave it off (`fs:<uuid>`); both mean the same
+ * subtree, and the clause supplies the delimiter itself.
+ */
+const subtreeRoot = (prefix: string): string =>
+    prefix.endsWith(':') ? prefix.slice(0, -1) : prefix;
+
+/**
+ * Match a permission and everything beneath it.
+ *
+ * `_` and `%` are LIKE wildcards, so an unescaped one would widen the match
+ * beyond the intended subtree. `!` as the escape character, matching
+ * FSEntryStore: a backslash one would have to be written `ESCAPE '\\'` in the
+ * SQL text, and MySQL processes backslash escapes inside string literals, so
+ * the `'\'` a JS `'\\'` produces reads as an escaped quote and leaves the
+ * literal unterminated. SQLite and Postgres accept it, which is why only MySQL
+ * would have seen the parse error.
+ */
+const subtreeClause = (
+    permissions: string[],
+): { where: string; params: string[] } => ({
+    where: permissions
+        .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
+        .join(' OR '),
+    params: permissions.flatMap((permission) => [
+        permission,
+        `${permission.replace(/([!%_])/g, '!$1')}:%`,
+    ]),
+});
 
 /**
  * PermissionStore owns the _persistence_ side of permissions:
@@ -97,6 +159,68 @@ export interface AuditEntry {
  */
 export class PermissionStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
+
+    override onServerStart(): void {
+        this.#subscribeRemoteGenerationBumps();
+        this.#subscribeRemoteFlatInvalidations();
+    }
+
+    /**
+     * Apply a peer region's flat-permission deletes. Independent of whether the
+     * KV table replicates: a redundant delete is a no-op, a needed one is the
+     * only thing that makes the revoke real there.
+     */
+    #subscribeRemoteFlatInvalidations(): void {
+        this.clients.event.on(
+            'outer.permission.flatInvalidated',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const raw = (data as { entries?: unknown })?.entries;
+                if (!Array.isArray(raw)) return;
+                const entries = raw.filter(
+                    (entry): entry is FlatPermRef =>
+                        typeof (entry as FlatPermRef)?.holderUserId ===
+                            'number' &&
+                        typeof (entry as FlatPermRef)?.permission ===
+                            'string' &&
+                        (entry as FlatPermRef).permission !== '',
+                );
+                if (entries.length === 0) return;
+                // Guarded: a transient KV error applying a peer's delete must
+                // not become an unhandled rejection. The entry stays until the
+                // next invalidation or its TTL — same as a lost event.
+                this.#applyFlatUserPermDeletes(entries).catch((err) => {
+                    console.warn(
+                        '[PermissionStore] failed to apply remote flat-perm deletes:',
+                        err,
+                    );
+                });
+            },
+        );
+    }
+
+    /**
+     * Apply a peer region's cache-generation bumps. Our own emit reaches local
+     * listeners too, and that half already ran before it went out.
+     */
+    #subscribeRemoteGenerationBumps(): void {
+        this.clients.event.on(
+            'outer.permission.generationBumped',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const raw = (data as { actorUids?: unknown })?.actorUids;
+                if (!Array.isArray(raw)) return;
+                const actorUids = raw.filter(
+                    (uid): uid is string =>
+                        typeof uid === 'string' && uid !== '',
+                );
+                if (actorUids.length === 0) return;
+                void Promise.all(
+                    actorUids.map((uid) => this.#applyCacheGenerationBump(uid)),
+                );
+            },
+        );
+    }
 
     // -- Flat view (KV under system namespace) ------------------------
 
@@ -155,12 +279,41 @@ export class PermissionStore extends PuterStore {
         holderUserId: number,
         permission: string,
     ): Promise<void> {
-        const key = PermissionUtil.join(
-            PERM_KEY_PREFIX,
-            String(holderUserId),
-            permission,
+        await this.delFlatUserPerms([{ holderUserId, permission }]);
+    }
+
+    /**
+     * Delete many flat entries and tell peer regions once. Retiring a shared
+     * directory can touch hundreds of grants; one event per grant would put
+     * that whole fan-out on the cross-region path.
+     */
+    async delFlatUserPerms(entries: FlatPermRef[]): Promise<void> {
+        if (entries.length === 0) return;
+        await this.#applyFlatUserPermDeletes(entries);
+        try {
+            this.clients.event.emit(
+                'outer.permission.flatInvalidated',
+                { entries },
+                {},
+            );
+        } catch {
+            // Peer regions keep the entries until their KV replicates.
+        }
+    }
+
+    /** Local half of a flat delete. Never emits, so a remote one can't loop. */
+    async #applyFlatUserPermDeletes(entries: FlatPermRef[]): Promise<void> {
+        await Promise.all(
+            entries.map(({ holderUserId, permission }) =>
+                this.stores.kv.del({
+                    key: PermissionUtil.join(
+                        PERM_KEY_PREFIX,
+                        String(holderUserId),
+                        permission,
+                    ),
+                }),
+            ),
         );
-        await this.stores.kv.del({ key });
     }
 
     // -- SQL: user-to-user permissions -------------------------------
@@ -173,6 +326,100 @@ export class PermissionStore extends PuterStore {
         const all = await this.#readAllUserUserPermsForHolder(holderUserId);
         const wanted = new Set(permissions);
         return all.filter((row) => wanted.has(row.permission));
+    }
+
+    /**
+     * Read-after-write variant of {@link readLinkedUserUserPerms}: skips the row
+     * cache and queries the primary, so a check that immediately follows a
+     * write on this holder cannot be misled by replica lag or by a stale cached
+     * row set. Re-warms the cache with what the primary returned — the plain
+     * read path would otherwise re-cache the replica's stale view.
+     */
+    async readLinkedUserUserPermsFromPrimary(
+        holderUserId: number,
+        permissions: string[],
+    ): Promise<LinkedUserUserPermRow[]> {
+        if (permissions.length === 0) return [];
+        const rows = await this.clients.db.pread(
+            'SELECT * FROM `user_to_user_permissions` WHERE `holder_user_id` = ?',
+            [holderUserId],
+        );
+        const decoded = rows.map((row) =>
+            this.#decodeExtra<LinkedUserUserPermRow>(row),
+        );
+        this.clients.redis
+            .set(
+                this.#u2uCacheKey(holderUserId),
+                JSON.stringify(decoded),
+                'EX',
+                U2U_CACHE_TTL_SECONDS,
+            )
+            .catch(() => {});
+        const wanted = new Set(permissions);
+        return decoded.filter((row) => wanted.has(row.permission));
+    }
+
+    /**
+     * Batched {@link readLinkedUserUserPerms} across holders: an indexed `holder
+     * IN … AND permission IN …` read instead of one row-set per holder, which
+     * on a cold cache fans a listing page out into that many queries. Chunked
+     * to stay under the dialects' placeholder limits.
+     */
+    async readLinkedUserUserPermsForHolders(
+        holderUserIds: number[],
+        permissions: string[],
+    ): Promise<LinkedUserUserPermRow[]> {
+        const holders = [...new Set(holderUserIds)].filter((id) =>
+            Number.isFinite(id),
+        );
+        const perms = [...new Set(permissions)];
+        if (holders.length === 0 || perms.length === 0) return [];
+
+        const rows: LinkedUserUserPermRow[] = [];
+        for (let h = 0; h < holders.length; h += 200) {
+            const holderChunk = holders.slice(h, h + 200);
+            for (let p = 0; p < perms.length; p += 700) {
+                const permChunk = perms.slice(p, p + 700);
+                const found = await this.clients.db.read(
+                    'SELECT * FROM `user_to_user_permissions` WHERE ' +
+                        `\`holder_user_id\` IN (${holderChunk.map(() => '?').join(', ')}) ` +
+                        `AND \`permission\` IN (${permChunk.map(() => '?').join(', ')})`,
+                    [...holderChunk, ...permChunk],
+                );
+                for (const row of found) {
+                    rows.push(this.#decodeExtra<LinkedUserUserPermRow>(row));
+                }
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * Batched {@link getFlatUserPerms} across holders — one multi-get for all of
+     * a listing page's (holder, permission) pairs. Entries come back paired
+     * with the ref they answer, because a flat value doesn't name its holder.
+     */
+    async getFlatUserPermsForRefs(
+        refs: FlatPermRef[],
+    ): Promise<Array<{ ref: FlatPermRef; value: FlatPermValue }>> {
+        if (refs.length === 0) return [];
+        const keys = refs.map(({ holderUserId, permission }) =>
+            PermissionUtil.join(
+                PERM_KEY_PREFIX,
+                String(holderUserId),
+                permission,
+            ),
+        );
+        const { res } = await this.stores.kv.get({ key: keys });
+        const values = Array.isArray(res) ? res : [res];
+        const out: Array<{ ref: FlatPermRef; value: FlatPermValue }> = [];
+        for (let i = 0; i < refs.length; i++) {
+            const value = values[i];
+            if (value !== null && typeof value === 'object') {
+                out.push({ ref: refs[i], value: value as FlatPermValue });
+            }
+        }
+        return out;
     }
 
     async upsertUserUserPerm(
@@ -198,20 +445,167 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2uCacheKey(holderUserId)],
+            broadcast: true,
         });
     }
 
+    /**
+     * Remove one issuer's grant. Scoped to the issuer because grants are keyed
+     * on (holder, issuer, permission) — two people can grant the same access
+     * independently, and one withdrawing must not take the other's with it.
+     *
+     * Returns whether a row was actually deleted.
+     */
     async deleteUserUserPermByHolder(
         holderUserId: number,
         permission: string,
-    ): Promise<void> {
+        issuerUserId: number,
+    ): Promise<boolean> {
+        const result = await this.clients.db.write(
+            'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? ' +
+                'AND `permission` = ? AND `issuer_user_id` = ?',
+            [holderUserId, permission, issuerUserId],
+        );
+        if (!result.anyRowsAffected) return false;
+        await this.publishCacheKeys({
+            keys: [this.#u2uCacheKey(holderUserId)],
+            broadcast: true,
+        });
+        return true;
+    }
+
+    /**
+     * Delete every user-to-user grant at or beneath `permission`, clearing the
+     * flat KV view too, and return the rows removed so the caller can audit
+     * them and bust caches.
+     *
+     * The subject lives in the permission text rather than a column, so no
+     * foreign key can cascade it — this is how a deleted fsentry's grants get
+     * withdrawn. `permission` has no index, so this is a table scan: fine on
+     * deletion, never on a hot path.
+     */
+    async deleteUserUserPermsByPermissionPrefix(permission: string): Promise<
+        Array<{
+            holder_user_id: number;
+            issuer_user_id: number;
+            permission: string;
+        }>
+    > {
+        return this.deleteUserUserPermsByPermissionPrefixes([permission]);
+    }
+
+    /** As above, for several prefixes in one scan. */
+    /** The group analogue: a deleted node's group grants must go with it. */
+    async deleteUserGroupPermsByPermissionPrefixes(
+        permissions: string[],
+    ): Promise<Array<{ group_id: number; permission: string }>> {
+        if (permissions.length === 0) return [];
+        const where = permissions
+            .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
+            .join(' OR ');
+        const params = permissions.flatMap((permission) => [
+            permission,
+            `${permission.replace(/([!%_])/g, '!$1')}:%`,
+        ]);
+
+        const rows = (await this.clients.db.read(
+            'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
+                `WHERE ${where}`,
+            params,
+        )) as Array<{ group_id: number; permission: string }>;
+        if (rows.length === 0) return [];
+
         await this.clients.db.write(
-            'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? AND `permission` = ?',
-            [holderUserId, permission],
+            `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
+            params,
+        );
+        return rows;
+    }
+
+    async deleteUserUserPermsByPermissionPrefixes(
+        permissions: string[],
+    ): Promise<
+        Array<{
+            holder_user_id: number;
+            issuer_user_id: number;
+            permission: string;
+        }>
+    > {
+        if (permissions.length === 0) return [];
+        const { where, params } = subtreeClause(permissions);
+
+        const rows = (await this.clients.db.read(
+            'SELECT `holder_user_id`, `issuer_user_id`, `permission` FROM `user_to_user_permissions` ' +
+                `WHERE ${where}`,
+            params,
+        )) as Array<{
+            holder_user_id: number;
+            issuer_user_id: number;
+            permission: string;
+        }>;
+        if (rows.length === 0) return [];
+
+        await this.clients.db.write(
+            `DELETE FROM \`user_to_user_permissions\` WHERE ${where}`,
+            params,
+        );
+
+        // One batched invalidation, so retiring a busy directory doesn't put a
+        // row-sized fan-out on the cross-region path.
+        await this.delFlatUserPerms(
+            rows.map((row) => ({
+                holderUserId: row.holder_user_id,
+                permission: row.permission,
+            })),
+        );
+
+        const keys = [
+            ...new Set(rows.map((r) => this.#u2uCacheKey(r.holder_user_id))),
+        ];
+        if (keys.length > 0)
+            await this.publishCacheKeys({ keys, broadcast: true });
+
+        return rows;
+    }
+
+    /**
+     * The same subtree delete, narrowed to one issuer's grants to one holder.
+     *
+     * Withdrawing a share names a person, not a region: two people granted on
+     * the same prefix hold two independent grants, and taking one back must not
+     * take the other's with it. Returns the permissions removed, so the caller
+     * can audit them and announce each one.
+     */
+    async deleteUserUserPermSubtreeForHolder(
+        holderUserId: number,
+        issuerUserId: number,
+        permission: string,
+    ): Promise<string[]> {
+        const { where, params } = subtreeClause([permission]);
+        const scope = '`holder_user_id` = ? AND `issuer_user_id` = ?';
+        const scoped = [holderUserId, issuerUserId, ...params];
+
+        const rows = (await this.clients.db.read(
+            'SELECT `permission` FROM `user_to_user_permissions` ' +
+                `WHERE ${scope} AND (${where})`,
+            scoped,
+        )) as Array<{ permission: string }>;
+        if (rows.length === 0) return [];
+
+        await this.clients.db.write(
+            `DELETE FROM \`user_to_user_permissions\` WHERE ${scope} AND (${where})`,
+            scoped,
+        );
+
+        const removed = rows.map((row) => String(row.permission));
+        await this.delFlatUserPerms(
+            removed.map((perm) => ({ holderUserId, permission: perm })),
         );
         await this.publishCacheKeys({
             keys: [this.#u2uCacheKey(holderUserId)],
+            broadcast: true,
         });
+        return removed;
     }
 
     async auditUserUserPerm(
@@ -224,25 +618,121 @@ export class PermissionStore extends PuterStore {
         await this.clients.db.write(
             'INSERT INTO `audit_user_to_user_permissions` (' +
                 '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
-                '`permission`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                '`permission`, `extra`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 entry.holder_user_id,
                 entry.holder_user_id,
                 entry.issuer_user_id,
                 entry.issuer_user_id,
                 entry.permission,
+                entry.extra ? JSON.stringify(entry.extra) : null,
                 entry.action,
                 entry.reason,
             ],
         );
     }
 
-    async listUserPermissionIssuerIds(holderUserId: number): Promise<number[]> {
-        const rows = await this.clients.db.read(
-            'SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` WHERE `holder_user_id` = ?',
-            [holderUserId],
+    /**
+     * The user-to-user audit trail, newest first, keyset-paginated on `id`.
+     *
+     * Rows are never deleted with the grant they describe, so this answers when
+     * something was granted long after it was withdrawn. The caller decides who
+     * may see which rows and narrows `filter` accordingly — this applies it, it
+     * does not authorize it.
+     */
+    async listUserUserAudit(
+        filter: UserUserAuditFilter,
+        opts: { limit?: number; cursor?: string } = {},
+    ): Promise<{ items: UserUserAuditRow[]; cursor?: string }> {
+        const size = Math.min(
+            Math.max(1, Math.floor(Number(opts.limit) || AUDIT_PAGE_SIZE)),
+            MAX_AUDIT_PAGE_SIZE,
         );
-        return rows.map((r) => Number(r.issuer_user_id));
+        const decoded = decodeCursor(opts.cursor, 'audit cursor');
+        const beforeId = Number(decoded?.id ?? 0) || null;
+        const { sql, params } = this.#auditWhere(filter);
+
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `audit_user_to_user_permissions` WHERE ' +
+                sql +
+                (beforeId === null ? '' : ' AND `id` < ?') +
+                ' ORDER BY `id` DESC LIMIT ?',
+            [...params, ...(beforeId === null ? [] : [beforeId]), size + 1],
+        );
+
+        const hasMore = rows.length > size;
+        const items = rows.slice(0, size).map((row) => this.#auditRow(row));
+        const last = items[items.length - 1];
+        return {
+            items,
+            cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
+        };
+    }
+
+    /** How many rows `listUserUserAudit` walks under the same filter. */
+    async countUserUserAudit(filter: UserUserAuditFilter): Promise<number> {
+        const { sql, params } = this.#auditWhere(filter);
+        const rows = await this.clients.db.read(
+            'SELECT COUNT(*) AS `count` FROM `audit_user_to_user_permissions` ' +
+                `WHERE ${sql}`,
+            params,
+        );
+        return Number(rows[0]?.count ?? 0);
+    }
+
+    /**
+     * The filter as SQL. An empty filter would read the whole table, so it is
+     * refused rather than quietly returning everyone's trail.
+     */
+    #auditWhere(filter: UserUserAuditFilter): {
+        sql: string;
+        params: unknown[];
+    } {
+        const clauses: string[] = [];
+        const params: unknown[] = [];
+        if (filter.issuerUserId !== undefined) {
+            clauses.push('`issuer_user_id` = ?');
+            params.push(filter.issuerUserId);
+        }
+        if (filter.holderUserId !== undefined) {
+            clauses.push('`holder_user_id` = ?');
+            params.push(filter.holderUserId);
+        }
+        if (filter.permissions !== undefined) {
+            if (filter.permissions.length === 0) {
+                return { sql: '1 = 0', params: [] };
+            }
+            clauses.push(
+                `\`permission\` IN (${filter.permissions.map(() => '?').join(', ')})`,
+            );
+            params.push(...filter.permissions);
+        }
+        if (clauses.length === 0) {
+            throw new Error('listUserUserAudit requires a filter');
+        }
+        return { sql: clauses.join(' AND '), params };
+    }
+
+    #auditRow(row: Record<string, unknown>): UserUserAuditRow {
+        let extra = row.extra;
+        if (typeof extra === 'string') {
+            try {
+                extra = JSON.parse(extra);
+            } catch {
+                extra = null;
+            }
+        }
+        const userId = (value: unknown) =>
+            value === null || value === undefined ? null : Number(value);
+        return {
+            id: Number(row.id),
+            issuer_user_id: userId(row.issuer_user_id),
+            holder_user_id: userId(row.holder_user_id),
+            permission: String(row.permission),
+            action: (row.action as string | null) ?? null,
+            extra: (extra as Record<string, unknown> | null) ?? null,
+            created_at: row.created_at,
+        };
     }
 
     // -- SQL: user-to-app permissions --------------------------------
@@ -290,6 +780,7 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2aCacheKey(userId, appId)],
+            broadcast: true,
         });
     }
 
@@ -304,6 +795,7 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2aCacheKey(userId, appId)],
+            broadcast: true,
         });
     }
 
@@ -314,6 +806,7 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2aCacheKey(userId, appId)],
+            broadcast: true,
         });
     }
 
@@ -336,18 +829,7 @@ export class PermissionStore extends PuterStore {
             permission: string;
         }>
     > {
-        // `_` and `%` are LIKE wildcards, so an unescaped one would widen the
-        // match beyond the intended subtree.
-        //
-        // `!` as the escape character, matching FSEntryStore: a backslash one
-        // would have to be written `ESCAPE '\\'` in the SQL text, and MySQL
-        // processes backslash escapes inside string literals, so the `'\'` a
-        // JS `'\\'` produces reads as an escaped quote and leaves the literal
-        // unterminated. SQLite and Postgres accept it, which is why only MySQL
-        // would have seen the parse error.
-        const escaped = permission.replace(/([!%_])/g, '!$1');
-        const exact = permission;
-        const prefix = `${escaped}:%`;
+        const { where, params } = subtreeClause([permission]);
 
         const removed: Array<{
             table: 'user_to_app_permissions' | 'dev_to_app_permissions';
@@ -362,8 +844,8 @@ export class PermissionStore extends PuterStore {
         ] as const) {
             const rows = (await this.clients.db.read(
                 `SELECT \`user_id\`, \`app_id\`, \`permission\` FROM \`${table}\` ` +
-                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
-                [exact, prefix],
+                    `WHERE ${where}`,
+                params,
             )) as Array<{
                 user_id: number;
                 app_id: number;
@@ -372,9 +854,8 @@ export class PermissionStore extends PuterStore {
             if (rows.length === 0) continue;
 
             await this.clients.db.write(
-                `DELETE FROM \`${table}\` ` +
-                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
-                [exact, prefix],
+                `DELETE FROM \`${table}\` WHERE ${where}`,
+                params,
             );
             for (const row of rows) removed.push({ table, ...row });
         }
@@ -386,7 +867,8 @@ export class PermissionStore extends PuterStore {
                     .map((r) => this.#u2aCacheKey(r.user_id, r.app_id)),
             ),
         ];
-        if (keys.length > 0) await this.publishCacheKeys({ keys });
+        if (keys.length > 0)
+            await this.publishCacheKeys({ keys, broadcast: true });
 
         return removed;
     }
@@ -496,11 +978,17 @@ export class PermissionStore extends PuterStore {
     }
 
     // -- SQL: user-to-group permissions ------------------------------
+    //
+    // Read-only. Group grants are seeded by migration (the admin group's
+    // unrestricted `driver` access); nothing writes them at runtime.
 
     /**
      * Reads group permissions granted to groups the user is a member of, for a
      * given set of permission strings. Result already joined against
      * `jct_user_group` so callers don't need group membership resolution.
+     * Deliberately blind to the block list: this reading also answers authority
+     * checks that gate permanent revocations, and a block only suspends
+     * delivery (which the share listings and fan-out filter themselves).
      */
     async readUserGroupPerms(
         userId: number,
@@ -509,10 +997,13 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         let permClause = permissions.map(() => 'p.permission = ?').join(' OR ');
         if (permissions.length > 1) permClause = `(${permClause})`;
+        // Deletion leaves memberships and grants, so a deleted team would
+        // otherwise keep resolving access nothing can withdraw.
         const rows = await this.clients.db.read(
             'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
-                `WHERE ug.user_id = ? AND ${permClause}`,
+                'JOIN `group` g ON g.`id` = ug.group_id ' +
+                `WHERE ug.user_id = ? AND g.\`deleted_at\` IS NULL AND ${permClause}`,
             [userId, ...permissions],
         );
         return rows.map((row) =>
@@ -520,9 +1011,83 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    async upsertUserGroupPerm(
-        userId: number,
+    /** Any group, seeded or team: a grant does not care which kind it is. */
+    async resolveGroupId(groupUid: string): Promise<number | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT `id` FROM `group` WHERE `uid` = ? LIMIT 1',
+            [groupUid],
+        )) as { id: number }[];
+        return rows[0]?.id ?? null;
+    }
+
+    /** Whose cached readings a grant to this group invalidates. */
+    async listGroupMemberUuids(groupId: number): Promise<string[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'WHERE ug.`group_id` = ?',
+            [groupId],
+        )) as { uuid: string | null }[];
+        return rows
+            .map((r) => r.uuid)
+            .filter((uuid): uuid is string => Boolean(uuid));
+    }
+
+    /** Whose standing access a grant to this group settles. */
+    async listGroupMemberIds(groupId: number): Promise<number[]> {
+        const rows = (await this.clients.db.read(
+            'SELECT `user_id` FROM `jct_user_group` WHERE `group_id` = ?',
+            [groupId],
+        )) as { user_id: number }[];
+        return rows.map((r) => Number(r.user_id));
+    }
+
+    /** Batched `readUserGroupPerms`, tagged with the user each row reached. */
+    async readUserGroupPermsForHolders(
+        userIds: number[],
+        permissions: string[],
+    ): Promise<
+        Array<{ holder_user_id: number; permission: string; user_id: number }>
+    > {
+        const holders = [...new Set(userIds)];
+        const perms = [...new Set(permissions)];
+        if (holders.length === 0 || perms.length === 0) return [];
+        const rows = await this.clients.db.read(
+            'SELECT ug.`user_id` AS `holder_user_id`, p.`permission`, p.`user_id` ' +
+                'FROM `user_to_group_permissions` p ' +
+                'JOIN `jct_user_group` ug ON p.`group_id` = ug.`group_id` ' +
+                'JOIN `group` g ON g.`id` = ug.`group_id` ' +
+                `WHERE ug.\`user_id\` IN (${holders.map(() => '?').join(', ')}) ` +
+                'AND g.`deleted_at` IS NULL ' +
+                `AND p.\`permission\` IN (${perms.map(() => '?').join(', ')})`,
+            [...holders, ...perms],
+        );
+        return rows as unknown as Array<{
+            holder_user_id: number;
+            permission: string;
+            user_id: number;
+        }>;
+    }
+
+    /** What this issuer already granted this group under a prefix. */
+    async queryIssuerGroupPermsByPrefix(
+        issuerUserId: number,
         groupId: number,
+        prefix: string,
+    ): Promise<string[]> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
+        const rows = await this.clients.db.read(
+            'SELECT permission FROM `user_to_group_permissions` ' +
+                `WHERE \`user_id\` = ? AND \`group_id\` = ? AND (${subtree.where})`,
+            [issuerUserId, groupId, ...subtree.params],
+        );
+        return rows.map((r) => String(r.permission));
+    }
+
+    /** `user_id` is the issuer; `group_id` is who receives it. */
+    async upsertUserGroupPerm(
+        groupId: number,
+        issuerUserId: number,
         permission: string,
         extra: Record<string, unknown>,
     ): Promise<void> {
@@ -534,7 +1099,7 @@ export class PermissionStore extends PuterStore {
             'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
                 `VALUES (?, ?, ?, ?) ${upsertClause}`,
             [
-                userId,
+                issuerUserId,
                 groupId,
                 permission,
                 JSON.stringify(extra),
@@ -543,34 +1108,38 @@ export class PermissionStore extends PuterStore {
         );
     }
 
+    /** Scoped to the issuer: one issuer's revoke must not drop another's. */
     async deleteUserGroupPerm(
-        userId: number,
         groupId: number,
+        issuerUserId: number,
         permission: string,
-    ): Promise<void> {
-        await this.clients.db.write(
-            'DELETE FROM `user_to_group_permissions` WHERE `user_id` = ? AND `group_id` = ? AND `permission` = ?',
-            [userId, groupId, permission],
+    ): Promise<boolean> {
+        const result = await this.clients.db.write(
+            'DELETE FROM `user_to_group_permissions` ' +
+                'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
+            [groupId, issuerUserId, permission],
         );
+        return result.anyRowsAffected;
     }
 
     async auditUserGroupPerm(
         entry: AuditEntry & {
-            user_id: number;
             group_id: number;
+            issuer_user_id: number;
             permission: string;
         },
     ): Promise<void> {
         await this.clients.db.write(
             'INSERT INTO `audit_user_to_group_permissions` (' +
                 '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
-                '`permission`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                '`permission`, `extra`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
-                entry.user_id,
-                entry.user_id,
+                entry.issuer_user_id,
+                entry.issuer_user_id,
                 entry.group_id,
                 entry.group_id,
                 entry.permission,
+                entry.extra ? JSON.stringify(entry.extra) : null,
                 entry.action,
                 entry.reason,
             ],
@@ -591,19 +1160,25 @@ export class PermissionStore extends PuterStore {
     async invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
         await this.publishCacheKeys({
             keys: [this.#tokenCacheKey(tokenUid)],
+            broadcast: true,
         });
     }
 
     // -- SQL: issuer-prefix queries (share discovery, etc.) ----------
+    //
+    // All of these go through `subtreeClause`: a prefix is a permission and
+    // everything under it, so `fs:abc` must not reach `fs:abcdef`, and a `%`
+    // or `_` in one must not widen the match.
 
     async queryIssuerUserPermsByPrefix(
         issuerUserId: number,
         prefix: string,
     ): Promise<Array<{ holder_user_id: number; permission: string }>> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
         const rows = await this.clients.db.read(
             'SELECT DISTINCT holder_user_id, permission FROM `user_to_user_permissions` ' +
-                'WHERE issuer_user_id = ? AND permission LIKE ?',
-            [issuerUserId, `${prefix}%`],
+                `WHERE issuer_user_id = ? AND (${subtree.where})`,
+            [issuerUserId, ...subtree.params],
         );
         return rows.map((r) => ({
             holder_user_id: Number(r.holder_user_id),
@@ -615,10 +1190,11 @@ export class PermissionStore extends PuterStore {
         issuerUserId: number,
         prefix: string,
     ): Promise<Array<{ app_id: number; permission: string }>> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
         const rows = await this.clients.db.read(
             'SELECT DISTINCT app_id, permission FROM `user_to_app_permissions` ' +
-                'WHERE user_id = ? AND permission LIKE ?',
-            [issuerUserId, `${prefix}%`],
+                `WHERE user_id = ? AND (${subtree.where})`,
+            [issuerUserId, ...subtree.params],
         );
         return rows.map((r) => ({
             app_id: Number(r.app_id),
@@ -631,10 +1207,11 @@ export class PermissionStore extends PuterStore {
         holderUserId: number,
         prefix: string,
     ): Promise<string[]> {
+        const subtree = subtreeClause([subtreeRoot(prefix)]);
         const rows = await this.clients.db.read(
             'SELECT permission FROM `user_to_user_permissions` ' +
-                'WHERE issuer_user_id = ? AND holder_user_id = ? AND permission LIKE ?',
-            [issuerUserId, holderUserId, `${prefix}%`],
+                `WHERE issuer_user_id = ? AND holder_user_id = ? AND (${subtree.where})`,
+            [issuerUserId, holderUserId, ...subtree.params],
         );
         return rows.map((r) => String(r.permission));
     }
@@ -689,6 +1266,29 @@ export class PermissionStore extends PuterStore {
     }
 
     async bumpCacheGeneration(actorUid: string): Promise<void> {
+        await this.bumpCacheGenerations([actorUid]);
+    }
+
+    /** Bump several actors and tell peer regions once. */
+    async bumpCacheGenerations(actorUids: string[]): Promise<void> {
+        const unique = [...new Set(actorUids.filter(Boolean))];
+        if (unique.length === 0) return;
+        await Promise.all(
+            unique.map((uid) => this.#applyCacheGenerationBump(uid)),
+        );
+        try {
+            this.clients.event.emit(
+                'outer.permission.generationBumped',
+                { actorUids: unique },
+                {},
+            );
+        } catch {
+            // Peer regions fall back to their scan-cache TTL.
+        }
+    }
+
+    /** Local half of a bump. Never emits, so a remote bump can't ping-pong. */
+    async #applyCacheGenerationBump(actorUid: string): Promise<void> {
         const key = this.#cacheGenerationKey(actorUid);
         try {
             const next = await this.clients.redis.incr(key);

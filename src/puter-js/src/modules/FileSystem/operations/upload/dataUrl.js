@@ -11,7 +11,8 @@ export const estimateDataUrlSize = (dataUrl) => {
     if ( ! dataUrl ) return 0;
     const commaIndex = dataUrl.indexOf(',');
     const base64 = commaIndex === -1 ? dataUrl : dataUrl.slice(commaIndex + 1);
-    return Math.ceil(base64.length * 3 / 4);
+    const padding = base64.endsWith('==') ? 2 : (base64.endsWith('=') ? 1 : 0);
+    return Math.floor(base64.length * 3 / 4) - padding;
 };
 
 /**

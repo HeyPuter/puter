@@ -292,6 +292,81 @@ describe('process_input_messages_responses_api', () => {
         ]);
     });
 
+    it('expands round-tripped reasoning_details into reasoning input items', async () => {
+        // The replay contract documented in Objects/chatresponse.md: a caller
+        // resends the whole normalized assistant message, reasoning_details
+        // included, and the Responses input schema gets back the item shape it
+        // issued — output-only fields stripped so the request is accepted.
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: 'earlier reply',
+                reasoning: 'thought',
+                refusal: null,
+                reasoning_details: [
+                    {
+                        type: 'reasoning',
+                        id: 'rs_1',
+                        encrypted_content: 'ENC',
+                        summary: [{ type: 'summary_text', text: 'thought' }],
+                    },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+
+        expect(out).toHaveLength(2);
+        // Reasoning item precedes the message it belonged to.
+        expect(out[0]).toEqual({
+            type: 'reasoning',
+            id: 'rs_1',
+            encrypted_content: 'ENC',
+            summary: [{ type: 'summary_text', text: 'thought' }],
+        });
+        expect(out[1]!.role).toBe('assistant');
+        // Output-only fields would be rejected by the input schema.
+        expect('reasoning_details' in out[1]!).toBe(false);
+        expect('reasoning' in out[1]!).toBe(false);
+        expect('refusal' in out[1]!).toBe(false);
+    });
+
+    it('does not mutate the caller\'s message objects', async () => {
+        const callerMessage = Object.freeze({
+            role: 'assistant',
+            content: 'earlier reply',
+            reasoning: 'thought',
+            refusal: null,
+            normalized: true,
+            reasoning_details: Object.freeze([
+                Object.freeze({ type: 'reasoning', id: 'rs_1' }),
+            ]),
+        });
+        const before = JSON.parse(JSON.stringify(callerMessage));
+
+        const out = (await process_input_messages_responses_api([
+            callerMessage,
+        ] as never)) as Array<Record<string, unknown>>;
+
+        expect(callerMessage).toEqual(before);
+        // The stripped copy is what goes upstream.
+        expect('reasoning_details' in out[1]!).toBe(false);
+        expect('normalized' in out[1]!).toBe(false);
+    });
+
+    it('leaves messages without reasoning artifacts alone', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            { role: 'user', content: 'hi' },
+        ];
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out).toHaveLength(1);
+        expect(out[0]!.role).toBe('user');
+    });
+
     it('upgrades user/system text blocks to input_text', async () => {
         const messages: Array<Record<string, unknown>> = [
             {
@@ -325,6 +400,86 @@ describe('process_input_messages_responses_api', () => {
         )) as Array<Record<string, unknown>>;
         const blocks = out[0]!.content as Array<Record<string, unknown>>;
         expect(blocks[0]?.type).toBe('output_text');
+    });
+
+    it('rewrites canonical image parts into `input_image` items', async () => {
+        const imagePart = {
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/a.png', detail: 'high' },
+        };
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'what is this' }, imagePart],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]).toEqual({ type: 'input_text', text: 'what is this' });
+        // Responses wants a bare string URL with `detail` beside it — the
+        // Chat Completions object form is rejected with "Invalid value:
+        // 'image_url'".
+        expect(blocks[1]).toEqual({
+            type: 'input_image',
+            image_url: 'https://cdn.test/a.png',
+            detail: 'high',
+        });
+        // The caller's part is untouched: the driver reuses it on fallback.
+        expect(imagePart).toEqual({
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/a.png', detail: 'high' },
+        });
+        expect(messages[0]!.content).toBe(blocks === messages[0]!.content ? blocks : messages[0]!.content);
+        expect((messages[0]!.content as unknown[])[0]).toEqual({
+            type: 'text',
+            text: 'what is this',
+        });
+    });
+
+    it('types an untyped shorthand image part, defaults detail to auto, keeps file_id', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [
+                    { image_url: { url: 'data:image/png;base64,AAAA' } },
+                    { type: 'image_url', file_id: 'file_123' },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]).toEqual({
+            type: 'input_image',
+            image_url: 'data:image/png;base64,AAAA',
+            detail: 'auto',
+        });
+        expect(blocks[1]).toEqual({
+            type: 'input_image',
+            file_id: 'file_123',
+            detail: 'auto',
+        });
+    });
+
+    it('replaces video parts with an inline note — Responses has no video item', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [{ video_url: { url: 'https://cdn.test/a.mp4' } }],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]!.type).toBe('input_text');
+        expect(blocks[0]!.text).toMatch(/video input is not supported/);
     });
 
     it('hoists a single assistant tool_use into a top-level function_call', async () => {
@@ -597,6 +752,78 @@ describe('create_chat_stream_handler_responses_api', () => {
         expect(usage?.usage).toEqual({
             forwarded: { input_tokens: 1, output_tokens: 2 },
         });
+    });
+
+    it('routes reasoning-summary deltas to the reasoning channel', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.reasoning_summary_text.delta',
+                delta: 'first thought',
+            },
+            {
+                type: 'response.reasoning_summary_part.added',
+                summary_index: 1,
+            },
+            {
+                type: 'response.reasoning_summary_text.delta',
+                delta: 'second thought',
+            },
+            { type: 'response.output_text.delta', delta: 'answer' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        // Same event type the chat-completions handler emits, so a streamed
+        // reasoning model reads identically whichever API served it.
+        expect(
+            events
+                .filter((e) => e.type === 'reasoning')
+                .map((e) => e.reasoning)
+                .join(''),
+        ).toBe('first thought\n\nsecond thought');
+        expect(
+            events.filter((e) => e.type === 'text').map((e) => e.text),
+        ).toEqual(['answer']);
+    });
+
+    it('does not separate the first summary part with a blank line', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.reasoning_summary_part.added',
+                summary_index: 0,
+            },
+            { type: 'response.reasoning_summary_text.delta', delta: 'only' },
+            { type: 'response.output_text.delta', delta: 'answer' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        expect(
+            harness
+                .events()
+                .filter((e) => e.type === 'reasoning')
+                .map((e) => e.reasoning)
+                .join(''),
+        ).toBe('only');
     });
 
     it('emits a compaction event when a compaction output_item completes', async () => {
@@ -899,6 +1126,92 @@ describe('handle_completion_output_responses_api non-stream', () => {
             }),
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(moderate).toHaveBeenCalledWith('questionable content');
+    });
+
+    it('joins multi-part reasoning summaries with a blank line', async () => {
+        const completion = {
+            output: [
+                {
+                    type: 'reasoning',
+                    summary: [
+                        { type: 'summary_text', text: 'First thought.' },
+                        { type: 'summary_text', text: 'Second thought.' },
+                    ],
+                },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.message.reasoning).toBe(
+            'First thought.\n\nSecond thought.',
+        );
+    });
+
+    it('carries reasoning item id and encrypted_content for replay', async () => {
+        const completion = {
+            output: [
+                {
+                    type: 'reasoning',
+                    id: 'rs_1',
+                    encrypted_content: 'ENC',
+                    summary: [{ type: 'summary_text', text: 'thought' }],
+                },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.message.reasoning_details).toEqual([
+            {
+                type: 'reasoning',
+                id: 'rs_1',
+                encrypted_content: 'ENC',
+                summary: [{ type: 'summary_text', text: 'thought' }],
+            },
+        ]);
+        expect(result.message.reasoning).toBe('thought');
+    });
+
+    it('omits reasoning_details when there are no reasoning items', async () => {
+        const completion = {
+            output: [{ role: 'assistant', type: 'message' }],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect('reasoning_details' in result.message).toBe(false);
+    });
+
+    it('omits reasoning entirely when no summaries were requested', async () => {
+        const completion = {
+            output: [
+                { type: 'reasoning', summary: [] },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect('reasoning' in result.message).toBe(false);
     });
 
     it('returns a stream init descriptor when stream=true', async () => {

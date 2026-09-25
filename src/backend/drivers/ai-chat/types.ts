@@ -43,6 +43,17 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     input_cost_key?: keyof T;
     output_cost_key?: keyof T;
     costs: T;
+    /**
+     * A request whose input exceeds `threshold` tokens is billed at raised
+     * rates for the whole request, not only the tokens past the threshold:
+     * every input-side rate (uncached, cached, cache writes) is multiplied by
+     * `input_multiplier` and every output-side rate by `output_multiplier`.
+     */
+    long_context_pricing?: {
+        threshold: number;
+        input_multiplier: number;
+        output_multiplier: number;
+    };
     context?: number;
     max_tokens: number;
     subscriberOnly?: boolean;
@@ -50,6 +61,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     modalities?: ModelModalities;
     open_weights?: boolean;
     tool_call?: boolean;
+    responses_api?: boolean;
+    responses_api_only?: boolean;
     knowledge?: string;
     release_date?: string;
 }
@@ -92,20 +105,24 @@ export interface ICompleteArguments {
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
     service_tier?:
-        | 'auto'
-        | 'default'
-        | 'flex'
-        | 'scale'
-        | 'priority'
-        | undefined;
+        'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
-    text?: string & { verbosity?: 'concise' | 'detailed' | undefined };
+    text?: { verbosity?: 'low' | 'medium' | 'high' | undefined } | undefined;
     reasoning_effort?: 'low' | 'medium' | 'high' | undefined;
-    verbosity?: 'concise' | 'detailed' | undefined;
+    verbosity?: 'low' | 'medium' | 'high' | undefined;
     moderation?: boolean;
     custom?: unknown;
+    /**
+     * Response-format control for non-streaming results. `true` coerces the
+     * result to the OpenAI `choices[0]` shape (string `message.content`,
+     * `message.tool_calls`, mapped `finish_reason`); `false` forces the
+     * provider-native shape. Left undefined, the legacy `response.normalize`
+     * flag applies if set; otherwise models released on or after
+     * [[OPENAI_SHAPE_CUTOFF]] (2026-09-01) are coerced by default.
+     */
+    normalize?: boolean;
     response?: {
         normalize?: boolean;
     };
@@ -146,5 +163,13 @@ export interface IChatProvider {
     list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
     complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
-    checkModeration(text: string): { flagged: boolean; categories: string[] };
+    checkModeration(
+        text: string,
+    ): Promise<{ flagged: boolean; categories?: string[] }> | void;
+    /**
+     * Set when the provider uploads `puter_path` parts itself (Anthropic's
+     * Files API); otherwise the driver inlines them as data URLs before each
+     * attempt.
+     */
+    readonly resolvesPuterPaths?: boolean;
 }

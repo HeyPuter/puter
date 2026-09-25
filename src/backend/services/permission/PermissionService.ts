@@ -18,7 +18,13 @@
  */
 
 import type { Actor } from '../../core/actor';
-import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
+import {
+    actorUid,
+    isAppActor,
+    isPlainUserActor,
+    isSystemActor,
+    userRelatedActor,
+} from '../../core/actor';
 import { Context, runWithContext } from '../../core/context';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Span } from '../../util/span.js';
@@ -26,9 +32,11 @@ import { PuterService } from '../types';
 import {
     FLAT_PERM_WARM_TTL_SECONDS,
     MANAGE_PERM_PREFIX,
+    PERMISSION_MAX_LEN,
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from './consts';
 import {
+    isBareFsPermission,
     PermissionUtil,
     readingHasTerminal,
     type PermissionExploder,
@@ -46,12 +54,6 @@ import {
 } from '../../data/hardcoded-permissions.js';
 import { UserRow } from '../../stores/user/UserStore';
 
-/**
- * Width of the `permission` column in the permission tables, which every
- * dialect declares as `varchar(255)`.
- */
-const PERMISSION_MAX_LEN = 255;
-
 // -- Types ------------------------------------------------------------
 
 export interface ScanOptions {
@@ -64,6 +66,12 @@ export interface ScanState {
 
 export interface GrantMeta {
     reason?: string;
+    /**
+     * The app that acted, when a grant is issued programmatically on its user's
+     * behalf. The issuer is still the user — this is what makes the audit trail
+     * able to say which app it was.
+     */
+    appUid?: string | null;
 }
 
 /**
@@ -125,7 +133,9 @@ export class PermissionService extends PuterService {
                 for (const p of more) higher.add(p);
             }
         }
-        return [...higher];
+        // The parent walk reaches `fs:<uid>`, which no grant is allowed to
+        // hold; drop it so a stored one can't answer a check for any mode.
+        return [...higher].filter((p) => !isBareFsPermission(p));
     }
 
     getParentPermissions(permission: string): string[] {
@@ -137,6 +147,22 @@ export class PermissionService extends PuterService {
         }
         parents.reverse();
         return parents;
+    }
+
+    /**
+     * Grants only: an `fs:` permission has to name a mode. Without one the row
+     * sits above every mode, and a request that simply omits it reads to the
+     * user as a narrower grant than it is. Revokes stay unguarded so an
+     * existing bare row can still be withdrawn.
+     */
+    assertGrantableFsPermission(permission: string): void {
+        if (isBareFsPermission(permission)) {
+            throw new HttpError(
+                400,
+                'Invalid `permission`: `fs` requires an access mode',
+                { legacyCode: 'bad_request' },
+            );
+        }
     }
 
     // -- Public check / scan API --------------------------------------
@@ -337,7 +363,7 @@ export class PermissionService extends PuterService {
         // excluded: an app-under-user is gated by its own implicit grant map
         // and an access token by its issuer, both of which recurse into a
         // scan of the user actor and so still see this floor.
-        if (!actor.app && !actor.accessToken && actor.user?.id) {
+        if (isPlainUserActor(actor) && actor.user?.id) {
             const granted = options.find((option) =>
                 Object.prototype.hasOwnProperty.call(
                     default_user_permissions,
@@ -391,7 +417,7 @@ export class PermissionService extends PuterService {
             // -- scanners (formerly PERMISSION_SCANNERS) --
             // Run in parallel — matches v1's `Promise.all(ps)` in the
             // scan-permission Sequence. Each scanner has a cheap actor-shape
-            // guard at the top (e.g. `if (!actor.app) return` for app-only
+            // guard at the top (e.g. `if (!isAppActor(actor)) return` for app-only
             // ones) so the ones that don't apply to this actor fall out
             // immediately. Scanners only push into `reading`; they don't
             // read each other's writes, so there are no ordering hazards.
@@ -507,7 +533,7 @@ export class PermissionService extends PuterService {
         reading: ReadingNode[],
         state: ScanState,
     ): Promise<void> {
-        if (actor.app || actor.accessToken) return;
+        if (!isPlainUserActor(actor)) return;
         const subReadings = await this.validateUserPerms({
             actor,
             permissions: options,
@@ -521,7 +547,7 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
-        if (actor.app || actor.accessToken) return;
+        if (!isPlainUserActor(actor)) return;
         if (!actor.user?.id) return;
 
         const rows = await this.stores.permission.readUserGroupPerms(
@@ -552,6 +578,9 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
+        // `app`, not `effectiveApp`: a token gets the issuer's grants through
+        // `#scanAccessToken`, bounded by its own rows. Reading the chain here
+        // would hand it the issuing app's grants unbounded.
         if (!actor.app) return;
         const issuerActor = userRelatedActor(actor);
         const issuerReading = await this.scan(issuerActor, options);
@@ -605,7 +634,8 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
-        if (!actor.app || !actor.user?.id || !actor.app.id) return;
+        // Direct app only — see `#scanUserAppImplied`.
+        if (!actor.app?.id || !actor.user?.id) return;
         const rows = await this.stores.permission.readUserAppPerms(
             actor.user.id,
             actor.app.id,
@@ -632,7 +662,8 @@ export class PermissionService extends PuterService {
         options: string[],
         reading: ReadingNode[],
     ): Promise<void> {
-        if (!actor.app || !actor.app.id) return;
+        // Direct app only — see `#scanUserAppImplied`.
+        if (!actor.app?.id) return;
         const rows = await this.stores.permission.readDevAppPerms(
             actor.app.id,
             options,
@@ -674,19 +705,20 @@ export class PermissionService extends PuterService {
     }): Promise<ReadingNode[]> {
         if (!actor.user?.id) return [];
 
-        const flatPromise = this.#flatValidateUserPerms(actor, permissions);
-        const linkedPromise = this.#linkedValidateUserPerms(
+        const flatReading = await this.#flatValidateUserPerms(
             actor,
             permissions,
-            state ?? { antiCycleActors: [actor] },
         );
-
-        const flatReading = await flatPromise;
         if (flatReading.length > 0) {
             return flatReading[0].deleted ? [] : flatReading;
         }
 
-        const linkedReading = await linkedPromise;
+        // Only on a miss: started beside the flat read, nothing awaits its rejection.
+        const linkedReading = await this.#linkedValidateUserPerms(
+            actor,
+            permissions,
+            state ?? { antiCycleActors: [actor] },
+        );
         const flatOptions = PermissionUtil.readingToOptions(linkedReading);
 
         // Warm flat KV cache for future hits (fire-and-forget, don't block
@@ -824,6 +856,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
+        this.assertGrantableFsPermission(permission);
         const user = await this.stores.user.getByUsername(username);
         if (!user)
             throw new HttpError(404, `user_does_not_exist: ${username}`, {
@@ -845,7 +878,15 @@ export class PermissionService extends PuterService {
             });
         const issuerId = actor.user.id;
 
-        // Flat upsert (awaited so callers see immediate effect)
+        // Durable row before the flat view, both awaited. A `manage:`-only
+        // delegate's grant resolves via flat and not via the linked chain, so
+        // writing SQL first makes a partial failure fail closed.
+        await this.stores.permission.upsertUserUserPerm(
+            user.id,
+            issuerId,
+            permission,
+            extra,
+        );
         await this.stores.permission.setFlatUserPerm(user.id, permission, {
             ...extra,
             issuer_user_id: issuerId,
@@ -853,10 +894,7 @@ export class PermissionService extends PuterService {
             deleted: false,
         });
 
-        // Linked upsert + audit fire-and-forget.
-        this.stores.permission
-            .upsertUserUserPerm(user.id, issuerId, permission, extra)
-            .catch(() => {});
+        // Off the critical path, but a silent drop makes the log untrustworthy.
         this.stores.permission
             .auditUserUserPerm({
                 holder_user_id: user.id,
@@ -864,19 +902,196 @@ export class PermissionService extends PuterService {
                 permission,
                 action: 'grant',
                 reason: meta.reason ?? 'granted via PermissionService',
+                extra: meta.appUid
+                    ? { appUid: meta.appUid }
+                    : this.#auditActorContext(actor),
             })
-            .catch(() => {});
+            .catch((err) => {
+                console.warn(
+                    '[PermissionService] failed to audit user-user grant:',
+                    err,
+                );
+            });
 
         // Bust any cached "denied" reading so the grant is live immediately.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
     }
 
+    // -- Group grants ---- the write half; `#scanUserGroup` reads them ----
+
+    /** Resolved once here so neither grant nor revoke holds SQL. */
+    async #requireGroupId(groupUid: string): Promise<number> {
+        const groupId = await this.stores.permission.resolveGroupId(groupUid);
+        if (groupId === null) {
+            throw new HttpError(404, `group_does_not_exist: ${groupUid}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        }
+        return groupId;
+    }
+
+    /** Batched: one event for the whole group, not one per member. */
+    async #bumpGroupCacheGeneration(groupId: number): Promise<void> {
+        const uuids =
+            await this.stores.permission.listGroupMemberUuids(groupId);
+        if (uuids.length === 0) return;
+        await this.stores.permission.bumpCacheGenerations(
+            uuids.map((uuid) => `user:${uuid}`),
+        );
+    }
+
+    /** The group analogue of `queryIssuerHolderPermissionsByPrefix`. */
+    async queryIssuerGroupPermissionsByPrefix(
+        issuer: Actor,
+        groupUid: string,
+        prefix: string,
+    ): Promise<string[]> {
+        if (!issuer.user?.id) return [];
+        const groupId = await this.stores.permission.resolveGroupId(groupUid);
+        if (groupId === null) return [];
+        return this.stores.permission.queryIssuerGroupPermsByPrefix(
+            issuer.user.id,
+            groupId,
+            prefix,
+        );
+    }
+
+    async grantUserGroupPermission(
+        actor: Actor,
+        groupUid: string,
+        permission: string,
+        extra: Record<string, unknown> = {},
+        meta: GrantMeta = {},
+    ): Promise<void> {
+        // First: the rewrite decides the row's width and what a revoke matches.
+        permission = await this.rewritePermission(permission);
+        this.assertGrantableFsPermission(permission);
+        if (permission.length > PERMISSION_MAX_LEN) {
+            throw new HttpError(400, 'permission is too long', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const groupId = await this.#requireGroupId(groupUid);
+
+        if (!(await this.canManagePermission(actor, permission))) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+        if (!actor.user?.id) {
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        const issuerId = actor.user.id;
+
+        await this.stores.permission.upsertUserGroupPerm(
+            groupId,
+            issuerId,
+            permission,
+            extra,
+        );
+
+        // Off the critical path, but a silent drop makes the log untrustworthy.
+        this.stores.permission
+            .auditUserGroupPerm({
+                group_id: groupId,
+                issuer_user_id: issuerId,
+                permission,
+                action: 'grant',
+                reason: meta.reason ?? 'granted via PermissionService',
+                extra: this.#auditActorContext(actor),
+            })
+            .catch((err) => {
+                console.warn(
+                    '[PermissionService] failed to audit user-group grant:',
+                    err,
+                );
+            });
+
+        await this.#bumpGroupCacheGeneration(groupId);
+    }
+
+    /** Scoped to this issuer's grant; returns whether one was removed. */
+    async revokeUserGroupPermission(
+        actor: Actor,
+        groupUid: string,
+        permission: string,
+        meta: GrantMeta = {},
+        opts: { issuerUserId?: number } = {},
+    ): Promise<boolean> {
+        // Same rewrite as the grant, or this matches nothing and says it did.
+        permission = await this.rewritePermission(permission);
+        const groupId = await this.#requireGroupId(groupUid);
+
+        if (!actor.user?.id) {
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        }
+        // Whose grant to clear; authority still comes from `actor`, so an owner
+        // can withdraw a delegate's grant without impersonating them.
+        const issuerId = opts.issuerUserId ?? actor.user.id;
+
+        if (!(await this.canManagePermission(actor, permission))) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+
+        const revoked = await this.stores.permission.deleteUserGroupPerm(
+            groupId,
+            issuerId,
+            permission,
+        );
+
+        this.stores.permission
+            .auditUserGroupPerm({
+                group_id: groupId,
+                issuer_user_id: issuerId,
+                permission,
+                action: 'revoke',
+                reason: meta.reason ?? 'revoked via PermissionService',
+                extra: this.#auditActorContext(actor),
+            })
+            .catch((err) => {
+                console.warn(
+                    '[PermissionService] failed to audit user-group revoke:',
+                    err,
+                );
+            });
+
+        // Bumped even when nothing matched: a cached allow must not survive.
+        await this.#bumpGroupCacheGeneration(groupId);
+
+        // Nothing but the membership names the holders, so without this their
+        // watches outlive the revoke.
+        if (revoked) {
+            for (const memberId of await this.stores.permission.listGroupMemberIds(
+                groupId,
+            )) {
+                this.#announceRevoked(memberId, null, permission);
+            }
+        }
+        return revoked;
+    }
+
+    /**
+     * Remove the grant `actor` issued, or the one named by `opts.issuerUserId`
+     * when the caller has established authority over another issuer's grant (a
+     * resource owner clearing a delegate's re-grant).
+     *
+     * Returns whether a grant was actually removed. Matching nothing isn't an
+     * error (an owner has no grant row to delete), but callers must be able to
+     * tell rather than reporting a removal that didn't happen.
+     */
     async revokeUserUserPermission(
         actor: Actor,
         username: string,
         permission: string,
         meta: GrantMeta = {},
-    ): Promise<void> {
+        opts: { issuerUserId?: number } = {},
+    ): Promise<boolean> {
         permission = await this.rewritePermission(permission);
         const user = await this.stores.user.getByUsername(username);
         if (!user)
@@ -884,18 +1099,24 @@ export class PermissionService extends PuterService {
                 legacyCode: 'subject_does_not_exist',
             });
 
-        if (!(await this.canManagePermission(actor, permission))) {
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        }
         if (!actor.user?.id)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
         const issuerId = actor.user.id;
 
-        await this.stores.permission.delFlatUserPerm(user.id, permission);
+        // Giving up access you hold needs no authority over the permission —
+        // it can only ever narrow what you can reach.
+        const isSelfRevoke = user.id === issuerId;
+        if (
+            !isSelfRevoke &&
+            !(await this.canManagePermission(actor, permission))
+        ) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+
         // Awaited (unlike the grant-path upsert): the generation bump below
         // guarantees the holder's very next check re-derives from SQL, so a
         // fire-and-forget delete here could lose the race and let that scan
@@ -903,22 +1124,153 @@ export class PermissionService extends PuterService {
         // caller gets the error — the permission is then still effectively
         // granted (flat falls back to the surviving SQL row), which is the
         // consistent, retryable outcome.
-        await this.stores.permission.deleteUserUserPermByHolder(
+        const revoked = await this.stores.permission.deleteUserUserPermByHolder(
             user.id,
             permission,
+            opts.issuerUserId ?? issuerId,
         );
-        this.stores.permission
-            .auditUserUserPerm({
-                holder_user_id: user.id,
-                issuer_user_id: issuerId,
-                permission,
-                action: 'revoke',
-                reason: meta.reason ?? 'revoked via PermissionService',
-            })
-            .catch(() => {});
 
-        // The holder loses access on their next check, not after the TTL.
+        // The flat key isn't issuer-scoped, so it may only go once no issuer
+        // grants this any more. Dropping it while another grant stands would
+        // cut access outright for a `manage:`-only issuer, whose grant the
+        // linked chain can't resolve.
+        //
+        // Must read the primary: the delete above just landed there, and a
+        // replica (or the row cache the plain read would re-warm from it) can
+        // still show the deleted row. Skipping the flat delete on that stale
+        // view leaves a no-TTL flat grant standing with no SQL rows behind
+        // it — permanent, invisible access.
+        const remaining =
+            await this.stores.permission.readLinkedUserUserPermsFromPrimary(
+                user.id,
+                [permission],
+            );
+        if (remaining.length === 0) {
+            await this.stores.permission.delFlatUserPerm(user.id, permission);
+        }
+
+        // Only record a revoke that happened.
+        if (revoked) {
+            this.stores.permission
+                .auditUserUserPerm({
+                    holder_user_id: user.id,
+                    issuer_user_id: issuerId,
+                    permission,
+                    action: 'revoke',
+                    reason: meta.reason ?? 'revoked via PermissionService',
+                    extra: this.#auditActorContext(actor),
+                })
+                .catch((err) => {
+                    console.warn(
+                        '[PermissionService] failed to audit user-user revoke:',
+                        err,
+                    );
+                });
+        }
+
+        // Unconditional: the flat delete above can't report what it removed, so
+        // skipping the bump on a no-op risks leaving a cached allow standing.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
+        // A revoke of a grant that was not there settled nothing; announcing
+        // it would only cost every listener a read.
+        if (revoked) this.#announceRevoked(user.id, null, permission);
+        return revoked;
+    }
+
+    /**
+     * What an audit row records about who was acting: which app asked, which is
+     * the whole question for anything minted under a standing consent.
+     *
+     * A user-user grant belongs to the user, so callers deliberately hand this
+     * layer an app-less actor (`userRelatedActor`) — the app survives only on
+     * the request actor, and is taken from there when it is the same user
+     * acting. A different user in scope is a background pass on someone else's
+     * behalf, whose app says nothing about this grant.
+     */
+    #auditActorContext(actor: Actor): Record<string, unknown> | null {
+        const requestActor = Context.get('actor') as Actor | undefined;
+        const acting =
+            actor.effectiveApp ??
+            (requestActor?.user?.id === actor.user?.id
+                ? requestActor?.effectiveApp
+                : null);
+        return acting?.uid ? { appUid: acting.uid } : null;
+    }
+
+    /**
+     * Withdraw a grant and everything the holder was given beneath it.
+     *
+     * Prefix implication is what makes the subtree part necessary: a grant on a
+     * region answers every check inside it, so leaving a deeper grant standing
+     * would leave access to part of a region that has just been taken back.
+     * Scoped to this issuer's grants to this holder — a region two people were
+     * given is two grants, and one being withdrawn is not the other's
+     * business.
+     *
+     * Returns the permissions removed. Each is announced separately, because
+     * each is a distinct thing something may have been standing on.
+     */
+    async revokeUserUserPermissionSubtree(
+        actor: Actor,
+        username: string,
+        permission: string,
+        meta: GrantMeta = {},
+    ): Promise<string[]> {
+        permission = await this.rewritePermission(permission);
+        const user = await this.stores.user.getByUsername(username);
+        if (!user)
+            throw new HttpError(404, `user_does_not_exist: ${username}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        if (!actor.user?.id)
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
+        const issuerId = actor.user.id;
+
+        const isSelfRevoke = user.id === issuerId;
+        if (
+            !isSelfRevoke &&
+            !(await this.canManagePermission(actor, permission))
+        ) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+
+        const removed =
+            await this.stores.permission.deleteUserUserPermSubtreeForHolder(
+                user.id,
+                issuerId,
+                permission,
+            );
+
+        for (const removedPermission of removed) {
+            this.stores.permission
+                .auditUserUserPerm({
+                    holder_user_id: user.id,
+                    issuer_user_id: issuerId,
+                    permission: removedPermission,
+                    action: 'revoke',
+                    reason: meta.reason ?? 'revoked via PermissionService',
+                    extra: meta.appUid
+                        ? { appUid: meta.appUid }
+                        : this.#auditActorContext(actor),
+                })
+                .catch((err) => {
+                    console.warn(
+                        '[PermissionService] failed to audit user-user revoke:',
+                        err,
+                    );
+                });
+        }
+
+        // Before the announcement, so whatever settles on it re-derives from a
+        // counter that has already moved.
+        if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
+        for (const removedPermission of removed)
+            this.#announceRevoked(user.id, null, removedPermission);
+        return removed;
     }
 
     /**
@@ -967,6 +1319,7 @@ export class PermissionService extends PuterService {
      */
     async assertUserAppPermissionWritable(permission: string): Promise<void> {
         const rewritten = await this.#rewriteForUserAppWrite(permission);
+        this.assertGrantableFsPermission(rewritten);
         if (rewritten.length > PERMISSION_MAX_LEN) {
             throw new HttpError(400, 'Invalid `permission`', {
                 legacyCode: 'bad_request',
@@ -982,6 +1335,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.#rewriteForUserAppWrite(permission);
+        this.assertGrantableFsPermission(permission);
         // Checked after the rewrite, because the rewrite is what decides how
         // wide the row actually is: `fs:/deep/path:read` collapses to
         // `fs:<uuid>:read`. Reject here rather than let an oversized string
@@ -1041,7 +1395,7 @@ export class PermissionService extends PuterService {
     ): Promise<void> {
         // Before the rewrite: the pseudo-permission resolvers it runs refuse an
         // app actor themselves, and this says why in the caller's own terms.
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1078,6 +1432,7 @@ export class PermissionService extends PuterService {
                 app.uid,
             );
         }
+        this.#announceRevoked(actor.user.id, app.uid, permission);
     }
 
     async revokeUserAppAll(
@@ -1085,7 +1440,7 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1116,6 +1471,7 @@ export class PermissionService extends PuterService {
                 app.uid,
             );
         }
+        this.#announceRevoked(actor.user.id, app.uid, null);
     }
 
     async grantDevAppPermission(
@@ -1126,6 +1482,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
+        this.assertGrantableFsPermission(permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app)
             throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
@@ -1164,7 +1521,7 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
     ): Promise<void> {
         permission = await this.rewritePermission(permission);
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1199,7 +1556,7 @@ export class PermissionService extends PuterService {
         appIdentifier: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        if (actor.app)
+        if (actor.effectiveApp)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
@@ -1225,93 +1582,7 @@ export class PermissionService extends PuterService {
             .catch(() => {});
     }
 
-    async grantUserGroupPermission(
-        actor: Actor,
-        group: { id: number; uid: string },
-        permission: string,
-        extra: Record<string, unknown> = {},
-        meta: GrantMeta = {},
-    ): Promise<void> {
-        permission = await this.rewritePermission(permission);
-        if (!(await this.canManagePermission(actor, permission)))
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.permission.upsertUserGroupPerm(
-            actor.user.id,
-            group.id,
-            permission,
-            extra,
-        );
-        this.stores.permission
-            .auditUserGroupPerm({
-                user_id: actor.user.id,
-                group_id: group.id,
-                permission,
-                action: 'grant',
-                reason: meta.reason ?? 'granted via PermissionService',
-            })
-            .catch(() => {});
-
-        await this.#bumpGroupMembersCacheGeneration(group.uid);
-    }
-
-    async revokeUserGroupPermission(
-        actor: Actor,
-        group: { id: number; uid: string },
-        permission: string,
-        meta: GrantMeta = {},
-    ): Promise<void> {
-        permission = await this.rewritePermission(permission);
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.permission.deleteUserGroupPerm(
-            actor.user.id,
-            group.id,
-            permission,
-        );
-        this.stores.permission
-            .auditUserGroupPerm({
-                user_id: actor.user.id,
-                group_id: group.id,
-                permission,
-                action: 'revoke',
-                reason: meta.reason ?? 'revoked via PermissionService',
-            })
-            .catch(() => {});
-
-        await this.#bumpGroupMembersCacheGeneration(group.uid);
-    }
-
     // -- Issuer queries (share discovery et al) -----------------------
-
-    async listUserPermissionIssuers(user: {
-        id: number;
-    }): Promise<Array<UserRowSummary | null>> {
-        const ids = await this.stores.permission.listUserPermissionIssuerIds(
-            user.id,
-        );
-        const usersById = await this.stores.user.getByIds(ids);
-        return ids.map((id) => {
-            const u = usersById.get(id);
-            return u
-                ? {
-                      id: u.id,
-                      uuid: u.uuid,
-                      username: u.username,
-                      email: u.email,
-                  }
-                : null;
-        });
-    }
 
     async queryIssuerPermissionsByPrefix(
         issuer: { id: number },
@@ -1408,7 +1679,7 @@ export class PermissionService extends PuterService {
                     ...this.#cacheGenerationKeys(actor.accessToken.authorized),
                 );
             }
-        } else if (actor.app && actor.user?.uuid) {
+        } else if (isAppActor(actor) && actor.user?.uuid) {
             keys.push(`user:${actor.user.uuid}`);
         }
         return Array.from(new Set(keys));
@@ -1432,6 +1703,27 @@ export class PermissionService extends PuterService {
         return gens.join('.');
     }
 
+    /**
+     * Tell whatever was standing on a grant that it is gone. Fire-and-forget: a
+     * listener that fails must not fail the revoke, and every check the grant
+     * used to answer already denies on its own.
+     */
+    #announceRevoked(
+        holderUserId: number,
+        appUid: string | null,
+        permission: string | null,
+    ): void {
+        try {
+            this.clients.event.emit(
+                'permission.revoked',
+                { holderUserId, appUid, permission },
+                {},
+            );
+        } catch (err) {
+            console.warn('[PermissionService] revoke announce failed:', err);
+        }
+    }
+
     /** Bump a plain user holder (`user:<uuid>`). */
     async #bumpUserCacheGeneration(userUuid: string): Promise<void> {
         await this.stores.permission.bumpCacheGeneration(`user:${userUuid}`);
@@ -1448,21 +1740,8 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Bump every current member of a group. Used when a group grant changes —
-     * each member's readings may have resolved through the group, so each
-     * member's `user:<uuid>` cache must be orphaned.
-     */
-    async #bumpGroupMembersCacheGeneration(groupUid: string): Promise<void> {
-        const memberUuids =
-            await this.stores.group.listMemberUserUuids(groupUid);
-        await Promise.all(
-            memberUuids.map((uuid) => this.#bumpUserCacheGeneration(uuid)),
-        );
-    }
-
-    /**
-     * Public: bump the permission cache for a set of users by username. Used by
-     * group add/remove-users — membership changes a user's effective
+     * Public: bump the permission cache for a set of users by username. Used
+     * when a group's membership changes — membership changes a user's effective
      * permissions, so their cached readings must be orphaned (a removed user
      * must lose the group's grants on their next check, not after the TTL).
      */

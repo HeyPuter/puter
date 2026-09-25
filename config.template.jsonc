@@ -32,6 +32,10 @@
     "port": 4100,
     // Externally-visible port (set this when behind a reverse proxy on 80/443).
     "pub_port": 4100,
+    // Idle keep-alive timeout in ms. Must stay above the idle timeout of any
+    // proxy in front, or the proxy reuses connections this server has closed
+    // and its clients see 502s.
+    "keep_alive_timeout": 620000,
     "protocol": "http",
     "domain": "puter.localhost",
     // Fully-qualified externally-visible URL. Computed from protocol/domain/
@@ -251,6 +255,67 @@
         }
     },
 
+    // ── Sharing ─────────────────────────────────────────────────────────
+    // Email a recipient who already has an account about a new share. On
+    // unless set to false; they opt out via the unsubscribe link, or by
+    // blocking a sender. An invite to an address with no account always goes.
+    // "share_email_notifications": false,
+    //
+    // New shares one account may create per UTC day. Default 200.
+    // "share_daily_limit": 200,
+    //
+    // How often a share may interrupt its recipient — the notification pushed
+    // to their screen and the email with it. Over budget the share still
+    // succeeds and their notification is still brought up to date; only the
+    // interruption is dropped. The recipient bounds are what stop many senders
+    // burying one person between them. A non-positive value removes a bound.
+    // "share_notify_limits": {
+    //     "pairWindowSeconds": 900,
+    //     "pairDaily": 20,
+    //     "recipientHourly": 10,
+    //     "recipientDaily": 50,
+    //     "emailBatchSeconds": 90
+    // },
+
+    // ── Teams / teams ──────────────────────────────────────────────
+    // Off by default, and off is the state every existing install stays in.
+    // The tables ship either way and sit inert; this gates whether `/teams`
+    // is registered at all, so with it off the paths do not exist rather than
+    // existing and refusing. It is also the backout: turning it off removes
+    // the feature without touching data.
+    "teams_enabled": false,
+    //
+    // Live teams one user may own. Soft-deleted ones do not count, so
+    // deleting yours frees the slot. Default 1.
+    "max_teams_per_user": 1,
+    //
+    // Seats one team may provision. Each seat is a real Puter account taking a
+    // name from the global username pool, so this is what bounds a team's blast
+    // radius. The owner's plan decides which of the two applies; defaults are 4
+    // and 40. Lowering either below a team's current seat count blocks new
+    // provisioning and disables nobody. Deployments upgrading from the old flat
+    // default of 50: without a billing extension every owner reads as free, so
+    // set `max_seats_per_team` to keep the old behavior.
+    "max_seats_per_team_free": 4,
+    "max_seats_per_team_paid": 40,
+    //
+    // One flat cap for every team, whatever the owner pays. Setting it
+    // overrides both of the above, so a deployment that does not sell seats can
+    // ignore plans entirely. Unset by default — leave it that way to keep the
+    // free cap meaningful.
+    // "max_seats_per_team": 50,
+    //
+    // Staged rollout: only these email domains may create a team, and the tab
+    // renders for them even with `gui_params.teams_ui` off. Members of an
+    // existing team always pass. Unset means everyone, gated by `teams_ui`.
+    // "teams_allowed_email_domains": ["puter.com"],
+
+    // ── Notifications ───────────────────────────────────────────────────
+    // How long a notification is kept, in days from creation. Acknowledged or
+    // not, a row past this is swept. Off by default; any value above 0 arms
+    // the sweep.
+    // "notificationRetentionDays": 14,
+
     // ── Alarms / alerting ───────────────────────────────────────────────
     // Where system alarms go. Severity is the routing decision — each
     // transport takes everything at or above its own `minSeverity`:
@@ -324,6 +389,10 @@
             "apiURL": ""
         },
         "gemini": { "apiKey": "" },
+        // Meta Model API (Muse Spark). `muse-spark-1.2-contributor`
+        // trades a ~12x discount for Meta training on its prompts and
+        // completions, so it is only served to callers that name it.
+        "meta": { "apiKey": "" },
         "groq": { "apiKey": "" },
         "deepseek": { "apiKey": "" },
         "mistral": { "apiKey": "" },
@@ -340,6 +409,20 @@
         "infron": {
             "apiKey": "",
             "apiBaseUrl": "https://llm.onerouter.pro/v1"
+        },
+        // BytePlus ModelArk. One key powers chat (Seed/GLM/DeepSeek), image
+        // generation (Seedream) and video generation (Seedance); `apiBaseUrl`
+        // selects the region; see
+        // https://docs.byteplus.com/en/docs/ModelArk/1330310 for options.
+        "byteplus": {
+            "apiKey": "",
+            "apiBaseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3"
+        },
+        "zai": { "apiKey": "" },
+        "alibaba": { "apiKey": "" },
+        "hoonify": {
+            "apiKey": "",
+            "apiBaseUrl": "https://api.hoonify.ai/v1"
         },
         "together-ai": { "apiKey": "" },
         // Local Ollama. `enabled: false` skips the auto-probe at startup
@@ -362,7 +445,6 @@
         "xai-image-generation": { "apiKey": "" },
 
         // ─ Video generation ─
-        "openai-video-generation": { "apiKey": "" },
         "together-video-generation": { "apiKey": "" },
         "gemini-video-generation": { "apiKey": "" },
 
@@ -448,8 +530,11 @@
     // operations that spend it — file transfers, KV calls. Recording is
     // unaffected either way. `workers` extends the same refusal to
     // worker-driven calls, which are exempt by default because a deployed
-    // worker has nowhere to surface a payment prompt.
-    // "meteringEnforcement": { "enabled": true, "workers": false },
+    // worker has nowhere to surface a payment prompt. `subscriptions` covers
+    // the separate question of surfaces reserved for paid plans (the
+    // vendor-compatible AI endpoints): turn it off on a deployment with no
+    // paid plans, or every account is refused them.
+    // "meteringEnforcement": { "enabled": true, "workers": false, "subscriptions": true },
 
     // Fleet-wide spend rate, in micro-cents per minute, past which metering
     // raises the `metering:excessiveGlobalUsageRate` alarm. Omit it (the
@@ -457,4 +542,10 @@
     // what this deployment's normal traffic costs, so it has to be measured
     // rather than guessed, and a stale number here alarms on healthy growth.
     // "maxGlobalUsagePerMinute": 200000000
+
+    // How many full months past its own a monthly usage record is kept before
+    // it expires. Defaults to 3; set to 0 to keep every month's records
+    // forever. Changing it, including to 0, applies to records first written
+    // after the change; records already stamped keep their expiry.
+    // "meteringRetentionMonths": 3
 }

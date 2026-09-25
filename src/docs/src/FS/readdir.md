@@ -1,6 +1,6 @@
 ---
 title: puter.fs.readdir()
-description: List files and directories in Puter file system.
+description: List files and directories in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 
@@ -29,7 +29,7 @@ An object with the following properties:
 - `uid` (String) (optional) - The UID of the directory to read.
 - `limit` (Number) (optional) - Maximum number of entries to return.
 - `offset` (Number) (optional) - Skips the given number of entries. Prefer `cursor` for paging through large directories.
-- `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`.
+- `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`. With `recursive`, sorting by `name` orders by full path, so each directory's contents stay together; the other fields sort across the whole subtree.
 - `sortOrder` (String) (optional) - `asc` or `desc`. Default is `asc`.
 - `recursive` (Boolean) (optional) - If `true`, the contents of subdirectories are listed too. Defaults to `false`.
 - `depth` (Number) (optional) - How many levels to descend when `recursive` is `true`. Defaults to unlimited.
@@ -40,6 +40,8 @@ An object with the following properties:
 ## Return value
 
 A `Promise` that resolves to an array of [`FSItem`](/Objects/fsitem/) objects (files and directories) within the specified directory.
+
+Each item carries `is_shared`: `true` when it has been shared with someone, `false` when it has not, and `null` for items that are not yours. Only shares on the item itself count — the children of a folder you shared report `false`, since the share lives on the folder. Use [`getShares()`](/FS/getShares/) on an item to see who can reach it, including access inherited from a parent.
 
 When the request includes `cursor` (even `null`) or `includeTotal`, the promise instead resolves to a page object:
 

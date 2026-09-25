@@ -144,6 +144,30 @@ export default suite('ai', {
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 
+    'chat with normalize true returns an OpenAI-shaped message': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Hello there', {
+            model: 'fake',
+            normalize: true,
+        });
+        // The fake provider replies Anthropic-shaped (content blocks); the
+        // driver's normalize option must coerce that to the OpenAI shape.
+        t.assert.equal(typeof result.message?.content, 'string');
+        t.assert.ok(
+            (result.message?.content as unknown as string).length > 0,
+            'normalized content should contain text',
+        );
+        t.assert.equal(result.message?.role, 'assistant');
+        t.assert.equal(
+            (result as { finish_reason?: string }).finish_reason,
+            'stop',
+        );
+        t.assert.equal(
+            (result as { normalized?: boolean }).normalized,
+            true,
+        );
+    },
+
     'chat with stream true yields text parts': async (t) => {
         useApiToken(t);
         const stream = await t.puter.ai.chat('Stream this', {
@@ -346,6 +370,9 @@ export default suite('ai', {
             `rejection should carry app_or_api_token_required, got ${sessionBody}`,
         );
 
+        // In production this route also requires a paid plan; the test env
+        // turns that gate off (see harness/capabilities.ts) so this stays a
+        // test of the credential shape.
         const apiRes = await call(t.env.users.user.apiToken);
         t.assert.equal(
             apiRes.status,
@@ -799,6 +826,28 @@ export default suite('ai', {
 
     // -- txt2img -----------------------------------------------------
 
+    'txt2img rejects absent or invalid prompts consistently': async (t) => {
+        useApiToken(t);
+        for (const input of [undefined, null, {}, '', '   ', { prompt: 1 }]) {
+            const error = await errorOf(t, () => t.puter.ai.txt2img(input));
+            t.assert.equal(error.code, 'prompt_required');
+        }
+    },
+
+    'txt2img accepts frozen options in either call form': async (t) => {
+        useApiToken(t);
+        const options = Object.freeze({ model: 'ai-suite-model', puter_output_path: 'image.png', maskImage: 'data:image/png;base64,AQID', providerOptions: Object.freeze({ outputFormat: 'png' }) });
+        const positional = await errorOf(t, () => t.puter.ai.txt2img('a landscape', options));
+        t.assert.equal(positional.code, 'bad_request');
+        t.assert.equal(positional.message, 'Model not found: ai-suite-model');
+        const objectForm = await errorOf(t, () => t.puter.ai.txt2img(Object.freeze({ ...options, prompt: 'a landscape' })));
+        t.assert.equal(objectForm.code, 'bad_request');
+        t.assert.equal(objectForm.message, 'Model not found: ai-suite-model');
+        t.assert.equal(options.puter_output_path, 'image.png');
+        t.assert.equal(options.maskImage, 'data:image/png;base64,AQID');
+        t.assert.equal(options.providerOptions.outputFormat, 'png');
+    },
+
     'txt2img forwards the model from either call form': async (t) => {
         useApiToken(t);
         // Keyless the model can never resolve, and the driver echoes back the
@@ -873,6 +922,25 @@ export default suite('ai', {
             t.assert.equal(error.code, 'prompt_required');
             t.assert.equal(error.message, 'Prompt parameter is required');
         }
+    },
+
+    'txt2vid rejects absent or invalid prompts consistently': async (t) => {
+        useApiToken(t);
+        for (const input of [undefined, null, {}, '', '   ', { prompt: 1 }]) {
+            const error = await errorOf(t, () => t.puter.ai.txt2vid(input));
+            t.assert.equal(error.code, 'prompt_required');
+        }
+    },
+
+    'txt2vid accepts frozen options without mutating aliases or paths': async (t) => {
+        useApiToken(t);
+        const options = Object.freeze({ duration: 4, puter_output_path: 'video.mp4' });
+        const positional = await errorOf(t, () => t.puter.ai.txt2vid('a landscape', options));
+        t.assert.equal(positional.code, 'internal_error');
+        const objectForm = await errorOf(t, () => t.puter.ai.txt2vid(Object.freeze({ ...options, prompt: 'a landscape' })));
+        t.assert.equal(objectForm.code, 'internal_error');
+        t.assert.equal(options.puter_output_path, 'video.mp4');
+        t.assert.equal(Object.hasOwn(options, 'seconds'), false);
     },
 
     'txt2vid takes duration as an alias of seconds': async (t) => {

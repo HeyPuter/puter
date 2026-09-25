@@ -18,6 +18,14 @@
  */
 
 import type { Readable } from 'node:stream';
+import {
+    validateReputationRequirement,
+    type ReputationRequirement,
+} from '../core/reputation.js';
+import {
+    validateSubscriptionRequirement,
+    type SubscriptionRequirement,
+} from '../services/metering/enforcement.js';
 import type { WithLifecycle } from '../types';
 
 // -- Stream result convention ----------------------------------------
@@ -58,16 +66,15 @@ export const DRIVER_ALIASES_KEY = '__driverAliases' as const;
 export const DRIVER_RATE_LIMIT_KEY = '__driverRateLimit' as const;
 export const DRIVER_CONCURRENT_KEY = '__driverConcurrent' as const;
 export const DRIVER_NO_USER_SESSION_KEY = '__driverNoUserSession' as const;
+export const DRIVER_REQUIRE_SUBSCRIPTION_KEY =
+    '__driverRequireSubscription' as const;
+export const DRIVER_REQUIRE_REPUTATION_KEY =
+    '__driverRequireReputation' as const;
 
 // -- Driver rate-limit config ----------------------------------------
 //
-// A driver declares its rate-limit policy alongside its other metadata
-// (`@Driver({ rateLimit: ... })` or an imperative `readonly rateLimit`
-// field). `DriverController.#handleCall` resolves the spec for the
-// requested method via `resolveDriverMethodRateLimit` and passes it to
-// `checkDriverRateLimit`. Different driver methods can therefore use
-// different storage backends and different limits — there's no longer a
-// single boot-time backend that constrains everyone.
+// Declared per driver; `DriverController` resolves the spec for the requested
+// method, so methods can differ in limits and storage backend.
 
 export const RATE_LIMIT_BACKEND_NAMES = ['memory', 'redis', 'kv'] as const;
 export type RateLimitBackend = (typeof RATE_LIMIT_BACKEND_NAMES)[number];
@@ -77,36 +84,20 @@ export interface DriverRateLimitSpec {
     limit: number;
     /** Window length, in milliseconds. */
     window: number;
-    /**
-     * Per-subscription overrides for `limit`. Keyed by `SubscriptionPolicy.id`
-     * (`user_free`, `temp_free`, `unlimited`, etc.). Falls back to `limit` when
-     * the actor's subscription isn't in the map. Same mechanic as
-     * `DriverConcurrentSpec.bySubscription`.
-     */
+    /** Per-`SubscriptionPolicy.id` overrides for `limit`. */
     bySubscription?: Record<string, number>;
-    /**
-     * Storage backend to count against. Omit to use the server-wide default
-     * configured by `config.rate_limit.backend`.
-     */
+    /** Defaults to `config.rate_limit.backend`. */
     backend?: RateLimitBackend;
 }
 
 export interface DriverRateLimitConfig {
-    /**
-     * Applied to any method not listed in `methods`. Lets a driver opt the
-     * whole interface into tighter limits than the global driver default
-     * without enumerating every method.
-     */
+    /** Applied to any method not listed in `methods`. */
     default?: DriverRateLimitSpec;
     /** Per-method overrides. Keys are driver method names. */
     methods?: Record<string, DriverRateLimitSpec>;
 }
 
-/**
- * Validate a `rateLimit` block declared by a driver. Throws on bad shape so
- * registration fails loudly at boot rather than silently misconfiguring
- * production traffic. Returns the value unchanged on success for chaining.
- */
+/** Validate a driver's `rateLimit` block; throws at boot on a bad shape. */
 export function validateDriverRateLimit(
     value: unknown,
     label: string,
@@ -195,25 +186,13 @@ export function resolveDriverMethodRateLimit(
 }
 
 // -- Driver concurrent-limit config ----------------------------------
-//
-// Twin to `DriverRateLimitConfig` but for in-flight concurrency. Same
-// shape minus `window`, plus `bySubscription` to vary the cap by the
-// caller's subscription tier (resolved via `MeteringService`).
 
 export interface DriverConcurrentSpec {
     /** Maximum simultaneous in-flight requests. */
     limit: number;
-    /**
-     * Per-subscription overrides keyed by `SubscriptionPolicy.id` (`user_free`,
-     * `temp_free`, `unlimited`, etc.). Falls back to `limit` when the actor's
-     * subscription isn't in the map.
-     */
+    /** Per-`SubscriptionPolicy.id` overrides for `limit`. */
     bySubscription?: Record<string, number>;
-    /**
-     * Storage backend. Memory is per-process (use only on single-node
-     * deployments); redis coordinates across nodes; kv is rarely the right
-     * choice for concurrency but supported for parity.
-     */
+    /** `memory` is per-process; use `redis` on multi-node deployments. */
     backend?: RateLimitBackend;
 }
 
@@ -296,47 +275,169 @@ export function resolveDriverMethodConcurrent(
     return cfg.methods?.[method] ?? cfg.default;
 }
 
+// -- Driver subscription requirement ---------------------------------
+//
+// Per-method counterpart of `RouteOptions.requireSubscription`. It lives on the
+// driver for the same reason `noUserSession` does: `/drivers/call` is one
+// shared route, so a requirement declared in route options would apply to every
+// driver at once.
+
+export interface DriverRequireSubscriptionConfig {
+    /** Applied to any method not listed in `methods`. */
+    default?: SubscriptionRequirement;
+    /** Per-method overrides. Keys are driver method names. */
+    methods?: Record<string, SubscriptionRequirement>;
+}
+
 /**
- * Resolved metadata for a registered driver. Read from either decorator
- * metadata or imperative instance properties.
+ * Validate a `requireSubscription` block. Same loud-at-boot contract as the
+ * rate-limit and concurrent validators.
+ */
+export function validateDriverRequireSubscription(
+    value: unknown,
+    label: string,
+): DriverRequireSubscriptionConfig {
+    if (value == null) return {};
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${label}: requireSubscription must be an object`);
+    }
+    const cfg = value as Record<string, unknown>;
+    if (cfg.default !== undefined) {
+        validateSubscriptionRequirement(
+            cfg.default,
+            `${label}.requireSubscription.default`,
+        );
+    }
+    if (cfg.methods !== undefined) {
+        if (
+            typeof cfg.methods !== 'object' ||
+            cfg.methods === null ||
+            Array.isArray(cfg.methods)
+        ) {
+            throw new Error(
+                `${label}.requireSubscription.methods must be an object`,
+            );
+        }
+        for (const [name, requirement] of Object.entries(cfg.methods)) {
+            validateSubscriptionRequirement(
+                requirement,
+                `${label}.requireSubscription.methods.${name}`,
+            );
+        }
+    }
+    return cfg as DriverRequireSubscriptionConfig;
+}
+
+/**
+ * Resolve the subscription requirement for a method. Same precedence as the
+ * other per-method resolvers: an entry in `methods` wins over `default`, and
+ * `undefined` means the method is open to every plan.
+ */
+export function resolveDriverMethodRequireSubscription(
+    cfg: DriverRequireSubscriptionConfig | undefined,
+    method: string,
+): SubscriptionRequirement | undefined {
+    if (!cfg) return undefined;
+    return cfg.methods?.[method] ?? cfg.default;
+}
+
+// -- Driver reputation requirement -----------------------------------
+//
+// Per-method counterpart of `RouteOptions.requireReputation`, on the driver
+// for the same reason the subscription block is: `/drivers/call` is one shared
+// route, so a requirement in route options would apply to every driver at
+// once. The tier named here is only a name — the score it takes is deployment
+// config, so a driver never carries the number it is worth.
+
+export interface DriverRequireReputationConfig {
+    /** Applied to any method not listed in `methods`. */
+    default?: ReputationRequirement;
+    /** Per-method overrides. Keys are driver method names. */
+    methods?: Record<string, ReputationRequirement>;
+}
+
+/**
+ * Validate a `requireReputation` block. Same loud-at-boot contract as the
+ * rate-limit, concurrent, and subscription validators.
+ */
+export function validateDriverRequireReputation(
+    value: unknown,
+    label: string,
+): DriverRequireReputationConfig {
+    if (value == null) return {};
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${label}: requireReputation must be an object`);
+    }
+    const cfg = value as Record<string, unknown>;
+    if (cfg.default !== undefined) {
+        validateReputationRequirement(
+            cfg.default,
+            `${label}.requireReputation.default`,
+        );
+    }
+    if (cfg.methods !== undefined) {
+        if (
+            typeof cfg.methods !== 'object' ||
+            cfg.methods === null ||
+            Array.isArray(cfg.methods)
+        ) {
+            throw new Error(
+                `${label}.requireReputation.methods must be an object`,
+            );
+        }
+        for (const [name, requirement] of Object.entries(cfg.methods)) {
+            validateReputationRequirement(
+                requirement,
+                `${label}.requireReputation.methods.${name}`,
+            );
+        }
+    }
+    return cfg as DriverRequireReputationConfig;
+}
+
+/**
+ * Resolve the reputation requirement for a method. Same precedence as the other
+ * per-method resolvers: an entry in `methods` wins over `default`, and
+ * `undefined` means the method asks for no floor.
+ */
+export function resolveDriverMethodRequireReputation(
+    cfg: DriverRequireReputationConfig | undefined,
+    method: string,
+): ReputationRequirement | undefined {
+    if (!cfg) return undefined;
+    return cfg.methods?.[method] ?? cfg.default;
+}
+
+/**
+ * Resolved metadata for a registered driver, from decorator metadata or
+ * imperative instance properties. The gates live here rather than on a route
+ * because every driver shares the `/drivers/call` dispatch route.
  */
 export interface DriverMeta {
-    /** The interface this driver implements (e.g. 'puter-chat-completion'). */
+    /** E.g. 'puter-chat-completion'. */
     interfaceName: string;
-    /** Unique name within its interface (e.g. 'openai-completion', 'claude'). */
+    /** Unique within the interface. */
     driverName: string;
-    /** When true, this driver is the default for its interface. */
     isDefault: boolean;
     /**
-     * Additional driver names that resolve to the same instance. Used by
-     * multi-provider drivers (TTS/OCR/image/video) so legacy puter-js calls
-     * that pass a provider id in the `driver` slot (e.g. `aws-polly`,
-     * `openai-tts`) still find the unified driver. The requested alias is
-     * exposed to the driver method via `Context.get('driverName')` so the
-     * method can route to the right internal provider.
+     * Other names resolving to this driver, so legacy calls naming a provider
+     * (`aws-polly`) still find the unified driver. The requested alias reaches
+     * the method via `Context.get('driverName')`.
      */
     aliases: string[];
-    /**
-     * Rate-limit policy for this driver. Per-method specs override the
-     * `default` spec; both are optional. `DriverController` consults this
-     * before invoking the method and falls back to the global driver default
-     * (600/min) if nothing is declared.
-     */
+    /** Falls back to the global driver default when absent. */
     rateLimit?: DriverRateLimitConfig;
-    /**
-     * Concurrent in-flight policy for this driver. When set, the controller
-     * acquires a slot before invoking the method and releases in `finally`.
-     * Absent → no concurrency cap (current behaviour).
-     */
+    /** No concurrency cap when absent. */
     concurrent?: DriverConcurrentConfig;
-    /**
-     * When true, `/drivers/call` rejects bare account-session ("root") tokens
-     * for this driver: callers must present an app/worker token or a
-     * dashboard-minted API token. Per-driver counterpart of the `noUserSession`
-     * route option — the dispatch route is shared, so the flag lives on the
-     * driver.
-     */
+    /** Reject bare account-session tokens. */
     noUserSession?: boolean;
+    /**
+     * Per-method plan requirement; a method covered by neither `default` nor
+     * `methods` is open.
+     */
+    requireSubscription?: DriverRequireSubscriptionConfig;
+    /** Per-method reputation tier; same coverage rule as `requireSubscription`. */
+    requireReputation?: DriverRequireReputationConfig;
 }
 
 /**
@@ -367,8 +468,7 @@ export function resolveDriverMeta(
     // drivers declare a raw object on the instance, which we validate here
     // so a malformed `rateLimit` field still fails loud at registration.
     const protoRateLimit = proto[DRIVER_RATE_LIMIT_KEY] as
-        | DriverRateLimitConfig
-        | undefined;
+        DriverRateLimitConfig | undefined;
     let rateLimit: DriverRateLimitConfig | undefined;
     if (protoRateLimit) {
         rateLimit = protoRateLimit;
@@ -380,14 +480,37 @@ export function resolveDriverMeta(
     }
 
     const protoConcurrent = proto[DRIVER_CONCURRENT_KEY] as
-        | DriverConcurrentConfig
-        | undefined;
+        DriverConcurrentConfig | undefined;
     let concurrent: DriverConcurrentConfig | undefined;
     if (protoConcurrent) {
         concurrent = protoConcurrent;
     } else if (driver.concurrent !== undefined) {
         concurrent = validateDriverConcurrent(
             driver.concurrent,
+            `driver '${driverName ?? '(unnamed)'}'`,
+        );
+    }
+
+    const protoRequireSubscription = proto[DRIVER_REQUIRE_SUBSCRIPTION_KEY] as
+        DriverRequireSubscriptionConfig | undefined;
+    let requireSubscription: DriverRequireSubscriptionConfig | undefined;
+    if (protoRequireSubscription) {
+        requireSubscription = protoRequireSubscription;
+    } else if (driver.requireSubscription !== undefined) {
+        requireSubscription = validateDriverRequireSubscription(
+            driver.requireSubscription,
+            `driver '${driverName ?? '(unnamed)'}'`,
+        );
+    }
+
+    const protoRequireReputation = proto[DRIVER_REQUIRE_REPUTATION_KEY] as
+        DriverRequireReputationConfig | undefined;
+    let requireReputation: DriverRequireReputationConfig | undefined;
+    if (protoRequireReputation) {
+        requireReputation = protoRequireReputation;
+    } else if (driver.requireReputation !== undefined) {
+        requireReputation = validateDriverRequireReputation(
+            driver.requireReputation,
             `driver '${driverName ?? '(unnamed)'}'`,
         );
     }
@@ -407,6 +530,8 @@ export function resolveDriverMeta(
         rateLimit,
         concurrent,
         noUserSession,
+        requireSubscription,
+        requireReputation,
     };
 }
 

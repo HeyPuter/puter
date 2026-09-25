@@ -23,11 +23,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import type { HttpError } from '../../core/http/HttpError.js';
+import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -373,6 +376,47 @@ describe('LegacyFSController.stat', () => {
         expect(body.size).toBe(0);
     });
 
+    it('reports the share flag, and the recipients when asked', async () => {
+        const { actor } = await makeUser();
+        const recipient = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/shared-folder`;
+        await withActor(actor, () =>
+            controller.mkdir(makeReq({ body: { path }, actor }), makeRes().res),
+        );
+
+        const before = makeRes();
+        await withActor(actor, () =>
+            controller.stat(makeReq({ body: { path }, actor }), before.res),
+        );
+        expect(before.captured.body).toMatchObject({ is_shared: false });
+
+        await withActor(actor, () =>
+            server.services.share.share(actor, {
+                path,
+                recipient: { username: recipient.actor.user!.username! },
+                mode: 'read',
+            }),
+        );
+
+        const after = makeRes();
+        await withActor(actor, () =>
+            controller.stat(
+                makeReq({ body: { path, return_shares: true }, actor }),
+                after.res,
+            ),
+        );
+        const body = after.captured.body as Record<string, unknown>;
+        expect(body.is_shared).toBe(true);
+        expect(body.shares).toMatchObject([
+            {
+                holder: recipient.actor.user!.username,
+                issuer: username,
+                mode: 'read',
+            },
+        ]);
+    });
+
     it('throws 401 when the request has no actor', async () => {
         const { actor } = await makeUser();
         const { res } = makeRes();
@@ -384,6 +428,40 @@ describe('LegacyFSController.stat', () => {
         await expect(controller.stat(req, res)).rejects.toMatchObject({
             statusCode: 401,
         });
+    });
+
+    it('draws return_shares from the share-listing budget', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/share-budget`;
+        await withActor(actor, () =>
+            controller.mkdir(makeReq({ body: { path }, actor }), makeRes().res),
+        );
+
+        // Spend the whole share:list bucket, as /share/shares' gate would.
+        const chargeReq = makeReq({ body: {}, actor });
+        for (let i = 0; i < SHARE_LIST_LIMIT.limit; i++) {
+            await consumeRouteRateLimit(chargeReq, SHARE_LIST_LIMIT);
+        }
+
+        await expect(
+            withActor(actor, () =>
+                controller.stat(
+                    makeReq({ body: { path, return_shares: true }, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+
+        // A plain stat spends only its own budget, so it still admits.
+        const plain = makeRes();
+        await withActor(actor, () =>
+            controller.stat(makeReq({ body: { path }, actor }), plain.res),
+        );
+        expect(plain.captured.body).toMatchObject({ name: 'share-budget' });
     });
 });
 
@@ -648,6 +726,44 @@ describe('LegacyFSController.readdir', () => {
         const names = entries.map((e) => e.name);
         expect(names).toContain('alpha');
         expect(names).toContain('beta');
+    });
+
+    it('flags a shared child in the listing', async () => {
+        const { actor } = await makeUser();
+        const recipient = await makeUser();
+        const username = actor.user!.username!;
+        const parent = `/${username}/Documents/flagged`;
+        for (const name of ['', '/shared', '/private']) {
+            await withActor(actor, () =>
+                controller.mkdir(
+                    makeReq({ body: { path: `${parent}${name}` }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        await withActor(actor, () =>
+            server.services.share.share(actor, {
+                path: `${parent}/shared`,
+                recipient: { username: recipient.actor.user!.username! },
+                mode: 'read',
+            }),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdir(makeReq({ body: { path: parent }, actor }), res),
+        );
+        const entries = captured.body as Array<{
+            name: string;
+            is_shared: boolean | null;
+        }>;
+        expect(new Map(entries.map((e) => [e.name, e.is_shared]))).toEqual(
+            new Map([
+                ['shared', true],
+                ['private', false],
+            ]),
+        );
     });
 
     it('returns the root listing when path = "/"', async () => {
@@ -1166,6 +1282,115 @@ describe('LegacyFSController.move', () => {
         };
         expect(removedPayload.response?.uid).toBe(replaced.uuid);
     });
+
+    it('lets a share recipient trash an item into the owner’s trash', async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Contents`;
+
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: `${sharedPath}/note.txt` },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(holder.actor, () =>
+            controller.move(
+                makeReq({
+                    body: {
+                        source: `${sharedPath}/note.txt`,
+                        destination: `/${ownerName}/Trash`,
+                    },
+                    actor: holder.actor,
+                }),
+                res,
+            ),
+        );
+
+        // The move landed in the owner's trash, but the recipient is told so
+        // in masked form — the owner's real layout stays theirs.
+        const body = captured.body as { moved: { uid: string; path: string } };
+        expect(body.moved.path).toBe(
+            `/${ownerName}/${body.moved.uid}/note.txt`,
+        );
+        const moved = await server.stores.fsEntry.getEntryByUuid(
+            body.moved.uid,
+        );
+        expect(moved!.path).toBe(`/${ownerName}/Trash/note.txt`);
+    });
+
+    it('refuses a share recipient moving an item into their own trash', async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const holderName = holder.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Shared`;
+
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: `${sharedPath}/theirs.txt` },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        await expect(
+            withActor(holder.actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: `${sharedPath}/theirs.txt`,
+                            destination: `/${holderName}/Trash`,
+                        },
+                        actor: holder.actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
 });
 
 // ── search ──────────────────────────────────────────────────────────
@@ -1586,8 +1811,11 @@ describe('LegacyFSController.writeFile (write IDOR)', () => {
             ),
         );
 
-        // The write landed on the signed file …
-        expect((captured.body as { path?: string }).path).toBe(target);
+        // The write landed on the signed file — reported masked, since the
+        // attacker doesn't own it …
+        expect((captured.body as { path?: string }).path).toBe(
+            `/${victim.actor.user!.username}/${entry!.uuid}/secret.txt`,
+        );
         // … and never created the attacker-named sibling.
         const siblingEntry =
             await server.stores.fsEntry.getEntryByPath(sibling);
@@ -1982,6 +2210,50 @@ describe('LegacyFSController.requestAppRootDir', () => {
         expect(body.path).toBe(`/${username}/AppData/${appUid}`);
         expect(body.is_dir).toBe(true);
     });
+
+    // `check: true` answers the question without acting on the answer, so that
+    // asking whether the access is held is not itself a filesystem write.
+    it('answers check:true without creating the directory', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const appUid = 'app-check-only';
+        const appActor = makeActor({ ...actor, app: { uid: appUid } });
+        const rootPath = `/${username}/AppData/${appUid}`;
+        const { res, captured } = makeRes();
+
+        await withActor(appActor, () =>
+            controller.requestAppRootDir(
+                makeReq({
+                    body: { app_uid: appUid, access: 'read', check: true },
+                    actor: appActor,
+                }),
+                res,
+            ),
+        );
+
+        expect(captured.body).toEqual({ allowed: true });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(rootPath),
+        ).toBeFalsy();
+    });
+
+    // The guard runs first either way, so a caller that may not claim it is
+    // refused rather than told it is allowed.
+    it('still refuses check:true from a caller that is not the app', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.requestAppRootDir(
+                    makeReq({
+                        body: { app_uid: 'app-xyz', check: true },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
 });
 
 // ── checkAppAcl ─────────────────────────────────────────────────────
@@ -2076,6 +2348,72 @@ describe('LegacyFSController.checkAppAcl', () => {
         );
         const body = captured.body as { allowed: boolean };
         expect(typeof body.allowed).toBe('boolean');
+    });
+
+    it("answers another user's entry the same as a missing one", async () => {
+        const { actor: victim } = await makeUser();
+        const victimPath = `/${victim.user!.username!}/Documents/secret.txt`;
+        await withActor(victim, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: victimPath, set_modified_to_now: true },
+                    actor: victim,
+                }),
+                makeRes().res,
+            ),
+        );
+        const victimEntry =
+            await server.stores.fsEntry.getEntryByPath(victimPath);
+
+        const { actor } = await makeUser();
+        const app = await (
+            server.stores.app.create as unknown as (
+                fields: Record<string, unknown>,
+                opts: { ownerUserId: number },
+            ) => Promise<{ uid: string }>
+        )(
+            {
+                name: `cacl-${uuidv4()}`,
+                title: 'ACL test app',
+                index_url: 'https://example.test/cacl.html',
+            },
+            { ownerUserId: actor.user!.id! },
+        );
+
+        const errorFor = async (subject: unknown) => {
+            try {
+                await withActor(actor, () =>
+                    controller.checkAppAcl(
+                        makeReq({
+                            body: { subject, app: app.uid, mode: 'read' },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                );
+                return null;
+            } catch (e) {
+                const err = e as HttpError;
+                return {
+                    statusCode: err.statusCode,
+                    message: err.message,
+                    legacyCode: err.legacyCode,
+                };
+            }
+        };
+
+        const missing = await errorFor({
+            path: `/${victim.user!.username!}/Documents/nope.txt`,
+        });
+        expect(missing).toEqual({
+            statusCode: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(await errorFor({ path: victimPath })).toEqual(missing);
+        expect(await errorFor({ uid: victimEntry!.uuid })).toEqual(missing);
+        expect(await errorFor({ id: victimEntry!.id })).toEqual(missing);
+        expect(await errorFor({ uid: uuidv4() })).toEqual(missing);
     });
 });
 

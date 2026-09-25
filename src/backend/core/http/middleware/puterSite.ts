@@ -22,8 +22,10 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
+import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
+import { makeActor } from '../../actor';
 import {
     buildAppCenterFallback,
     buildHostingConfig,
@@ -70,6 +72,50 @@ import {
  *   /index.html with status 200`. The config file itself is hidden from public
  *   serving.
  */
+
+/**
+ * Reserved folder at a site root holding server-side worker source
+ * (`__workers/<name>.worker.js`). Its contents are backend code — users' trade
+ * secrets live there — so nothing under it is ever served: not directly, not
+ * via the folder→index.html fallback, and not as a custom error page target.
+ * Matched on the decoded, normalized path, and case-insensitively, so no
+ * alternate spelling of the same entry can reach the bytes.
+ *
+ * Matched at ANY depth, not just the site root: site roots can nest, and a site
+ * rooted above another site would otherwise serve the inner site's `__workers/`
+ * as ordinary content under `/inner/__workers/...`.
+ */
+const WORKERS_FOLDER = '__workers';
+const isWorkersSourcePath = (urlPath: string): boolean =>
+    urlPath
+        .split('/')
+        .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
+
+/** Inside some owner's top-level Trash, which is where Delete puts things. */
+const isTrashedPath = (path: string): boolean =>
+    /^\/[^/]+\/Trash(\/|$)/u.test(path);
+
+/**
+ * Suggested value for `config.hosting_csp`. Not applied unless configured.
+ *
+ * Sources stay wide open because hosted sites legitimately pull from anywhere,
+ * and `'unsafe-inline'` stays because most hosted apps use inline script. What
+ * it withholds is `'unsafe-eval'` — the capability a stale library needs to
+ * reach `new Function`, which is how CVE-2024-4367 turns a crafted PDF into
+ * script execution in the viewer app's own origin.
+ *
+ * Apps that genuinely need eval (some wasm glue, some template engines) will
+ * break under this, which is why it ships as a suggestion rather than a
+ * default. Roll it out with `hosting_csp_report_only` first and read the
+ * violation reports before enforcing.
+ */
+export const RECOMMENDED_HOSTING_CSP = [
+    'default-src * data: blob:',
+    "script-src * data: blob: 'unsafe-inline'",
+    "style-src * data: blob: 'unsafe-inline'",
+    "object-src 'none'",
+    "base-uri 'self'",
+].join('; ');
 
 const SUBDOMAIN_404 = `<div style="font-size: 20px;
         text-align: center;
@@ -442,6 +488,49 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
+        // A site rooted in someone else's directory stands on the `manage`
+        // grant that authorized publishing it, and serves that whole subtree
+        // with the ACL bypassed — so the grant is re-read on every request.
+        // Trash is its own check: a grant is keyed on the node, not its
+        // location, so it survives the owner deleting the directory. Sites
+        // rooted in their publisher's own tree skip all of this.
+        if (rootEntry.userId !== site.user_id) {
+            let stillPublishable = false;
+            if (!isTrashedPath(rootEntry.path)) {
+                try {
+                    stillPublishable = await layers.services.acl.check(
+                        makeActor({
+                            user: {
+                                id: owner.id,
+                                uuid: owner.uuid,
+                                username: owner.username,
+                            },
+                        }),
+                        {
+                            path: rootEntry.path,
+                            resolveAncestors: () =>
+                                layers.services.fs.getAncestorChain(
+                                    rootEntry.path,
+                                ),
+                        },
+                        MANAGE_PERM_PREFIX,
+                    );
+                } catch (e) {
+                    // Fail closed — an unreadable grant is not a held one.
+                    console.warn(
+                        '[puter-site] publish grant recheck failed',
+                        e,
+                    );
+                }
+            }
+            if (!stillPublishable) {
+                res.status(404)
+                    .type('text/html; charset=UTF-8')
+                    .send(SUBDOMAIN_404);
+                return;
+            }
+        }
+
         // Resolve URL path → absolute FS path under the site root.
         let urlPath = req.path || '/';
         if (urlPath.endsWith('/')) urlPath += 'index.html';
@@ -493,9 +582,14 @@ export const createPuterSiteMiddleware = (
         // Subdomain hosting bypasses ACL by design: anything the owner placed
         // under the registered root_dir is treated as public. Path traversal
         // is blocked above by `pathPosix.normalize` anchoring at `/`.
-        let entry = isConfigRequest
-            ? null
-            : await layers.stores.fsEntry.getEntryByPath(filePath);
+        // `__workers/` is carved out of that bypass: worker source is the one
+        // thing under a site root that is NOT public. Treated exactly like the
+        // config file — no lookup at all, so the folder→index.html fallback
+        // below can't resolve into it either.
+        let entry =
+            isConfigRequest || isWorkersSourcePath(resolvedUrlPath)
+                ? null
+                : await layers.stores.fsEntry.getEntryByPath(filePath);
         if (entry?.isDir) {
             // Folder request → fall back to <folder>/index.html, the same
             // way `/` is rewritten to `/index.html` at the site root above.
@@ -513,7 +607,13 @@ export const createPuterSiteMiddleware = (
         let statusOverride: number | undefined;
         if (!entry || entry.isDir) {
             const errorTarget = resolveErrorTarget(siteConfig, 404, rootPath);
-            if (errorTarget) {
+            // A config pointing `errors.404.file` into `__workers/` would
+            // publish worker source through the error page — refuse it the
+            // same way a nonexistent target is refused.
+            if (
+                errorTarget &&
+                !isWorkersSourcePath(errorTarget.absPath.slice(rootPath.length))
+            ) {
                 const candidate = await layers.stores.fsEntry.getEntryByPath(
                     errorTarget.absPath,
                 );
@@ -525,6 +625,33 @@ export const createPuterSiteMiddleware = (
         }
 
         if (!entry || entry.isDir) {
+            res.status(404)
+                .type('text/html; charset=UTF-8')
+                .send('<h1>404</h1><p>Not Found</p>');
+            return;
+        }
+
+        // A listener owning the site may withhold this entry (a system site
+        // that publishes per-user files conditionally). Denied looks exactly
+        // like missing, and a listener failure denies rather than serves.
+        const accessCheck = {
+            subdomain,
+            host,
+            requestPath: req.path,
+            entry,
+            result: { allowed: true },
+        };
+        try {
+            await layers.clients.event.emitAndWait(
+                'site.access.check',
+                accessCheck,
+                {},
+            );
+        } catch (e) {
+            console.error('[puter-site] site.access.check threw', e);
+            accessCheck.result.allowed = false;
+        }
+        if (!accessCheck.result.allowed) {
             res.status(404)
                 .type('text/html; charset=UTF-8')
                 .send('<h1>404</h1><p>Not Found</p>');
@@ -558,7 +685,23 @@ export const createPuterSiteMiddleware = (
 
         // Fire-and-forget signal for downstream extensions
         const mimeBase = mime.split(';', 1)[0].trim().toLowerCase();
-        if (mimeBase === 'text/html' || mimeBase === 'application/xhtml+xml') {
+        const isActiveDocument =
+            mimeBase === 'text/html' || mimeBase === 'application/xhtml+xml';
+
+        // Only active documents carry a CSP — it does nothing for an image or
+        // a stylesheet, and every header we set here ships to third-party apps
+        // we don't control. Off unless `hosting_csp` is configured; see
+        // RECOMMENDED_HOSTING_CSP.
+        if (config.hosting_csp && isActiveDocument) {
+            res.setHeader(
+                config.hosting_csp_report_only
+                    ? 'Content-Security-Policy-Report-Only'
+                    : 'Content-Security-Policy',
+                config.hosting_csp,
+            );
+        }
+
+        if (isActiveDocument) {
             try {
                 const requestUrl = (req.originalUrl || '/').startsWith('/')
                     ? req.originalUrl || '/'

@@ -42,11 +42,16 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiChatProvider } from './OpenAiChatCompletionsProvider.js';
@@ -154,7 +159,7 @@ describe('OpenAiChatProvider model catalog', () => {
         expect(provider.getDefaultModel()).toBe('gpt-5-nano');
     });
 
-    it('models() filters out responses_api_only entries', () => {
+    it('models() excludes Responses-only entries and includes dual-API entries', () => {
         const { provider } = makeProvider();
         const ids = provider.models().map((m) => m.id);
         const responsesOnly = OPEN_AI_MODELS.filter(
@@ -165,6 +170,9 @@ describe('OpenAiChatProvider model catalog', () => {
         }
         // gpt-5-nano is a Chat-Completions model, must be present.
         expect(ids).toContain('gpt-5-nano-2025-08-07');
+        expect(ids).toContain('gpt-6-astra');
+        expect(ids).toContain('gpt-6-sol');
+        expect(ids).toContain('gpt-6-luna');
     });
 
     it('list() flattens canonical ids and aliases', () => {
@@ -268,6 +276,71 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.max_completion_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
     });
+
+    it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValue(baseCompletion);
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'gpt-5-nano',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(sentIdentifierFields(createMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
+    });
+
+    it('forwards a caller-supplied prompt_cache_key instead of the derived identifier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5-nano',
+                    messages: [{ role: 'user', content: 'hello' }],
+                    prompt_cache_key: 'caller-key',
+                }),
+            makeActor({ user: { id: 42, uuid: 'u42', username: 'alice' } }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.prompt_cache_key).toBe('caller-key');
+        expect(args.safety_identifier).toBe('puter-u42');
+    });
+
+    it.each(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+        'resolves the namespaced %s alias',
+        async (model) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce(baseCompletion);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: `openai/${model}`,
+                    messages: [{ role: 'user', content: 'hello' }],
+                    reasoning_effort: 'low',
+                }),
+            );
+
+            expect(createMock.mock.calls[0]![0].model).toBe(model);
+            expect(createMock.mock.calls[0]![0].reasoning_effort).toBe('low');
+            expect(recordSpy).toHaveBeenCalledWith(
+                expect.any(Object),
+                expect.anything(),
+                `openai:${model}`,
+                expect.any(Object),
+            );
+        },
+    );
 
     it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
         const { provider } = makeProvider();
@@ -446,6 +519,48 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
         expect(
             (overrides as Record<string, number>).cached_tokens,
         ).toBeGreaterThan(0);
+    });
+
+    it('splits cache writes out of prompt_tokens and bills them at 1.25x input', async () => {
+        const luna = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-luna')!;
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 5000,
+                completion_tokens: 12,
+                prompt_tokens_details: {
+                    cached_tokens: 1000,
+                    cache_write_tokens: 3000,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 1000,
+            completion_tokens: 12,
+            cached_tokens: 1000,
+            cache_write_tokens: 3000,
+        });
+        expect(overrides).toEqual({
+            prompt_tokens: 1000 * Number(luna.costs.prompt_tokens),
+            completion_tokens: 12 * Number(luna.costs.completion_tokens),
+            cached_tokens: 1000 * Number(luna.costs.cached_tokens),
+            cache_write_tokens: 3000 * Number(luna.costs.cache_write_tokens),
+        });
     });
 
     it('zeroes cached_tokens when prompt_tokens_details is missing', async () => {

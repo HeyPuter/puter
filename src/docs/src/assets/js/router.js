@@ -40,10 +40,13 @@ function isExternalLink (href) {
     }
 }
 
-function isPlaygroundLink (href) {
+// The playground and recipes are standalone apps with their own bundles, not
+// docs pages — swapping .docs-content into them would produce a broken page.
+function isStandaloneAppLink (href) {
     try {
         const url = new URL(href, window.location.href);
-        return url.pathname.startsWith('/playground/');
+        return url.pathname.startsWith('/playground/')
+            || url.pathname.startsWith('/recipes/');
     } catch (e) {
         return false;
     }
@@ -54,7 +57,7 @@ $(document).on('click', 'a:not(.skip-insta-load):not([target="_blank"])', functi
     if ( e.metaKey || e.ctrlKey || e.shiftKey || e.altKey ) return;
     // special case handling
     const href = $(this).attr('href');
-    if ( isCurrentPage(href) || isExternalLink(href) || isPlaygroundLink(href) ) return;
+    if ( isCurrentPage(href) || isExternalLink(href) || isStandaloneAppLink(href) ) return;
 
     e.preventDefault();
 

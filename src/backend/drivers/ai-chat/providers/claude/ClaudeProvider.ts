@@ -39,6 +39,11 @@ import {
     toAnthropicContextManagement,
 } from '../../utils/compaction.js';
 import { make_claude_tools } from '../../utils/FunctionCalling.js';
+import {
+    mediaUrlOf,
+    parseDataUri,
+    unsupportedMediaTextPart,
+} from '../../utils/mediaParts.js';
 import { extract_and_remove_system_messages } from '../../utils/Messages.js';
 import type {
     AIChatStream,
@@ -47,11 +52,48 @@ import type {
 } from '../../utils/Streaming.js';
 import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // Anthropic inline-compaction beta. The vendored SDK (0.68.0) doesn't type the
 // `compact_20260112` edit or the `compaction` content block, so the request
 // params and streamed/returned blocks are handled with `as any` casts.
 const COMPACTION_BETA = 'compact-2026-01-12';
+
+/**
+ * Canonical media part → Anthropic block: `url` source for links, `base64`
+ * source for data URLs, `detail` dropped, video replaced by an inline note.
+ * Non-media parts come back by identity.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const toAnthropicMediaPart = (part: any): any => {
+    if (!part || typeof part !== 'object') return part;
+    if (part.type === 'image_url' || part.image_url !== undefined) {
+        const url = mediaUrlOf(part.image_url);
+        if (url === undefined) return part;
+        const {
+            type: _type,
+            image_url: _imageUrl,
+            detail: _detail,
+            ...rest
+        } = part;
+        const dataUri = parseDataUri(url);
+        const source =
+            dataUri && dataUri.base64
+                ? {
+                      type: 'base64',
+                      media_type: dataUri.mimeType,
+                      data: dataUri.data,
+                  }
+                : { type: 'url', url };
+        return { ...rest, type: 'image', source };
+    }
+    if (part.type === 'video_url' || part.video_url !== undefined) {
+        return unsupportedMediaTextPart(
+            'video input is not supported by Claude models',
+        );
+    }
+    return part;
+};
 
 export class ClaudeProvider implements IChatProvider {
     anthropic: Anthropic;
@@ -61,6 +103,10 @@ export class ClaudeProvider implements IChatProvider {
     #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
     #fsService: FSService;
+
+    // `puter_path` parts go through Anthropic's Files API here (larger inputs,
+    // native PDF reading) instead of the driver's inline data URLs.
+    readonly resolvesPuterPaths = true;
 
     constructor(
         meteringService: MeteringService,
@@ -86,15 +132,7 @@ export class ClaudeProvider implements IChatProvider {
     }
 
     async list() {
-        const models = this.models();
-        const model_names: string[] = [];
-        for (const model of models) {
-            model_names.push(model.id);
-            if (model.aliases) {
-                model_names.push(...model.aliases);
-            }
-        }
-        return model_names;
+        return modelLookupNames(this.models());
     }
 
     async complete({
@@ -143,6 +181,47 @@ export class ClaudeProvider implements IChatProvider {
                 message.content[0].cache_control = message.cache_control;
             }
             delete message.cache_control;
+            return message;
+        });
+
+        // Splice round-tripped reasoning artifacts back into the assistant
+        // content. Anthropic rejects an extended-thinking tool-use
+        // continuation whose thinking blocks lost their `signature`, and
+        // requires those blocks to lead the content array — so they are
+        // prepended here, before the tool_use blocks are appended below.
+        // `reasoning`/`refusal` are output-only fields Anthropic rejects
+        // outright, and a caller replaying a normalized message carries them.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages = messages.map((original: any) => {
+            const details = original.reasoning_details;
+            if (
+                details === undefined &&
+                original.reasoning === undefined &&
+                original.refusal === undefined
+            ) {
+                return original;
+            }
+            // Copy before stripping: the driver reuses this same array across
+            // fallback attempts, and these objects belong to the caller.
+            const message = { ...original };
+            delete message.reasoning_details;
+            delete message.reasoning;
+            delete message.refusal;
+            if (!Array.isArray(details)) return message;
+            const blocks = details.filter(
+                (block: unknown) =>
+                    (block as { type?: string })?.type === 'thinking' ||
+                    (block as { type?: string })?.type === 'redacted_thinking',
+            );
+            if (blocks.length === 0) return message;
+            if (typeof message.content === 'string') {
+                message.content = message.content
+                    ? [{ type: 'text', text: message.content }]
+                    : [];
+            } else if (!Array.isArray(message.content)) {
+                message.content = message.content ? [message.content] : [];
+            }
+            message.content = [...blocks, ...message.content];
             return message;
         });
 
@@ -253,6 +332,21 @@ export class ClaudeProvider implements IChatProvider {
             return message;
         });
 
+        // Canonical media parts → Anthropic blocks, copy-on-write: the driver
+        // reuses these message objects on fallback to OpenAI-format routes.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages = messages.map((message: any) => {
+            if (!Array.isArray(message.content)) return message;
+            let changed = false;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const content = message.content.map((part: any) => {
+                const converted = toAnthropicMediaPart(part);
+                if (converted !== part) changed = true;
+                return converted;
+            });
+            return changed ? { ...message, content } : message;
+        });
+
         const modelUsed =
             this.models().find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
@@ -264,14 +358,16 @@ export class ClaudeProvider implements IChatProvider {
             reasoningEffort: requestedReasoningEffort,
             maxTokens: max_tokens,
         });
-        // Fable 5 and Opus 4.7/4.8 error on non-default sampling params; omit temperature entirely.
+        // Fable 5/5.1, Sonnet 5, and Opus 4.7+ reject non-default sampling; omit temperature entirely.
         // Other models require temperature=1 when thinking is enabled.
         const omitsTemperature = [
+            'claude-fable-5-1',
             'claude-fable-5',
             'claude-sonnet-5',
             'claude-opus-4-7',
             'claude-opus-4-8',
             'claude-opus-5',
+            'claude-opus-5-5',
         ].includes(modelUsed.id);
         const resolvedTemperature = omitsTemperature
             ? undefined
@@ -279,8 +375,10 @@ export class ClaudeProvider implements IChatProvider {
               ? 1
               : (temperature ?? 0);
         const supportsEffort = [
+            'claude-fable-5-1',
             'claude-fable-5',
             'claude-sonnet-5',
+            'claude-opus-5-5',
             'claude-opus-5',
             'claude-opus-4-8',
             'claude-opus-4-7',
@@ -293,13 +391,14 @@ export class ClaudeProvider implements IChatProvider {
         // Upload any `puter_path` parts to Anthropic's Files API and rewrite
         // them in-place to reference the returned `file_id`. Must happen
         // before sdkParams snapshots `messages`.
-        const { fileIds: uploadedFileIds } = await processPuterPathUploads(
-            this.anthropic,
-            messages,
-            this.#stores,
-            this.#fsService,
-            actor,
-        );
+        const { fileIds: uploadedFileIds, restore: restoreUploads } =
+            await processPuterPathUploads(
+                this.anthropic,
+                messages,
+                this.#stores,
+                this.#fsService,
+                actor,
+            );
         const usesBetaFiles = uploadedFileIds.length > 0;
         // The compaction beta is needed both to *request* compaction
         // (contextManagement) and to *accept a round-tripped* compaction block
@@ -318,16 +417,18 @@ export class ClaudeProvider implements IChatProvider {
             betas?: string[];
         } = {
             model: modelUsed.id,
+            // The ceiling belongs to the entry actually being called, so it
+            // comes off `modelUsed` — already matched by id or alias — rather
+            // than a second lookup that repeats the matching and can disagree.
+            // The two 3.5 Sonnet ids predate the catalog and have no entry, so
+            // `modelUsed` is the default model for them and their ceiling has
+            // to be named outright.
             max_tokens: Math.floor(
                 max_tokens ??
                     (model === 'claude-3-5-sonnet-20241022' ||
                     model === 'claude-3-5-sonnet-20240620'
                         ? 8192
-                        : this.models().filter(
-                              (e) =>
-                                  (e as any).name === model ||
-                                  e.aliases?.includes(model),
-                          )[0]?.max_tokens || 4096),
+                        : modelUsed.max_tokens || 4096),
             ),
             ...(resolvedTemperature !== undefined
                 ? { temperature: resolvedTemperature }
@@ -365,14 +466,28 @@ export class ClaudeProvider implements IChatProvider {
         };
 
         if (stream) {
+            const completion = usesBeta
+                ? this.anthropic.beta.messages.stream(sdkParams)
+                : this.anthropic.messages.stream(sdkParams);
+            // Subscribed before the request is awaited: the SDK only queues
+            // events for iterators that already exist.
+            const events = completion[Symbol.asyncIterator]();
+
+            // The driver's fallback loop only sees what this method throws, so
+            // the upstream has to accept the request before a populator exists.
+            try {
+                await completion.withResponse();
+            } catch (e) {
+                await cleanupUploads();
+                restoreUploads();
+                throw e;
+            }
+
             const init_chat_stream = async ({
                 chatStream,
             }: {
                 chatStream: AIChatStream;
             }) => {
-                const completion = usesBeta
-                    ? this.anthropic.beta.messages.stream(sdkParams)
-                    : this.anthropic.messages.stream(sdkParams);
                 const usageSum: Record<string, number> = {};
 
                 let message, contentBlock;
@@ -387,7 +502,9 @@ export class ClaudeProvider implements IChatProvider {
                     buffer: string;
                 } | null = null;
                 let emittedCompaction = false;
-                for await (const event of completion) {
+                for await (const event of {
+                    [Symbol.asyncIterator]: () => events,
+                }) {
                     if (event.type === 'message_delta') {
                         const meteredData = this.#usageFormatterUtil(
                             (event?.usage ?? {}) as Usage | BetaUsage,
@@ -504,9 +621,14 @@ export class ClaudeProvider implements IChatProvider {
                         // signature_delta — ignored
                     }
                 }
+                // The SDK only rejects event readers that were already
+                // waiting, so a failure that landed before this loop started
+                // pulling ends it silently rather than throwing.
+                if (completion.errored) await completion.finalMessage();
+
                 const finalMessage = await completion
                     .finalMessage()
-                    .catch(() => null);
+                    .catch((): null => null);
                 if (finalMessage) {
                     const finalUsage = this.#usageFormatterUtil(
                         finalMessage.usage as Usage | BetaUsage,
@@ -536,7 +658,10 @@ export class ClaudeProvider implements IChatProvider {
                         }
                     }
                 }
-                chatStream.end(usageSum);
+                // Metered before `end`: handing usage to `end` is what tells
+                // the driver this completion has been charged for, so anything
+                // that throws between the two would leave it charged to
+                // nobody.
                 const costsOverrideFromModel =
                     this.#buildCostsOverrideFromModel(usageSum, modelUsed);
                 this.#meteringService.utilRecordUsageObject(
@@ -545,6 +670,7 @@ export class ClaudeProvider implements IChatProvider {
                     `claude:${modelUsed.id}`,
                     costsOverrideFromModel,
                 );
+                chatStream.end(usageSum);
             };
 
             return {
@@ -603,6 +729,9 @@ export class ClaudeProvider implements IChatProvider {
                       }
                     : {}),
             };
+        } catch (e) {
+            restoreUploads();
+            throw e;
         } finally {
             await cleanupUploads();
         }
@@ -677,13 +806,13 @@ export class ClaudeProvider implements IChatProvider {
     }) {
         if (!reasoningEffort) return undefined;
 
-        // Fable 5, Opus 4.7/4.8, 4.6, and Sonnet 4.6 use adaptive thinking
-        // (`budget_tokens` is deprecated on 4.6/Sonnet 4.6, removed on
-        // Fable 5 and 4.7+). Fable 5 and Opus 4.7/4.8 omit thinking content
-        // by default; `display: 'summarized'` restores visible reasoning in
-        // the stream.
+        // These models reject manual thinking budgets; summarized display
+        // keeps reasoning visible in the stream.
         if (
+            modelId === 'claude-fable-5-1' ||
             modelId === 'claude-fable-5' ||
+            modelId === 'claude-sonnet-5' ||
+            modelId === 'claude-opus-5-5' ||
             modelId === 'claude-opus-5' ||
             modelId === 'claude-opus-4-8' ||
             modelId === 'claude-opus-4-7'

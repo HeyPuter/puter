@@ -19,10 +19,6 @@
 
 import type { IImageModel } from '../../types.js';
 
-export interface IGeminiImageModel extends IImageModel {
-    apiType?: 'generateContent' | 'generateImages';
-}
-
 export const GEMINI_DEFAULT_RATIO = { w: 1024, h: 1024 };
 
 // Estimated image output token counts for pre-flight cost checks.
@@ -31,25 +27,129 @@ export const GEMINI_DEFAULT_RATIO = { w: 1024, h: 1024 };
 export const GEMINI_ESTIMATED_IMAGE_TOKENS: Record<string, number> = {
     'gemini-2.5-flash-image': 1290,
 
-    'gemini-3-pro-image-preview:1K': 1120,
-    'gemini-3-pro-image-preview:2K': 1120,
-    'gemini-3-pro-image-preview:4K': 2000,
+    'gemini-3-pro-image:1K': 1120,
+    'gemini-3-pro-image:2K': 1120,
+    'gemini-3-pro-image:4K': 2000,
 
-    'gemini-3.1-flash-image-preview:512': 747,
-    'gemini-3.1-flash-image-preview:1K': 1120,
-    'gemini-3.1-flash-image-preview:2K': 1680,
-    'gemini-3.1-flash-image-preview:4K': 2520,
+    'gemini-3.1-flash-image:512': 747,
+    'gemini-3.1-flash-image:1K': 1120,
+    'gemini-3.1-flash-image:2K': 1680,
+    'gemini-3.1-flash-image:4K': 2520,
 
     'gemini-3.1-flash-lite-image:1K': 1120,
 };
 
-export const GEMINI_IMAGE_GENERATION_MODELS: IGeminiImageModel[] = [
+export const GEMINI_IMAGE_GENERATION_MODELS: IImageModel[] = [
     {
+        // First entry is the provider default: Google's recommended model and
+        // the named replacement for the retiring 2.5 Flash Image.
+        puterId: 'google:google/gemini-3.1-flash-image',
+        id: 'gemini-3.1-flash-image',
+        name: 'Gemini 3.1 Flash Image',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1K:1x1',
+        index_input_cost_key: 'input',
+        aliases: [
+            'gemini-3.1-flash-image-preview',
+            'google/gemini-3.1-flash-image-preview',
+            'google/gemini-3.1-flash-image',
+            'google:google/gemini-3.1-flash-image-preview',
+        ],
+        allowedQualityLevels: ['512', '1K', '2K', '4K'],
+        allowedRatios: [
+            { w: 1, h: 1 },
+            { w: 1, h: 4 },
+            { w: 1, h: 8 },
+            { w: 2, h: 3 },
+            { w: 3, h: 2 },
+            { w: 3, h: 4 },
+            { w: 4, h: 1 },
+            { w: 4, h: 3 },
+            { w: 4, h: 5 },
+            { w: 5, h: 4 },
+            { w: 8, h: 1 },
+            { w: 9, h: 16 },
+            { w: 16, h: 9 },
+            { w: 21, h: 9 },
+        ],
+        costs: {
+            input: 50, // $0.50 per 1M input tokens (text/image)
+            output: 300, // $3.00 per 1M output tokens (text and thinking)
+            output_image: 6000, // $60.00 per 1M output image tokens
+            '1K:1x1': 6.7,
+        },
+    },
+    {
+        puterId: 'google:google/gemini-3.1-flash-lite-image',
+        id: 'gemini-3.1-flash-lite-image',
+        name: 'Gemini 3.1 Flash Lite Image',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1K:1x1',
+        index_input_cost_key: 'input',
+        aliases: ['google/gemini-3.1-flash-lite-image'],
+        allowedQualityLevels: ['1K'], // 2K and 4K are unsupported
+        allowedRatios: [
+            { w: 1, h: 1 },
+            { w: 2, h: 3 },
+            { w: 3, h: 2 },
+            { w: 3, h: 4 },
+            { w: 4, h: 3 },
+            { w: 4, h: 5 },
+            { w: 5, h: 4 },
+            { w: 9, h: 16 },
+            { w: 16, h: 9 },
+            { w: 21, h: 9 },
+        ],
+        costs: {
+            input: 25, // $0.25 per 1M input tokens (text/image)
+            output: 150, // $1.50 per 1M output tokens (text and thinking)
+            output_image: 3000, // $30.00 per 1M output image tokens
+            '1K:1x1': 3.36, // 1120 tokens @ $30/1M = $0.0336 per 1K image
+        },
+    },
+    {
+        puterId: 'google:google/gemini-3-pro-image',
+        id: 'gemini-3-pro-image',
+        name: 'Gemini 3 Pro Image',
+        version: '1.0',
+        costs_currency: 'usd-cents',
+        index_cost_key: '1K:1x1',
+        index_input_cost_key: 'input',
+        aliases: [
+            'gemini-3-pro-image-preview',
+            'google/gemini-3-pro-image-preview',
+            'google/gemini-3-pro-image',
+            'google:google/gemini-3-pro-image-preview',
+            'nano-banana-pro',
+        ],
+        allowedQualityLevels: ['1K', '2K', '4K'],
+        allowedRatios: [
+            { w: 1, h: 1 },
+            { w: 2, h: 3 },
+            { w: 3, h: 2 },
+            { w: 3, h: 4 },
+            { w: 4, h: 3 },
+            { w: 4, h: 5 },
+            { w: 5, h: 4 },
+            { w: 9, h: 16 },
+            { w: 16, h: 9 },
+            { w: 21, h: 9 },
+        ],
+        costs: {
+            input: 200, // $2.00 per 1M input tokens (text/image)
+            output: 1200, // $12.00 per 1M output tokens (text and thinking)
+            output_image: 12000, // $120.00 per 1M output image tokens
+            '1K:1x1': 13.4,
+        },
+    },
+    {
+        // Shuts down 2026-10-02 per Google's deprecation schedule.
         puterId: 'google:google/gemini-2.5-flash-image',
         id: 'gemini-2.5-flash-image',
         aliases: [
             'gemini-2.5-flash-image-preview',
-            'gemini-2.5-flash-image',
             'google/gemini-2.5-flash-image-preview',
             'google/gemini-2.5-flash-image',
             'google:google/gemini-2.5-flash-image-preview',
@@ -80,193 +180,5 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IGeminiImageModel[] = [
             { w: 16, h: 9 },
             { w: 21, h: 9 },
         ],
-    },
-    {
-        puterId: 'google:google/gemini-3-pro-image-preview',
-        id: 'gemini-3-pro-image-preview',
-        name: 'Gemini 3 Pro Image',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        index_cost_key: '1K:1x1',
-        index_input_cost_key: 'input',
-        aliases: [
-            'gemini-3-pro-image-preview',
-            'gemini-3-pro-image',
-            'google/gemini-3-pro-image-preview',
-            'google/gemini-3-pro-image',
-            'google:google/gemini-3-pro-image-preview',
-            'nano-banana-pro',
-        ],
-        allowedQualityLevels: ['1K', '2K', '4K'],
-        allowedRatios: [
-            { w: 1, h: 1 },
-            { w: 2, h: 3 },
-            { w: 3, h: 2 },
-            { w: 3, h: 4 },
-            { w: 4, h: 3 },
-            { w: 4, h: 5 },
-            { w: 5, h: 4 },
-            { w: 9, h: 16 },
-            { w: 16, h: 9 },
-            { w: 21, h: 9 },
-        ],
-        costs: {
-            input: 200, // $2.00 per 1M input tokens (text/image)
-            output: 1200, // $12.00 per 1M output tokens (text and thinking)
-            output_image: 12000, // $120.00 per 1M output image tokens
-            '1K:1x1': 13.4,
-        },
-    },
-    {
-        puterId: 'google:google/gemini-3.1-flash-image-preview',
-        id: 'gemini-3.1-flash-image-preview',
-        name: 'Gemini 3.1 Flash Image',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        index_cost_key: '1K:1x1',
-        index_input_cost_key: 'input',
-        aliases: [
-            'gemini-3.1-flash-image-preview',
-            'gemini-3.1-flash-image',
-            'google/gemini-3.1-flash-image-preview',
-            'google/gemini-3.1-flash-image',
-            'google:google/gemini-3.1-flash-image-preview',
-        ],
-        allowedQualityLevels: ['512', '1K', '2K', '4K'],
-        allowedRatios: [
-            { w: 1, h: 1 },
-            { w: 1, h: 4 },
-            { w: 1, h: 8 },
-            { w: 2, h: 3 },
-            { w: 3, h: 2 },
-            { w: 3, h: 4 },
-            { w: 4, h: 1 },
-            { w: 4, h: 3 },
-            { w: 4, h: 5 },
-            { w: 5, h: 4 },
-            { w: 8, h: 1 },
-            { w: 9, h: 16 },
-            { w: 16, h: 9 },
-            { w: 21, h: 9 },
-        ],
-        costs: {
-            input: 25, // $0.25 per 1M input tokens (text/image)
-            output: 150, // $1.50 per 1M output tokens (text and thinking)
-            output_image: 6000, // $60.00 per 1M output image tokens
-            '1K:1x1': 6.7,
-        },
-    },
-    {
-        puterId: 'google:google/gemini-3.1-flash-lite-image',
-        id: 'gemini-3.1-flash-lite-image',
-        name: 'Gemini 3.1 Flash Lite Image',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        index_cost_key: '1K:1x1',
-        index_input_cost_key: 'input',
-        aliases: [
-            'gemini-3.1-flash-lite-image',
-            'google/gemini-3.1-flash-lite-image',
-            'google:google/gemini-3.1-flash-lite-image',
-        ],
-        allowedQualityLevels: ['1K'], // 2K and 4K are unsupported
-        allowedRatios: [
-            { w: 1, h: 1 },
-            { w: 1, h: 4 },
-            { w: 1, h: 8 },
-            { w: 2, h: 3 },
-            { w: 3, h: 2 },
-            { w: 3, h: 4 },
-            { w: 4, h: 1 },
-            { w: 4, h: 3 },
-            { w: 4, h: 5 },
-            { w: 5, h: 4 },
-            { w: 8, h: 1 },
-            { w: 9, h: 16 },
-            { w: 16, h: 9 },
-            { w: 21, h: 9 },
-        ],
-        costs: {
-            input: 25, // $0.25 per 1M input tokens (text/image)
-            output: 150, // $1.50 per 1M output tokens (text and thinking)
-            output_image: 3000, // $30.00 per 1M output image tokens
-            '1K:1x1': 3.36, // 1120 tokens @ $30/1M = $0.0336 per 1K image
-        },
-    },
-
-    // -- Imagen models (use generateImages API) --
-    {
-        puterId: 'google:google/imagen-4.0-fast',
-        id: 'imagen-4.0-fast-generate-001',
-        apiType: 'generateImages',
-        name: 'Imagen 4.0 Fast',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'per-image',
-        aliases: [
-            'imagen-4.0-fast',
-            'google/imagen-4.0-fast',
-            'google:google/imagen-4.0-fast',
-        ],
-        allowedRatios: [
-            { w: 1, h: 1 },
-            { w: 3, h: 4 },
-            { w: 4, h: 3 },
-            { w: 9, h: 16 },
-            { w: 16, h: 9 },
-        ],
-        costs: {
-            'per-image': 2, // $0.02 per image
-        },
-    },
-    {
-        puterId: 'google:google/imagen-4.0',
-        id: 'imagen-4.0-generate-001',
-        apiType: 'generateImages',
-        name: 'Imagen 4.0',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'per-image',
-        aliases: [
-            'imagen-4.0',
-            'google/imagen-4.0',
-            'google:google/imagen-4.0',
-        ],
-        allowedQualityLevels: ['1K', '2K'],
-        allowedRatios: [
-            { w: 1, h: 1 },
-            { w: 3, h: 4 },
-            { w: 4, h: 3 },
-            { w: 9, h: 16 },
-            { w: 16, h: 9 },
-        ],
-        costs: {
-            'per-image': 4, // $0.04 per image
-        },
-    },
-    {
-        puterId: 'google:google/imagen-4.0-ultra',
-        id: 'imagen-4.0-ultra-generate-001',
-        apiType: 'generateImages',
-        name: 'Imagen 4.0 Ultra',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        index_cost_key: 'per-image',
-        aliases: [
-            'imagen-4.0-ultra',
-            'google/imagen-4.0-ultra',
-            'google:google/imagen-4.0-ultra',
-        ],
-        allowedQualityLevels: ['1K', '2K'],
-        allowedRatios: [
-            { w: 1, h: 1 },
-            { w: 3, h: 4 },
-            { w: 4, h: 3 },
-            { w: 9, h: 16 },
-            { w: 16, h: 9 },
-        ],
-        costs: {
-            'per-image': 6, // $0.06 per image
-        },
     },
 ];

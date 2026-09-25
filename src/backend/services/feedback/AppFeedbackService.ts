@@ -122,7 +122,7 @@ export class AppFeedbackService extends PuterService {
      */
     acceptsFeedback(app: Record<string, unknown> | null): boolean {
         return Boolean(
-            this.clients.email.isConfigured &&
+            this.config.email &&
             app &&
             app.feedback_enabled &&
             app.owner_user_id,
@@ -287,7 +287,7 @@ export class AppFeedbackService extends PuterService {
         senderUserId: number;
         since: number;
     }): Promise<void> {
-        if (!this.clients.email.isConfigured) return;
+        if (!this.config.email) return;
 
         const owner = await this.stores.user.getById(Number(app.owner_user_id));
         if (

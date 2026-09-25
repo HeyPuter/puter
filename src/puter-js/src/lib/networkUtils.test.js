@@ -308,7 +308,7 @@ describe('fetchUrl', () => {
                         status: 401,
                         body: {
                             code: 'reauth_required',
-                            reason: 'token_v1',
+                            reason: 'session_expired',
                             auth_id: 'a',
                         },
                     }),
@@ -329,7 +329,7 @@ describe('fetchUrl', () => {
                 expect(
                     globalThis.puter.dropStaleAuthToken,
                 ).toHaveBeenCalledWith({
-                    reason: 'token_v1',
+                    reason: 'session_expired',
                     auth_id: 'a',
                     sentToken: 'stale',
                 });
@@ -837,6 +837,109 @@ describe('driverCall', () => {
         await expect(p).resolves.toBe('v');
         expect(xhrs.length).toBe(2);
         vi.useRealTimers();
+    });
+
+    describe('upgrade prompts inside an app', () => {
+        let requestUpgrade;
+        beforeEach(() => {
+            // The desktop opens its upgrade window and never answers the
+            // callback, which is what a real desktop does.
+            requestUpgrade = vi.fn(() => new Promise(() => {}));
+            globalThis.puter = {
+                authToken: 'tok',
+                APIOrigin: 'https://api.example',
+                env: 'app',
+                ui: { requestUpgrade },
+            };
+        });
+
+        it('reports a plan-gated 402 with the method and its own wording, then rejects', async () => {
+            installFakeXHR(
+                respond({
+                    status: 402,
+                    body: {
+                        error: 'A subscription is required for this action',
+                        message: 'A subscription is required for this action',
+                        code: 'subscription_required',
+                        subscription: 'free',
+                    },
+                }),
+            );
+            await expect(
+                driverCall(call, {
+                    upgradePrompt: {
+                        method: 'puter.kv.get',
+                        subscriptionMessage: 'Reading keys requires a subscription.',
+                    },
+                }),
+            ).rejects.toMatchObject({ code: 'subscription_required' });
+            expect(requestUpgrade).toHaveBeenCalledWith({
+                reason: 'subscription',
+                method: 'puter.kv.get',
+                message: 'Reading keys requires a subscription.',
+            });
+        });
+
+        it('names an unannotated method by its wire interface and method', async () => {
+            installFakeXHR(
+                respond({
+                    status: 402,
+                    body: { code: 'insufficient_funds', message: 'Insufficient credits' },
+                }),
+            );
+            await expect(driverCall(call)).rejects.toMatchObject({
+                code: 'insufficient_funds',
+            });
+            expect(requestUpgrade).toHaveBeenCalledWith({
+                reason: 'funds',
+                method: 'puter-kvstore::get',
+                message:
+                    'Your account does not have enough funding to complete this request.',
+            });
+        });
+
+        it('still prompts on a 200 driver envelope that carries the refusal', async () => {
+            installFakeXHR(
+                respond({
+                    body: {
+                        success: false,
+                        error: { code: 'insufficient_funds', message: 'x' },
+                    },
+                }),
+            );
+            await expect(driverCall(call)).rejects.toMatchObject({
+                success: false,
+            });
+            expect(requestUpgrade).toHaveBeenCalledTimes(1);
+            expect(requestUpgrade.mock.calls[0][0].reason).toBe('funds');
+        });
+
+        it('prompts once per refused stream line without stalling the stream', async () => {
+            installFakeXHR((xhr) => {
+                xhr._setHeaders(200, {
+                    'content-type': 'application/x-ndjson',
+                });
+                xhr._headersReceived();
+                xhr._progress(
+                    '{"text":"he"}\n{"error":{"code":"insufficient_funds"}}\n{"text":"llo"}\n',
+                );
+                xhr._done();
+            });
+            const parts = [];
+            for await (const part of await driverCall(call)) parts.push(part);
+            expect(parts).toHaveLength(3);
+            expect(requestUpgrade).toHaveBeenCalledTimes(1);
+        });
+
+        it('leaves other failures alone', async () => {
+            installFakeXHR(
+                respond({ status: 403, body: { code: 'forbidden' } }),
+            );
+            await expect(driverCall(call)).rejects.toMatchObject({
+                code: 'forbidden',
+            });
+            expect(requestUpgrade).not.toHaveBeenCalled();
+        });
     });
 });
 

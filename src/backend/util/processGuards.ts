@@ -32,27 +32,17 @@ export type ProcessFaultKind = 'uncaughtException' | 'unhandledRejection';
 
 export interface ProcessGuardOptions {
     /**
-     * Stay alive after an uncaught exception instead of exiting.
-     *
-     * Off by default, because a process that resumes after an uncaught
-     * exception may be holding half-applied state, and Node treats resuming as
-     * undefined behavior. Turn it on where an exit is the more expensive
-     * failure — a small pool of nodes behind a health check, where one bad
-     * request would otherwise take out the whole pool's worth of live
-     * requests.
+     * Keep running after an uncaught exception; see `keep_alive_on_uncaught` in
+     * config.
      */
     keepAliveOnUncaught?: boolean;
-    /**
-     * Called for every fault, before the exit decision. Use it to raise an
-     * alarm; it must not throw.
-     */
+    /** Called for every fault before the exit decision; must not throw. */
     onFault?: (kind: ProcessFaultKind, error: unknown, origin?: string) => void;
 }
 
 /**
- * Install process-level fault logging. Returns a function that removes every
- * listener it added, so a server can install per boot without leaking listeners
- * across restarts (or across test files).
+ * Install process-level fault logging. Returns a function that removes the
+ * listeners.
  */
 export const installProcessGuards = (
     options: ProcessGuardOptions = {},

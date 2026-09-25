@@ -19,7 +19,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -159,6 +159,14 @@ describe('PermissionService.getHigherPermissions', () => {
         const service = createPermissionService();
         const higher = await service.getHigherPermissions('a:b:c');
         expect(higher).toEqual(expect.arrayContaining(['a:b:c', 'a:b', 'a']));
+    });
+
+    it('drops the bare fs parents, which no grant may hold', async () => {
+        const service = createPermissionService();
+        const higher = await service.getHigherPermissions('fs:some-uuid:write');
+        expect(higher).toContain('fs:some-uuid:write');
+        expect(higher).not.toContain('fs:some-uuid');
+        expect(higher).not.toContain('fs');
     });
 
     it('expands via registered exploders when the parent matches', async () => {
@@ -321,6 +329,44 @@ describe('PermissionService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 404 });
         });
 
+        it('lets a holder give up a permission it cannot manage', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const permission = `zztest:self-revoke-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                `manage:${permission}`,
+                {
+                    permission: `manage:${permission}`,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(await permService.check(targetActor, permission)).toBe(true);
+
+            // The holder has no manage authority here — renouncing access is
+            // allowed anyway, since it can only narrow their own reach.
+            await runWithContext({ actor: targetActor }, () =>
+                permService.revokeUserUserPermission(
+                    targetActor,
+                    target.username,
+                    permission,
+                    {},
+                    { issuerUserId: issuer.id },
+                ),
+            );
+            expect(
+                await permService.check(targetActor, permission),
+            ).toBeFalsy();
+        });
+
         it('revokeUserUserPermission throws 403 when the issuer lacks manage', async () => {
             const { actor: issuer } = await makeUserActor();
             const { user: target } = await makeUserActor();
@@ -409,10 +455,10 @@ describe('PermissionService (integration)', () => {
         it('revokeUserAppPermission throws 403 when actor is an app-under-user', async () => {
             const { user } = await makeUserActor();
             const app = await makeApp(user.id);
-            const appActor = {
+            const appActor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             await expect(
                 permService.revokeUserAppPermission(
                     appActor,
@@ -435,10 +481,10 @@ describe('PermissionService (integration)', () => {
         it('revokeUserAppAll throws 403 when actor is an app-under-user', async () => {
             const { user } = await makeUserActor();
             const app = await makeApp(user.id);
-            const appActor = {
+            const appActor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             await expect(
                 permService.revokeUserAppAll(appActor, app.uid),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -534,10 +580,10 @@ describe('PermissionService (integration)', () => {
         it('revokeDevAppPermission throws 403 when actor is an app-under-user', async () => {
             const { user } = await makeUserActor();
             const app = await makeApp(user.id);
-            const appActor = {
+            const appActor = makeActor({
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             await expect(
                 permService.revokeDevAppPermission(
                     appActor,
@@ -558,62 +604,8 @@ describe('PermissionService (integration)', () => {
         });
     });
 
-    describe('grantUserGroupPermission / revokeUserGroupPermission', () => {
-        it('grantUserGroupPermission throws 403 when issuer lacks manage:<perm>', async () => {
-            const { actor } = await makeUserActor();
-            await expect(
-                runWithContext({ actor }, () =>
-                    permService.grantUserGroupPermission(
-                        actor,
-                        { id: 1, uid: 'grp-doesnt-matter' },
-                        `zztest:unmanaged-${uuidv4()}:ii:read`,
-                    ),
-                ),
-            ).rejects.toMatchObject({ statusCode: 403 });
-        });
-
-        it('revokeUserGroupPermission rejects when actor has no user.id', async () => {
-            await expect(
-                permService.revokeUserGroupPermission(
-                    { user: undefined } as unknown as Actor,
-                    { id: 1, uid: 'grp-x' },
-                    'zztest:foo:ii:read',
-                ),
-            ).rejects.toMatchObject({ statusCode: 403 });
-        });
-    });
-
-    describe('listUserPermissionIssuers / queryIssuerHolderPermissionsByPrefix', () => {
-        it('listUserPermissionIssuers returns the issuer who granted the target a perm', async () => {
-            const { user: issuer, actor: issuerActor } = await makeUserActor();
-            const { user: target } = await makeUserActor();
-            const permission = `zztest:lst-${uuidv4()}:ii:read`;
-            await server.stores.permission.setFlatUserPerm(
-                issuer.id,
-                `manage:${permission}`,
-                {
-                    permission: `manage:${permission}`,
-                    deleted: false,
-                    issuer_user_id: issuer.id,
-                } as never,
-            );
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.grantUserUserPermission(
-                    issuerActor,
-                    target.username,
-                    permission,
-                ),
-            );
-            // listUserPermissionIssuers is best-effort; just verify it runs
-            // and either includes the issuer or returns an empty array (the
-            // linked store may not be populated immediately).
-            const issuers = await permService.listUserPermissionIssuers({
-                id: target.id,
-            });
-            expect(Array.isArray(issuers)).toBe(true);
-        });
-
-        it('queryIssuerHolderPermissionsByPrefix returns [] for actors without user.id', async () => {
+    describe('queryIssuerHolderPermissionsByPrefix', () => {
+        it('returns [] for actors without user.id', async () => {
             const out = await permService.queryIssuerHolderPermissionsByPrefix(
                 { user: undefined } as unknown as Actor,
                 { user: undefined } as unknown as Actor,
@@ -800,10 +792,10 @@ describe('PermissionService (integration)', () => {
                 ),
             );
 
-            const appActor = {
+            const appActor = makeActor({
                 user: targetActor.user,
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
 
             // Prime the app actor's cache with a "granted" reading.
             expect(await permService.check(appActor, permission)).toBe(true);
@@ -837,10 +829,10 @@ describe('PermissionService (integration)', () => {
                     permission,
                 ),
             );
-            const appActor = {
+            const appActor = makeActor({
                 user: targetActor.user,
                 app: { id: app.id, uid: app.uid },
-            } as unknown as Actor;
+            });
             expect(await permService.check(appActor, permission)).toBe(false);
 
             await runWithContext({ actor: issuerActor }, () =>
@@ -941,6 +933,206 @@ describe('PermissionService (integration)', () => {
                     permission,
                 ),
             );
+        });
+
+        it('drops the flat entry even when a lagging replica still shows the deleted row', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:rvk-lag-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // Simulate replica lag at the store boundary (sqlite has no
+            // replica to lag): the plain read path keeps returning the row
+            // the revoke just deleted from the primary. The remaining-check
+            // must go through the primary-read variant instead — trusting
+            // the replica view (or re-warming the row cache from it) skips
+            // the flat delete and leaves a no-TTL flat grant standing with
+            // no SQL rows behind it.
+            const staleRow = {
+                holder_user_id: target.id,
+                issuer_user_id: issuer.id,
+                permission,
+                extra: {},
+            };
+            const spy = vi
+                .spyOn(server.stores.permission, 'readLinkedUserUserPerms')
+                .mockResolvedValue([staleRow as never]);
+            try {
+                await runWithContext({ actor: issuerActor }, () =>
+                    permService.revokeUserUserPermission(
+                        issuerActor,
+                        target.username,
+                        permission,
+                    ),
+                );
+            } finally {
+                spy.mockRestore();
+            }
+
+            const flat = await server.stores.permission.getFlatUserPerms(
+                target.id,
+                [permission],
+            );
+            expect(flat.filter((v) => !v.deleted)).toHaveLength(0);
+        });
+
+        it('grantUserUserPermission persists the linked SQL row before resolving', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:grant-sync-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // A fire-and-forget upsert leaves the flat view claiming a grant
+            // that nothing durable backs — losing it if the entry is ever
+            // dropped, with no SQL row to re-derive from.
+            const rows = await server.stores.permission.readLinkedUserUserPerms(
+                target.id,
+                [permission],
+            );
+            expect(rows).toHaveLength(1);
+            expect(rows[0].issuer_user_id).toBe(issuer.id);
+        });
+
+        it('grantUserUserPermission surfaces a failed SQL upsert instead of swallowing it', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const permission = `zztest:grant-fail-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            const spy = vi
+                .spyOn(server.stores.permission, 'upsertUserUserPerm')
+                .mockRejectedValue(new Error('simulated db failure'));
+            try {
+                await expect(
+                    runWithContext({ actor: issuerActor }, () =>
+                        permService.grantUserUserPermission(
+                            issuerActor,
+                            target.username,
+                            permission,
+                        ),
+                    ),
+                ).rejects.toThrow('simulated db failure');
+            } finally {
+                spy.mockRestore();
+            }
+
+            // Fails closed: the durable write went first, so a failure there
+            // leaves no flat entry granting access either.
+            expect(await permService.check(targetActor, permission)).toBeFalsy();
+        });
+
+        it('keeps the flat entry while another issuer still grants the permission', async () => {
+            const { user: issuerA, actor: actorA } = await makeUserActor();
+            const { user: issuerB, actor: actorB } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const permission = `zztest:two-issuers-${uuidv4()}:ii:read`;
+            await grantManage(issuerA, permission);
+            await grantManage(issuerB, permission);
+
+            for (const actor of [actorA, actorB]) {
+                await runWithContext({ actor }, () =>
+                    permService.grantUserUserPermission(
+                        actor,
+                        target.username,
+                        permission,
+                    ),
+                );
+            }
+
+            await runWithContext({ actor: actorA }, () =>
+                permService.revokeUserUserPermission(
+                    actorA,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // B's grant stands, so the shared flat key must survive with it —
+            // the key isn't issuer-scoped and B may not resolve via the chain.
+            expect(await permService.check(targetActor, permission)).toBe(true);
+
+            await runWithContext({ actor: actorB }, () =>
+                permService.revokeUserUserPermission(
+                    actorB,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(
+                await permService.check(targetActor, permission),
+            ).toBeFalsy();
+        });
+
+        it('reports whether a grant was actually removed', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:rvk-reports-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            const first = await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(first).toBe(true);
+
+            // Nothing left to revoke — still not an error, but it must not
+            // claim to have removed something.
+            const second = await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(second).toBe(false);
+        });
+
+        it('writes no audit row for a revoke that matched nothing', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:rvk-noaudit-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            // Never granted, so there is no row to remove.
+            const revoked = await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(revoked).toBe(false);
+
+            const rows = await server.clients.db.read(
+                'SELECT `action` FROM `audit_user_to_user_permissions` WHERE `holder_user_id` = ? AND `permission` = ?',
+                [target.id, permission],
+            );
+            expect(rows).toHaveLength(0);
         });
 
         it('scan-path warms of the flat view carry an expiry (grants are permanent)', async () => {
@@ -1140,49 +1332,26 @@ describe('PermissionService — scan paths', () => {
             ).toBe(false);
         });
 
-        it('never queries group membership to resolve a user permission', async () => {
-            // The membership lookup existed only to re-derive the flattened
-            // constant above, so no scan should reach for it now.
-            const { actor } = await makeGroupedUser();
-            const spy = vi.spyOn(server.stores.group, 'listGroupsWithMember');
-            try {
-                expect(
-                    await permService.check(actor, 'driver:puter-kvstore', {
-                        noCache: true,
-                    }),
-                ).toBe(true);
-                expect(
-                    await permService.check(actor, `zztest:${uuidv4()}:read`, {
-                        noCache: true,
-                    }),
-                ).toBe(false);
-                expect(spy).not.toHaveBeenCalled();
-            } finally {
-                spy.mockRestore();
-            }
-        });
-
-        it('honours a group grant issued by a user, and drops it on revoke', async () => {
-            const { row: issuer, actor: issuerActor } = await makeGroupedUser();
+        // Group permissions are seeded by migration, not written at runtime, so
+        // this drives the rows directly the way a migration does.
+        it('honours a group permission row, and drops it when the row goes', async () => {
+            const { row: issuer } = await makeGroupedUser();
             const { row: member, actor: memberActor } = await makeGroupedUser();
-            const groupUid = await server.stores.group.create({
-                ownerUserId: issuer.id,
-            });
-            const group = (await server.stores.group.getByUid(groupUid))!;
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [groupUid, issuer.id, '{}', '{}'],
+            );
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
             await server.stores.group.addUsers(groupUid, [member.username]);
 
             const permission = `zztest:grp-${uuidv4()}:ii:read`;
-            await server.stores.permission.setFlatUserPerm(
-                issuer.id,
-                `manage:${permission}`,
-                {
-                    permission: `manage:${permission}`,
-                    deleted: false,
-                    issuer_user_id: issuer.id,
-                } as never,
-            );
-            // The issuer must hold the permission itself for the delegation
-            // chain to terminate.
+            // The group reading embeds the issuer's own reading, so the issuer
+            // has to hold the permission for the chain to terminate.
             await server.stores.permission.setFlatUserPerm(
                 issuer.id,
                 permission,
@@ -1192,23 +1361,23 @@ describe('PermissionService — scan paths', () => {
                     issuer_user_id: issuer.id,
                 } as never,
             );
-
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.grantUserGroupPermission(
-                    issuerActor,
-                    { id: group.id, uid: group.uid },
-                    permission,
-                ),
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [issuer.id, group.id, permission, '{}'],
             );
             expect(await permService.check(memberActor, permission)).toBe(true);
 
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.revokeUserGroupPermission(
-                    issuerActor,
-                    { id: group.id, uid: group.uid },
-                    permission,
-                ),
+            await server.clients.db.write(
+                'DELETE FROM `user_to_group_permissions` ' +
+                    'WHERE `group_id` = ? AND `permission` = ?',
+                [group.id, permission],
             );
+            // The member's reading resolved through the group, so their cached
+            // answer has to be orphaned before the next check sees the deletion.
+            await permService.bumpPermissionCacheForUsernames([
+                member.username,
+            ]);
             expect(await permService.check(memberActor, permission)).toBe(
                 false,
             );
@@ -1219,10 +1388,10 @@ describe('PermissionService — scan paths', () => {
         it('gives every app the default implicit driver permissions', async () => {
             const { row, actor } = await makeGroupedUser();
             const app = await makeApp(row.id);
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: actor.user,
                 app: { uid: app.uid, id: app.id },
-            };
+            });
             expect(
                 await permService.check(appActor, 'driver:puter-kvstore'),
             ).toBe(true);
@@ -1237,11 +1406,11 @@ describe('PermissionService — scan paths', () => {
 
         it('gives a built-in app its extra hardcoded permissions', async () => {
             const { actor } = await makeGroupedUser();
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: actor.user,
                 // dev-center, from the builtin-apps bucket.
                 app: { uid: 'app-240a43f4-43b1-49bc-b9fc-c8ae719dab77', id: 1 },
-            };
+            });
             expect(
                 await permService.check(
                     appActor,
@@ -1253,10 +1422,10 @@ describe('PermissionService — scan paths', () => {
         it('resolves a user-to-app grant, and stops once revoked', async () => {
             const { row, actor } = await makeGroupedUser();
             const app = await makeApp(row.id);
-            const appActor: Actor = {
+            const appActor: Actor = makeActor({
                 user: actor.user,
                 app: { uid: app.uid, id: app.id },
-            };
+            });
             const permission = `zztest:u2a-${uuidv4()}:ii:read`;
             // The user must hold it for the app's delegation to terminate.
             await server.stores.permission.setFlatUserPerm(row.id, permission, {
@@ -1309,10 +1478,10 @@ describe('PermissionService — scan paths', () => {
                 );
             }
 
-            const visitorAppActor: Actor = {
+            const visitorAppActor: Actor = makeActor({
                 user: visitor.user,
                 app: { uid: app.uid, id: app.id },
-            };
+            });
             // A dev-app grant is issued by the developer, not the visitor, so
             // it is not generation-linked to the visitor's cache — readings
             // only lapse with the scan-cache TTL. Read past the cache so the
@@ -1541,6 +1710,32 @@ describe('PermissionService — scan paths', () => {
                 }),
             ).toEqual([]);
             expect(await permService.check(actor, permission)).toBe(false);
+        });
+
+        // The traversal used to run beside the flat read with nobody awaiting it.
+        it('answers a flat hit without running the linked traversal', async () => {
+            const { row, actor } = await makeGroupedUser();
+            const permission = `zztest:flat-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(row.id, permission, {
+                permission,
+                deleted: false,
+                issuer_user_id: row.id,
+            } as never);
+
+            const linked = vi
+                .spyOn(server.stores.permission, 'readLinkedUserUserPerms')
+                .mockRejectedValue(new Error('db wobble'));
+            try {
+                const reading = await permService.validateUserPerms({
+                    actor,
+                    permissions: [permission],
+                });
+                expect(reading).toHaveLength(1);
+                expect(reading[0]).toMatchObject({ permission });
+                expect(linked).not.toHaveBeenCalled();
+            } finally {
+                linked.mockRestore();
+            }
         });
 
         it('returns nothing for an actor with no user id', async () => {

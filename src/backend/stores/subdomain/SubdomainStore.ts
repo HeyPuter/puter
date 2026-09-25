@@ -445,6 +445,7 @@ export class SubdomainStore extends PuterStore {
         associatedAppId = null,
         appOwner = null,
         preambleVersion = null,
+        isProtected = false,
     }: {
         userId: number;
         subdomain: string;
@@ -452,6 +453,8 @@ export class SubdomainStore extends PuterStore {
         associatedAppId?: number | null;
         appOwner?: number | null;
         preambleVersion?: string | null;
+        /** A system site nobody may delete or rename; see `protected` above. */
+        isProtected?: boolean;
     }) {
         if (!userId || !subdomain) {
             throw new Error('create: userId and subdomain are required');
@@ -459,8 +462,8 @@ export class SubdomainStore extends PuterStore {
         const uuid = uuidv4();
         await this.clients.db.write(
             `INSERT INTO \`subdomains\`
-                (\`uuid\`, \`subdomain\`, \`user_id\`, \`root_dir_id\`, \`associated_app_id\`, \`app_owner\`, \`preamble_version\`)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                (\`uuid\`, \`subdomain\`, \`user_id\`, \`root_dir_id\`, \`associated_app_id\`, \`app_owner\`, \`preamble_version\`, \`protected\`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 uuid,
                 subdomain,
@@ -469,6 +472,7 @@ export class SubdomainStore extends PuterStore {
                 associatedAppId,
                 appOwner,
                 preambleVersion,
+                this.clients.db.booleanValue(isProtected),
             ],
         );
 
@@ -480,6 +484,7 @@ export class SubdomainStore extends PuterStore {
             associated_app_id: associatedAppId,
             app_owner: appOwner,
             preamble_version: preambleVersion,
+            protected: isProtected ? 1 : 0,
         };
         await this.#refreshCache(row);
         await this.#invalidatePrefixListsForUser(userId);
@@ -586,6 +591,37 @@ export class SubdomainStore extends PuterStore {
             }
             await this.#invalidateRootDirEntry(row.root_dir_id);
         }
+    }
+
+    /**
+     * Hand every row `fromAppId` owns to `toAppId`. For merging one app row
+     * into another: `app_owner` cascades on app delete, so the rows have to
+     * change hands before the source app row goes. Returns the moved rows.
+     */
+    async reassignAppOwner(
+        fromAppId: number,
+        toAppId: number,
+    ): Promise<SubdomainRow[]> {
+        const rows = (await this.listAll({
+            appOwner: fromAppId,
+        })) as unknown as SubdomainRow[];
+        if (rows.length === 0) return rows;
+
+        await this.clients.db.write(
+            'UPDATE `subdomains` SET `app_owner` = ? WHERE `app_owner` = ?',
+            [toAppId, fromAppId],
+        );
+
+        const userIds = new Set<number>();
+        for (const row of rows) {
+            row.app_owner = toAppId;
+            await this.#refreshCache(row);
+            if (row.user_id != null) userIds.add(Number(row.user_id));
+        }
+        for (const userId of userIds) {
+            await this.#invalidatePrefixListsForUser(userId);
+        }
+        return rows;
     }
 
     // -- Internals ----------------------------------------------------

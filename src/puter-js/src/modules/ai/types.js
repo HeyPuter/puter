@@ -45,6 +45,13 @@
  * @property {{ type: string }} [cache_control]
  * @property {ImageContent[]} [images] Images attached to the message. Present on responses from
  * image-capable models.
+ * @property {string} [reasoning] Reasoning/thinking text, when the model exposes it and the
+ * request asked for it. Present on responses only.
+ * @property {object[]} [reasoning_details] Opaque provider reasoning artifacts (Anthropic thinking
+ * signatures, OpenAI reasoning item ids/encrypted content). Resend them verbatim to continue an
+ * extended-thinking turn. Present on responses only.
+ * @property {string | null} [refusal] Refusal message when the model declined, otherwise `null`.
+ * Present on responses only.
  */
 
 /**
@@ -60,6 +67,13 @@
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
+ * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
+ * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
+ * `message.tool_calls`, a mapped `finish_reason`); `false` forces the provider's native shape. Left
+ * unset, the SDK-wide `puter.ai.normalize` applies — itself tri-state: `true` normalizes every call,
+ * `false` disables normalization for every call, and unset (the default) means the release-date
+ * policy: models released on or after September 1, 2026 are normalized, older models keep their native
+ * shape. Streaming responses are unaffected (chunks are already provider-uniform).
  * @property {unknown} [response]
  * @property {string} [reasoning_effort] Controls how much effort reasoning models spend thinking. Flat
  * form. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` (availability varies by
@@ -95,6 +109,11 @@
  *
  * @typedef {Object} ChatResponse
  * @property {ChatMessage} [message]
+ * @property {string} [finish_reason] Why generation stopped: `stop`, `length`, `tool_calls`, or
+ * `content_filter` — or the vendor's own stop reason (e.g. Anthropic's `pause_turn`), passed
+ * through unchanged when it has no OpenAI equivalent. Treat it as an open set.
+ * @property {boolean} [normalized] Present and `true` when the response format was normalized
+ * server-side (see the `normalize` option on [ChatOptions]).
  * @property {unknown} [choices]
  * @property {{ type: 'compaction', id?: string, encrypted_content: string }} [compaction]
  * Inline-compaction artifact, present when the upstream compacted earlier context during this
@@ -145,50 +164,64 @@
  * Options for `txt2img()`.
  *
  * @typedef {Object} Txt2ImgOptions
- * @property {string} [prompt] Text description of the image to generate.
- * @property {string} [model] Image model to use (provider-specific). Defaults to `'gpt-image-1-mini'`
- * (OpenAI), or `'grok-imagine-image'` when `provider` is `'xai'`.
+ * @property {string} [prompt] Non-empty text description of the image to generate. Missing, blank,
+ * or non-string values reject with `prompt_required`.
+ * @property {string} [model] Image model to use (provider-specific). Without one, the provider's
+ * default applies: `'gpt-image-2'` (OpenAI, preferred when no provider is given),
+ * `'gemini-3.1-flash-image'` (Gemini), `'@cf/black-forest-labs/flux-1-schnell'` (Cloudflare),
+ * `'grok-imagine-image'` (xAI), `'black-forest-labs/flux-schnell'` (Replicate), or
+ * `'seedream-5-0-lite-260128'` (BytePlus).
  * @property {string} [quality] Image quality / output size tier. Interpretation is provider- and
- * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`), and
- * `gpt-image-2` also accepts `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
+ * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`),
+ * `gpt-image-2` also accepts `'auto'`, and `gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` also
+ * accept `'xhigh'` | `'max'` | `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
  * `'4K'` (availability varies by model).
- * @property {string} [input_image] An input image for image-to-image generation. Replicate and xAI
- * `grok-imagine-*` accept a URL; Gemini and OpenAI `gpt-image-*` expect a base64-encoded (or data-URI)
- * image (xAI also accepts base64/data-URI).
- * @property {string[]} [input_images] Multiple input images for image-to-image / multi-image
- * generation. Gemini and OpenAI `gpt-image-*` expect base64-encoded (or data-URI) images; Replicate
- * expects image URLs; xAI `grok-imagine-*` accepts either (up to 3 images).
+ * @property {string} [resolution] xAI output resolution: `'1k'` (default) or `'2k'`; model-specific resolution tier on Replicate.
+ * On `grok-imagine-image-2.0`, `quality` independently accepts `'low'`, `'medium'`, or `'auto'`.
+ * The older xAI models also accept the resolution through `quality` for compatibility.
+ * @property {string} [input_image] One reference image: a public URL, data URI, or raw base64.
+ * @property {string[]} [input_images] Reference images as URLs, data URIs, or raw base64.
+ * Model support varies. xAI accepts up to 5; Together and Cloudflare accept one.
  * @property {string} [input_image_mime_type] MIME type of the input image(s), e.g. `'image/png'`. Used
  * as a fallback when the type cannot be auto-detected (Gemini).
- * @property {string} [driver]
- * @property {string} [provider]
- * @property {string} [service]
+ * @property {string} [driver] Legacy driver ID, e.g. `'xai-image-generation'`.
+ * @property {string} [provider] Provider name: `'openai'`, `'gemini'`, `'together'`, `'cloudflare'`,
+ * `'xai'`, `'replicate'`, or `'byteplus'`. Full `*-image-generation` IDs also work.
+ * Prefers this provider when it offers the model; otherwise a known model selects its provider.
+ * Routes excluded by data policy reject with `bad_request`; Together image routes are currently excluded.
+ * @property {string} [service] Ignored; retained for compatibility. Use `provider` or `driver` to select a provider.
  * @property {{ w: number, h: number }} [ratio] Aspect ratio as `{ w, h }` (e.g. `{ w: 16, h: 9 }`).
- * Supported by OpenAI, Gemini, and Replicate.
- * @property {number} [width] Width of the image to generate, in pixels (Together). Default `1024`.
- * @property {number} [height] Height of the image to generate, in pixels (Together). Default `1024`.
- * @property {string} [aspect_ratio] Alternative way to specify the aspect ratio (Together).
- * @property {number} [steps] Number of generation/inference steps (Together, default `20`; Replicate
- * `flux-schnell`).
+ * Supported sizes and aspect ratios depend on the model.
+ * @property {number} [width] Width of the image to generate, in pixels; use with `height`.
+ * @property {number} [height] Height of the image to generate, in pixels; use with `width`.
+ * @property {string} [aspect_ratio] Alternative aspect ratio, e.g. `'16:9'`.
+ * @property {number} [steps] Number of generation/inference steps (Together default varies by model; Replicate
+ * models with sampling controls; Cloudflare limits vary by model).
  * @property {number} [seed] Seed used for generation; reuse to reproduce results (Together, Replicate).
  * @property {string} [negative_prompt] Prompt describing what NOT to guide the image generation toward
- * (Together).
- * @property {number} [n] Number of image results to generate (Together). Default `1`.
- * @property {string} [image_url] URL of an input image for models that support it (Together).
- * @property {string} [image_base64] Base64-encoded input image for image-to-image generation (Together).
- * @property {string} [mask_image_url] URL of a mask image for inpainting (Together).
- * @property {string} [mask_image_base64] Base64-encoded mask image for inpainting (Together).
- * @property {number} [prompt_strength] How strongly the prompt influences the output (Together).
+ * (Together, supported Cloudflare and Replicate models).
+ * @property {number} [n] Reserved for compatibility. Image generation currently returns one image; this option is ignored.
+ * @property {string} [image_url] URL of an input image for models that support it (Together; no effect while Together routes are excluded).
+ * @property {string} [image_base64] Base64-encoded input image for image-to-image generation (Together; no effect while Together routes are excluded).
+ * @property {string} [mask_image_url] URL of a mask image for inpainting (Together; no effect while Together routes are excluded).
+ * @property {string} [mask_image_base64] Base64-encoded mask image for inpainting (Together; no effect while Together routes are excluded).
+ * @property {string} [maskImage] Mask image URL, data URI, or raw base64 for supported Cloudflare and
+ * Replicate inpainting models. Supply an input image as well.
+ * @property {Record<string, unknown>} [providerOptions] Native options for Replicate catalog models,
+ * validated against the selected model's API schema. Common options take precedence.
+ * @property {number} [strength] Transformation strength for supported Cloudflare and Replicate image editing models.
+ * @property {number} [prompt_strength] How strongly the prompt influences the output (Together; no effect while Together routes are excluded).
  * @property {boolean} [disable_safety_checker] When `true`, disables the safety checker (Together,
  * Replicate).
  * @property {string} [response_format] Format of the image response. Together: `'base64'` | `'url'`.
  * Replicate: output format, e.g. `'webp'` | `'jpg'` | `'png'`.
- * @property {number} [guidance] Guidance scale (Replicate `flux-2-klein-9b-base`).
+ * @property {number} [guidance] Guidance scale (Cloudflare and supported Replicate models).
  * @property {boolean} [go_fast] Use the model's optimized fast mode (Replicate `flux-2-dev`). Defaults
  * to `true` for that model, and affects pricing.
  * @property {number} [output_quality] Output quality, 0-100 (Replicate, flux family).
- * @property {string} [output_megapixels] Approximate output size in megapixels (Replicate, flux
- * family), e.g. `'0.25'` | `'0.5'` | `'1'` | `'2'`.
+ * @property {string} [output_megapixels] Output size in megapixels on Replicate `flux-2-pro`,
+ * `flux-2-klein-*`, and `flux-schnell`, from the model's own list (e.g. `'0.25'` | `'0.5'` | `'1'` |
+ * `'2'` | `'4'`); ignored by `flux-2-dev` and `flux-1.1-pro`.
  * @property {number} [safety_tolerance] Safety tolerance level (Replicate `flux-2-pro`,
  * `flux-1.1-pro`).
  * @property {boolean} [prompt_upsampling] Enable prompt upsampling (Replicate `flux-1.1-pro`).
@@ -208,29 +241,43 @@
  * Options for `txt2vid()`.
  *
  * @typedef {Object} Txt2VidOptions
- * @property {string} [prompt]
- * @property {string} [driver]
- * @property {string} [model]
- * @property {number} [seconds]
- * @property {number} [duration]
- * @property {boolean} [test_mode]
- * @property {string} [size] OpenAI: output size.
- * @property {string} [resolution] OpenAI: output resolution.
- * @property {File | string} [input_reference] OpenAI: reference clip or image.
- * @property {number} [width] TogetherAI.
- * @property {number} [height] TogetherAI.
+ * @property {string} [prompt] Text description of the clip.
+ * @property {string} [provider] Pin the request to one provider: `'gemini-video-generation'`,
+ * `'together-video-generation'` or `'byteplus-video-generation'`. Defaults to the provider that owns
+ * `model`, or Google when neither is given.
+ * @property {string} [driver] Same effect as `provider`.
+ * @property {string} [model] Video model id (provider-specific). Defaults to `'veo-3.1-lite'`.
+ * @property {number} [seconds] Clip length in seconds. A value the model does not offer falls back
+ * to the model default.
+ * @property {number} [duration] Alias of `seconds`.
+ * @property {boolean} [test_mode] When `true`, returns a sample clip without using credits.
+ * @property {string} [size] Output size as `'WIDTHxHEIGHT'` on every provider (tier-based models map
+ * it to the tier of the shorter side plus an aspect ratio), or a tier such as `'720p'` for Seedance
+ * and Wan 2.7.
+ * @property {string} [resolution] Alias of `size`.
+ * @property {string} [input_reference] First-frame image for image-to-video: a URL, data URI or raw
+ * base64, on every provider.
+ * @property {string} [last_frame] Last-frame image, same formats as `input_reference`.
+ * @property {string[]} [reference_images] Subject/style reference images (URL, data URI or base64).
+ * Veo 3.1: up to 3; Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
+ * @property {string} [negative_prompt] What to keep out of the video (Veo, Together).
+ * @property {boolean} [generate_audio] Generate a soundtrack on models that support audio (Seedance 2.x
+ * and 1.5 Pro, and Together models with audio). Defaults to `true` on Seedance.
+ * @property {number} [seed] Random seed (Together, Seedance 1.x).
+ * @property {number} [width] Output width in pixels on Together models sized in pixels; with `height`,
+ * selects the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when omitted.
+ * @property {number} [height] Output height in pixels; see `width`.
  * @property {number} [fps] TogetherAI.
  * @property {number} [steps] TogetherAI.
  * @property {number} [guidance_scale] TogetherAI.
- * @property {number} [seed] TogetherAI.
  * @property {string} [output_format] TogetherAI.
  * @property {number} [output_quality] TogetherAI.
- * @property {string} [negative_prompt] TogetherAI.
- * @property {string[]} [reference_images] TogetherAI.
- * @property {Array<{ input_image: string, frame: number }>} [frame_images] TogetherAI.
+ * @property {Array<{ input_image: string, frame: number }>} [frame_images] TogetherAI: keyframe images
+ * for image-to-video.
  * @property {Record<string, unknown>} [metadata] TogetherAI.
  * @property {string} [puter_output_path] Save the generated video to this path on the Puter filesystem.
- * @property {string} [last_frame] Final frame to guide generation toward.
+ * Relative paths resolve against the app's data directory (`~/AppData/<appID>/`) when called from an
+ * app, or `~/` otherwise. The caller must have write permission to the destination.
  */
 
 /**

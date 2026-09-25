@@ -42,14 +42,46 @@ export interface UsageInput {
 export type UsageByType = {
     total: number;
     /**
-     * Claim counter for the month's recurring charges — see
-     * `MONTHLY_CHARGE_CLAIM`. Absent until the first read or write of the
-     * month; 1 for whoever claimed it, higher for anyone who raced and lost.
+     * The part of `total` charged to the monthly allowance; spend past it draws
+     * down purchased credits instead. Absent on records from before the split,
+     * where readers count `total` against the allowance, capped at it.
+     */
+    allowanceUsed?: number;
+    /**
+     * Claim counter for folding the pre-split baseline into `allowanceUsed`; 1
+     * for the winner, higher for racers.
+     */
+    allowanceUsedBaselined?: number;
+    /**
+     * Claim counter for the month's recurring charges (`MONTHLY_CHARGE_CLAIM`);
+     * same semantics.
      */
     monthlyChargesApplied?: number;
+    /**
+     * How many distinct detail types the totals item has admitted this month
+     * (sharded months only) — bookkeeping for the cap, never returned to a
+     * caller.
+     */
+    detailPaths?: number;
 } & Partial<Record<Exclude<string, 'total'>, UsageRecord>>;
 
 export interface AppTotals {
     total: number;
     count: number;
 }
+
+/**
+ * Budget committed to an in-flight operation. Release on every path out; an
+ * unreleased hold expires on its own.
+ */
+export interface CreditHold {
+    release(): Promise<void>;
+    /**
+     * Push the deadline out for a long-running operation. Absent on the no-op
+     * hold.
+     */
+    extend?(): Promise<void>;
+}
+
+/** For paths that take no hold but still release one. */
+export const NO_CREDIT_HOLD: CreditHold = { release: async () => {} };

@@ -1,6 +1,6 @@
 ---
 title: puter.kv.del()
-description: Remove keys from key-value store.
+description: Remove keys from the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 

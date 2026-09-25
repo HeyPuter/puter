@@ -285,10 +285,12 @@ describe('SuggestedAppsService hosted-backing guard', () => {
         const { userId } = await makeUser();
         const sub = uniqueName('builtinlive');
         await server.stores.subdomain.create({ userId, subdomain: sub });
-        // 'markus' is the first built-in opener mapped to `.md`.
-        await pointBuiltinAt('markus', userId, hostedUrl(sub));
+        // 'viewer' is the first built-in opener mapped to `.png`.
+        await pointBuiltinAt('viewer', userId, hostedUrl(sub));
 
-        expect((await suggestFor('md')).map((a) => a.name)).toContain('markus');
+        expect((await suggestFor('png')).map((a) => a.name)).toContain(
+            'viewer',
+        );
     });
 
     it('drops a built-in-name opener whose hosted backing is gone', async () => {

@@ -16,6 +16,7 @@
 
     <button id="req-email-perm" disabled>Request Email Permission</button>
     <button id="req-driver-perm" disabled>Request Driver Permission</button>
+    <button id="req-fs-create-perm" disabled>Request FS Create Permission</button>
 
     <div id="log" data-testid="log"></div>
 
@@ -29,6 +30,14 @@
     </script>
     <script src="/dist/puter.dev.js"></script>
     <script>
+        // A driver nothing implies: every app implicitly holds the built-in
+        // driver scopes (backend hardcoded-permissions.js), and access already
+        // held resolves without a prompt. Fresh per page load unless `?perm=`
+        // pins it, so one test's Allow can't settle another test's request.
+        window.__driverPermission =
+            new URLSearchParams(location.search).get('perm')
+            || `driver:e2e-${Math.random().toString(36).slice(2, 10)}:generate`;
+
         const logEl = document.getElementById('log');
         const statusEl = document.getElementById('status');
 
@@ -44,6 +53,7 @@
             statusEl.textContent = `Ready (env=${puter.env})`;
             document.getElementById('req-email-perm').disabled = false;
             document.getElementById('req-driver-perm').disabled = false;
+            document.getElementById('req-fs-create-perm').disabled = false;
         }
 
         function waitForPuter() {
@@ -75,11 +85,31 @@
         document.getElementById('req-driver-perm').addEventListener('click', async () => {
             try {
                 const granted = await puter.ui.requestPermission({
-                    permission: 'driver:puter-image-generation:generate',
+                    permission: window.__driverPermission,
                 });
                 log(`perm:driver:${granted}`);
             } catch (e) {
                 log(`perm:driver:error:${e?.message ?? e}`);
+            }
+        });
+
+        // A path under the user's own home that does not exist, requested
+        // without `create` so the default (create on approval) is what runs.
+        // Randomized per load so a re-run never collides with an entry a
+        // previous run created.
+        window.__fsCreateName = `e2e-create-${Math.random().toString(36).slice(2, 10)}`;
+        document.getElementById('req-fs-create-perm').addEventListener('click', async () => {
+            try {
+                const whoami = await puter.auth.whoami();
+                const path = `/${whoami.username}/${window.__fsCreateName}`;
+                const granted = await puter.ui.requestPermission({
+                    permission: `fs:${path}:write`,
+                });
+                log(`perm:fscreate:${granted}`);
+                const stat = await puter.fs.stat({ path }).catch(() => null);
+                log(`perm:fscreate:stat:${stat ? (stat.is_dir ? 'dir' : 'file') : 'missing'}`);
+            } catch (e) {
+                log(`perm:fscreate:error:${e?.message ?? e}`);
             }
         });
     </script>

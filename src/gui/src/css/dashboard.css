@@ -268,6 +268,22 @@ body {
     margin-bottom: 10px;
 }
 
+.dashboard-sidebar-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dashboard-sidebar-team {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    padding-left: 34px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .dashboard-sidebar-logo {
     display: flex;
     gap: 10px;
@@ -344,7 +360,8 @@ body {
     padding: 4px 0 12px;
 }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-logo {
+.dashboard-sidebar.collapsed .dashboard-sidebar-logo,
+.dashboard-sidebar.collapsed .dashboard-sidebar-team {
     display: none;
 }
 
@@ -911,6 +928,14 @@ input.myapps-search:disabled {
 .myapps-empty p {
     font-size: 15px;
     margin: 0;
+}
+
+/* The search's "nothing matched" line, which stands above a grid rather than
+   in place of one (the add-an-app tile is still down there): it takes only the
+   height it needs, and leaves the rest of the column to the pager. */
+.myapps-empty-notice {
+    flex: 0 0 auto;
+    padding: 20px 0 18px;
 }
 
 /* iOS-style pager: pages snap horizontally, dots below, hover arrows */
@@ -2246,6 +2271,1195 @@ p.myapps-add-error {
     }
 }
 
+/* -- Share modal --
+   Responsive, from-scratch replacement for UIWindowShare in the Dashboard:
+   a centered card on desktop, a bottom sheet on mobile. Mirrors the item
+   properties modal's shell so the two read as one system. */
+.share-modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--dashboard-shadow-overlay, rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    z-index: 1000;
+}
+.share-modal-overlay.share-modal-show {
+    opacity: 1;
+}
+
+.share-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(440px, 100%);
+    max-height: min(620px, 85vh);
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
+    overflow: hidden;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+.share-modal-overlay.share-modal-show .share-modal {
+    transform: scale(1);
+    opacity: 1;
+}
+/* The dialog takes focus programmatically (tabindex=-1) when an action
+   removes the focused row; that's a resting place, not a target. */
+.share-modal:focus {
+    outline: none;
+}
+
+/* Header */
+.share-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.share-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+.share-modal-title-icon {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+/* Until (and unless) the item's icon resolves, the title sits flush left. */
+.share-modal-title-icon:empty {
+    display: none;
+}
+.share-modal-title-icon img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+}
+.share-modal-title-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.share-modal-title-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.share-modal-title-sub {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+/* Several items: their icons fan out from the same 34px slot one item's
+   icon occupies, each ringed in the card color so the pile reads as a pile. */
+.share-modal-title-icon.share-modal-title-stack {
+    width: 50px;
+}
+/* Two rings, card then border: without the outer one, two items with the
+   same icon overlap into one wide smudge instead of a pile. */
+.share-modal-title-icon.share-modal-title-stack img {
+    position: absolute;
+    top: 50%;
+    margin-top: -12px;
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    box-shadow:
+        0 0 0 2px var(--dashboard-card-background),
+        0 0 0 3px var(--dashboard-border);
+}
+.share-modal-title-stack {
+    position: relative;
+}
+.share-modal-title-stack img:nth-child(1) { left: 0; z-index: 3; }
+.share-modal-title-stack img:nth-child(2) { left: 12px; z-index: 2; }
+.share-modal-title-stack img:nth-child(3) { left: 24px; z-index: 1; }
+
+/* The names of what's being shared, folding out into the full list. */
+button.share-modal-title-sub {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.share-modal-items-summary {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.share-modal-chevron {
+    flex-shrink: 0;
+    transition: transform 0.15s;
+}
+.share-modal-items-toggle[aria-expanded='true'] .share-modal-chevron {
+    transform: rotate(180deg);
+}
+@media (hover: hover) {
+    button.share-modal-title-sub:hover {
+        color: var(--dashboard-text-primary);
+    }
+}
+button.share-modal-title-sub:focus-visible {
+    outline: none;
+    border-radius: 5px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-items {
+    margin: 0 0 14px;
+    padding: 0 0 12px;
+    /* Long selections scroll here rather than pushing the access list out of
+       reach behind the dialog's own scroll. */
+    max-height: 170px;
+    overflow-y: auto;
+    list-style: none;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+.share-modal-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+}
+.share-modal-item-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+}
+.share-modal-item-icon img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+.share-modal-item-name {
+    min-width: 0;
+    font-size: 13px;
+    color: var(--dashboard-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.share-modal-close {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+    .share-modal-close:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+.share-modal-close:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* Body */
+.share-modal-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 16px 18px 18px;
+}
+
+/* Add people. style.css's input[type=text] / select rules match these
+   controls at the SAME specificity, so everything must be spelled out here
+   (twice for focus — input[type=text]:focus sets padding 7px / border 2px).
+   Same trap input.myapps-group-name documents. */
+.share-modal-add-row {
+    display: flex;
+    gap: 8px;
+}
+input.share-modal-recipient {
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    /* On narrow screens the placeholder outgrows the field; fade it out
+       with an ellipsis instead of clipping mid-letter. */
+    text-overflow: ellipsis;
+    padding: 8px 10px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background: var(--dashboard-input-background);
+    font-size: 13.5px;
+    font-family: inherit;
+    color: var(--dashboard-text-primary);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+input.share-modal-recipient::placeholder {
+    color: var(--dashboard-text-muted);
+}
+input.share-modal-recipient:focus {
+    padding: 8px 10px;
+    border: 1px solid var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+select.share-modal-mode,
+select.share-modal-link-access,
+select.share-modal-link-mode,
+select.share-modal-row-mode {
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    width: auto;
+    padding: 8px 26px 8px 10px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background-color: var(--dashboard-card-background);
+    /* Chevron stroke: slate-500 clears the 3:1 non-text contrast minimum
+       on light surfaces; the dark override below lightens it again. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+select.share-modal-mode,
+select.share-modal-link-mode {
+    flex-shrink: 0;
+}
+select.share-modal-mode:focus,
+select.share-modal-link-access:focus,
+select.share-modal-link-mode:focus,
+select.share-modal-row-mode:focus {
+    padding: 8px 26px 8px 10px;
+    border: 1px solid var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+select.share-modal-mode:disabled,
+select.share-modal-link-access:disabled,
+select.share-modal-link-mode:disabled,
+select.share-modal-row-mode:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+/* to prevent auto-zoom on input focus in mobile — .device-phone's global
+   17px rule loses to these selectors, so restate the threshold */
+.device-phone input.share-modal-recipient,
+.device-phone input.share-modal-recipient:focus,
+.device-phone select.share-modal-mode,
+.device-phone select.share-modal-link-access,
+.device-phone select.share-modal-link-mode,
+.device-phone select.share-modal-row-mode {
+    font-size: 16px;
+}
+
+/* Recipient suggestions. The structure lives in style.css, shared with the
+   desktop share dialog; only the palette is restated here so the list picks
+   up the dashboard's tokens in both themes. */
+.share-modal {
+    --share-suggest-bg: var(--dashboard-card-background);
+    --share-suggest-border: var(--dashboard-border);
+    --share-suggest-hover: var(--dashboard-hover);
+    --share-suggest-shadow: var(--dashboard-shadow-medium);
+    --share-suggest-fg: var(--dashboard-text-primary);
+    --share-suggest-muted: var(--dashboard-text-muted);
+    --share-suggest-picked-bg: var(--select-tint);
+}
+
+/* General access: the owner's switch between people-only and anyone with
+   the link, below the people and team controls. The copy button is the team
+   button's quieter sibling. */
+.share-modal-general {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.share-modal-general .share-modal-heading {
+    margin: 0 0 8px;
+}
+
+.share-modal-general-row {
+    display: flex;
+    gap: 8px;
+}
+
+select.share-modal-link-access {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.share-modal-general-note {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--dashboard-text-hint);
+}
+
+.share-modal-copy-link {
+    width: 100%;
+    height: 38px;
+    margin-top: 10px;
+    padding: 0 16px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: transparent;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+@media (hover: hover) {
+    .share-modal-copy-link:hover:not(:disabled) {
+        background: var(--dashboard-card-background);
+        border-color: var(--dashboard-text-hint);
+    }
+}
+
+.share-modal-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 10px;
+    padding: 0 16px;
+    height: 38px;
+    border: 1px solid var(--dashboard-link);
+    border-radius: 10px;
+    background: var(--dashboard-link);
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+@media (hover: hover) {
+    .share-modal-submit:hover:not(:disabled) {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+}
+.share-modal-submit:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-submit:disabled {
+    background: var(--dashboard-input-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-muted);
+    cursor: default;
+}
+/* In flight it is disabled too, but should read as working, not empty */
+.share-modal-submit.share-modal-btn-busy:disabled {
+    background: var(--dashboard-link);
+    border-color: var(--dashboard-link);
+    color: #fff;
+    opacity: 0.75;
+}
+
+/* Spinner: hidden until its owner is loading/busy */
+.share-modal-spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: share-modal-spin 0.7s linear infinite;
+}
+@keyframes share-modal-spin {
+    to { transform: rotate(360deg); }
+}
+.share-modal-loading {
+    display: flex;
+    justify-content: center;
+    padding: 18px 0;
+    color: var(--dashboard-text-muted);
+}
+.share-modal-loading .share-modal-spinner {
+    display: block;
+    width: 18px;
+    height: 18px;
+}
+.share-modal-btn-busy .share-modal-spinner {
+    display: block;
+}
+
+/* Status line (aria-live). It collapses when empty rather than going
+   display:none — a live region revealed in the same frame as its text is
+   unreliably announced, so it stays in the a11y tree between messages. */
+.share-modal-status {
+    margin-top: 12px;
+    padding: 9px 12px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+    word-break: break-word;
+}
+.share-modal-status:empty {
+    margin-top: 0;
+    padding: 0;
+    border-width: 0;
+}
+.share-modal-status-error {
+    background: var(--dashboard-danger-background);
+    border-color: var(--dashboard-danger-border);
+    color: var(--dashboard-danger-text);
+}
+.share-modal-status-success {
+    background: var(--dashboard-success-background);
+    border-color: var(--dashboard-success-border);
+    color: var(--dashboard-success-text);
+}
+
+/* Access list */
+.share-modal-heading {
+    margin: 18px 0 2px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+.share-modal-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+.share-modal-row:last-child {
+    border-bottom: none;
+}
+.share-modal-avatar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 600;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+}
+.share-modal-row-who {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.share-modal-row-name {
+    font-size: 13.5px;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.share-modal-row-via {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* An inline action can't be ellipsed away, so that line wraps instead —
+   as whole boxes, so a narrow sheet never leaves a separator dangling. */
+.share-modal-row-via-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    white-space: normal;
+    overflow: visible;
+}
+.share-modal-row-link {
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--select-color);
+    cursor: pointer;
+}
+@media (hover: hover) {
+    .share-modal-row-link:hover:not(:disabled) {
+        text-decoration: underline;
+    }
+}
+.share-modal-row-link:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-row-link:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+/* Owner badge and the fixed mode of an inherited grant */
+.share-modal-row-tag {
+    flex-shrink: 0;
+    font-size: 12.5px;
+    color: var(--dashboard-text-secondary);
+}
+select.share-modal-row-mode {
+    flex-shrink: 0;
+    padding: 5px 24px 5px 8px;
+    border-color: transparent;
+    background-color: transparent;
+    font-size: 12.5px;
+    color: var(--dashboard-text-secondary);
+    background-position: right 6px center;
+}
+@media (hover: hover) {
+    select.share-modal-row-mode:hover:not(:disabled) {
+        background-color: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+select.share-modal-row-mode:focus {
+    padding: 5px 24px 5px 8px;
+    border: 1px solid var(--select-color);
+}
+.share-modal-revoke {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+    .share-modal-revoke:hover:not(:disabled) {
+        background: var(--dashboard-danger-background);
+        color: var(--dashboard-danger-text);
+    }
+}
+.share-modal-revoke:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-empty {
+    margin: 0;
+    padding: 10px 0;
+    font-size: 13px;
+    color: var(--dashboard-text-muted);
+}
+
+/* Inline revoke confirmation (in place of the row it removes) */
+.share-modal-row-confirm {
+    flex-wrap: wrap;
+}
+.share-modal-confirm-text {
+    flex: 1 1 180px;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-text-primary);
+    word-break: break-word;
+}
+.share-modal-confirm-actions {
+    flex-shrink: 0;
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+}
+.share-modal-btn-quiet,
+.share-modal-btn-danger {
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.share-modal-btn-quiet {
+    border: 1px solid var(--dashboard-border);
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+}
+@media (hover: hover) {
+    .share-modal-btn-quiet:hover:not(:disabled) {
+        background: var(--dashboard-sidebar-background);
+    }
+}
+.share-modal-btn-danger {
+    border: 1px solid var(--dashboard-danger-border);
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+@media (hover: hover) {
+    .share-modal-btn-danger:hover:not(:disabled) {
+        border-color: var(--dashboard-danger-text);
+    }
+}
+.share-modal-btn-quiet:focus-visible,
+.share-modal-btn-danger:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-btn-quiet:disabled,
+.share-modal-btn-danger:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+/* Touch: every control clears 44px. The icon buttons keep their 30-32px
+   visuals but hit-test at 44x44 via a centered pseudo-element (the 10px
+   gap to the row's select and the 18px between rows absorb the overhang
+   without overlap); everything else grows for real via min-height, which
+   holds whatever the inherited line-height turns out to be.
+   This block sits below every base rule it overrides — a media query
+   adds no specificity, so source order decides. */
+@media (pointer: coarse) {
+    .share-modal-close,
+    .share-modal-revoke {
+        position: relative;
+    }
+    .share-modal-close::before,
+    .share-modal-revoke::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+    /* Text controls grow their hit area downwards and upwards only: widening
+       them would reach under the row's select. */
+    .share-modal-items-toggle,
+    .share-modal-row-link {
+        position: relative;
+    }
+    .share-modal-items-toggle::before,
+    .share-modal-row-link::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        height: 44px;
+        transform: translateY(-50%);
+    }
+    input.share-modal-recipient,
+    input.share-modal-recipient:focus,
+    select.share-modal-mode,
+    select.share-modal-mode:focus,
+    select.share-modal-link-access,
+    select.share-modal-link-access:focus,
+    select.share-modal-link-mode,
+    select.share-modal-link-mode:focus {
+        min-height: 44px;
+    }
+    select.share-modal-row-mode,
+    select.share-modal-row-mode:focus {
+        min-height: 44px;
+        padding-top: 9px;
+        padding-bottom: 9px;
+    }
+    .share-modal-submit {
+        height: 44px;
+    }
+    .share-modal-btn-quiet,
+    .share-modal-btn-danger {
+        box-sizing: border-box;
+        min-height: 44px;
+        padding: 10px 16px;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    /* The avatar's tinted fill needs a lighter glyph over dark surfaces */
+    .share-modal-avatar,
+    .share-modal .share-suggest-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+    }
+    /* Restated after the rule above, which would otherwise repaint the glyph
+       variant with a hue it does not carry. */
+    .share-modal .share-suggest-avatar-team {
+        background: var(--share-suggest-hover);
+        color: var(--share-suggest-muted);
+    }
+    /* Chevron: slate-400, lighter than the light theme's stroke */
+    select.share-modal-mode,
+    select.share-modal-row-mode {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    }
+}
+
+/* Mobile: dock to the bottom as a slide-up sheet */
+@media (max-width: 600px) {
+    .share-modal-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .share-modal {
+        width: 100%;
+        max-width: none;
+        max-height: 88vh;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        transform: translateY(24px);
+    }
+    .share-modal-overlay.share-modal-show .share-modal {
+        transform: translateY(0);
+    }
+    /* The sheet sits flush with the physical bottom edge (viewport-fit=
+       cover), so the scrollable body clears the home indicator itself. */
+    .share-modal-body {
+        padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .share-modal-overlay,
+    .share-modal {
+        transition: none;
+    }
+    .share-modal-spinner {
+        animation-duration: 1.6s;
+    }
+}
+
+/* -- Profile picture adjust modal --
+   Opens after the Account tab's file picker so the user can reposition and
+   zoom the photo inside the circular crop. Same shell as the share and item
+   properties modals: a centered card on desktop, a bottom sheet on mobile. */
+.profile-crop-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--dashboard-shadow-overlay, rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    z-index: 1000;
+}
+.profile-crop-overlay.profile-crop-show {
+    opacity: 1;
+}
+
+.profile-crop-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(400px, 100%);
+    max-height: 100%;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
+    overflow: hidden;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+.profile-crop-overlay.profile-crop-show .profile-crop-modal {
+    transform: scale(1);
+    opacity: 1;
+}
+.profile-crop-modal:focus {
+    outline: none;
+}
+
+/* Header */
+.profile-crop-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.profile-crop-title {
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.profile-crop-close,
+.profile-crop-zoom-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+    .profile-crop-close:hover,
+    .profile-crop-zoom-btn:hover:not(:disabled) {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+.profile-crop-close:focus-visible,
+.profile-crop-zoom-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.profile-crop-zoom-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+.profile-crop-zoom-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Body */
+.profile-crop-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    overflow-y: auto;
+}
+
+/* The frame is a square viewport the photo moves inside; the mask dims
+   whatever falls outside the circle that becomes the avatar. */
+.profile-crop-frame {
+    position: relative;
+    width: min(280px, 100%);
+    aspect-ratio: 1 / 1;
+    flex-shrink: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--dashboard-sidebar-background);
+    touch-action: none;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.profile-crop-frame.profile-crop-frame-dragging {
+    cursor: grabbing;
+}
+.profile-crop-frame:focus {
+    outline: none;
+}
+.profile-crop-frame:focus-visible {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+/* Focus taken on pointerdown so the arrow keys work after a click or tap;
+   the ring waits for an actual key press (see the frame's keydown). */
+.profile-crop-frame.profile-crop-frame-pointer-focus:focus-visible {
+    box-shadow: none;
+}
+.profile-crop-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    max-width: none;
+    max-height: none;
+    transform-origin: 0 0;
+    will-change: transform;
+    pointer-events: none;
+}
+.profile-crop-mask {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    box-shadow:
+        inset 0 0 0 2px rgba(255, 255, 255, 0.85),
+        0 0 0 400px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+}
+.profile-crop-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border: 2px solid var(--dashboard-text-muted);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: profile-crop-spin 0.7s linear infinite;
+}
+@keyframes profile-crop-spin {
+    to { transform: rotate(360deg); }
+}
+
+.profile-crop-hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    text-align: center;
+}
+
+/* Zoom: [-] slider [+] */
+.profile-crop-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: min(280px, 100%);
+}
+.profile-crop-zoom {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+}
+.profile-crop-zoom:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.profile-crop-zoom:focus {
+    outline: none;
+}
+.profile-crop-zoom::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--dashboard-border);
+}
+.profile-crop-zoom::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    margin-top: -7px;
+    border-radius: 50%;
+    border: 2px solid var(--dashboard-card-background);
+    background: var(--dashboard-link);
+    box-shadow: 0 1px 3px var(--dashboard-shadow-medium);
+}
+.profile-crop-zoom:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.profile-crop-zoom::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--dashboard-border);
+}
+/* Firefox sizes the thumb without its border */
+.profile-crop-zoom::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--dashboard-card-background);
+    background: var(--dashboard-link);
+    box-shadow: 0 1px 3px var(--dashboard-shadow-medium);
+}
+.profile-crop-zoom:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* Status line (aria-live). Collapses when empty rather than going
+   display:none so it stays in the a11y tree; the negative margin swallows
+   the body's flex gap it would otherwise still claim. */
+.profile-crop-status {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--dashboard-danger-border);
+    border-radius: 8px;
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+    font-size: 13px;
+    text-align: center;
+}
+.profile-crop-status:empty {
+    padding: 0;
+    border-width: 0;
+    margin-top: -14px;
+}
+
+/* Footer */
+.profile-crop-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.profile-crop-btn-quiet,
+.profile-crop-save {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 88px;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.profile-crop-btn-quiet {
+    border: 1px solid var(--dashboard-border);
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+}
+.profile-crop-save {
+    border: 1px solid var(--dashboard-link);
+    background: var(--dashboard-link);
+    color: #fff;
+}
+@media (hover: hover) {
+    .profile-crop-btn-quiet:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+    .profile-crop-save:hover:not(:disabled) {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+}
+.profile-crop-btn-quiet:focus-visible,
+.profile-crop-save:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.profile-crop-save:disabled {
+    background: var(--dashboard-input-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-muted);
+    cursor: default;
+}
+
+/* Touch: every control clears 44px. The close button keeps its 32px visual
+   and hit-tests at 44x44 via a pseudo-element; the zoom buttons grow for
+   real so their hit areas never reach under the slider's thumb. */
+@media (pointer: coarse) {
+    .profile-crop-close {
+        position: relative;
+    }
+    .profile-crop-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+    .profile-crop-zoom-btn {
+        width: 44px;
+        height: 44px;
+    }
+    .profile-crop-zoom {
+        height: 44px;
+    }
+    .profile-crop-zoom::-webkit-slider-thumb {
+        width: 24px;
+        height: 24px;
+        margin-top: -10px;
+    }
+    .profile-crop-zoom::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+    }
+    .profile-crop-btn-quiet,
+    .profile-crop-save {
+        min-height: 44px;
+        height: auto;
+        padding: 10px 18px;
+    }
+}
+
+/* Mobile: dock to the bottom as a slide-up sheet */
+@media (max-width: 600px) {
+    .profile-crop-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .profile-crop-modal {
+        width: 100%;
+        max-width: none;
+        max-height: 92vh;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        transform: translateY(24px);
+    }
+    .profile-crop-overlay.profile-crop-show .profile-crop-modal {
+        transform: translateY(0);
+    }
+    /* The sheet sits flush with the physical bottom edge (viewport-fit=
+       cover), so the footer clears the home indicator itself. */
+    .profile-crop-footer {
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .profile-crop-overlay,
+    .profile-crop-modal {
+        transition: none;
+    }
+    .profile-crop-spinner {
+        animation-duration: 1.6s;
+    }
+}
+
 /* A tile installed by a deep-link landing, not yet arrived: rendered in
    place — layout, page count, and the wayfinding flip all see it — but held
    invisible for the intro's arrival beat to reveal (see _spliceDeepLinkApp /
@@ -2526,15 +3740,32 @@ body.myapps-reordering .myapps-tile {
 
 /* Dashboard files */
 
+/* Files is the one tab whose list scrolls inside the page instead of with it.
+   Its height comes from a flex chain down from .dashboard-content (which is
+   bounded by the window) rather than from 100vh: on phones 100vh is the large
+   viewport, taller than the visible area while the browser toolbars are shown,
+   so a vh-sized list overhung the clipped content box and its last rows could
+   never be scrolled into view. */
 .dashboard-content.files {
     padding: 0 0 0 10px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard-section.dashboard-section-files.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
 
 .dashboard-tab-content.files-tab {
     display: flex;
     justify-content: flex-start;
-    align-items: flex-start;
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
     max-width: unset;
     padding: 0;
     margin: 0;
@@ -2607,7 +3838,9 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .directory-contents {
     position: relative;
     width: calc(100% - 160px);
-    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     border-left: 1px solid var(--dashboard-border);
 }
 
@@ -2760,7 +3993,8 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .files {
     width: 100%;
-    height: calc(100vh - 124px);
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     padding-bottom: 30px;
@@ -2858,7 +4092,7 @@ body.myapps-reordering .myapps-tile {
 
 /* Open-file dot: marks rows whose file is open in an app window (visible or
    minimized) — the row doubles as that window's switcher (clicking it
-   restores the window; see open_item.js), sibling of the Apps-tab tiles'
+   restores the window; see openItem.js), sibling of the Apps-tab tiles'
    running dot. Kept current by updateOpenFileDots in TabFiles.js. */
 .dashboard-section-files .files-tab .files .row.file-is-open .item-name-wrapper::after {
     content: '';
@@ -3322,6 +4556,15 @@ body.myapps-reordering .myapps-tile {
     padding: 0;
     background: transparent;
     border-radius: 2px;
+}
+
+/* Smaller than the desktop's, to match a 24px row icon. */
+.dashboard-section-files .files-tab .files .row .item-shared-marker {
+    width: 7px;
+    height: 7px;
+    right: 2px;
+    bottom: 2px;
+    box-shadow: 0 0 0 1px white;
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row .item-icon img {
@@ -3993,6 +5236,15 @@ body.myapps-reordering .myapps-tile {
 }
 
 /* Mobile phone optimizations */
+/* The Shared/Trash rows on Home exist for phones, where the directories
+   sidebar below is hidden; while the sidebar is visible they'd be redundant.
+   Same breakpoint as the sidebar rule so the two never both show or both hide. */
+@media (min-width: 481px) {
+    .dashboard-section-files .files-tab .files .row.place-row {
+        display: none !important;
+    }
+}
+
 @media (max-width: 480px) {
     .dashboard-content.files {
         padding: 0;
@@ -4216,6 +5468,38 @@ body.myapps-reordering .myapps-tile {
         top: 8px;
         left: 8px;
         z-index: 2;
+    }
+
+    /* Place rows (Shared/Trash at the top of Home — TabFiles.renderPlaceRows)
+       stand in for the hidden sidebar. A divider under the pair separates them
+       from Home's own folders; they only navigate, so select mode gives them
+       no checkbox and keeps their layout. */
+    .dashboard-section-files .files-tab .files.files-list-view .row.place-row[data-place="Trash"] {
+        border-bottom: 1px solid var(--dashboard-border);
+        border-radius: 0;
+        margin-bottom: 4px;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files .row.place-row .item-checkbox {
+        display: none;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row {
+        grid-template-columns: 48px 1fr !important;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-icon {
+        grid-column: 1;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-name-wrapper,
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-metadata {
+        grid-column: 2;
+    }
+
+    /* Home with the places on screen isn't empty. */
+    .dashboard-section-files .files-tab .files .row.place-row ~ .files-empty-notice {
+        display: none !important;
     }
 }
 
@@ -4622,9 +5906,10 @@ body.myapps-reordering .myapps-tile {
     gap: 24px;
 }
 
-/* Three even columns need real width. Below that the plan column lands around
-   230px, which wraps its badge and renewal notice into a tall ribbon — so give
-   the plan its own row and let the two usage meters share the next one. */
+/* Three even columns need real width. Below that, give the plan its own row
+   and let the two usage meters share the next one — they are the pair that
+   reads as a set, and splitting them to put the plan beside one of them makes
+   the row look accidental. */
 @media (max-width: 1200px) {
     .dashboard .bento-usage-grid {
         grid-template-columns: 1fr 1fr;
@@ -4697,12 +5982,18 @@ body.myapps-reordering .myapps-tile {
     line-height: 1.4;
 }
 
-/* Time-boxed but not broken — a trial notice reads as advisory, not as the
-   red dunning banner and not as an amber warning either. */
-.dashboard .bento-plan-warning.info {
-    color: var(--dashboard-notice-text);
-    background: var(--dashboard-notice-background);
-    border-color: var(--dashboard-notice-border);
+/* Time-boxed but not broken. A boxed, tinted, bordered panel is the shape of
+   an alarm, and in a ~230px column it wrapped a trial into a five-line ribbon
+   that stood twice as tall as the storage and resources meters beside it. A
+   trial is a date, not a fault: it reads as the quiet detail line under the
+   badge, exactly where those two columns put their "n% of X". The box stays
+   for the dunning banner, which has earned it. */
+.dashboard .bento-plan-note {
+    display: block;
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-text-hint);
 }
 
 .dashboard .bento-plan-upgrade {
@@ -4999,6 +6290,10 @@ body.myapps-reordering .myapps-tile {
     transition: transform 0.2s ease;
     box-shadow: 0 4px 16px var(--dashboard-shadow-medium);
 }
+.dashboard-profile-avatar:focus-visible {
+    outline: none;
+    box-shadow: 0 4px 16px var(--dashboard-shadow-medium), 0 0 0 3px var(--select-ring);
+}
 
 @media (hover: hover) {
     .dashboard-profile-avatar:hover {
@@ -5115,6 +6410,16 @@ body.myapps-reordering .myapps-tile {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Sits where the card's button would, when the account may not press one. */
+.dashboard-settings-card-note {
+    flex-shrink: 0;
+    max-width: 240px;
+    text-align: right;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--dashboard-text-hint);
 }
 
 .dashboard-settings-card .button {
@@ -5445,8 +6750,11 @@ body.myapps-reordering .myapps-tile {
     opacity: 0.7;
 }
 
+/* Most img icons in these menus are full-color (app icons in Open With,
+   file-type icons in New) and must keep their colors in dark mode — only
+   monochrome dark glyphs opt in to inversion via .ctx-item-icon-monochrome. */
 @media (prefers-color-scheme: dark) {
-    .context-menu-modal-dialog .context-menu-item-icon img {
+    .context-menu-modal-dialog .context-menu-item-icon img.ctx-item-icon-monochrome {
         filter: invert(1);
     }
 }
@@ -5950,4 +7258,2022 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     height: 4px;
     border-radius: 50%;
     background: var(--dashboard-text-tertiary, #71717a);
+}
+
+/* ======================================
+   Notifications
+   ====================================== */
+
+/* -- Bell in the sidebar -- */
+
+.dashboard-notifications-btn {
+    width: 100%;
+    border: none;
+    background: none;
+    font: inherit;
+    text-align: left;
+    margin-bottom: 6px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dashboard-notifications-btn-icon {
+    position: relative;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-btn-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-notifications-btn.has-open-panel {
+    background: var(--dashboard-hover);
+}
+
+/* Count pill; the collapsed sidebar swaps it for a dot on the bell */
+.dashboard-notifications-badge {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--select-color);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 20px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-badge[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-dot {
+    display: none;
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--select-color);
+    box-shadow: 0 0 0 2px var(--dashboard-sidebar-background);
+}
+
+.dashboard-sidebar.collapsed .dashboard-notifications-badge,
+.dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
+    display: block;
+}
+
+/* Bell rings once when the count goes up */
+@keyframes dashboard-notifications-ring {
+    0%, 100% { transform: rotate(0); }
+    20% { transform: rotate(14deg); }
+    40% { transform: rotate(-12deg); }
+    60% { transform: rotate(8deg); }
+    80% { transform: rotate(-4deg); }
+}
+
+.dashboard-notifications-btn.has-unread .dashboard-notifications-btn-icon svg {
+    transform-origin: 50% 2px;
+    animation: dashboard-notifications-ring 0.7s ease-in-out 1;
+}
+
+/* Mobile: the bell sits in the closed drawer, so the hamburger carries a dot */
+.dashboard-sidebar-toggle.has-unread::before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--select-color);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+    z-index: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-sidebar-toggle.has-unread::before {
+        box-shadow: 0 0 0 2px rgba(37, 37, 37, 0.9);
+    }
+}
+
+/* -- Panel -- */
+
+.dashboard-notifications-panel {
+    position: fixed;
+    z-index: 950;
+    display: flex;
+    flex-direction: column;
+    width: 380px;
+    max-height: min(560px, calc(100vh - 24px));
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium), 0 0 0 1px var(--dashboard-shadow-subtle);
+    opacity: 0;
+    transform: translateX(-6px) scale(0.98);
+    transform-origin: left bottom;
+    transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+    overflow: hidden;
+    color: var(--dashboard-text);
+}
+
+.dashboard-notifications-panel[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-panel.open {
+    opacity: 1;
+    transform: none;
+}
+
+/* Programmatic focus (opening, or after a dismiss) rests here; not a target. */
+.dashboard-notifications-panel:focus {
+    outline: none;
+}
+
+.dashboard-notifications-grip {
+    display: none;
+}
+
+.dashboard-notifications-scrim {
+    display: none;
+}
+
+.dashboard-notifications-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 12px 12px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dashboard-notifications-heading h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-notifications-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard-notifications-count:empty {
+    display: none;
+}
+
+.dashboard-notifications-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-mark-all,
+.dashboard-notifications-close,
+.dashboard-notifications-retry {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--dashboard-link);
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.dashboard-notifications-mark-all svg {
+    width: 15px;
+    height: 15px;
+}
+
+.dashboard-notifications-mark-all[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-close {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    justify-content: center;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-notifications-close svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (hover: hover) {
+    .dashboard-notifications-mark-all:hover,
+    .dashboard-notifications-retry:hover {
+        background: var(--select-tint);
+        color: var(--dashboard-link-hover);
+    }
+
+    .dashboard-notifications-close:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text);
+    }
+}
+
+.dashboard-notifications-mark-all:active,
+.dashboard-notifications-close:active,
+.dashboard-notifications-retry:active {
+    background: var(--dashboard-hover);
+}
+
+/* One-line feedback under the header: a failed dismiss, a failed refresh */
+.dashboard-notifications-status {
+    display: none;
+    padding: 8px 18px;
+    font-size: 12.5px;
+    color: var(--dashboard-danger-text);
+    background: var(--dashboard-danger-background);
+    border-bottom: 1px solid var(--dashboard-danger-border);
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-status.visible {
+    display: block;
+}
+
+.dashboard-notifications-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-notifications-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px;
+}
+
+/* -- Entries -- */
+
+.dashboard-notification {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    border-radius: 10px;
+    transition: background-color 0.15s;
+}
+
+.dashboard-notification + .dashboard-notification {
+    margin-top: 2px;
+}
+
+@media (hover: hover) {
+    .dashboard-notification:hover {
+        background: var(--dashboard-hover);
+    }
+}
+
+.dashboard-notification-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    border: none;
+    background: none;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    border-radius: 10px;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dashboard-notification-main.is-actionable {
+    cursor: pointer;
+}
+
+.dashboard-notification-main.is-actionable:active {
+    background: var(--dashboard-hover);
+}
+
+.dashboard-notification-icon {
+    position: relative;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text-secondary);
+    transition: opacity 0.2s;
+}
+
+.dashboard-notification:not(.is-unread) .dashboard-notification-icon {
+    opacity: 0.7;
+}
+
+.dashboard-notification-unread-dot {
+    display: none;
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--select-color);
+    box-shadow: 0 0 0 2px var(--dashboard-card-background);
+}
+
+.dashboard-notification.is-unread .dashboard-notification-unread-dot {
+    display: block;
+}
+
+.dashboard-notification-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.dashboard-notification-icon-sharing {
+    background: var(--dashboard-bento-apps-surface);
+    color: var(--dashboard-bento-apps-icon-bg);
+}
+
+.dashboard-notification-icon-worker {
+    background: var(--dashboard-bento-usage-surface);
+    color: var(--dashboard-bento-usage-icon-bg);
+}
+
+.dashboard-notification-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    /* Room for the ✕ that appears on hover, so text never sits under it */
+    padding-right: 22px;
+}
+
+.dashboard-notification-title {
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--dashboard-text-secondary);
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    transition: color 0.2s;
+}
+
+.dashboard-notification.is-unread .dashboard-notification-title {
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-notification-text {
+    font-size: 12.5px;
+    line-height: 1.35;
+    color: var(--dashboard-text-tertiary);
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    transition: color 0.2s;
+}
+
+.dashboard-notification.is-unread .dashboard-notification-text {
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard-notification-time {
+    font-size: 11.5px;
+    color: var(--dashboard-text-tertiary);
+    margin-top: 2px;
+}
+
+.dashboard-notification-read {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    opacity: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.12s, background-color 0.15s, color 0.15s;
+}
+
+.dashboard-notification-read svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dashboard-notification:hover .dashboard-notification-read,
+.dashboard-notification:focus-within .dashboard-notification-read {
+    opacity: 1;
+}
+
+@media (hover: hover) {
+    .dashboard-notification-read:hover {
+        background: var(--dashboard-border);
+        color: var(--dashboard-text);
+    }
+}
+
+/* Touch has no hover to reveal it */
+@media (hover: none) {
+    .dashboard-notification-read {
+        opacity: 1;
+    }
+}
+
+.dashboard-notification-main:focus-visible,
+.dashboard-notification-read:focus-visible,
+.dashboard-notifications-mark-all:focus-visible,
+.dashboard-notifications-close:focus-visible,
+.dashboard-notifications-retry:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
+}
+
+@keyframes dashboard-notification-enter {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: none; }
+}
+
+.dashboard-notification-new {
+    animation: dashboard-notification-enter 0.22s ease-out;
+}
+
+/* -- States -- */
+
+.dashboard-notifications-loading {
+    padding: 6px;
+}
+
+.dashboard-notifications-loading[hidden],
+.dashboard-notifications-empty[hidden],
+.dashboard-notifications-error[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-skeleton {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+}
+
+.dashboard-notifications-skeleton > span:first-child {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-skeleton > span:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.dashboard-notifications-skeleton i {
+    display: block;
+    height: 10px;
+    border-radius: 5px;
+}
+
+.dashboard-notifications-skeleton i:last-child {
+    width: 55%;
+}
+
+.dashboard-notifications-skeleton > span:first-child,
+.dashboard-notifications-skeleton i {
+    background: linear-gradient(90deg, var(--dashboard-hover) 25%, var(--dashboard-border) 50%, var(--dashboard-hover) 75%);
+    background-size: 200% 100%;
+    animation: dashboard-notifications-shimmer 1.4s linear infinite;
+}
+
+@keyframes dashboard-notifications-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+.dashboard-notifications-empty,
+.dashboard-notifications-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 36px 24px 40px;
+}
+
+.dashboard-notifications-empty-art {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+    margin-bottom: 14px;
+}
+
+.dashboard-notifications-empty-art svg {
+    width: 24px;
+    height: 24px;
+}
+
+.dashboard-notifications-empty-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dashboard-text-tertiary);
+}
+
+.dashboard-notifications-error p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--dashboard-text-tertiary);
+    max-width: 260px;
+}
+
+.dashboard-notifications-error p {
+    margin-bottom: 10px;
+}
+
+/* Screen-reader-only: the live region for arrivals, and a row's unread state */
+.dashboard-notifications-live,
+.dashboard-notification-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* -- Bottom sheet below the drawer breakpoint -- */
+
+@media (max-width: 768px) {
+    .dashboard-notifications-scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 949;
+        background: var(--dashboard-scrim);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.24s ease;
+    }
+
+    .dashboard-notifications-scrim[hidden] {
+        display: none;
+    }
+
+    .dashboard-notifications-scrim.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .dashboard-notifications-panel {
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: auto;
+        max-height: min(80vh, 640px);
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        padding-bottom: env(safe-area-inset-bottom);
+        transform: translateY(100%);
+        transform-origin: center bottom;
+        transition: opacity 0.2s ease, transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .dashboard-notifications-panel.open {
+        transform: none;
+    }
+
+    .dashboard-notifications-grip {
+        display: block;
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--dashboard-border);
+        margin: 8px auto 0;
+        flex-shrink: 0;
+    }
+
+    .dashboard-notifications-header {
+        padding: 8px 12px 12px 18px;
+    }
+
+    .dashboard-notification-main {
+        padding: 12px;
+    }
+
+    .dashboard-notification-title {
+        font-size: 14px;
+    }
+
+    .dashboard-notification-text {
+        font-size: 13px;
+    }
+
+    /* Toasts must not overflow a narrow screen */
+    body.dashboard-mode .notification,
+    body.dashboard-mode .notification-wrapper {
+        width: min(320px, calc(100vw - 24px));
+    }
+}
+
+/* -- Toasts, dashboard flavour -- */
+
+/* No toolbar to clear here; tuck into the corner. The mobile hamburger is
+   on the left, so the right edge is free. Above every window: app windows
+   opened from the dashboard are stay-on-top and stack in the 99999999+
+   band (see window_zindex_base in UIWindow.js), and a toast that lands
+   while one is open must still be seen. Under context menus. */
+body.dashboard-mode .notification-container {
+    top: 12px;
+    right: 12px;
+    z-index: 999999999;
+}
+
+body.dashboard-mode .notification {
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text);
+    box-shadow: 0 8px 28px var(--dashboard-shadow-medium);
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+body.dashboard-mode .notification-wrapper {
+    border-radius: 12px;
+}
+
+body.dashboard-mode .notification-title {
+    color: var(--dashboard-text-primary);
+}
+
+body.dashboard-mode .notification-text {
+    color: var(--dashboard-text-secondary);
+}
+
+body.dashboard-mode .notification-text:empty {
+    display: none;
+}
+
+body.dashboard-mode .notification-icon {
+    filter: none;
+}
+
+body.dashboard-mode .notification-icon img {
+    width: 30px;
+    height: 30px;
+}
+
+body.dashboard-mode .notifications-close-all {
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text);
+}
+
+@media (prefers-color-scheme: dark) {
+    body.dashboard-mode .notification-close {
+        background: var(--dashboard-card-background);
+        filter: invert(1) drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-notifications-panel,
+    .dashboard-notifications-scrim,
+    .dashboard-notification,
+    .dashboard-notification-read,
+    .dashboard-notification-icon,
+    .dashboard-notification-title,
+    .dashboard-notification-text {
+        transition: none;
+    }
+
+    .dashboard-notification-new,
+    .dashboard-notifications-btn.has-unread .dashboard-notifications-btn-icon svg,
+    .dashboard-notifications-skeleton > span:first-child,
+    .dashboard-notifications-skeleton i {
+        animation: none;
+    }
+
+    body.dashboard-mode .notification {
+        animation: none;
+    }
+}
+
+
+/* ======================================
+   Teams tab
+   ====================================== */
+
+/* Kept in the DOM for screen readers; a tooltip or layout carries it visually. */
+.dashboard-section-teams .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.teams-panel {
+    padding: 22px 24px;
+}
+
+/* -- Buttons: the settings cards' outline style, one accent for the primary -- */
+
+.dashboard-section-teams .button {
+    height: 36px;
+    line-height: 34px;
+    padding: 0 16px;
+    color: var(--dashboard-text-primary);
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.dashboard-section-teams .button-small {
+    height: 30px;
+    line-height: 28px;
+    padding: 0 12px;
+    font-size: 13px;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .button:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+}
+
+.dashboard-section-teams .button:focus-visible {
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-section-teams .button:active {
+    background: var(--dashboard-hover);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-primary);
+    box-shadow: none;
+}
+
+/* Base .button:disabled hard-codes light greys with !important. */
+.dashboard-section-teams .button:disabled {
+    background: var(--dashboard-card-background) !important;
+    border-color: var(--dashboard-border) !important;
+    color: var(--dashboard-text-muted) !important;
+    text-shadow: none !important;
+}
+
+.dashboard-section-teams .button-primary {
+    background: var(--dashboard-link);
+    border-color: var(--dashboard-link);
+    color: #fff;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .button-primary:hover {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+}
+
+.dashboard-section-teams .button-primary:active {
+    background: var(--dashboard-link-hover);
+    border-color: var(--dashboard-link-hover);
+    color: #fff;
+}
+
+.dashboard-section-teams .button-primary:disabled {
+    background: var(--dashboard-link) !important;
+    border-color: var(--dashboard-link) !important;
+    color: #fff !important;
+    opacity: 0.6;
+}
+
+.dashboard-section-teams .button-danger {
+    background: #f00808;
+    border-color: #f00808;
+    color: #fff;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .button-danger:hover {
+        background: #d90707;
+        border-color: #d90707;
+    }
+}
+
+.dashboard-section-teams .button-danger:active {
+    background: #c20606;
+    border-color: #c20606;
+    color: #fff;
+}
+
+/* -- Hero: the selected team -- */
+
+.teams-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.teams-hero-main {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+/* Lettered tile in place of a picture; hue comes from the name, per row. */
+.teams-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 600;
+    background: hsl(var(--teams-avatar-hue, 213) 70% 94%);
+    color: hsl(var(--teams-avatar-hue, 213) 55% 38%);
+    user-select: none;
+}
+
+.teams-avatar-lg {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.teams-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.teams-info-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.teams-info strong {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--dashboard-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.teams-role {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--select-tint);
+    color: var(--select-color);
+    white-space: nowrap;
+}
+
+.teams-info-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-dot {
+    margin: 0 6px;
+    color: var(--dashboard-text-muted);
+}
+
+.teams-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.teams-picker-select {
+    height: 36px;
+    max-width: 220px;
+    padding: 0 32px 0 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background-color: var(--dashboard-card-background);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+    color: var(--dashboard-text-primary);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    text-overflow: ellipsis;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.teams-picker-select:focus-visible {
+    outline: none;
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* -- Card headings -- */
+
+.teams-card-head {
+    margin-bottom: 16px;
+}
+
+.teams-panel h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-card-title);
+}
+
+.teams-count {
+    display: inline-block;
+    min-width: 20px;
+    padding: 0 7px;
+    border-radius: 999px;
+    line-height: 20px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-hint);
+    background: var(--dashboard-input-background);
+}
+
+.teams-panel-hint {
+    margin: 4px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-empty {
+    margin: 0;
+    padding: 6px 0 2px;
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+/* -- Directory: a settings row with the shared switch -- */
+
+.teams-directory .dashboard-settings-card-info span {
+    white-space: normal;
+    line-height: 1.45;
+}
+
+.teams-directory-toggle {
+    margin: 0;
+}
+
+/* -- Add an account -- */
+
+.teams-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+}
+
+.teams-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.teams-field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+
+.teams-form input {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.teams-form input:focus {
+    outline: none;
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.teams-field-help {
+    margin: 10px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-section-teams .teams-busy {
+    opacity: 0.75;
+}
+
+/* Shown once and never retrievable, so it is deliberately hard to miss. */
+.teams-credential {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 12px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 13px;
+}
+
+.teams-credential-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.teams-credential-head strong {
+    font-size: 13.5px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.teams-credential-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin: -4px -6px 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+@media (hover: hover) {
+    .teams-credential-dismiss:hover {
+        opacity: 1;
+        background: rgba(0, 0, 0, 0.06);
+    }
+}
+
+.teams-credential-dismiss:focus-visible {
+    outline: none;
+    opacity: 1;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.teams-credential-dismiss svg {
+    width: 14px;
+    height: 14px;
+}
+
+.teams-credential-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.teams-credential-value {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 8px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    user-select: all;
+    word-break: break-all;
+    outline: none;
+}
+
+.teams-credential-value:focus-visible {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-section-teams .teams-credential-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+}
+
+.teams-credential-copy svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dashboard-section-teams .teams-copied {
+    color: var(--dashboard-success-text);
+    border-color: var(--dashboard-success-border);
+}
+
+.teams-credential-note {
+    line-height: 1.5;
+}
+
+/* -- Tables: hairlines only, no grid -- */
+
+.teams-table-wrapper {
+    overflow-x: auto;
+}
+
+.teams-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    color: var(--dashboard-text-primary);
+}
+
+.teams-table th {
+    padding: 0 10px 10px;
+    border-bottom: 1px solid var(--dashboard-border);
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dashboard-text-muted);
+    white-space: nowrap;
+}
+
+.teams-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--dashboard-border);
+    vertical-align: middle;
+}
+
+.teams-table th:first-child,
+.teams-table td:first-child {
+    padding-left: 0;
+}
+
+.teams-table th:last-child,
+.teams-table td:last-child {
+    padding-right: 0;
+}
+
+.teams-table tbody tr:last-child td {
+    border-bottom: none;
+    padding-bottom: 4px;
+}
+
+.teams-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.teams-identity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.teams-identity-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.teams-identity-sub {
+    font-size: 12px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-you {
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-hint);
+}
+
+.teams-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.teams-status::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.teams-status-active {
+    color: var(--dashboard-success-text);
+}
+
+.teams-status-disabled {
+    color: var(--dashboard-text-muted);
+}
+
+/* Suspended accounts stay legible: they are still on the bill. */
+.teams-member-disabled td,
+.teams-member-disabled .teams-identity-sub {
+    color: var(--dashboard-text-muted);
+}
+
+.teams-member-disabled .teams-avatar {
+    filter: grayscale(1);
+    opacity: 0.7;
+}
+
+.teams-cell-actions {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.teams-member-actions {
+    display: inline-flex;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.dashboard-section-teams .teams-member-actions .button-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    line-height: 1;
+    border-radius: 8px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    box-shadow: none;
+}
+
+@media (hover: hover) {
+    .dashboard-section-teams .teams-member-actions .button-icon:hover {
+        background: var(--dashboard-input-background);
+        color: var(--dashboard-text-primary);
+    }
+
+    .dashboard-section-teams .teams-member-actions .button-icon.button-danger:hover {
+        background: var(--dashboard-danger-background);
+        color: var(--dashboard-danger-text);
+    }
+}
+
+.dashboard-section-teams .teams-member-actions .button-icon:active {
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-section-teams .teams-member-actions .button-icon:focus-visible {
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.teams-member-actions .button-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.teams-cell-action {
+    font-weight: 500;
+}
+
+.teams-audit-reason {
+    font-weight: 400;
+    color: var(--dashboard-text-muted);
+}
+
+.teams-cell-when {
+    color: var(--dashboard-text-hint);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.teams-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--dashboard-border);
+    flex-wrap: wrap;
+}
+
+.teams-pager-count {
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+    font-variant-numeric: tabular-nums;
+}
+
+.teams-pager-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+/* -- Roster (member view) -- */
+
+.teams-roster {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.teams-roster-name {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+
+.teams-roster-name:last-child {
+    border-bottom: none;
+    padding-bottom: 2px;
+}
+
+/* -- Empty / error states -- */
+
+.teams-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 40px 24px 44px;
+}
+
+.teams-state-art {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 16px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.teams-state-art svg {
+    width: 26px;
+    height: 26px;
+}
+
+.teams-state-warning .teams-state-art {
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+}
+
+.teams-state h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--dashboard-text-primary);
+}
+
+.teams-state .teams-panel-hint {
+    max-width: 400px;
+    margin-top: 6px;
+}
+
+.teams-state .button {
+    margin-top: 20px;
+}
+
+/* -- Loading skeleton -- */
+
+.teams-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.teams-skeleton-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.teams-skeleton-card > span {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.teams-skeleton-card i,
+.teams-skeleton-tile {
+    display: block;
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--dashboard-hover) 25%, var(--dashboard-border) 50%, var(--dashboard-hover) 75%);
+    background-size: 200% 100%;
+    animation: teams-shimmer 1.4s linear infinite;
+}
+
+.teams-skeleton-tile {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    flex-shrink: 0;
+}
+
+@keyframes teams-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .teams-skeleton-card i,
+    .teams-skeleton-tile {
+        animation: none;
+    }
+}
+
+/* -- Plan picker (rendered by the billing extension) -- */
+
+.teams-plan-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.teams-plan-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+}
+
+.teams-plan-name {
+    font-weight: 500;
+    color: var(--dashboard-text);
+}
+
+.teams-plan-price {
+    flex: 1;
+    font-size: 13px;
+    color: var(--dashboard-text-hint);
+}
+
+.teams-plan-badge,
+.teams-plan-status {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+
+/* -- Dark mode -- */
+
+@media (prefers-color-scheme: dark) {
+    .teams-avatar {
+        background: hsl(var(--teams-avatar-hue, 213) 35% 24%);
+        color: hsl(var(--teams-avatar-hue, 213) 70% 80%);
+    }
+
+    .teams-credential-dismiss:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+}
+
+/* -- Phone: cards stack, tables become labelled rows -- */
+
+@media (max-width: 768px) {
+    .teams-panel {
+        padding: 18px 16px;
+    }
+
+    .teams-hero {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .teams-hero-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .teams-hero-actions .button,
+    .teams-picker-select {
+        width: 100%;
+        max-width: none;
+    }
+
+    .teams-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .teams-form .button {
+        width: 100%;
+    }
+
+    .teams-table thead {
+        display: none;
+    }
+
+    .teams-table,
+    .teams-table tbody,
+    .teams-table tr,
+    .teams-table td {
+        display: block;
+    }
+
+    .teams-table tr {
+        padding: 12px 0;
+        border-bottom: 1px solid var(--dashboard-border);
+    }
+
+    .teams-table tbody tr:last-child {
+        border-bottom: none;
+        padding-bottom: 2px;
+    }
+
+    .teams-table td,
+    .teams-table th:first-child,
+    .teams-table td:first-child,
+    .teams-table tbody tr:last-child td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 0;
+        border: none;
+    }
+
+    .teams-table td[data-label]::before {
+        content: attr(data-label);
+        flex-shrink: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--dashboard-text-muted);
+    }
+
+    .teams-cell-identity {
+        padding-bottom: 8px !important;
+    }
+
+    .teams-cell-actions {
+        width: auto;
+        justify-content: flex-end;
+        padding-top: 8px !important;
+    }
+
+    .teams-cell-actions:empty {
+        display: none;
+    }
+
+    /* Touch targets, with an edge: nothing hovers here to reveal them. */
+    .dashboard-section-teams .teams-member-actions .button-icon {
+        width: 40px;
+        height: 40px;
+        border-color: var(--dashboard-border);
+    }
+
+    /* The settings cards stack on phones; a switch reads better beside its label. */
+    .dashboard-section-teams .teams-directory {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .teams-cell-when {
+        white-space: normal;
+        text-align: right;
+    }
+
+    .teams-credential-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .dashboard-section-teams .teams-credential-copy {
+        justify-content: center;
+    }
+
+    .teams-pager {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .teams-pager-buttons .button {
+        flex: 1;
+    }
+}
+
+/* ======================================
+   Dashboard dialog (confirm / alert / prompt)
+   ====================================== */
+
+.dashboard-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--dashboard-shadow-overlay, rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    z-index: 1000;
+}
+
+.dashboard-dialog-overlay.dashboard-dialog-show {
+    opacity: 1;
+}
+
+.dashboard-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(440px, 100%);
+    max-height: 100%;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
+    overflow: hidden;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+
+.dashboard-dialog-overlay.dashboard-dialog-show .dashboard-dialog {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.dashboard-dialog:focus {
+    outline: none;
+}
+
+.dashboard-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+
+.dashboard-dialog-title {
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dashboard-dialog-close {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-dialog-close svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (hover: hover) {
+    .dashboard-dialog-close:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard-dialog-close:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-dialog-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 20px 18px;
+    overflow-y: auto;
+}
+
+.dashboard-dialog-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.dashboard-dialog-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-dialog-danger .dashboard-dialog-icon,
+.dashboard-dialog-error .dashboard-dialog-icon {
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-dialog-warning .dashboard-dialog-icon {
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+}
+
+.dashboard-dialog-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.dashboard-dialog-message {
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+}
+
+.dashboard-dialog-message p {
+    margin: 0 0 10px;
+}
+
+.dashboard-dialog-message p:last-child {
+    margin-bottom: 0;
+}
+
+.dashboard-dialog-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dashboard-dialog-field > span {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard-dialog-input {
+    width: 100%;
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.dashboard-dialog-input:focus {
+    outline: none;
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+
+.dashboard-dialog-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 88px;
+    height: 36px;
+    padding: 0 16px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.dashboard-dialog-btn-primary {
+    border-color: var(--dashboard-link);
+    background: var(--dashboard-link);
+    color: #fff;
+}
+
+.dashboard-dialog-btn-danger {
+    border-color: #f00808;
+    background: #f00808;
+    color: #fff;
+}
+
+@media (hover: hover) {
+    .dashboard-dialog-btn-quiet:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+
+    .dashboard-dialog-btn-primary:hover {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+
+    .dashboard-dialog-btn-danger:hover {
+        background: #d90707;
+        border-color: #d90707;
+    }
+}
+
+.dashboard-dialog-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .dashboard-dialog-btn {
+        min-height: 44px;
+        height: auto;
+        padding: 10px 18px;
+    }
+}
+
+/* Mobile: dock to the bottom as a slide-up sheet, like the other modals. */
+@media (max-width: 600px) {
+    .dashboard-dialog-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .dashboard-dialog {
+        width: 100%;
+        max-width: none;
+        max-height: 92vh;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        transform: translateY(24px);
+    }
+
+    .dashboard-dialog-overlay.dashboard-dialog-show .dashboard-dialog {
+        transform: translateY(0);
+    }
+
+    .dashboard-dialog-footer {
+        flex-direction: column-reverse;
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .dashboard-dialog-btn {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-dialog-overlay,
+    .dashboard-dialog {
+        transition: none;
+    }
 }

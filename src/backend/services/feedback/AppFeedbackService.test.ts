@@ -54,6 +54,8 @@ afterAll(async () => {
 
 afterEach(() => {
     vi.restoreAllMocks();
+    // Back to the self-hosted no-SMTP baseline the server booted with.
+    delete liveConfig().email;
 });
 
 const makeUser = async (): Promise<number> => {
@@ -85,9 +87,15 @@ const makeApp = async (
 };
 
 // Feedback is only offered when the deployment can deliver it; most tests
-// want that baseline without asserting anything about the mail itself.
-const mockEmailConfigured = () =>
-    vi.spyOn(server.clients.email, 'isConfigured', 'get').mockReturnValue(true);
+// want that baseline without asserting anything about the mail itself. The
+// service reads `config.email` — the same live object every layer holds — so
+// the helper writes it there and the global afterEach clears it.
+const liveConfig = () =>
+    (server.clients.email as unknown as { config: Record<string, unknown> })
+        .config;
+const mockEmailConfigured = () => {
+    liveConfig().email = { jsonTransport: true };
+};
 
 const mockEmailReady = () => {
     mockEmailConfigured();
@@ -236,7 +244,7 @@ describe('AppFeedbackService.acceptsFeedback', () => {
         // The self-hosted no-SMTP default. Feedback rows have no other read
         // path, so soliciting them here would store-and-lose every message
         // while telling the sender it was delivered.
-        expect(server.clients.email.isConfigured).toBe(false);
+        expect(liveConfig().email).toBeUndefined();
         expect(service.acceptsFeedback(app)).toBe(false);
     });
 });
@@ -338,7 +346,7 @@ describe('AppFeedbackService.submit', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
 
         // Same refusal when the deployment has no email transport at all.
-        vi.restoreAllMocks();
+        delete liveConfig().email;
         const enabled = await makeApp(ownerId, { feedbackEnabled: true });
         await expect(
             service.submit({ userId, app: enabled.name, message: 'hi' }),

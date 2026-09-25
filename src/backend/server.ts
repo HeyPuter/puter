@@ -35,12 +35,16 @@ import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
+import type { Actor } from './core/actor';
 import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
     allowedAppIdsGate,
     noUserSessionGate,
+    requireAnyVerifiedGate,
     requireAuthGate,
+    requireCardVerifiedGate,
+    requirePhoneVerifiedGate,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -49,9 +53,18 @@ import {
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
 import { requireCreditsGate } from './core/http/middleware/credits';
+import { requireReputationGate } from './core/http/middleware/reputation';
+import { requireSubscriptionGate } from './core/http/middleware/subscription';
+import { validateReputationRequirement } from './core/reputation';
+import {
+    actorOnPaidPlan,
+    validateSubscriptionRequirement,
+} from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
+import { activeSubdomain, subdomainOffsetForDomain } from './util/subdomains';
 import {
     requireAntiCsrf,
     setAntiCsrfRedis,
@@ -64,7 +77,7 @@ import {
 } from './core/http/middleware/rateLimit';
 import {
     createWwwRedirect,
-    createUserSubdomainRedirect,
+    createUserSubdomainNotFound,
     createNativeAppStatic,
 } from './core/http/middleware/hostRedirects';
 import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
@@ -93,6 +106,9 @@ import type {
     WithControllerRegistration,
     WithLifecycle,
 } from './types';
+
+/** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
 
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
@@ -242,6 +258,14 @@ export class PuterServer {
         // Cloudflare/nginx hop). Never `true` in prod: that trusts every hop
         // and makes XFF forgeable.
         this.#app.set('trust proxy', this.#config.trust_proxy ?? false);
+        // Every subdomain gate reads `req.subdomains`, which express derives by
+        // dropping `subdomain offset` labels from the right of the hostname.
+        // The offset is the root domain's own label count, so a deployment on
+        // `puter.example.com` doesn't read `puter` as an active subdomain.
+        this.#app.set(
+            'subdomain offset',
+            subdomainOffsetForDomain(this.#config.domain),
+        );
         this.#installGlobalMiddleware();
 
         // Instantiate drivers BEFORE controllers so controllers can receive
@@ -449,12 +473,12 @@ export class PuterServer {
         // -- Host header validation ----------------------------------
         this.#installHostValidation();
 
-        // -- Host redirects (www → root, user subdomain → static hosting)
+        // -- Host handling (www → root, user subdomain on main domain → 404)
         // Installed after host validation so we know the host is allowed,
-        // and before CORS/body-parsing so we short-circuit on redirects
-        // without burning work.
+        // and before CORS/body-parsing so we short-circuit without burning
+        // work.
         this.#app.use(createWwwRedirect(this.#config));
-        this.#app.use(createUserSubdomainRedirect(this.#config));
+        this.#app.use(createUserSubdomainNotFound(this.#config));
 
         // -- Native app static serving (editor.*, docs.*, …) ---------
         // No-op when `native_apps_root` is unset.
@@ -469,7 +493,16 @@ export class PuterServer {
         }
 
         // -- OPTIONS preflight ---------------------------------------
-        this.#app.options('/*splat', (_req, res) => {
+        // WebDAV is exempt: OPTIONS is how a DAV client discovers the server,
+        // and the reply has to carry `DAV:` and `Allow:` for the mount to
+        // proceed. Answering it here with a bare 200 tells the client this
+        // isn't a WebDAV server at all, so let it fall through to the
+        // controller, which builds the real response.
+        this.#app.options('/*splat', (req, res, next) => {
+            if (activeSubdomain(req) === 'dav') {
+                next();
+                return;
+            }
             res.sendStatus(200);
         });
 
@@ -659,13 +692,34 @@ export class PuterServer {
             'Overwrite',
             'If',
             'Lock-Token',
+            'Timeout',
+            'X-Expected-Entity-Length',
             'DAV',
             'stripe-signature',
         ].join(', ');
 
+        // What a browser DAV client is allowed to read back off a response.
+        // Everything below is a header the WebDAV controller sets and a client
+        // acts on: without this list `fetch` hands the page a response whose
+        // ETag, lock token and content range are all invisible, so it can't
+        // cache, lock, or resume anything.
+        const davExposedHeaders = [
+            'DAV',
+            'MS-Author-Via',
+            'Allow',
+            'ETag',
+            'Last-Modified',
+            'Content-Length',
+            'Content-Range',
+            'Accept-Ranges',
+            'Location',
+            'Lock-Token',
+            'WWW-Authenticate',
+        ].join(', ');
+
         this.#app.use((req, res, next) => {
             const origin = req.headers.origin;
-            const subdomain = req.subdomains?.[req.subdomains.length - 1];
+            const subdomain = activeSubdomain(req);
 
             // Allow any origin. puter.js is meant to be consumed from
             // arbitrary third-party sites, so reflect the caller's origin
@@ -678,6 +732,10 @@ export class PuterServer {
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             } else if (subdomain === 'dav') {
                 res.setHeader('Access-Control-Allow-Credentials', 'false');
+                res.setHeader(
+                    'Access-Control-Expose-Headers',
+                    davExposedHeaders,
+                );
             }
 
             res.setHeader('Access-Control-Allow-Methods', allowedMethods);
@@ -753,14 +811,22 @@ export class PuterServer {
                     // direction: an error tagged as caused by an upstream
                     // provider or a misbehaving client gets exposed to
                     // the user but does not alarm at all.
+                    //
+                    // `noAlarm` beats both: the call site already decided
+                    // this failure isn't worth recording (e.g. an upstream
+                    // rate limit on a free model, where the volume tracks
+                    // traffic and there's nothing to act on).
                     const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
                         ['upstream_rate_limited', 'info'],
                         // Our credentials for a provider stopped working —
                         // everything through it fails until someone looks.
                         ['upstream_auth_failed', 'warning'],
+                        // A vendor account is dry — everything through it fails until someone tops up.
+                        ['upstream_credits_exhausted', 'warning'],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
+                    if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
                     const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
@@ -783,6 +849,14 @@ export class PuterServer {
                         alarmId,
                         `HTTP ${status} on ${req.method} ${req.originalUrl}: ${signature}`,
                         {
+                            // What the thrower attached (an AI chain's
+                            // per-provider attempts, say) rides under one key
+                            // so it can't shadow the request fields below, and
+                            // a repeat from another thrower on the same id
+                            // replaces it rather than merging into it.
+                            ...(isHttp && err.fields !== undefined
+                                ? { details: err.fields }
+                                : {}),
                             error: err instanceof Error ? err : undefined,
                             status,
                             method: req.method,
@@ -820,6 +894,14 @@ export class PuterServer {
             );
         }
 
+        // A controller may gate its own registration behind a config flag.
+        // Skipping here means its paths 404 rather than existing and refusing.
+        const isEnabled = (controller as { isEnabled?: () => boolean })
+            .isEnabled;
+        if (typeof isEnabled === 'function' && !isEnabled.call(controller)) {
+            return;
+        }
+
         // Controllers annotated with `@Controller('/prefix')` carry the prefix
         // on their prototype; bare (imperative) controllers default to ''.
         const prefix = (controller as unknown as Record<string, unknown>)[
@@ -840,6 +922,31 @@ export class PuterServer {
     ) {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
+
+        // Validated here rather than trusted, and by the same function the
+        // driver decorator uses: a malformed requirement is a boot failure
+        // naming the route, never a gate that quietly admits everyone.
+        const subscriptionRequirement =
+            opts.requireSubscription === undefined
+                ? undefined
+                : validateSubscriptionRequirement(
+                      opts.requireSubscription,
+                      `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireSubscription`,
+                  );
+        const requiresSubscription =
+            subscriptionRequirement !== undefined &&
+            subscriptionRequirement !== false;
+
+        const reputationRequirement =
+            opts.requireReputation === undefined
+                ? undefined
+                : validateReputationRequirement(
+                      opts.requireReputation,
+                      `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireReputation`,
+                  );
+        const requiresReputation =
+            reputationRequirement !== undefined &&
+            reputationRequirement !== false;
 
         // 1. Subdomain routing. Routes that specify `subdomain` only match
         // that subdomain(s). Routes WITHOUT a `subdomain` option (and that
@@ -889,7 +996,12 @@ export class PuterServer {
             opts.adminOnly ||
             opts.allowedAppIds ||
             opts.requireVerified ||
-            opts.noUserSession,
+            opts.noUserSession ||
+            opts.requirePhoneVerified ||
+            opts.requireCardVerified ||
+            opts.requireAnyVerified ||
+            requiresSubscription ||
+            requiresReputation,
         );
         if (needsAuth) {
             mwChain.push(requireAuthGate());
@@ -973,6 +1085,65 @@ export class PuterServer {
             mwChain.push(
                 requireVerifiedGate(
                     Boolean(this.#config.strict_email_verification_required),
+                ),
+            );
+        }
+
+        // 2a'. Per-factor verification gates. Opt-in, and independent of the
+        // default-on pending-verification gate above: these require the factor
+        // to have actually been verified, for routes worth that friction.
+        if (opts.requirePhoneVerified) {
+            mwChain.push(requirePhoneVerifiedGate());
+        }
+        // A paying account has a card on file already, so both card-aware
+        // gates take a paid plan as the card factor.
+        const hasPaidPlan = (actor: Actor) =>
+            actorOnPaidPlan(this.services.metering, actor);
+        if (opts.requireCardVerified) {
+            mwChain.push(requireCardVerifiedGate({ hasPaidPlan }));
+        }
+        if (opts.requireAnyVerified) {
+            // Same stance as the subscription requirement: an empty list reads
+            // as gated while admitting everyone, so it fails the boot instead.
+            if (opts.requireAnyVerified.length === 0) {
+                throw new Error(
+                    `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireAnyVerified: expected at least one factor`,
+                );
+            }
+            if (this.#config.verifiedFactorGate?.enabled !== false) {
+                mwChain.push(
+                    requireAnyVerifiedGate(opts.requireAnyVerified, {
+                        ...cardFallbackDepsFrom(this.clients),
+                        hasPaidPlan,
+                    }),
+                );
+            }
+        }
+
+        // 2a''. Reputation floor. Ahead of the plan gate and everything
+        // after it: whether an account is trusted enough to be here at all is
+        // a different question from what it pays for, and the cheaper one —
+        // the score rides on the actor. A tier the config doesn't define
+        // enforces nothing, so this is inert until a deployment says what its
+        // tiers are worth.
+        if (requiresReputation) {
+            mwChain.push(
+                requireReputationGate(this.#config, reputationRequirement!),
+            );
+        }
+
+        // 2a'''. Plan enforcement. Before the rate limit — the same order the
+        // driver dispatch path uses — so an account on a plan that never
+        // included this route is told to upgrade rather than to slow down,
+        // and doesn't spend a rate-limit token on a request that can never
+        // pass. Also before the budget gate: "your plan doesn't include this"
+        // beats "you're out of credits" that a top-up wouldn't fix.
+        if (requiresSubscription) {
+            mwChain.push(
+                requireSubscriptionGate(
+                    this.services.metering,
+                    this.#config,
+                    subscriptionRequirement!,
                 ),
             );
         }
@@ -1244,6 +1415,13 @@ export class PuterServer {
         // to hook into the raw server (socket.io upgrades, WebSockets, …) runs
         // its `attachHttpServer(server)` here, pre-listen.
         const httpServer = http.createServer(this.#app);
+        // Keep-alive has to outlive the idle timeout of any proxy in front: if
+        // this server closes a pooled connection first, a request the proxy
+        // dispatches onto it reaches the client as a 502. Node's 5s default is
+        // below every common proxy setting. `headersTimeout` counts from a
+        // request's first byte, so it needs no matching bump.
+        httpServer.keepAliveTimeout =
+            this.#config.keep_alive_timeout ?? DEFAULT_KEEP_ALIVE_TIMEOUT;
         for (const service of Object.values(this.services) as Array<
             WithLifecycle & {
                 attachHttpServer?: (s: http.Server) => void | Promise<void>;
@@ -1435,23 +1613,13 @@ export class PuterServer {
             });
             this.#server.closeAllConnections();
             await closed;
-            for (const client of Object.values(
-                this.clients,
+            // Top-down, so each layer shuts down while the layers it writes
+            // through are still up.
+            for (const driver of Object.values(
+                this.drivers,
             ) as WithLifecycle[]) {
-                if (client.onServerShutdown) {
-                    await client.onServerShutdown();
-                }
-            }
-            for (const store of Object.values(this.stores) as WithLifecycle[]) {
-                if (store.onServerShutdown) {
-                    await store.onServerShutdown();
-                }
-            }
-            for (const service of Object.values(
-                this.services,
-            ) as WithLifecycle[]) {
-                if (service.onServerShutdown) {
-                    await service.onServerShutdown();
+                if (driver.onServerShutdown) {
+                    await driver.onServerShutdown();
                 }
             }
             for (const controller of Object.values(
@@ -1461,11 +1629,23 @@ export class PuterServer {
                     await controller.onServerShutdown();
                 }
             }
-            for (const driver of Object.values(
-                this.drivers,
+            for (const service of Object.values(
+                this.services,
             ) as WithLifecycle[]) {
-                if (driver.onServerShutdown) {
-                    await driver.onServerShutdown();
+                if (service.onServerShutdown) {
+                    await service.onServerShutdown();
+                }
+            }
+            for (const store of Object.values(this.stores) as WithLifecycle[]) {
+                if (store.onServerShutdown) {
+                    await store.onServerShutdown();
+                }
+            }
+            for (const client of Object.values(
+                this.clients,
+            ) as WithLifecycle[]) {
+                if (client.onServerShutdown) {
+                    await client.onServerShutdown();
                 }
             }
         }

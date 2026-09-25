@@ -226,4 +226,262 @@ describe('GET /fs/readdir over HTTP', () => {
         const body = (await response.json()) as Array<{ name: string }>;
         expect(body.map((e) => e.name)).toContain('Documents');
     });
+
+    describe('the share flag', () => {
+        const post = async (path: string, token: string, body: unknown) => {
+            const response = await fetch(new URL(path, env.apiOrigin), {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(body),
+            });
+            expect(response.status).toBe(200);
+            return response.json() as Promise<Record<string, unknown>>;
+        };
+
+        const mkdir = (path: string, token: string) =>
+            post('/fs/mkdir', token, { path });
+
+        const readdir = async (path: string, token: string) => {
+            const response = await fetch(readdirUrl({ path, auth_token: token }));
+            expect(response.status).toBe(200);
+            const entries = (await response.json()) as Array<{
+                name: string;
+                isShared: boolean | null;
+            }>;
+            return new Map(entries.map((e) => [e.name, e.isShared]));
+        };
+
+        const base = () =>
+            `/${env.users.user.username}/Documents/flag-${crypto.randomUUID().slice(0, 8)}`;
+
+        it('marks a shared child in a listing, and clears it on revoke', async () => {
+            const owner = env.users.user;
+            const recipient = env.users.other;
+            const parent = base();
+            await mkdir(parent, owner.token);
+            const shared = await mkdir(`${parent}/shared`, owner.token);
+            await mkdir(`${parent}/private`, owner.token);
+
+            // A write response says nothing about sharing.
+            expect(shared).not.toHaveProperty('isShared');
+
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+                mode: 'read',
+            });
+
+            expect(await readdir(parent, owner.token)).toEqual(
+                new Map([
+                    ['shared', true],
+                    ['private', false],
+                ]),
+            );
+
+            await post('/share/revoke', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+            });
+
+            expect(await readdir(parent, owner.token)).toEqual(
+                new Map([
+                    ['shared', false],
+                    ['private', false],
+                ]),
+            );
+        });
+
+        it('names the recipients in stat only when asked', async () => {
+            const owner = env.users.user;
+            const recipient = env.users.other;
+            const parent = base();
+            await mkdir(parent, owner.token);
+            const shared = await mkdir(`${parent}/shared`, owner.token);
+
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+                mode: 'read',
+            });
+
+            const plain = await post('/fs/stat', owner.token, {
+                uid: shared.uuid,
+            });
+            expect(plain.isShared).toBe(true);
+            expect(plain).not.toHaveProperty('shares');
+
+
+            const withShares = await post('/fs/stat', owner.token, {
+                uid: shared.uuid,
+                return_shares: true,
+            });
+            const shares = withShares.shares as Array<Record<string, unknown>>;
+            expect(shares).toHaveLength(1);
+            expect(shares[0]).toMatchObject({
+                holder: recipient.username,
+                issuer: owner.username,
+                mode: 'read',
+                inherited_from: null,
+            });
+            for (const key of ['holder_user_id', 'issuer_user_id', 'fsentry_id']) {
+                expect(shares[0]).not.toHaveProperty(key);
+            }
+        });
+
+        it('tells a recipient nothing about who else can reach the item', async () => {
+            const owner = env.users.user;
+            const recipient = env.users.other;
+            const parent = base();
+            await mkdir(parent, owner.token);
+            const shared = await mkdir(`${parent}/shared`, owner.token);
+
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+                mode: 'read',
+            });
+
+            const stat = await post('/fs/stat', recipient.token, {
+                uid: shared.uuid,
+                return_shares: true,
+            });
+            expect(stat.isShared).toBeNull();
+            // Asked for, so the key is there — but it names nobody.
+            expect(stat.shares).toEqual([]);
+        });
+    });
+});
+
+describe('POST /fs/completeWrite over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv();
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    it('refuses completion of a session whose object never arrived', async () => {
+        const { username, token } = env.users.user;
+        const started = await fetch(new URL('/fs/startWrite', env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                fileMetadata: {
+                    path: `/${username}/Documents/http-nobytes-${Date.now()}.bin`,
+                    size: 4,
+                },
+            }),
+        });
+        expect(started.status).toBe(200);
+        const { sessionId } = (await started.json()) as { sessionId: string };
+
+        // No PUT to the presigned URL.
+        const response = await fetch(
+            new URL('/fs/completeWrite', env.apiOrigin),
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ uploadId: sessionId }),
+            },
+        );
+
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as {
+            code?: string;
+            message?: string;
+        };
+        expect(body.code).toBe('bad_request');
+        expect(body.message).toBe('Upload content was not received');
+    });
+});
+
+describe('POST /fs/startWrite storage quota over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv({
+            is_storage_limited: true,
+            storage_capacity: 10 * 1024,
+        } as never);
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    it('rejects the excess of a parallel burst of startWrite calls', async () => {
+        const { username, token } = env.users.user;
+        const user = await env.server.stores.user.getByUsername(username);
+        const fs = env.server.services.fs as unknown as {
+            getUsersStorageAllowance: (
+                userId: number,
+            ) => Promise<{ curr: number; max: number }>;
+        };
+        const { curr, max } = await fs.getUsersStorageAllowance(user!.id);
+        const size = Math.floor((max - curr) / 3) + 1;
+
+        const responses = await Promise.all(
+            Array.from({ length: 8 }, (_, i) =>
+                fetch(new URL('/fs/startWrite', env.apiOrigin), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        fileMetadata: {
+                            path: `/${username}/Documents/http-quota-burst-${i}.bin`,
+                            size,
+                        },
+                    }),
+                }),
+            ),
+        );
+
+        const ok = responses.filter((response) => response.status === 200);
+        const rejected = responses.filter(
+            (response) => response.status === 413,
+        );
+        expect(ok).toHaveLength(2);
+        expect(rejected).toHaveLength(6);
+
+        for (const response of rejected) {
+            const body = (await response.json()) as { code?: string };
+            expect(body.code).toBe('storage_limit_reached');
+        }
+    });
+
+    // A raw JSON body carries `1e400` as a numeral, not a computed value, so
+    // `JSON.stringify` can't produce it (it turns `Infinity` into `null`) —
+    // the wire text is built by hand to exercise what the server's own
+    // `JSON.parse` does with it.
+    it('rejects a declared size of 1e400 (parses to Infinity) with 400', async () => {
+        const { username, token } = env.users.user;
+        const body = `{"fileMetadata":{"path":"/${username}/Documents/http-huge.bin","size":1e400}}`;
+
+        const response = await fetch(new URL('/fs/startWrite', env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+            },
+            body,
+        });
+
+        expect(response.status).toBe(400);
+        const responseBody = (await response.json()) as { code?: string };
+        expect(responseBody.code).toBe('bad_request');
+    });
 });

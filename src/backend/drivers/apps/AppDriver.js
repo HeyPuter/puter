@@ -29,8 +29,10 @@ import {
     normalizeRawBase64ImageString,
     validateIconDataUrl,
 } from '../../util/appIcon.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import {
     buildHostedBackingDenial,
+    buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
     hostedIndexUrlBackingIsUnavailable,
 } from '../../util/hostedAppBacking.js';
@@ -47,6 +49,7 @@ import {
     validateJsonObject,
     validateString,
     validateUrl,
+    WEB_AND_EXTENSION_PROTOCOLS,
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
 
@@ -85,7 +88,7 @@ const INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES = [
 ];
 
 // Sentinel host for builtin apps. The GUI rewrites index_urls on this
-// host to `<gui origin>/builtin/<name>` (see launch_app.js), so rows
+// host to `<gui origin>/builtin/<name>` (see launchApp.js), so rows
 // carrying it are reserved for migration-seeded builtins — a user app
 // claiming it would load its code same-origin with the desktop.
 const BUILTIN_APPS_HOST = 'builtins.namespaces.puter.com';
@@ -257,10 +260,21 @@ export class AppDriver extends PuterDriver {
         // in READ_ONLY_COLUMNS), so the only way to stamp ownership is
         // through this explicit contract. Keeps any future caller that
         // forwards raw input into `create` from spoofing the owner.
-        const app = await this.appStore.create(fields, {
-            ownerUserId: actor.user.id,
-            appOwner: actor.app?.id ?? null,
-        });
+        // The name check above is a check-then-insert, so a name claimed in
+        // between only gets caught by the unique index. Report it the way the
+        // check reports it instead of letting the driver error escape as a 500.
+        let app;
+        try {
+            app = await this.appStore.create(fields, {
+                ownerUserId: actor.user.id,
+                appOwner: actor.effectiveApp?.id ?? null,
+            });
+        } catch (err) {
+            if (!isUniqueViolation(err)) throw err;
+            throw new HttpError(400, 'An app with this name already exists', {
+                legacyCode: 'app_name_already_in_use',
+            });
+        }
         if (filetypes)
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
 
@@ -357,7 +371,7 @@ export class AppDriver extends PuterDriver {
         for (const app of apps) {
             if (
                 !app.protected ||
-                actor.app?.uid === app.uid ||
+                actor.effectiveApp?.uid === app.uid ||
                 actor.user?.id === app.owner_user_id
             ) {
                 localVisible.add(app);
@@ -483,7 +497,15 @@ export class AppDriver extends PuterDriver {
         const filetypes = fields.filetype_associations;
         delete fields.filetype_associations;
 
-        const updated = await this.appStore.update(app.id, fields);
+        let updated;
+        try {
+            updated = await this.appStore.update(app.id, fields);
+        } catch (err) {
+            if (!isUniqueViolation(err)) throw err;
+            throw new HttpError(409, 'An app with this name already exists', {
+                legacyCode: 'conflict',
+            });
+        }
         if (filetypes !== undefined) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
         }
@@ -612,6 +634,7 @@ export class AppDriver extends PuterDriver {
                 key: 'index_url',
                 maxLen: 3000,
                 required: isCreate,
+                protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
             // Only enforce on new/changed values so rows that already
             // carry a reserved host (migration-seeded builtins) can still
@@ -816,7 +839,7 @@ export class AppDriver extends PuterDriver {
     async #canReadApp(app, actor) {
         if (!app.protected) return true;
         // Self-app access
-        if (actor.app?.uid === app.uid) return true;
+        if (actor.effectiveApp?.uid === app.uid) return true;
         // Owner access
         if (actor.user?.id === app.owner_user_id) return true;
         // Permission check
@@ -837,10 +860,11 @@ export class AppDriver extends PuterDriver {
 
     async #checkWriteAccess(app, actor) {
         // App actor matching app_owner
+        const ownApp = actor.effectiveApp;
         let hasAccess = false;
-        if (!actor.app?.id) {
+        if (!ownApp?.id) {
             hasAccess = actor.user?.id === app.owner_user_id;
-        } else if (actor.app.id === app.app_owner) {
+        } else if (ownApp.id === app.app_owner) {
             hasAccess = actor.user?.id === app.owner_user_id;
         }
         // System-wide write
@@ -1148,6 +1172,17 @@ export class AppDriver extends PuterDriver {
             this.#buildEquivalentIndexUrlCandidates(indexUrl),
         );
 
+        // The same subdomain on any other hosting domain is the same site.
+        const hostedSubdomain = this.#extractPuterHostedSubdomain(indexUrl);
+        if (hostedSubdomain) {
+            for (const candidate of buildHostedSubdomainIndexUrlCandidates(
+                hostedSubdomain,
+                this.config,
+            )) {
+                candidates.add(candidate);
+            }
+        }
+
         // For alias-group hosts, treat the group as a host-level reservation:
         // any row whose index_url is the root URL of any group member counts
         // as a conflict, so a single app owns the whole group.
@@ -1428,6 +1463,12 @@ export class AppDriver extends PuterDriver {
             });
             const sourceApp = await this.appStore.getByUid(sourceAppUid);
             if (sourceApp) {
+                // The source app's sites and workers follow it into the
+                // joined row; `app_owner` cascades on delete otherwise.
+                await this.stores.subdomain.reassignAppOwner(
+                    sourceApp.id,
+                    appToJoin.id,
+                );
                 await this.appStore.delete(sourceApp.id);
                 this.#emitAppChanged({
                     app: null,

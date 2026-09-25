@@ -66,8 +66,7 @@ const makeUser = async () => {
     return { userId: created.id, username, actor };
 };
 
-const listFor = (actor: Actor) =>
-    listRootEntries(actor, fsEntryStore, permissionService);
+const listFor = (actor: Actor) => listRootEntries(actor, fsEntryStore);
 
 describe('listRootEntries', () => {
     it('shows the actor their own home directory, exactly once', async () => {
@@ -91,7 +90,7 @@ describe('listRootEntries', () => {
         );
     });
 
-    it('adds the home of every user who has granted the actor a permission', async () => {
+    it('leaves an issuer’s home out of root when only a file was shared', async () => {
         const holder = await makeUser();
         const issuer = await makeUser();
         const shared = (await fsEntryStore.getEntryByPath(
@@ -105,9 +104,11 @@ describe('listRootEntries', () => {
 
         const entries = await listFor(holder.actor);
 
-        expect(entries.map((entry) => entry.path).sort()).toEqual(
-            [`/${holder.username}`, `/${issuer.username}`].sort(),
-        );
+        // Listing it here would advertise a folder readdir then refuses to
+        // open: the grant is on Documents, which says nothing about its parent.
+        expect(entries.map((entry) => entry.path)).toEqual([
+            `/${holder.username}`,
+        ]);
     });
 
     it('heals a home row whose path drifted from the username', async () => {
@@ -137,6 +138,36 @@ describe('listRootEntries', () => {
             `/${user.username}`,
         ]);
         renameUserHome.mockRestore();
+    });
+
+    it("does not fall back onto a foreign row holding the actor's home path", async () => {
+        const userA = await makeUser();
+        const userB = await makeUser();
+
+        // Drift B's own root out of the way, then move A's root onto the path
+        // B's healing attempt will target — the shape a freed-then-reclaimed
+        // username leaves behind.
+        const rootB = (await fsEntryStore.getRootEntryForUser(userB.userId))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [
+                `/b-drift-${Math.random().toString(36).slice(2, 8)}`,
+                'b-drift',
+                rootB.id,
+            ],
+        );
+        const rootA = (await fsEntryStore.getRootEntryForUser(userA.userId))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [`/${userB.username}`, userB.username, rootA.id],
+        );
+        await server.clients.redis.flushall?.();
+
+        const entries = await listFor(userB.actor);
+
+        // The heal throws (A holds the path); the path-based fallback must
+        // not then hand B a listing of A's tree.
+        expect(entries).toEqual([]);
     });
 
     it('returns nothing for an actor with no user id or username', async () => {

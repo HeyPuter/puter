@@ -15,12 +15,28 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Contact Us attachments. Mirrors SQLite migration 0067 / MySQL mysql_mig_22.
--- A JSON array of `{name, type, size}` recording what a submission carried,
--- NULL when it carried nothing. Metadata only — the files themselves ride the
--- support email; this column is what keeps an abusive submission attributable
--- after the mail has been dealt with.
---
--- Idempotent via IF NOT EXISTS.
+-- Grow share from a pending-email-invite table into the index of active
+-- shares. See sqlite/0067_share_entries.sql for the column rationale.
 
-ALTER TABLE feedback ADD COLUMN IF NOT EXISTS attachments text DEFAULT NULL;
+ALTER TABLE share
+  ADD COLUMN IF NOT EXISTS holder_user_id integer
+      REFERENCES "user" (id) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD COLUMN IF NOT EXISTS fsentry_id integer
+      REFERENCES fsentries (id) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD COLUMN IF NOT EXISTS mode varchar(20),
+  ADD COLUMN IF NOT EXISTS applied_at timestamp;
+
+CREATE INDEX IF NOT EXISTS idx_share_holder
+    ON share (holder_user_id, id);
+CREATE INDEX IF NOT EXISTS idx_share_fsentry
+    ON share (fsentry_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_share_holder_entry_issuer
+    ON share (holder_user_id, fsentry_id, issuer_user_id);
+
+-- Retiring a deleted node's grants looks them up by permission text, and the
+-- primary key is (issuer, holder, permission) — `permission` is never the
+-- leading column, so the delete path would otherwise scan the table. The
+-- text_pattern_ops class is what makes the left-anchored LIKE a range scan
+-- under a non-C collation; plain equality still uses it.
+CREATE INDEX IF NOT EXISTS idx_user_to_user_permissions_permission
+    ON user_to_user_permissions (permission text_pattern_ops);

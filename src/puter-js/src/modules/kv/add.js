@@ -1,6 +1,6 @@
 import * as utils from '../../lib/utils.js';
 import { isObject, isOptConfigShorthand } from './lib/args.js';
-import { assertKeySize } from './lib/validate.js';
+import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 
 /** @typedef {import('./types.js').KVAddPath} KVAddPath */
 /** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
@@ -55,6 +55,7 @@ export async function add (keyOrOptions, valueOrMap, optConfig) {
         };
     }
 
+    assertKeyPresent(options.key);
     assertKeySize(options.key);
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'add', argNames: ['key'], puter: this.puter })(options);
 }

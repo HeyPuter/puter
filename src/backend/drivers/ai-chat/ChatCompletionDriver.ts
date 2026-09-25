@@ -20,29 +20,39 @@
 import crypto from 'node:crypto';
 import { PassThrough } from 'node:stream';
 import { EventMap } from '../../clients/event/types.js';
+import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
-import { HttpError } from '../../core/http/HttpError.js';
-import {
-    DEFAULT_FREE_SUBSCRIPTION,
-    DEFAULT_TEMP_SUBSCRIPTION,
-} from '../../services/metering/consts.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import { FREE_SUBSCRIPTION_IDS } from '../../services/metering/consts.js';
+import type { CreditHold } from '../../services/metering/types.js';
+import { NO_CREDIT_HOLD } from '../../services/metering/types.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import {
+    isCreditExhaustion as isUpstreamCreditExhaustion,
+    isUpstreamTimeoutError,
+    sanitizeUpstreamMessage,
+} from '../util/upstreamErrors.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
 import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider.js';
+import { BytePlusProvider } from './providers/byteplus/BytePlusProvider.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { HoonifyProvider } from './providers/hoonify/HoonifyProvider.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
+import { MetaProvider } from './providers/meta/MetaProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
 import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
+import { processPuterPathUploads } from './providers/openai/fileUpload.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
@@ -51,13 +61,19 @@ import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
 import type {
     IChatCompleteResult,
+    IChatMessageResult,
     IChatModel,
     IChatProvider,
     ICompleteArguments,
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
 import {
-    extract_text,
+    messagesHavePuterPaths,
+    modelSupportsModality,
+    normalizeMediaParts,
+    requiredInputModalities,
+} from './utils/mediaParts.js';
+import {
     normalize_messages,
     normalize_single_message,
 } from './utils/Messages.js';
@@ -67,12 +83,43 @@ import {
     normalizeModelKey,
 } from './utils/modelRouting.js';
 import {
+    normalizeResultToOpenAI,
+    shouldPresentAsOpenAI,
+} from './utils/normalizeToOpenAI.js';
+import {
+    costKeys,
+    isFreeModel,
+    isOutputCostKey,
+    longContextMultipliers,
+    trackedInputTokens,
+} from './utils/pricing.js';
+import {
     isRouteUnhealthy,
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
 import { AIChatStream } from './utils/Streaming.js';
+import {
+    estimateOutputTokens,
+    estimatePromptTokens,
+} from './utils/usageEstimate.js';
 
 const MAX_ATTEMPTS = 3; // the first attempt plus two fallbacks
+
+/**
+ * How often a streaming completion renews its credit hold. Holds default to a
+ * 10-minute TTL; a long generation (a reasoning model with a large
+ * `max_tokens`) can stream past that, and a hold that expires mid-stream
+ * reopens the overspend window it exists to close.
+ */
+const HOLD_RENEW_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * A moderation refusal is a completion that was produced and charged, then
+ * withheld — not a route failure. Retrying it on a fallback provider would bill
+ * the account again for another completion the user will never see.
+ */
+const isModerationRefusal = (e: unknown): boolean =>
+    isHttpError(e) && e.code === 'moderation_flagged';
 
 type ProviderAttempt = {
     model: string;
@@ -80,6 +127,8 @@ type ProviderAttempt = {
     status?: number;
     code?: string;
     error: string;
+    /** The attempt died to a transport timeout rather than an answer. */
+    timedOut?: boolean;
 };
 
 /**
@@ -114,9 +163,13 @@ const toAttempt = (
         provider: providerId,
         status,
         code: e?.error?.code ?? e?.code,
-        error: message,
+        error: sanitizeUpstreamMessage(message),
+        ...(isUpstreamTimeoutError(err) ? { timedOut: true } : {}),
     };
 };
+
+const isCreditExhaustion = (a: ProviderAttempt) =>
+    isUpstreamCreditExhaustion(a.status, a.code, a.error);
 
 const isRateLimit = (a: ProviderAttempt) =>
     a.status === 429 ||
@@ -144,6 +197,7 @@ const isUpstream5xx = (a: ProviderAttempt) =>
  */
 const isRouteLevelFailure = (a: ProviderAttempt) =>
     a.status === undefined ||
+    isCreditExhaustion(a) ||
     isRateLimit(a) ||
     isAuthFailure(a) ||
     isUpstream5xx(a);
@@ -157,13 +211,19 @@ const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
  *
  * Per-class rules (see also alarm gate in server.ts):
  *
- * - All rate-limited → 429 `upstream_rate_limited` (paged: forced alert)
+ * - All credit-exhausted → 503 `upstream_credits_exhausted` (alerted)
+ * - All rate-limited → 429 `upstream_rate_limited` (alerted, unless every attempt
+ *   was on a free model — see `allModelsFree`)
  * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
  * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
  * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
+ * - All timed out → 504 `upstream_timeout` (no page)
  * - Mixed → 400 `upstream_failed` (no page)
  */
-const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
+const classifyAttempts = (
+    attempts: ProviderAttempt[],
+    { allModelsFree = false } = {},
+): HttpError => {
     const fields = { attempts };
     if (attempts.length === 0) {
         return new HttpError(500, 'No providers attempted', {
@@ -172,10 +232,21 @@ const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
         });
     }
 
+    if (attempts.every(isCreditExhaustion)) {
+        return new HttpError(503, 'AI provider out of credits', {
+            legacyCode: 'upstream_credits_exhausted',
+            fields,
+        });
+    }
     if (attempts.every(isRateLimit)) {
         return new HttpError(429, 'AI provider rate limit exceeded', {
             legacyCode: 'upstream_rate_limited',
             fields,
+            // A free model getting throttled upstream is the deal we took
+            // when we picked it up for nothing: there's no billing at stake
+            // and nothing to act on, and the volume tracks traffic. The
+            // caller still gets the 429; we just don't record it.
+            noAlarm: allModelsFree,
         });
     }
     if (attempts.every(isAuthFailure)) {
@@ -201,10 +272,18 @@ const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
         });
     }
 
+    if (attempts.every((a) => a.timedOut)) {
+        return new HttpError(504, 'AI provider timed out', {
+            legacyCode: 'upstream_timeout',
+            fields,
+        });
+    }
+
     // Mixed failures where at least one attempt is clearly upstream
-    // (had an HTTP status from the SDK) means "AI providers couldn't
-    // satisfy the request" — expose, don't page.
+    // (had an HTTP status from the SDK, or never got one in time) means
+    // "AI providers couldn't satisfy the request" — expose, don't page.
     const isUpstreamSignal = (a: ProviderAttempt) =>
+        a.timedOut === true ||
         a.status !== undefined ||
         isRateLimit(a) ||
         isAuthFailure(a) ||
@@ -243,8 +322,13 @@ export class ChatCompletionDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
-    #providers: Record<string, IChatProvider> = {};
-    #modelIdMap: Record<string, IChatModel[]> = {};
+    #providers: Record<string, IChatProvider> = Object.create(null);
+    #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
+
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
 
     override onServerStart() {
         this.#registerProviders();
@@ -328,11 +412,44 @@ export class ChatCompletionDriver extends PuterDriver {
         }
 
         if (args.messages) {
-            args.messages = normalize_messages(args.messages);
+            args.messages = normalizeMediaParts(
+                normalize_messages(args.messages),
+            );
         }
         if (args.tools) {
             normalize_tools_object(args.tools);
         }
+
+        // A clear 400 for image/video parts the catalog says the model cannot
+        // read, before the credit hold and the round trip. Entries that declare
+        // no modalities (reseller catalogs) are not judged.
+        for (const modality of requiredInputModalities(args.messages)) {
+            if (
+                Array.isArray(model.modalities?.input) &&
+                !modelSupportsModality(model, modality)
+            ) {
+                throw new HttpError(
+                    400,
+                    `Model ${model.id} does not support ${modality} input`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+        }
+
+        // Both estimated once, before any attempt: providers rewrite
+        // `args.messages` in place (tool_use blocks move out of `content`), so
+        // an estimate taken after a failed attempt would undercount the same
+        // prompt — and the gate writes each attempt's output cap into
+        // `args.max_tokens`, so the user's requested value has to be kept
+        // apart from what the previous attempt was capped to.
+        const promptTokenEstimate = estimatePromptTokens(args.messages ?? []);
+        // Direct driver calls reach here without the controller's coercion, so
+        // a non-finite max_tokens (e.g. NaN from the string "NaN") could still
+        // arrive. Drop it to undefined — a poisoned value would disable the
+        // output cap below and skip the credit hold entirely.
+        const requestedMaxTokens = Number.isFinite(args.max_tokens as number)
+            ? args.max_tokens
+            : undefined;
 
         const completionId = crypto
             .randomUUID()
@@ -376,89 +493,20 @@ export class ChatCompletionDriver extends PuterDriver {
             }
         }
 
-        // -- Credit / subscription gates (metering) --------------------
-        // Cheap pre-flight: reject when the user can't afford even the
-        // approximate input cost, keep subscriber-only models gated, and
-        // cap `max_tokens` so output can't exceed remaining credits.
-        // Skipped for blocked requests since fake-chat is free and the
-        // user shouldn't see a billing error in place of the abuse page.
+        // Skipped for blocked requests since fake-chat is free and the user
+        // shouldn't see a billing error in place of the abuse page.
+        //
+        // The gate hands back a hold on what this attempt could cost, which
+        // stands in for its usage until the real numbers land. It is released
+        // on every way out of this method — including the streaming path,
+        // where "done" is the stream draining rather than this method
+        // returning.
+        let hold: CreditHold = NO_CREDIT_HOLD;
         if (!blocked) {
-            const metering = this.services.metering;
-            const inputCostKey =
-                (model.input_cost_key as string | undefined) ?? 'input_tokens';
-            const outputCostKey =
-                (model.output_cost_key as string | undefined) ??
-                'output_tokens';
-            const inputTokenCost = Number(model.costs?.[inputCostKey] ?? 0);
-            const outputTokenCost = Number(model.costs?.[outputCostKey] ?? 0);
-            const text = extract_text(args.messages ?? []);
-            // Rough estimator from v1 — avg of char/4 and word*(4/3), halved.
-            // See https://help.openai.com/en/articles/4936856
-            const approximateTokenCount = Math.floor(
-                (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
-            );
-            const approximateInputCost = approximateTokenCount * inputTokenCost;
-            const minimumCredits = Number(model.minimumCredits || 1);
-
-            const usageAllowed = await metering.hasEnoughCredits(
-                actor,
-                Math.max(approximateInputCost, minimumCredits),
-            );
-            if (!usageAllowed) {
-                throw new HttpError(402, 'No usage left for request.', {
-                    legacyCode: 'insufficient_funds',
-                });
-            }
-
-            if (model.subscriberOnly) {
-                const subscription = await metering.getActorSubscription(actor);
-                const isDefaultPolicy =
-                    subscription.id === DEFAULT_FREE_SUBSCRIPTION ||
-                    subscription.id === DEFAULT_TEMP_SUBSCRIPTION;
-                if (isDefaultPolicy) {
-                    throw new HttpError(
-                        403,
-                        `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
-                        { legacyCode: 'permission_denied' },
-                    );
-                }
-            }
-
-            if (outputTokenCost > 0) {
-                const remainingCredits =
-                    await metering.getRemainingUsage(actor);
-                const maxAllowedOutputUcents =
-                    remainingCredits - approximateInputCost;
-                const maxAllowedOutputTokens =
-                    maxAllowedOutputUcents / outputTokenCost;
-                // A provider may not know a model's output ceiling. Drop the
-                // term rather than let a missing value drive the cap: `null`
-                // coerces to 0, so the subtraction goes negative instead of
-                // NaN and the user is told they're out of credits.
-                const modelOutputCeiling =
-                    Number.isFinite(model.max_tokens) && model.max_tokens > 0
-                        ? model.max_tokens - approximateTokenCount
-                        : Number.POSITIVE_INFINITY;
-                const cap = Math.floor(
-                    Math.min(
-                        args.max_tokens ?? Number.POSITIVE_INFINITY,
-                        maxAllowedOutputTokens,
-                        modelOutputCeiling,
-                    ),
-                );
-                // `cap` is the credit-bounded ceiling on output tokens. When
-                // it drops below 1 the user can't afford even a single output
-                // token, so reject the request. Crucially we must NOT leave
-                // `max_tokens` unset here: an undefined max_tokens lets the
-                // provider run to the model's full output limit (e.g. 128k for
-                // Claude), billing far past the user's remaining balance.
-                if (cap < 1) {
-                    throw new HttpError(402, 'No usage left for request.', {
-                        legacyCode: 'insufficient_funds',
-                    });
-                }
-                args.max_tokens = cap;
-            }
+            hold = await this.#applyCreditGate(actor, model, args, {
+                promptTokenEstimate,
+                requestedMaxTokens,
+            });
         }
 
         // First attempt
@@ -473,29 +521,38 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const attempts: ProviderAttempt[] = [];
         let res: IChatCompleteResult | undefined;
+        // Tracked across the chain so the classifier can tell a chain that
+        // only ever touched free models from one that cost the user something.
+        let allModelsFree = true;
 
         // A failed route is remembered briefly so the next request skips it
         // rather than paying its timeout again.
-        const recordFailure = (
-            modelId: string,
-            providerId: string,
-            err: unknown,
-        ) => {
-            const attempt = toAttempt(modelId, providerId, err);
+        const recordFailure = (failed: IChatModel, err: unknown) => {
+            const attempt = toAttempt(failed.id, failed.provider!, err);
             attempts.push(attempt);
+            if (!isFreeModel(failed)) allModelsFree = false;
             if (isRouteLevelFailure(attempt)) {
-                markRouteUnhealthy(providerId, modelId);
+                markRouteUnhealthy(failed.provider!, failed.id);
             }
         };
 
         try {
+            if (!blocked) await this.#resolvePuterPaths(provider, args, actor);
             res = await provider.complete({
                 ...args,
                 model: model.id,
                 provider: model.provider,
             });
         } catch (e) {
-            recordFailure(model.id, model.provider!, e);
+            // This attempt is over and cost whatever it cost; the next one
+            // takes a hold of its own.
+            await hold.release();
+            hold = NO_CREDIT_HOLD;
+
+            // A withheld completion was still a completion — charged, final,
+            // not a route failure worth another (billed) attempt elsewhere.
+            if (isModerationRefusal(e)) throw e;
+            recordFailure(model, e);
 
             // Fallback loop — the bucket holds every provider that serves this
             // model, ranked by `compareModelPreference`, so each miss walks one
@@ -511,20 +568,27 @@ export class ChatCompletionDriver extends PuterDriver {
                 const fbProvider = this.#providers[fallback.provider!];
                 if (!fbProvider) break;
 
-                // Credits can be exhausted mid-fallback by parallel requests;
-                // re-check before another upstream hit. Same bail as the
-                // pre-flight above.
-                const fallbackUsageAllowed =
-                    await this.services.metering.hasEnoughCredits(actor, 1);
-                if (!fallbackUsageAllowed) {
-                    throw new HttpError(402, 'No usage left for request.', {
-                        legacyCode: 'insufficient_funds',
+                // Every attempt is a whole completion the account pays for, so
+                // each one goes through the full gate again rather than a
+                // token "do they have anything left" check: the balance may
+                // have been spent by a parallel request, and the fallback is
+                // a different model at a different price, whose output has to
+                // be capped against what is actually left.
+                // The previous attempt released its hold when it failed, so
+                // this one starts from nothing held.
+                if (!blocked) {
+                    hold = await this.#applyCreditGate(actor, fallback, args, {
+                        promptTokenEstimate,
+                        requestedMaxTokens,
                     });
                 }
 
                 tried.add(routeId(fallback.provider!, fallback.id));
 
                 try {
+                    if (!blocked) {
+                        await this.#resolvePuterPaths(fbProvider, args, actor);
+                    }
                     res = await fbProvider.complete({
                         ...args,
                         model: fallback.id,
@@ -533,14 +597,26 @@ export class ChatCompletionDriver extends PuterDriver {
                     model = fallback;
                     lastError = null;
                 } catch (fbErr) {
+                    await hold.release();
+                    hold = NO_CREDIT_HOLD;
+                    if (isModerationRefusal(fbErr)) throw fbErr;
                     lastError = fbErr as Error;
-                    recordFailure(fallback.id, fallback.provider!, fbErr);
+                    recordFailure(fallback, fbErr);
                 }
             }
         }
 
         if (!res) {
-            throw classifyAttempts(attempts);
+            await hold.release();
+            const failure = classifyAttempts(attempts, { allModelsFree });
+            // A deduped alarm shows only its latest occurrence, so each
+            // request's per-route failures are logged here, under its trace.
+            if (!failure.noAlarm) {
+                console.warn(
+                    `[ai-chat] all routes failed (${completionId}, ${model.provider}:${model.id}, ${failure.legacyCode}): ${JSON.stringify(attempts)}`,
+                );
+            }
+            throw failure;
         }
 
         const username = actor.user?.username;
@@ -588,6 +664,13 @@ export class ChatCompletionDriver extends PuterDriver {
                 return originalEnd(enrichedUsage!);
             };
 
+            // The hold lives for the whole stream, which can outlast its TTL —
+            // keep pushing the deadline out until the pump is done.
+            const renewHold = setInterval(() => {
+                void hold.extend?.();
+            }, HOLD_RENEW_INTERVAL_MS);
+            renewHold.unref?.();
+
             // Fire-and-forget — the stream writes happen async while the
             // response is being piped to the client.
             (async () => {
@@ -597,11 +680,33 @@ export class ChatCompletionDriver extends PuterDriver {
                     passthrough.write(
                         `${JSON.stringify({
                             type: 'error',
-                            message: (e as Error).message,
+                            message: sanitizeUpstreamMessage(
+                                e instanceof Error ? e.message : String(e),
+                            ),
                         })}\n`,
                     );
                     passthrough.end();
                 } finally {
+                    clearInterval(renewHold);
+                    // Providers report usage the moment they meter it (see
+                    // `AIChatStream.reportUsage`); a stream that never got
+                    // there was never charged for.
+                    if (!blocked && !chatStream.reportedUsage) {
+                        this.#meterUnreportedStream({
+                            actor,
+                            chatStream,
+                            model,
+                            promptTokenEstimate,
+                            completionId,
+                            username,
+                            intendedProvider,
+                        });
+                    }
+                    // Held until the generation is actually over: for a
+                    // stream, the provider returns as soon as it has a
+                    // populator, and everything the account pays for happens
+                    // after that.
+                    await hold.release();
                     if (cleanup) await cleanup();
                 }
             })();
@@ -614,6 +719,10 @@ export class ChatCompletionDriver extends PuterDriver {
             };
             return streamResult as unknown as IChatCompleteResult;
         }
+
+        // The provider recorded this completion's usage before returning it,
+        // so the hold has served its purpose.
+        await hold.release();
 
         // -- Post-completion audit event ------------------------------
         // Only for non-streaming results (streaming emits from the
@@ -649,16 +758,39 @@ export class ChatCompletionDriver extends PuterDriver {
             providerUsed: model.id,
         });
 
-        if (args.response?.normalize && 'message' in res && res.message) {
-            return {
-                ...res,
-                message: normalize_single_message(res.message),
-                normalized: true,
-                via_ai_chat_service: true,
-            };
+        // Response-format precedence: an explicit per-call `normalize` wins in
+        // both directions; the legacy `response.normalize` (internal
+        // block-format normalization) applies only when the new flag is
+        // absent; otherwise the release-date cutoff decides. The coercer is
+        // idempotent, so already-OpenAI-shaped results (most providers, or a
+        // Claude model served through a reseller fallback) pass through.
+        if ('message' in res && res.message) {
+            // `'message' in res` doesn't narrow the result union for TS.
+            const messageRes = res as IChatMessageResult;
+            if (shouldPresentAsOpenAI(args, model.release_date)) {
+                return {
+                    ...normalizeResultToOpenAI(messageRes),
+                    normalized: true,
+                    via_ai_chat_service: true,
+                };
+            }
+            // The legacy flag normalizes the other way — to Anthropic blocks —
+            // and only when the new flag is absent. It deliberately does NOT
+            // set `normalized`: that field is the caller's signal that the
+            // message is in the OpenAI shape, and this branch produces the
+            // opposite. Stamping both made the flag mean "some normalization
+            // happened", which no consumer can act on.
+            if (args.normalize !== false && args.response?.normalize) {
+                return {
+                    ...messageRes,
+                    message: normalize_single_message(messageRes.message),
+                    via_ai_chat_service: true,
+                };
+            }
         }
 
-        return { ...res, via_ai_chat_service: true };
+        // Streaming results returned above; only message results reach here.
+        return { ...(res as IChatMessageResult), via_ai_chat_service: true };
     }
 
     // Compute per-token cost in microcents (1 cent = 1_000_000 microCents).
@@ -676,10 +808,7 @@ export class ChatCompletionDriver extends PuterDriver {
         outputMicroCents: number;
         totalMicroCents: number;
     } | null {
-        const inputKey =
-            (model.input_cost_key as string | undefined) ?? 'input_tokens';
-        const outputKey =
-            (model.output_cost_key as string | undefined) ?? 'output_tokens';
+        const { inputKey, outputKey } = costKeys(model);
 
         const costs = model.costs;
         if (!costs) return null;
@@ -690,11 +819,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 ? outputRateRaw
                 : undefined;
 
-        const isOutputKey = (key: string) =>
-            key === outputKey ||
-            key === 'output_tokens' ||
-            key === 'completion_tokens' ||
-            key === 'thinking_tokens';
+        const isOutputKey = (key: string) => isOutputCostKey(key, outputKey);
+        const multipliers = longContextMultipliers(
+            model,
+            trackedInputTokens(usage, model),
+        );
 
         let inputMicroCents = 0;
         let outputMicroCents = 0;
@@ -728,12 +857,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 }
             }
 
-            const sub = rawAmount * rate;
             sawAnyRate = true;
             if (isOutputKey(key)) {
-                outputMicroCents += sub;
+                outputMicroCents += rawAmount * rate * multipliers.output;
             } else {
-                inputMicroCents += sub;
+                inputMicroCents += rawAmount * rate * multipliers.input;
             }
         }
 
@@ -761,6 +889,205 @@ export class ChatCompletionDriver extends PuterDriver {
             outputMicroCents,
             totalMicroCents: inputMicroCents + outputMicroCents,
         };
+    }
+
+    /**
+     * The credit and subscription gate for one upstream attempt.
+     *
+     * Runs before every attempt, not once per request: each attempt is a whole
+     * completion the account pays for, at that model's prices, against whatever
+     * balance is left by the time it starts.
+     *
+     * Rejects when the account can't afford the approximate input cost, keeps
+     * subscriber-only models gated, and tightens `args.max_tokens` so the
+     * output this attempt can produce is bounded by the remaining balance.
+     *
+     * Returns a hold on what the attempt can cost at worst, so requests this
+     * account is running in parallel see the spend before it is recorded. The
+     * caller releases it once the attempt is done.
+     */
+    async #applyCreditGate(
+        actor: Actor,
+        model: IChatModel,
+        args: ICompleteArguments,
+        estimates: {
+            /**
+             * Prompt tokens, estimated once before any attempt — counts
+             * attachments as well as text, and predates any in-place message
+             * rewriting a previous attempt's provider did.
+             */
+            promptTokenEstimate: number;
+            /**
+             * What the user asked for, kept apart from `args.max_tokens`, which
+             * carries the previous attempt's cap: a cheap fallback must not
+             * inherit the ceiling computed at an expensive model's price.
+             */
+            requestedMaxTokens: number | undefined;
+        },
+    ): Promise<CreditHold> {
+        const metering = this.services.metering;
+        const { promptTokenEstimate, requestedMaxTokens } = estimates;
+        const { inputKey, outputKey } = costKeys(model);
+        // A prompt estimated past a long-context threshold pays the raised
+        // rates on input and output alike.
+        const multipliers = longContextMultipliers(model, promptTokenEstimate);
+        // `|| 0` also catches NaN from a malformed cost table.
+        const inputTokenCost =
+            (Number(model.costs?.[inputKey] ?? 0) || 0) * multipliers.input;
+        const outputTokenCost =
+            (Number(model.costs?.[outputKey] ?? 0) || 0) * multipliers.output;
+        const approximateInputCost = promptTokenEstimate * inputTokenCost;
+        const minimumCredits = Number(model.minimumCredits || 1);
+
+        // One balance read serves the whole gate: the affordability check
+        // here and the output cap below.
+        const remainingCredits = await metering.getRemainingUsage(actor);
+        if (remainingCredits < Math.max(approximateInputCost, minimumCredits)) {
+            throw new HttpError(402, 'No usage left for request.', {
+                legacyCode: 'insufficient_funds',
+            });
+        }
+
+        if (model.subscriberOnly) {
+            const subscription = await metering.getActorSubscription(actor);
+            // Every free plan, not two named ones.
+            if (FREE_SUBSCRIPTION_IDS.has(subscription.id)) {
+                throw new HttpError(
+                    403,
+                    `The model ${model.id} is only available to subscribers. Please subscribe to access this model.`,
+                    { legacyCode: 'permission_denied' },
+                );
+            }
+        }
+
+        if (outputTokenCost > 0) {
+            const maxAllowedOutputUcents =
+                remainingCredits - approximateInputCost;
+            const maxAllowedOutputTokens =
+                maxAllowedOutputUcents / outputTokenCost;
+            // A provider may not know a model's output ceiling. Drop the term
+            // rather than let a missing value drive the cap: `null` coerces to
+            // 0, so the subtraction goes negative instead of NaN and the user
+            // is told they're out of credits.
+            const modelOutputCeiling =
+                Number.isFinite(model.max_tokens) && model.max_tokens > 0
+                    ? model.max_tokens - promptTokenEstimate
+                    : Number.POSITIVE_INFINITY;
+            const cap = Math.floor(
+                Math.min(
+                    requestedMaxTokens ?? Number.POSITIVE_INFINITY,
+                    maxAllowedOutputTokens,
+                    modelOutputCeiling,
+                ),
+            );
+            // `cap` is the credit-bounded ceiling on output tokens. When it
+            // drops below 1 the user can't afford even a single output token,
+            // so reject the request. Crucially we must NOT leave `max_tokens`
+            // unset here: an undefined max_tokens lets the provider run to the
+            // model's full output limit (e.g. 128k for Claude), billing far
+            // past the user's remaining balance.
+            // `!(cap >= 1)` rather than `cap < 1` so a non-finite cap is caught
+            // too: a NaN requested max_tokens poisons the Math.min above, and
+            // `NaN < 1` is false — letting an uncapped request through.
+            if (!(cap >= 1)) {
+                throw new HttpError(402, 'No usage left for request.', {
+                    legacyCode: 'insufficient_funds',
+                });
+            }
+            args.max_tokens = cap;
+        } else {
+            // No output price, nothing to bound — but a previous attempt may
+            // have written its cap here; give this one the user's own value.
+            args.max_tokens = requestedMaxTokens;
+        }
+
+        // What this attempt can cost at worst: the prompt, plus output run to
+        // the cap just set. Capped output is what makes the number finite —
+        // for a model with no output price the output term is zero and the
+        // prompt estimate stands alone.
+        const worstCaseCost =
+            approximateInputCost + (args.max_tokens ?? 0) * outputTokenCost;
+        return this.services.metering.reserveCredits(
+            actor,
+            Math.max(worstCaseCost, minimumCredits),
+        );
+    }
+
+    /**
+     * Charge a stream that produced output but never reported usage.
+     *
+     * Providers meter from the usage they hand to `chatStream.end`, at the very
+     * end of the stream — so anything that stops the stream short of that point
+     * (an upstream error mid-response, a malformed tool-call payload, a
+     * provider that never sends a usage chunk) leaves a completion the upstream
+     * has already billed us for and the account has paid nothing for. This is
+     * the backstop: what the stream actually emitted, priced off the model's
+     * own cost table.
+     *
+     * Only when there was output. A stream that failed before producing
+     * anything cost the user nothing, and charging an estimated prompt to
+     * someone whose request we failed to serve is worse than the leak.
+     *
+     * Recorded under `estimated_*` usage keys so the numbers stay separable
+     * from provider-reported ones in the usage breakdown.
+     */
+    #meterUnreportedStream(params: {
+        actor: Actor;
+        chatStream: AIChatStream;
+        model: IChatModel;
+        /** Estimated before any provider rewrote `args.messages` in place. */
+        promptTokenEstimate: number;
+        completionId: string;
+        username?: string;
+        intendedProvider: string;
+    }): void {
+        const {
+            actor,
+            chatStream,
+            model,
+            promptTokenEstimate,
+            completionId,
+            username,
+            intendedProvider,
+        } = params;
+
+        const outputTokens = estimateOutputTokens(chatStream.outputChars ?? 0);
+        if (outputTokens <= 0) return;
+
+        const { inputKey, outputKey } = costKeys(model);
+        const inputTokens = promptTokenEstimate;
+        const usage = {
+            [inputKey]: inputTokens,
+            [outputKey]: outputTokens,
+        };
+
+        const cost = this.#computeCost(usage, model);
+        this.#aiMetering.utilRecordUsageObject(
+            {
+                [`estimated_${inputKey}`]: inputTokens,
+                [`estimated_${outputKey}`]: outputTokens,
+            },
+            actor,
+            `${model.provider}:${model.id}`,
+            {
+                // Undefined when the model has no cost table: the entry is
+                // recorded unpriced rather than free.
+                [`estimated_${inputKey}`]: cost?.inputMicroCents,
+                [`estimated_${outputKey}`]: cost?.outputMicroCents,
+            },
+        );
+
+        console.warn(
+            `[ai-chat] stream ended without usage; charged an estimate (${completionId}, ${model.provider}:${model.id}, ~${inputTokens} in / ~${outputTokens} out)`,
+        );
+
+        this.#emitCostCalculated({
+            completionId,
+            username,
+            usage,
+            model,
+            intendedProvider,
+        });
     }
 
     // Add `usd_cents` to the usage object. Skips if the provider already
@@ -795,10 +1122,7 @@ export class ChatCompletionDriver extends PuterDriver {
             params;
 
         const cost = this.#computeCost(usage, model);
-        const inputKey =
-            (model.input_cost_key as string | undefined) ?? 'input_tokens';
-        const outputKey =
-            (model.output_cost_key as string | undefined) ?? 'output_tokens';
+        const { inputKey, outputKey } = costKeys(model);
         const inputTokens = cost?.inputTokens ?? 0;
         const outputTokens = cost?.outputTokens ?? 0;
         const inputMicroCents = cost?.inputMicroCents ?? 0;
@@ -836,7 +1160,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #registerProviders() {
         const providers = this.config.providers ?? {};
-        const metering = this.services.metering;
+        const metering = this.#aiMetering;
 
         const readKey = (cfg: Record<string, unknown> | undefined) =>
             (cfg?.apiKey as string | undefined) ??
@@ -855,10 +1179,9 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        // Azure AI Foundry (OpenAI + xAI Grok). Registered before the regular
-        // OpenAI/xAI providers so that since its costs mirror theirs but
-        // Azure is preferred for us, it takes precedence in the per-model
-        // bucket
+        // Azure AI Foundry (OpenAI + xAI Grok). Its costs mirror the vendors'
+        // and it is preferred for us; `PREFERRED_PROVIDERS` in modelRouting
+        // puts it ahead of them in the per-model bucket.
         const azureOpenai = providers['azure-openai'];
         const azureOpenaiKey = readKey(azureOpenai);
         const azureOpenaiURL = azureOpenai?.apiURL as string | undefined;
@@ -924,6 +1247,23 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['gemini'] = new GeminiChatProvider(metering, {
                 apiKey: geminiKey,
             });
+        }
+
+        const meta = providers['meta'];
+        const metaKey = readKey(meta);
+        if (metaKey) {
+            this.#providers['meta'] = new MetaProvider(
+                metering,
+                {
+                    fsEntry: this.stores.fsEntry,
+                    s3Object: this.stores.s3Object,
+                },
+                this.services.fs,
+                {
+                    apiKey: metaKey,
+                    apiBaseUrl: meta?.apiBaseUrl as string | undefined,
+                },
+            );
         }
 
         const groqKey = readKey(providers['groq']);
@@ -1002,32 +1342,12 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const togetherKey = readKey(providers['together-ai']);
-        if (togetherKey) {
-            this.#providers['together-ai'] = new TogetherAIProvider(
-                { apiKey: togetherKey },
-                metering,
-            );
-        }
-
         // Ollama — auto-discover local instance unless `enabled: false`.
         const ollama = providers['ollama'];
         if (ollama?.enabled !== false) {
             this.#providers['ollama'] = new OllamaChatProvider(
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
-                },
-                metering,
-            );
-        }
-
-        const openrouter = providers['openrouter'];
-        const openrouterKey = readKey(openrouter);
-        if (openrouterKey) {
-            this.#providers['openrouter'] = new OpenRouterProvider(
-                {
-                    apiKey: openrouterKey,
-                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -1045,6 +1365,38 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const openrouter = providers['openrouter'];
+        const openrouterKey = readKey(openrouter);
+        if (openrouterKey) {
+            this.#providers['openrouter'] = new OpenRouterProvider(
+                {
+                    apiKey: openrouterKey,
+                    apiBaseUrl: openrouter?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
+        const togetherKey = readKey(providers['together-ai']);
+        if (togetherKey) {
+            this.#providers['together-ai'] = new TogetherAIProvider(
+                { apiKey: togetherKey },
+                metering,
+            );
+        }
+
+        const byteplus = providers['byteplus'];
+        const byteplusKey = readKey(byteplus);
+        if (byteplusKey) {
+            this.#providers['byteplus'] = new BytePlusProvider(
+                {
+                    apiKey: byteplusKey,
+                    apiBaseUrl: byteplus?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         const neuralwatt = providers['neuralwatt'];
         const neuralwattKey = readKey(neuralwatt);
         if (neuralwattKey) {
@@ -1052,6 +1404,18 @@ export class ChatCompletionDriver extends PuterDriver {
                 {
                     apiKey: neuralwattKey,
                     apiBaseUrl: neuralwatt?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
+        const hoonify = providers['hoonify'];
+        const hoonifyKey = readKey(hoonify);
+        if (hoonifyKey) {
+            this.#providers['hoonify'] = new HoonifyProvider(
+                {
+                    apiKey: hoonifyKey,
+                    apiBaseUrl: hoonify?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -1079,20 +1443,40 @@ export class ChatCompletionDriver extends PuterDriver {
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
 
-            for (const model of await provider.models()) {
-                model.id = normalizeModelKey(model.id);
-                if (model.puterId) {
-                    model.aliases = model.aliases
-                        ? [...model.aliases, model.puterId]
-                        : [model.puterId];
-                }
+            for (const entry of await provider.models()) {
+                // Catalogs are module-level constants shared by every driver
+                // instance, so they are read and never written: normalizing
+                // the id or appending puterId in place would accumulate across
+                // instantiations. The bucket gets its own copy instead.
+                const aliases =
+                    entry.puterId &&
+                    !(entry.aliases ?? []).includes(entry.puterId)
+                        ? [...(entry.aliases ?? []), entry.puterId]
+                        : entry.aliases;
+                const model = {
+                    ...entry,
+                    id: normalizeModelKey(entry.id),
+                };
+                // Assigned only when the entry has names to carry: models()
+                // is serialized to the API, and an entry that declared no
+                // aliases should not sprout an `aliases: []` key on the wire.
+                if (aliases) model.aliases = aliases;
 
                 // Catalogs derive an alias by stripping the vendor org off the
                 // id, which yields '' for ids that carry no org. Drop those —
                 // an empty key would pool unrelated models together.
-                const keys = [model.id, ...(model.aliases ?? [])]
-                    .map(normalizeModelKey)
-                    .filter((key) => key.length > 0);
+                //
+                // Names may repeat: an entry is free to list its own id among
+                // its aliases, and normalizing can collapse two spellings onto
+                // one key. Deduplicate so a repeat can neither register a key
+                // twice nor make the bucket search consider it twice.
+                const keys = [
+                    ...new Set(
+                        [model.id, ...(aliases ?? [])]
+                            .map(normalizeModelKey)
+                            .filter((key) => key.length > 0),
+                    ),
+                ];
 
                 const bucket =
                     keys
@@ -1122,6 +1506,27 @@ export class ChatCompletionDriver extends PuterDriver {
             if (pinned) return pinned;
         }
         return this.#preferHealthy(models) ?? models[0];
+    }
+
+    /**
+     * Inline `puter_path` parts as data URLs for a provider without its own
+     * upload path. Per attempt, not once up front: Claude uploads the same
+     * parts to its Files API and restores them if its attempt fails.
+     * Idempotent.
+     */
+    async #resolvePuterPaths(
+        provider: IChatProvider,
+        args: ICompleteArguments,
+        actor: Actor | undefined,
+    ): Promise<void> {
+        if (provider.resolvesPuterPaths) return;
+        if (!messagesHavePuterPaths(args.messages)) return;
+        await processPuterPathUploads(
+            args.messages,
+            { fsEntry: this.stores.fsEntry, s3Object: this.stores.s3Object },
+            this.services.fs,
+            actor,
+        );
     }
 
     #findFallback(modelId: string, tried: Set<string>): IChatModel | null {

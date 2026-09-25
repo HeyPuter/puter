@@ -210,6 +210,51 @@ describe('MistralAIProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
+    it('forwards custom.prompt_mode as the SDK promptMode', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'ok' },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'magistral-small-latest',
+                messages: [{ role: 'user', content: 'think' }],
+                custom: { prompt_mode: 'reasoning' },
+            }),
+        );
+
+        expect(completeMock.mock.calls[0]![0].promptMode).toBe('reasoning');
+    });
+
+    it('omits promptMode when custom does not carry prompt_mode', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'ok' },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect('promptMode' in completeMock.mock.calls[0]![0]).toBe(false);
+    });
+
     it('omits the `tools` key when no tools are supplied', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
@@ -459,6 +504,115 @@ describe('MistralAIProvider.complete non-stream output', () => {
         });
     });
 
+    it('flattens a magistral chunked content array into string content + reasoning', async () => {
+        // Mistral's reasoning models return `content` as a chunk array with
+        // the thinking text nested inside `thinking` chunks. Left alone it
+        // reaches the caller as an array with no `reasoning`, breaking the
+        // one-shape-per-provider guarantee.
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: {
+                        role: 'assistant',
+                        content: [
+                            {
+                                type: 'thinking',
+                                thinking: [
+                                    { type: 'text', text: 'step one.' },
+                                ],
+                            },
+                            {
+                                type: 'thinking',
+                                thinking: [
+                                    { type: 'text', text: 'step two.' },
+                                ],
+                            },
+                            { type: 'text', text: 'the answer' },
+                        ],
+                    },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'magistral-small-latest',
+                messages: [{ role: 'user', content: 'think' }],
+                normalize: true,
+            }),
+        )) as { message: Record<string, unknown> };
+
+        expect(result.message.content).toBe('the answer');
+        // Multiple thinking chunks join with a blank line, matching the
+        // Responses handler and the Anthropic coercer.
+        expect(result.message.reasoning).toBe('step one.\n\nstep two.');
+    });
+
+    it('leaves plain string content untouched', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'plain' },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { message: Record<string, unknown> };
+
+        expect(result.message.content).toBe('plain');
+        expect('reasoning' in result.message).toBe(false);
+    });
+
+    it('leaves the SDK dialect untouched when normalization does not apply', async () => {
+        // The remap changes what this provider returns, so it is gated on the
+        // same policy the driver's coercer uses. Without `normalize`, and with
+        // a pre-cutoff model, a caller reading the SDK's native keys keeps
+        // seeing them — nothing is deleted out from under it.
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: {
+                        role: 'assistant',
+                        content: 'hi there',
+                        toolCalls: [
+                            {
+                                id: 'call_1',
+                                function: {
+                                    name: 'get_weather',
+                                    arguments: { city: 'Paris' },
+                                },
+                            },
+                        ],
+                    },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { message: Record<string, unknown> } & Record<string, unknown>;
+
+        expect('toolCalls' in result.message).toBe(true);
+        expect('tool_calls' in result.message).toBe(false);
+    });
+
     it('preserves OpenAI-shaped tool_calls on the assistant response', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce({
@@ -571,6 +725,99 @@ describe('MistralAIProvider.complete streaming', () => {
         });
     });
 
+    it.each([
+        ['normalize: true', true],
+        ['normalize unset', undefined],
+    ])(
+        'splits chunked delta.content into text and reasoning events (%s)',
+        async (_label, normalize) => {
+            // The reasoning split is unconditional: streamed chunk types must
+            // not depend on the normalize policy, because chat.md promises
+            // "Streaming is unaffected by normalization" and because every
+            // other provider routes thinking to the reasoning channel
+            // regardless. Both rows below assert the same event stream.
+            const { provider } = makeProvider();
+            streamMock.mockReturnValueOnce(
+                asAsyncIterable([
+                    {
+                        data: {
+                            choices: [
+                                {
+                                    delta: {
+                                        content: [
+                                            {
+                                                type: 'thinking',
+                                                thinking: [
+                                                    {
+                                                        type: 'text',
+                                                        text: 'thinking…',
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        data: {
+                            choices: [
+                                {
+                                    delta: {
+                                        content: [
+                                            { type: 'text', text: 'answer' },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        data: {
+                            choices: [{ delta: {} }],
+                            usage: { promptTokens: 1, completionTokens: 1 },
+                        },
+                    },
+                ]),
+            );
+
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model: 'magistral-small-latest',
+                    messages: [{ role: 'user', content: 'think' }],
+                    stream: true,
+                    ...(normalize === undefined ? {} : { normalize }),
+                }),
+            );
+
+            const harness = makeCapturingChatStream();
+            await (
+                result as {
+                    init_chat_stream: (p: {
+                        chatStream: unknown;
+                    }) => Promise<void>;
+                }
+            ).init_chat_stream({ chatStream: harness.chatStream });
+
+            const events = harness.events();
+            // Thinking goes to the reasoning channel, never the text channel.
+            expect(
+                events
+                    .filter((e) => e.type === 'reasoning')
+                    .map((e) => e.reasoning),
+            ).toEqual(['thinking…']);
+            const text = events
+                .filter((e) => e.type === 'text')
+                .map((e) => e.text)
+                .join('');
+            expect(text).toBe('answer');
+            // And the array never reaches addText as an object.
+            expect(text).not.toContain('object');
+            expect(text).not.toContain('{');
+        },
+    );
+
     it('builds a tool_use block from camelCase delta.toolCalls deltas', async () => {
         const { provider } = makeProvider();
         streamMock.mockReturnValueOnce(
@@ -668,10 +915,14 @@ describe('MistralAIProvider image_url coercion', () => {
         usage: { promptTokens: 1, completionTokens: 1 },
     };
 
-    it('flattens image_url objects to plain strings before sending to Mistral', async () => {
+    it('rewrites canonical image_url parts to the SDK\'s camelCase imageUrl', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
 
+        const imagePartIn = {
+            type: 'image_url',
+            image_url: { url: 'https://example.com/img.png' },
+        };
         await withTestActor(() =>
             provider.complete({
                 model: 'mistral-small-2603',
@@ -680,10 +931,7 @@ describe('MistralAIProvider image_url coercion', () => {
                         role: 'user',
                         content: [
                             { type: 'text', text: 'describe this image' },
-                            {
-                                type: 'image_url',
-                                image_url: { url: 'https://example.com/img.png' },
-                            },
+                            imagePartIn,
                         ],
                     },
                 ],
@@ -693,12 +941,21 @@ describe('MistralAIProvider image_url coercion', () => {
         const [args] = completeMock.mock.calls[0]!;
         const imagePart = (args.messages[0].content as unknown[]).find(
             (p: unknown) => (p as { type: string }).type === 'image_url',
-        ) as { type: string; image_url: unknown };
-        // Mistral expects a plain string, not { url: string }.
-        expect(imagePart.image_url).toBe('https://example.com/img.png');
+        ) as Record<string, unknown>;
+        // The SDK's zod schema wants `imageUrl`; a snake_case `image_url` fails
+        // validation before the request leaves the box.
+        expect(imagePart).toEqual({
+            type: 'image_url',
+            imageUrl: 'https://example.com/img.png',
+        });
+        // Copy-on-write: the driver reuses the caller's parts on fallback.
+        expect(imagePartIn).toEqual({
+            type: 'image_url',
+            image_url: { url: 'https://example.com/img.png' },
+        });
     });
 
-    it('leaves image_url parts that are already plain strings unchanged', async () => {
+    it('carries `detail` into an imageUrl object and accepts a bare string URL', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
 
@@ -709,6 +966,13 @@ describe('MistralAIProvider image_url coercion', () => {
                     {
                         role: 'user',
                         content: [
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: 'https://example.com/hi.png',
+                                    detail: 'high',
+                                },
+                            },
                             {
                                 type: 'image_url',
                                 image_url: 'https://example.com/already-flat.png',
@@ -720,10 +984,42 @@ describe('MistralAIProvider image_url coercion', () => {
         );
 
         const [args] = completeMock.mock.calls[0]!;
-        const imagePart = (args.messages[0].content as unknown[]).find(
-            (p: unknown) => (p as { type: string }).type === 'image_url',
-        ) as { type: string; image_url: unknown };
-        expect(imagePart.image_url).toBe('https://example.com/already-flat.png');
+        const parts = args.messages[0].content as Record<string, unknown>[];
+        expect(parts[0]).toEqual({
+            type: 'image_url',
+            imageUrl: { url: 'https://example.com/hi.png', detail: 'high' },
+        });
+        expect(parts[1]).toEqual({
+            type: 'image_url',
+            imageUrl: 'https://example.com/already-flat.png',
+        });
+    });
+
+    it('replaces video parts with an inline note since Mistral has no video input', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'video_url',
+                                video_url: { url: 'https://example.com/a.mp4' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = completeMock.mock.calls[0]!;
+        const parts = args.messages[0].content as Record<string, unknown>[];
+        expect(parts[0]!.type).toBe('text');
+        expect(parts[0]!.text).toMatch(/video input is not supported/);
     });
 
     it('leaves messages with plain string content untouched', async () => {
@@ -764,11 +1060,11 @@ describe('MistralAIProvider image_url coercion', () => {
         );
 
         const [args] = completeMock.mock.calls[0]!;
-        const parts = args.messages[0].content as { type: string; text?: string; image_url?: unknown }[];
+        const parts = args.messages[0].content as { type: string; text?: string; imageUrl?: unknown }[];
         const textPart = parts.find((p) => p.type === 'text');
         const imgPart = parts.find((p) => p.type === 'image_url');
         expect(textPart?.text).toBe('what is in this image?');
-        expect(imgPart?.image_url).toBe('https://example.com/photo.jpg');
+        expect(imgPart?.imageUrl).toBe('https://example.com/photo.jpg');
     });
 });
 

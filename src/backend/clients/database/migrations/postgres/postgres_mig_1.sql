@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS "user" (
   signup_origin varchar(255),
   signup_server varchar(255),
   metadata jsonb DEFAULT '{}'::jsonb,
-  reputation smallint DEFAULT 100
+  reputation smallint DEFAULT 100,
+  home varchar(64)
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_email ON "user" (email);

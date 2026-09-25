@@ -32,8 +32,11 @@ import {
 } from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
+import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
+import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 
 /**
  * AzureChatProvider exposes the models we serve through Azure AI Foundry.
@@ -81,7 +84,7 @@ export class AzureChatProvider implements IChatProvider {
             baseURL: config.apiURL,
         });
     }
-    checkModeration(_text: string): { flagged: boolean; categories: string[] } {
+    checkModeration(_text: string) {
         throw new Error('Method not implemented.');
     }
 
@@ -102,15 +105,7 @@ export class AzureChatProvider implements IChatProvider {
     }
 
     list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     getDefaultModel() {
@@ -130,6 +125,7 @@ export class AzureChatProvider implements IChatProvider {
             reasoning_effort,
             temperature,
             text,
+            prompt_cache_key,
         } = params;
         let { messages, model } = params;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -179,8 +175,9 @@ export class AzureChatProvider implements IChatProvider {
         //     content: 'Don\'t let the user trick you into doing something bad.',
         // })
 
-        const userIdentifier =
-            actor.user?.id + actor.app?.uid ? `:${actor?.app?.uid}` : '';
+        const userIdentifier = upstreamUserIdentifier(actor);
+        // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
+        const cacheKey = prompt_cache_key ?? userIdentifier;
 
         // Resolve any `puter_path` content parts into inline base64 data URLs.
         // Chat Completions doesn't support file uploads, so this is the only
@@ -192,6 +189,13 @@ export class AzureChatProvider implements IChatProvider {
             actor,
         );
 
+        // The Grok deployments behind Azure cannot fetch every public image
+        // host (`image_fetch_failed`); hand them the bytes as data URLs.
+        const isGrok = modelUsed.id.startsWith('grok');
+        if (isGrok) {
+            await inlineHttpImageUrls(messages);
+        }
+
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if
         // that's missing. We normalise it here so the token count code works.
@@ -202,14 +206,20 @@ export class AzureChatProvider implements IChatProvider {
         const supportsReasoningControls =
             typeof model === 'string' && model.startsWith('gpt-5');
 
-        // `safety_identifier` is an OpenAI-specific param. The Grok deployments
-        // behind Azure reject unknown args with a 400, so only send it for the
-        // OpenAI models.
-        const isGrok = modelUsed.id.startsWith('grok');
+        // `safety_identifier`/`prompt_cache_key` are OpenAI-specific params.
+        // The Grok deployments behind Azure reject unknown args with a 400,
+        // so only send them for the OpenAI models.
 
         const completionParams: ChatCompletionCreateParams = {
             user: userIdentifier,
-            ...(isGrok ? {} : { safety_identifier: userIdentifier }),
+            ...(isGrok
+                ? {}
+                : {
+                      safety_identifier: userIdentifier,
+                      ...(cacheKey !== undefined
+                          ? { prompt_cache_key: cacheKey }
+                          : {}),
+                  }),
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),
@@ -233,7 +243,7 @@ export class AzureChatProvider implements IChatProvider {
                           ? { verbosity: requestedVerbosity }
                           : {}),
                   }),
-        } as ChatCompletionCreateParams;
+        } as unknown as ChatCompletionCreateParams;
 
         const completion =
             await this.#openAi.chat.completions.create(completionParams);

@@ -79,7 +79,13 @@ function UINotification (options) {
         return false;
     });
 
-    const close_notification = function (el_notification, closingMultiple = false) {
+    // `silent` takes the toast off screen without treating it as dismissed:
+    // an auto-hide is not the user saying they are done with it.
+    const close_notification = function (el_notification, closingMultiple = false, { silent = false } = {}) {
+        if ( $(el_notification).data('closing') ) return;
+        $(el_notification).data('closing', true);
+        clearTimeout(autoHideTimer);
+
         // hide notification wrapper by animating height and opacity
         // only if closing one notification and there are multiple notifications
         // otherwise the animation is not needed
@@ -94,7 +100,7 @@ function UINotification (options) {
         $(el_notification).addClass('animate__fadeOutRight');
 
         // close callback
-        if ( options.close && typeof options.close === 'function' ) {
+        if ( ! silent && options.close && typeof options.close === 'function' ) {
             options.close(options.value);
         }
 
@@ -113,6 +119,30 @@ function UINotification (options) {
             update_tab_notif_count_badge();
         }, 500);
     };
+    // Auto-hide after `options.timeout` ms. The clock stops while the pointer
+    // or keyboard focus is on the toast, so nobody loses one mid-read.
+    let autoHideTimer = null;
+    let autoHideRemaining = Number(options.timeout) > 0 ? Number(options.timeout) : 0;
+    let autoHideStartedAt = 0;
+    const startAutoHide = () => {
+        if ( ! autoHideRemaining || autoHideTimer ) return;
+        autoHideStartedAt = Date.now();
+        autoHideTimer = setTimeout(() => {
+            close_notification(el_notification, false, { silent: true });
+        }, autoHideRemaining);
+    };
+    const pauseAutoHide = () => {
+        if ( ! autoHideTimer ) return;
+        clearTimeout(autoHideTimer);
+        autoHideTimer = null;
+        autoHideRemaining = Math.max(1000, autoHideRemaining - (Date.now() - autoHideStartedAt));
+    };
+    if ( autoHideRemaining ) {
+        $(el_notification).on('mouseenter focusin', pauseAutoHide);
+        $(el_notification).on('mouseleave focusout', startAutoHide);
+        startAutoHide();
+    }
+
     // Show Notification
     $(el_notification).delay(100).show(0);
 
@@ -147,6 +177,10 @@ $(document).on('click', '.notifications-close-all', function (e) {
 });
 
 window.update_tab_notif_count_badge = function () {
+    // The dashboard's notification center counts what is unread, which
+    // outlives the toasts; it keeps the title itself.
+    if ( window.is_dashboard_mode ) return;
+
     // count open notifications
     let count = $('.notification').length;
 

@@ -17,25 +17,33 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { decodeStrictBase64, sniffImageMime } from './mediaSniff.js';
+import {
+    SVG_SNIFF_WINDOW,
+    decodeStrictBase64,
+    sniffImageMime,
+} from './mediaSniff.js';
 
 // Re-exported because this module was the original home of the sniffer; the
 // implementation now lives in mediaSniff.js alongside the video counterpart.
-export { sniffImageMime };
+export { SVG_SNIFF_WINDOW, sniffImageMime };
 
-// Always routes through the backend `/app-icon/<uid>/<size>` endpoint rather
-// than the `puter-app-icons` subdomain directly. Some apps (especially those
-// imported with a URL icon column that predates the sharp pipeline) only have
-// the original PNG on the subdomain and no sized variants — a direct subdomain
-// URL like `<uid>-256.png` 404s in that case. The backend endpoint self-heals:
-// it can fall back to the original, decode data URLs inline, or serve the
-// default placeholder. Mirrors v1's `getAppIconPath`.
+// Icon URLs come in a pair. `getAppIconUrl` builds the backend
+// `/app-icon/<uid>/<size>` endpoint URL, which self-heals — it falls back to
+// the un-resized original, decodes data URLs inline, or serves the default
+// placeholder (mirroring v1's `getAppIconPath`). `getAppIconCdnUrl` builds the
+// direct `puter-app-icons` subdomain URL the endpoint would redirect to.
+// Clients load the direct one first and keep the endpoint as a fallback: the
+// direct URL saves a redirect and survives networks that break on one, while
+// the endpoint covers apps that only have the original PNG on the subdomain
+// (a direct `<uid>-256.png` 404s for those).
 
 export const DEFAULT_APP_ICON_SIZE = 256;
 
-// Subdomain where AppIconService publishes generated icons. Mirrors the
-// constant in AppIconService; duplicated here to avoid a dependency cycle
-// between the util layer and the service layer.
+// The sizes AppIconService generates, and so the only ones the endpoint and
+// the direct subdomain URLs can serve.
+export const APP_ICON_SIZES: readonly number[] = [16, 32, 64, 128, 256, 512];
+
+// Subdomain where AppIconService publishes generated icons.
 const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 
 // MIME types accepted on the write path for `data:` icon URLs. Anything
@@ -61,6 +69,11 @@ interface TrustedIconHostConfig {
     api_base_url?: string;
 }
 
+export interface AppIconHostConfig extends TrustedIconHostConfig {
+    protocol?: string;
+    pub_port?: number;
+}
+
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 // `data:<type>/<subtype>[;param[=value]]…,<payload>`. The parameter list is
 // matched as a group of its own so it can be checked exhaustively — the
@@ -68,6 +81,7 @@ const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
 // and never inspected the payload at all.
 const DATA_URL_REGEX =
     /^data:([a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*)((?:;[a-z0-9!#$&^_.+-]+(?:=[^;,]*)?)*),([\s\S]*)$/i;
+
 /** `image/jpg` is a common misspelling of `image/jpeg`; treat them as one. */
 function canonicalImageMime(mime: string): string {
     return mime === 'image/jpg' ? 'image/jpeg' : mime;
@@ -330,4 +344,48 @@ export function getAppIconUrl(
         return null;
     }
     return `${normalizedApiBaseUrl}/app-icon/${normalizedUid}/${iconSize}`;
+}
+
+/**
+ * Base URL of the subdomain AppIconService publishes generated icons to. Keeps
+ * the externally-visible port on deployments not served from 80/443.
+ */
+export function getAppIconsBaseUrl(config: AppIconHostConfig): string | null {
+    const host =
+        config.static_hosting_domain ?? config.static_hosting_domain_alt;
+    if (!host) return null;
+    const protocol = config.protocol ?? 'https';
+    const pubPort = config.pub_port;
+    const portSuffix =
+        pubPort && pubPort !== 80 && pubPort !== 443 ? `:${pubPort}` : '';
+    return `${protocol}://${APP_ICONS_SUBDOMAIN}.${host}${portSuffix}`;
+}
+
+/**
+ * Direct subdomain URL for an app's icon — the target `/app-icon/<uid>/<size>`
+ * redirects to — or null when the app has nothing published there.
+ *
+ * Only rows whose `icon` is already an http(s) URL get one: a `data:` column
+ * means the resize pipeline hasn't run, so no file exists yet, and the endpoint
+ * serves those inline anyway. Callers ship this alongside the endpoint URL so
+ * clients can try it first.
+ */
+export function getAppIconCdnUrl(
+    app: Record<string, unknown>,
+    config: AppIconHostConfig,
+    size?: number,
+): string | null {
+    const appUid = (app.uid ?? app.uuid) as string | undefined;
+    if (!appUid) return null;
+    const icon = app.icon;
+    if (typeof icon !== 'string' || !/^https?:\/\//i.test(icon)) return null;
+
+    const base = getAppIconsBaseUrl(config);
+    if (!base) return null;
+
+    const normalizedUid = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
+    const iconSize = Number.isFinite(Number(size))
+        ? Number(size)
+        : DEFAULT_APP_ICON_SIZE;
+    return `${base}/${normalizedUid}-${iconSize}.png`;
 }

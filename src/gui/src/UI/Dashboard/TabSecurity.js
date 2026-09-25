@@ -20,6 +20,7 @@
 import UIWindowDisable2FA from '../Settings/UIWindowDisable2FA.js';
 import UIWindow2FASetup from '../UIWindow2FASetup.js';
 import UIWindowChangePassword from '../UIWindowChangePassword.js';
+import UIWindowBlockedSenders from '../UIWindowBlockedSenders.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 
 const TabSecurity = {
@@ -72,6 +73,20 @@ const TabSecurity = {
         h += `<button class="button manage-sessions">${i18n('manage_sessions')}</button>`;
         h += '</div>';
 
+        // Blocked senders card
+        h += '<div class="dashboard-card dashboard-settings-card">';
+        h += '<div class="dashboard-settings-card-content">';
+        h += '<div class="dashboard-settings-card-icon">';
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/></svg>';
+        h += '</div>';
+        h += '<div class="dashboard-settings-card-info">';
+        h += `<strong>${i18n('blocked_senders')}</strong>`;
+        h += `<span>${i18n('blocked_senders_summary')}</span>`;
+        h += '</div>';
+        h += '</div>';
+        h += `<button class="button manage-blocked-senders">${i18n('manage')}</button>`;
+        h += '</div>';
+
         // 2FA card (only for non-temp users with confirmed email)
         if ( !user.is_temp && user.email_confirmed ) {
             const twoFaStatusClass = user.otp ? 'dashboard-settings-card-success' : 'dashboard-settings-card-warning';
@@ -122,6 +137,18 @@ const TabSecurity = {
                     stay_on_top: true,
                     has_head: false,
                     parent_center: true,
+                },
+            });
+        });
+
+        $el_window.find('.dashboard-section-security .manage-blocked-senders').on('click', function (e) {
+            UIWindowBlockedSenders({
+                window_options: {
+                    parent_uuid: $el_window.attr('data-element_uuid'),
+                    backdrop: true,
+                    close_on_backdrop_click: true,
+                    parent_center: true,
+                    stay_on_top: true,
                 },
             });
         });

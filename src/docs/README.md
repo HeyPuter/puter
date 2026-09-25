@@ -7,10 +7,6 @@
     ·
     <a href="https://puter.com/?ref=github.com">Puter.com</a>
     ·
-    <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
-    ·
-    <a href="https://reddit.com/r/puter">Reddit</a>
-    ·
     <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
@@ -49,10 +45,7 @@ npm run dev
 Connect with the maintainers and community through these channels:
 
 - Bug report or feature request? Please [open an issue](https://github.com/HeyPuter/docs/issues/new).
-- Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
-- Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
-- Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
 - Security issues? [security@puter.com](mailto:security@puter.com)
 - Email maintainers at [hi@puter.com](mailto:hi@puter.com)
 

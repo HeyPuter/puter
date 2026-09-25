@@ -77,6 +77,8 @@
  * Options object form of the arguments to `list()`.
  *
  * @typedef {Object} KVListOptions
+ * @property {boolean} [reverse=false] Return keys in descending order. A cursor preserves its
+ * direction when omitted; an explicitly conflicting direction is rejected.
  * @property {string} [pattern] Prefix-based key filter. A trailing `*` is a wildcard; both `abc` and
  * `abc*` match keys starting with `abc`. Defaults to `*`, matching all keys.
  * @property {boolean} [returnValues] When `true`, results contain `KVPair` objects with `key` and

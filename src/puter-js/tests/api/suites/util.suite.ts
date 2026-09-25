@@ -21,12 +21,14 @@ type PuterInternals = {
     };
     util: {
         rpc: {
-            getDehydrator: () => { dehydrate: (value: unknown) => never };
+            getDehydrator: (config?: { target: unknown }) => {
+                dehydrate: (value: unknown) => never;
+            };
             getHydrator: (config: { target: unknown }) => {
                 hydrate: (value: unknown) => never;
             };
-            registerCallback: (fn: () => void) => number;
-            send: (target: unknown, id: number, ...args: unknown[]) => void;
+            registerCallback: (fn: () => void, source?: unknown) => string;
+            send: (target: unknown, id: string, ...args: unknown[]) => void;
         };
     };
 };
@@ -285,14 +287,18 @@ export default suite('util', {
             list: [() => {}, 'literal'],
         }) as unknown as {
             plain: number;
-            callback: { $SCOPE: string; id: number };
-            list: [{ $SCOPE: string; id: number }, string];
+            callback: { $SCOPE: string; id: string };
+            list: [{ $SCOPE: string; id: string }, string];
         };
 
         t.assert.equal(dehydrated.plain, 1, 'plain values survive untouched');
         t.assert.equal(dehydrated.list[1], 'literal');
         t.assert.equal(typeof dehydrated.callback.$SCOPE, 'string');
-        t.assert.equal(typeof dehydrated.callback.id, 'number');
+        t.assert.equal(typeof dehydrated.callback.id, 'string');
+        t.assert.ok(
+            /^[0-9a-f]{32}$/.test(dehydrated.callback.id),
+            'callback ids are random, not a guessable counter',
+        );
         t.assert.ok(
             dehydrated.callback.id !== dehydrated.list[0].id,
             'each function gets its own callback id',

@@ -21,7 +21,23 @@
 
 export type ImagePricingUnit = 'per-image' | 'per-MP' | 'per-tier';
 
+export interface ImageDimensions {
+    w: number;
+    h: number;
+}
+
+export type ImageSize = ImageDimensions & { kind: 'aspect' | 'pixels' };
+
 export interface IImageModel {
+    /** Excludes this provider route from discovery and generation. */
+    excludedForDataPolicy?: 'training' | 'thirdPartySharing';
+    /** Legacy dimension pairs below this pixel count are aspect hints. */
+    pixelSizeThreshold?: number;
+    /**
+     * Routable by id but hidden from discovery, e.g. deprecated upstream but
+     * not yet shut down.
+     */
+    delisted?: boolean;
     id: string;
     name: string;
     puterId?: string;
@@ -42,12 +58,7 @@ export interface IImageModel {
      *   Defaults to 'per-MP' when unset (legacy behavior).
      */
     pricing_unit?: ImagePricingUnit;
-    /**
-     * For per-tier models: resolves an abstract aspect ratio (keyed `{w}:{h}`)
-     *
-     * - Quality tier (e.g. '1K'/'2K'/'4K') to concrete pixel dimensions sent to
-     *   the provider. Only consulted when `pricing_unit === 'per-tier'`.
-     */
+    /** Maps aspect ratios and quality tiers to concrete output dimensions. */
     resolution_map?: Record<string, Record<string, { w: number; h: number }>>;
     allowedQualityLevels?: string[];
     allowedRatios?: { w: number; h: number }[];
@@ -55,11 +66,14 @@ export interface IImageModel {
 
 export interface IGenerateParams {
     prompt: string;
-    ratio?: { w: number; h: number };
+    ratio?: ImageDimensions;
+    /** Parsed by the driver; never taken from caller input. */
+    imageSize?: ImageSize;
     model?: string;
     provider?: string;
     test_mode?: boolean;
     quality?: string;
+    resolution?: string;
     input_image?: string;
     input_image_mime_type?: string;
     input_images?: string[];
@@ -68,6 +82,10 @@ export interface IGenerateParams {
 }
 
 export interface IImageProvider {
+    /** Retired IDs and aliases that must not silently route to another provider. */
+    retiredModelAliases?: readonly string[];
+    /** Optional per-alias explanation surfaced in the rejection message. */
+    retiredModelReasons?: Readonly<Record<string, string>>;
     generate(params: IGenerateParams): Promise<string>;
     models(): Promise<IImageModel[]> | IImageModel[];
     getDefaultModel(): string;

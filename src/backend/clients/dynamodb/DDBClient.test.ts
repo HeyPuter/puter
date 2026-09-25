@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { createServer, type Server } from 'node:http';
@@ -302,6 +303,35 @@ describe('DDBClient — batch writes', () => {
         const stored = await client.query(TABLE, { pk: 'bulk' });
         expect(stored.Items).toHaveLength(60);
     });
+
+    it('reports no consumed capacity for an empty delete batch', async () => {
+        await expect(client.batchDel([])).resolves.toEqual({
+            ConsumedCapacity: [],
+        });
+    });
+
+    it('batch-deletes across chunks, leaving unrelated items alone', async () => {
+        const items = Array.from({ length: 30 }, (_, index) => ({
+            table: TABLE,
+            item: { pk: 'bulk-del', sk: `item-${index}`, index },
+        }));
+        await client.batchPut(items);
+
+        // Delete all but the last item — 29 keys still exercises chunking
+        // paths shared with batchPut while proving deletion is targeted.
+        const result = await client.batchDel(
+            items.slice(0, -1).map(({ table, item }) => ({
+                table,
+                key: { pk: item.pk, sk: item.sk },
+            })),
+        );
+
+        expect(result.ConsumedCapacity).toHaveLength(1);
+        expect(result.ConsumedCapacity[0].TableName).toBe(TABLE);
+
+        const stored = await client.query(TABLE, { pk: 'bulk-del' });
+        expect(stored.Items?.map((item) => item.sk)).toEqual(['item-29']);
+    });
 });
 
 describe('DDBClient — expired item sweep', () => {
@@ -527,5 +557,120 @@ describe('DDBClient — unprocessed batch items', () => {
         await expect(
             stubClient().batchPut([{ table: TABLE, item: { pk: 'anon' } }]),
         ).resolves.toEqual({ ConsumedCapacity: [] });
+    });
+});
+
+// UnprocessedKeys are batchGet's analogue of UnprocessedItems above, driven
+// against the same kind of wire-format stub.
+describe('DDBClient — unprocessed batch keys', () => {
+    let server: Server;
+    let endpoint: string;
+    let responses: unknown[];
+    let requestCount = 0;
+
+    beforeAll(async () => {
+        server = createServer((req, res) => {
+            let body = '';
+            req.on('data', (chunk) => {
+                body += chunk;
+            });
+            req.on('end', () => {
+                const next = responses.shift() ?? {};
+                requestCount += 1;
+                res.writeHead(200, {
+                    'content-type': 'application/x-amz-json-1.0',
+                });
+                res.end(JSON.stringify(next));
+            });
+        });
+        await new Promise<void>((resolve) =>
+            server.listen(0, '127.0.0.1', resolve),
+        );
+        endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    });
+
+    afterAll(async () => {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+
+    const stubClient = () =>
+        new DDBClient({
+            port: 0,
+            extensions: [],
+            dynamo: {
+                aws: { access_key: 'a', secret_key: 'b', region: 'us-west-2' },
+                endpoint,
+            },
+        } as unknown as IConfig);
+
+    const unprocessed = (pk: string) => ({
+        UnprocessedKeys: {
+            [TABLE]: { Keys: [{ pk: { S: pk } }] },
+        },
+        ConsumedCapacity: [{ TableName: TABLE, CapacityUnits: 1 }],
+    });
+
+    it('retries leftover keys and merges responses and capacity across attempts', async () => {
+        requestCount = 0;
+        responses = [
+            unprocessed('retry-me'),
+            {
+                Responses: {
+                    [TABLE]: [{ pk: { S: 'retry-me' }, v: { N: '1' } }],
+                },
+                UnprocessedKeys: {},
+                ConsumedCapacity: [{ TableName: TABLE, CapacityUnits: 2 }],
+            },
+        ];
+
+        const result = await stubClient().batchGet([
+            { table: TABLE, items: { pk: 'retry-me' } },
+        ]);
+
+        expect(requestCount).toBe(2);
+        expect(result.Responses?.[TABLE]).toEqual([{ pk: 'retry-me', v: 1 }]);
+        expect(result.ConsumedCapacity).toEqual([
+            { TableName: TABLE, CapacityUnits: 3 },
+        ]);
+    });
+
+    it('gives up with a bad-request error when keys never drain', async () => {
+        requestCount = 0;
+        responses = Array.from({ length: 12 }, () => unprocessed('stuck'));
+
+        await expect(
+            stubClient().batchGet([{ table: TABLE, items: { pk: 'stuck' } }]),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: 'Failed to batch get all items from DynamoDB',
+        });
+        // One initial attempt plus the full retry budget.
+        expect(requestCount).toBe(9);
+    }, 30_000);
+
+    it('tolerates a response that reports no items or capacity at all', async () => {
+        requestCount = 0;
+        responses = [{ Responses: {}, UnprocessedKeys: {} }];
+
+        await expect(
+            stubClient().batchGet([{ table: TABLE, items: { pk: 'quiet' } }]),
+        ).resolves.toEqual({ Responses: {}, ConsumedCapacity: [] });
+        expect(requestCount).toBe(1);
+    });
+
+    it('ignores capacity entries with no table name', async () => {
+        requestCount = 0;
+        responses = [
+            {
+                Responses: {},
+                UnprocessedKeys: {},
+                ConsumedCapacity: [{ CapacityUnits: 7 }],
+            },
+        ];
+
+        await expect(
+            stubClient().batchGet([{ table: TABLE, items: { pk: 'anon' } }]),
+        ).resolves.toEqual({ Responses: {}, ConsumedCapacity: [] });
     });
 });

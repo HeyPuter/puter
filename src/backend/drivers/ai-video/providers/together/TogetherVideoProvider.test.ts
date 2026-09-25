@@ -40,10 +40,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { TogetherVideoProvider } from './TogetherVideoProvider.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -80,7 +82,11 @@ vi.mock('together-ai', () => {
 
 let server: PuterServer;
 let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let remainingUsageSpy: MockInstance<MeteringService['getRemainingUsage']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
+
+// Plenty of credit for every per-second test that isn't about the cap.
+const AMPLE_CREDIT = 100_000_000_000;
 
 beforeAll(async () => {
     server = await setupTestServer();
@@ -105,6 +111,8 @@ beforeEach(() => {
     // for the explicit credit-gate scenarios. SYSTEM_ACTOR has no uuid,
     // so the live `getRemainingUsage` path can short-circuit to 0.
     hasCreditsSpy.mockResolvedValue(true);
+    remainingUsageSpy = vi.spyOn(server.services.metering, 'getRemainingUsage');
+    remainingUsageSpy.mockResolvedValue(AMPLE_CREDIT);
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -118,7 +126,10 @@ describe('TogetherVideoProvider construction', () => {
     it('constructs the Together SDK with the configured api key', () => {
         makeProvider();
         expect(togetherCtor).toHaveBeenCalledTimes(1);
-        expect(togetherCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(togetherCtor).toHaveBeenCalledWith({
+            apiKey: 'test-key',
+            timeout: 60_000,
+        });
     });
 
     it('throws when no apiKey is supplied', () => {
@@ -409,7 +420,96 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('surfaces failed jobs as HttpError 400 upstream_failed (not 500) so they do not page', async () => {
+    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            videosCreateMock.mockResolvedValueOnce({ id: 'job-slow' });
+            videosRetrieveMock.mockResolvedValue({
+                id: 'job-slow',
+                status: 'in_progress',
+            });
+
+            const rejection = withTestActor(() =>
+                provider.generate({ prompt: 'hi' }),
+            ).catch((e: unknown) => e);
+
+            // Ten-minute wait window, polled every 5s.
+            await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 504,
+                legacyCode: 'upstream_timeout',
+                message:
+                    'Timed out waiting for Together AI video generation to complete',
+                fields: { provider: 'together' },
+            });
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('treats a failed poll as a missed poll rather than a failed job', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            videosCreateMock.mockResolvedValueOnce({ id: 'job-flaky' });
+            videosRetrieveMock
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('bad gateway'), { status: 502 }),
+                )
+                .mockResolvedValueOnce({
+                    id: 'job-flaky',
+                    status: 'completed',
+                    outputs: { video_url: 'https://together/flaky.mp4' },
+                });
+
+            const promise = withTestActor(() =>
+                provider.generate({ prompt: 'hi' }),
+            );
+            await vi.advanceTimersByTimeAsync(5_000);
+
+            expect(await promise).toBe('https://together/flaky.mp4');
+            expect(videosRetrieveMock).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('stops polling and skips metering when the client disconnects', async () => {
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            videosCreateMock.mockResolvedValueOnce({ id: 'job-gone' });
+            videosRetrieveMock.mockResolvedValue({
+                id: 'job-gone',
+                status: 'in_progress',
+            });
+            const abort = new AbortController();
+
+            const rejection = withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return provider.generate({ prompt: 'hi' });
+            }).catch((e: unknown) => e);
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            abort.abort();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(await rejection).toMatchObject({
+                statusCode: 400,
+                legacyCode: 'client_aborted',
+                fields: { provider: 'together' },
+            });
+            expect(videosRetrieveMock).toHaveBeenCalledTimes(2);
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('surfaces a content-policy refusal as 400 moderation_flagged', async () => {
         const provider = makeProvider();
         videosCreateMock.mockResolvedValueOnce({ id: 'job-3' });
         videosRetrieveMock.mockResolvedValueOnce({
@@ -422,9 +522,54 @@ describe('TogetherVideoProvider.generate polling', () => {
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({
             statusCode: 400,
-            legacyCode: 'upstream_failed',
+            legacyCode: 'bad_request',
+            code: 'moderation_flagged',
             message: 'content policy violation',
+            fields: { provider: 'together' },
         });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a rejected parameter as 400 upstream_bad_request', async () => {
+        const provider = makeProvider();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-4' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-4',
+            status: 'failed',
+            error: {
+                code: 'unsupportedParameter',
+                message: 'fps is not supported by this model',
+            },
+        });
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            message: 'fps is not supported by this model',
+            fields: { provider: 'together', upstreamCode: 'unsupportedParameter' },
+        });
+    });
+
+    it('surfaces any other failed job as 502 upstream_failed, without metering', async () => {
+        const provider = makeProvider();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-5' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-5',
+            status: 'failed',
+            error: { message: 'worker crashed' },
+        });
+
+        await expect(
+            withTestActor(() => provider.generate({ prompt: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+            message: 'worker crashed',
+            fields: { provider: 'together' },
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
     it('throws when a finished job has no video_url', async () => {
@@ -452,6 +597,147 @@ describe('TogetherVideoProvider.generate polling', () => {
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toThrow(/cancelled/);
+    });
+});
+
+// ── Per-second models ───────────────────────────────────────────────
+
+describe('TogetherVideoProvider.generate per-second models', () => {
+    const completeJob = (outputs: Record<string, unknown> = {}) => {
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-ps' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-ps',
+            status: 'completed',
+            outputs: { video_url: 'https://together/ps.mp4', ...outputs },
+        });
+    };
+
+    it('sends a resolution tier instead of width/height and estimates from the requested duration', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:bytedance/seedance-2.5',
+                seconds: 10,
+                size: '480p',
+                width: 1280,
+                height: 720,
+            }),
+        );
+
+        const sent = videosCreateMock.mock.calls[0]![0];
+        expect(sent.model).toBe('ByteDance/Seedance-2.5');
+        expect(sent.resolution).toBe('480p');
+        expect(sent.seconds).toBe('10');
+        expect('width' in sent).toBe(false);
+        expect('height' in sent).toBe(false);
+        expect('ratio' in sent).toBe(false);
+        // The flat-rate gate is not consulted for per-second models.
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+
+        const seedance = TOGETHER_VIDEO_GENERATION_MODELS.find(
+            (m) => m.model === 'ByteDance/Seedance-2.5',
+        )!;
+        const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('together-video:ByteDance/Seedance-2.5');
+        expect(count).toBe(10);
+        expect(cost).toBe(
+            Math.round(seedance.costs!['per-second-480p'] * 10 * 1_000_000),
+        );
+    });
+
+    it('defaults to the first tier and derives ratio from width/height on Wan 2.7', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:wan-ai/wan2.7-t2v',
+                seconds: 5,
+                width: 1920,
+                height: 1080,
+            }),
+        );
+        let sent = videosCreateMock.mock.calls[0]![0];
+        expect(sent.model).toBe('Wan-AI/wan2.7-t2v');
+        expect(sent.resolution).toBe('720P');
+        expect(sent.ratio).toBe('16:9');
+        expect('width' in sent).toBe(false);
+
+        completeJob();
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:wan-ai/wan2.7-t2v',
+                size: '1080p',
+                width: 999,
+                height: 100,
+            }),
+        );
+        sent = videosCreateMock.mock.calls[1]![0];
+        // A case-insensitive tier match forwards the catalog spelling; an
+        // unsupported ratio is left to the model.
+        expect(sent.resolution).toBe('1080P');
+        expect('ratio' in sent).toBe(false);
+    });
+
+    it('forwards generate_audio when set', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:bytedance/seedance-2.0',
+                generate_audio: false,
+            }),
+        );
+
+        expect(videosCreateMock.mock.calls[0]![0].generate_audio).toBe(false);
+    });
+
+    // Seedance 2.5 at its default 720p tier is 24.9 usd-cents/second and
+    // accepts any whole number of seconds from 4 to 30.
+    it('caps the clip to the longest supported duration the credit buys', async () => {
+        const provider = makeProvider();
+        const perSecondMicroCents = 24.9 * 1_000_000;
+        remainingUsageSpy.mockResolvedValueOnce(7.5 * perSecondMicroCents);
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:bytedance/seedance-2.5',
+                seconds: 10,
+            }),
+        );
+
+        expect(videosCreateMock.mock.calls[0]![0].seconds).toBe('7');
+        const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(count).toBe(7);
+        expect(cost).toBe(Math.round(7 * perSecondMicroCents));
+    });
+
+    it('throws 402 BEFORE hitting Together when the balance cannot buy the shortest clip', async () => {
+        const provider = makeProvider();
+        remainingUsageSpy.mockResolvedValueOnce(3.5 * 24.9 * 1_000_000);
+
+        await expect(
+            withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'togetherai:bytedance/seedance-2.5',
+                    seconds: 10,
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 402,
+            legacyCode: 'insufficient_funds',
+        });
+        expect(videosCreateMock).not.toHaveBeenCalled();
     });
 });
 
@@ -487,6 +773,28 @@ describe('TogetherVideoProvider.generate metering', () => {
         expect(cost).toBe(expectedCost);
     });
 
+    it('bills the cost Together reports on the finished job when present', async () => {
+        const provider = makeProvider();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-1' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-1',
+            status: 'completed',
+            outputs: { cost: 0.31, video_url: 'https://together/out.mp4' },
+        });
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:minimax/video-01-director',
+            }),
+        );
+
+        const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(count).toBe(1);
+        // $0.31 → 31 cents → 31,000,000 microcents, not the 28-cent catalog rate.
+        expect(cost).toBe(31_000_000);
+    });
+
     it('does NOT meter when the job fails', async () => {
         const provider = makeProvider();
         videosCreateMock.mockResolvedValueOnce({ id: 'job-fail' });
@@ -515,5 +823,56 @@ describe('TogetherVideoProvider.generate error paths', () => {
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toBe(apiError);
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+// ── Unified keyframe names ─────────────────────────────────────────
+
+describe('TogetherVideoProvider.generate input_reference / last_frame', () => {
+    const completeJob = () => {
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-kf' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-kf',
+            status: 'completed',
+            outputs: { video_url: 'https://together/kf.mp4' },
+        });
+    };
+
+    it('maps input_reference and last_frame onto first/last frame_images', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:bytedance/seedance-2.5',
+                input_reference: 'https://example.com/first.png',
+                last_frame: 'https://example.com/last.png',
+            }),
+        );
+
+        expect(videosCreateMock.mock.calls[0]![0].frame_images).toEqual([
+            { input_image: 'https://example.com/first.png', frame: 'first' },
+            { input_image: 'https://example.com/last.png', frame: 'last' },
+        ]);
+    });
+
+    it('lets an explicit frame_images win over input_reference', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                input_reference: 'https://example.com/ignored.png',
+                frame_images: [
+                    { input_image: 'https://example.com/keyframe.png', frame: 0 },
+                ] as never,
+            }),
+        );
+
+        expect(videosCreateMock.mock.calls[0]![0].frame_images).toEqual([
+            { input_image: 'https://example.com/keyframe.png', frame: 0 },
+        ]);
     });
 });

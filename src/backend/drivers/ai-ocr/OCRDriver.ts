@@ -27,6 +27,7 @@ import { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { mimeFromName } from '../../util/fileSigning.js';
+import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
@@ -102,6 +103,11 @@ export class OCRDriver extends PuterDriver {
     readonly rateLimit = AI_RATE_LIMIT;
     readonly concurrent = AI_CONCURRENT;
 
+    /** Metering scoped to this driver. Lazy: services wire up after drivers. */
+    get #aiMetering(): MeteringService {
+        return this.services.metering.withAiCostFactor(this.driverName);
+    }
+
     override getReportedCosts() {
         return Object.entries(OCR_COSTS).map(([usageType, ucentsPerUnit]) => ({
             usageType,
@@ -132,11 +138,9 @@ export class OCRDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
 
         const textract = providers['aws-textract'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAws = (textract?.aws ?? textract) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAccessKey = textractAws?.access_key as string | undefined;
         const textractSecretKey = textractAws?.secret_key as string | undefined;
         const textractRegion =
@@ -344,7 +348,7 @@ export class OCRDriver extends PuterDriver {
         }
 
         const pages = pageCount || 1;
-        this.services.metering.incrementUsage(
+        this.#aiMetering.incrementUsage(
             actor,
             usageType,
             pages,
@@ -456,14 +460,14 @@ export class OCRDriver extends PuterDriver {
             const pagesProcessed =
                 response?.usageInfo?.pagesProcessed ??
                 (Array.isArray(response?.pages) ? response.pages.length : 1);
-            this.services.metering.incrementUsage(
+            this.#aiMetering.incrementUsage(
                 actor,
                 'mistral-ocr:ocr:page',
                 pagesProcessed,
                 OCR_COSTS['mistral-ocr:ocr:page'] * pagesProcessed,
             );
             if (annotations) {
-                this.services.metering.incrementUsage(
+                this.#aiMetering.incrementUsage(
                     actor,
                     'mistral-ocr:annotations:page',
                     pagesProcessed,

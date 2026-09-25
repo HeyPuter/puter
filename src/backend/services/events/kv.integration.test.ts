@@ -1,0 +1,604 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * KV subjects against the real write path.
+ *
+ * The unit suite drives `dispatchKv` directly; this pins what only the wiring
+ * can get wrong — whether a `kv.set` through the driver reaches a subscriber at
+ * all, whether a durable KV row survives the region cache being rebuilt, and
+ * whether the cross-app gate settles when the grant behind it goes.
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import { runWithContext } from '../../core/context.js';
+import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import type { IConfig } from '../../types.js';
+import { appDataPermission } from '../permission/appDataScopes.js';
+import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
+import type { DeliveryEnvelope } from './EventsService.js';
+
+const BOOT_TIMEOUT_MS = 120_000;
+const SOCKET_ID = 'kv-integration-socket';
+const TABLE = 'event_subscriptions';
+
+let env: PuterTestEnv;
+let userId: number;
+let ownAppUid: string;
+let ownAppToken: string;
+let otherAppUid: string;
+let otherAppToken: string;
+let delivered: DeliveryEnvelope[];
+
+const events = () => env.server.services.events;
+
+const settle = () =>
+    vi.waitFor(() => expect(delivered.length).toBeGreaterThan(0), {
+        timeout: EVENTS_COALESCE_WINDOW_MS * 12,
+        interval: 25,
+    });
+
+/**
+ * One row's own delivery. Session rows from earlier tests stay live on the
+ * shared socket, so `settle()` can return on someone else's envelope.
+ */
+const eventFor = (subId: string) =>
+    vi.waitFor(
+        () => {
+            const found = delivered.find((one) => one.subId === subId);
+            expect(found).toBeDefined();
+            return found!.event as Record<string, unknown>;
+        },
+        { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
+    );
+
+const quiet = () =>
+    new Promise((resolve) =>
+        setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3),
+    );
+
+/** An app owned by the test user, registered the way the app store sees one. */
+const makeApp = async (metadata?: object): Promise<string> => {
+    const uid = `app-${uuidv4()}`;
+    await env.server.clients.db.write(
+        'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+        [
+            uid,
+            uid,
+            uid,
+            `https://${uid}.example/`,
+            userId,
+            metadata ? JSON.stringify(metadata) : null,
+        ],
+    );
+    return uid;
+};
+
+const actorFor = async (token: string) =>
+    (await env.server.services.auth.authenticate(token)).actor!;
+
+/** Flip an app's data sharing off, cache included. */
+const stopSharing = async (uid: string): Promise<void> => {
+    await env.server.clients.db.write(
+        'UPDATE `apps` SET `metadata` = ? WHERE `uid` = ?',
+        [JSON.stringify({ share_app_data: false }), uid],
+    );
+    await env.server.stores.app.invalidateByUid(uid);
+};
+
+/** `kv.set` as a caller makes it: through the driver, as this app. */
+const kvSet = async (
+    token: string,
+    key: string,
+    value: unknown,
+    optConfig?: object,
+): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.set({
+            key,
+            value,
+            ...(optConfig ? { optConfig } : {}),
+        }),
+    );
+};
+
+const subscribe = async (
+    subject: string,
+    token: string,
+    extra: { includeValue?: boolean } = {},
+) => {
+    const actor = await actorFor(token);
+    return (await events().subscribe(actor, SOCKET_ID, { subject, ...extra }))
+        .sub;
+};
+
+const subscribeDurable = async (
+    subject: string,
+    token: string,
+    extra: { includeValue?: boolean } = {},
+) => {
+    const actor = await actorFor(token);
+    return (await events().subscribeDurable(actor, { subject, ...extra })).sub;
+};
+
+/** `kv.del` as a caller makes it: through the driver, as this app. */
+const kvDel = async (token: string, key: string): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.del({ key }),
+    );
+};
+
+/** `kv.incr` as a caller makes it: through the driver, as this app. */
+const kvIncr = async (
+    token: string,
+    key: string,
+    pathAndAmountMap: Record<string, number>,
+): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.incr({ key, pathAndAmountMap }),
+    );
+};
+
+/** `kv.update` as a caller makes it: through the driver, as this app. */
+const kvUpdate = async (
+    token: string,
+    key: string,
+    pathAndValueMap: Record<string, unknown>,
+): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.update({ key, pathAndValueMap }),
+    );
+};
+
+/** `kv.expire` as a caller makes it: through the driver, as this app. */
+const kvExpire = async (
+    token: string,
+    key: string,
+    ttl: number,
+): Promise<void> => {
+    const actor = await actorFor(token);
+    await runWithContext({ actor }, () =>
+        env.server.drivers.kvStore.expire({ key, ttl }),
+    );
+};
+
+const clearRows = async () => {
+    await env.server.clients.db.write(`DELETE FROM \`${TABLE}\``, []);
+    events().invalidateUser(userId);
+    await env.server.stores.eventSubscription.markRegionCold(userId);
+    await env.server.stores.durableSubscription.warmRegion(userId);
+};
+
+beforeAll(async () => {
+    env = await setupPuterTestEnv({
+        events: { enabled: true, crossAppKv: true },
+        // Seeded accounts carry no email, which the plan machinery reads as a
+        // temporary account — and a temporary account holds no durable rows.
+        unlimitedMetering: true,
+    } as IConfig);
+    const user = await env.server.stores.user.getByUsername(
+        env.users.user.username,
+    );
+    userId = user!.id;
+
+    const userActor = await actorFor(env.users.user.token);
+    ownAppUid = await makeApp();
+    otherAppUid = await makeApp();
+    ownAppToken = await env.server.services.auth.getUserAppToken(
+        userActor,
+        ownAppUid,
+    );
+    otherAppToken = await env.server.services.auth.getUserAppToken(
+        userActor,
+        otherAppUid,
+    );
+    // Durable rows target the app's worker by default, which takes its own
+    // consent.
+    await env.server.services.permission.grantUserAppPermission(
+        userActor,
+        ownAppUid,
+        EVENTS_BACKGROUND_PERMISSION,
+    );
+
+    delivered = [];
+    events().onDelivered = (envelope) => delivered.push(envelope);
+}, BOOT_TIMEOUT_MS);
+
+afterAll(async () => {
+    await env?.shutdown();
+});
+
+describe('a kv write reaches its subscribers', () => {
+    it('delivers a write to the app`s own namespace', async () => {
+        const sub = await subscribe(`kv:${ownAppUid}:cart:*`, ownAppToken);
+        delivered.length = 0;
+
+        await kvSet(ownAppToken, 'cart:items', [1, 2]);
+        await settle();
+
+        expect(delivered).toHaveLength(1);
+        expect(delivered[0].subId).toBe(sub.subId);
+        expect(delivered[0].event).toMatchObject({
+            subject: `kv:${ownAppUid}:cart:items`,
+            op: 'set',
+            key: 'cart:items',
+        });
+    });
+
+    it('leaves a key outside the prefix alone', async () => {
+        await subscribe(`kv:${ownAppUid}:cart:*`, ownAppToken);
+        delivered.length = 0;
+
+        await kvSet(ownAppToken, 'basket:items', [1]);
+        await quiet();
+
+        expect(delivered).toEqual([]);
+    });
+
+    it('keys the watched set on the namespace`s user', async () => {
+        const anchor = await subscribe(`kv:${ownAppUid}:cart`, ownAppToken);
+        expect(anchor.anchor).toEqual({ uid: ownAppUid, path: 'cart' });
+
+        const user = await env.server.stores.user.getById(userId);
+        await expect(
+            env.server.stores.eventSubscription.watchedTokens(userId, [
+                `k#${user!.uuid}#${ownAppUid}#cart`,
+            ]),
+        ).resolves.toHaveLength(1);
+    });
+});
+
+describe('a subscription that asked for the value', () => {
+    it('is handed what the key now holds, and a row that did not ask is not', async () => {
+        const asking = await subscribe(`kv:${ownAppUid}:value:*`, ownAppToken, {
+            includeValue: true,
+        });
+        const silent = await subscribe(`kv:${ownAppUid}:value:*`, ownAppToken);
+        expect(asking.includeValue).toBe(true);
+        expect(silent.includeValue).toBe(false);
+        delivered.length = 0;
+
+        await kvSet(ownAppToken, 'value:items', { qty: 2 });
+
+        expect(await eventFor(asking.subId)).toMatchObject({
+            op: 'set',
+            key: 'value:items',
+            value: { qty: 2 },
+        });
+        expect(await eventFor(silent.subId)).not.toHaveProperty('value');
+    });
+
+    it('is handed null once the key is gone', async () => {
+        await kvSet(ownAppToken, 'value:gone', 1);
+        const sub = await subscribe(`kv:${ownAppUid}:value:gone`, ownAppToken, {
+            includeValue: true,
+        });
+        delivered.length = 0;
+
+        await kvDel(ownAppToken, 'value:gone');
+
+        expect(await eventFor(sub.subId)).toMatchObject({
+            op: 'del',
+            value: null,
+        });
+    });
+
+    it('is refused on a subject that is not a key', async () => {
+        await expect(
+            subscribe(`fs:/${env.users.user.username}`, ownAppToken, {
+                includeValue: true,
+            }),
+        ).rejects.toMatchObject({ legacyCode: 'invalid_include_value' });
+    });
+
+    it('keeps the flag on a durable row across a region rebuild', async () => {
+        await clearRows();
+        const sub = await subscribeDurable(
+            `kv:${ownAppUid}:orders:*`,
+            ownAppToken,
+            { includeValue: true },
+        );
+        expect(sub.includeValue).toBe(true);
+
+        events().invalidateUser(userId);
+        await env.server.stores.eventSubscription.markRegionCold(userId);
+        await env.server.clients.redis.del(`ev:w:{${userId}}`);
+        delivered.length = 0;
+
+        await kvSet(ownAppToken, 'orders:2', { total: 5 });
+
+        expect(await eventFor(sub.subId)).toMatchObject({
+            value: { total: 5 },
+        });
+    });
+});
+
+describe('a durable kv subscription', () => {
+    it('survives the region cache being rebuilt from the table', async () => {
+        await clearRows();
+        const sub = await subscribeDurable(
+            `kv:${ownAppUid}:orders:*`,
+            ownAppToken,
+        );
+
+        // Forget everything this region knows, so the next dispatch has to
+        // rebuild the row from the table and re-derive its owner.
+        events().invalidateUser(userId);
+        await env.server.stores.eventSubscription.markRegionCold(userId);
+        await env.server.clients.redis.del(`ev:w:{${userId}}`);
+        delivered.length = 0;
+
+        await kvSet(ownAppToken, 'orders:1', { total: 3 });
+        await settle();
+
+        expect(delivered[0].subId).toBe(sub.subId);
+        expect(delivered[0].event).toMatchObject({ key: 'orders:1' });
+    });
+
+    it('lists back the fully-qualified subject it stored', async () => {
+        await clearRows();
+        await subscribeDurable('kv:profile', ownAppToken);
+
+        const page = await events().listDurable(await actorFor(ownAppToken));
+        expect(page.items).toHaveLength(1);
+        expect(page.items[0].subject).toBe(`kv:${ownAppUid}:profile`);
+    });
+});
+
+describe('the cross-app gate against real grants', () => {
+    const grantRead = async (targetAppUid: string) => {
+        const userActor = await actorFor(env.users.user.token);
+        await env.server.services.permission.grantUserAppPermission(
+            userActor,
+            ownAppUid,
+            appDataPermission(targetAppUid, 'kv', 'read'),
+        );
+    };
+
+    const revokeRead = async (targetAppUid: string) => {
+        const userActor = await actorFor(env.users.user.token);
+        await env.server.services.permission.revokeUserAppPermission(
+            userActor,
+            ownAppUid,
+            appDataPermission(targetAppUid, 'kv', 'read'),
+        );
+    };
+
+    it('refuses a namespace the user never granted', async () => {
+        await expect(
+            subscribe(`kv:${otherAppUid}:cart`, ownAppToken),
+        ).rejects.toMatchObject({ legacyCode: 'forbidden' });
+    });
+
+    it('delivers once the grant is in place', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const sub = await subscribe(`kv:${otherAppUid}:cart:*`, ownAppToken);
+        delivered.length = 0;
+
+        // Written into the other app's namespace by the same user, which is
+        // what a cross-app subscription is watching.
+        await kvSet(env.users.user.token, 'cart:items', [7], {
+            appUuid: otherAppUid,
+        });
+        await settle();
+
+        expect(delivered[0].subId).toBe(sub.subId);
+        await revokeRead(otherAppUid);
+    });
+
+    it('hands the value across apps — the grant it takes is a read grant', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const sub = await subscribe(`kv:${otherAppUid}:cart:*`, ownAppToken, {
+            includeValue: true,
+        });
+        delivered.length = 0;
+
+        await kvSet(env.users.user.token, 'cart:items', [7], {
+            appUuid: otherAppUid,
+        });
+
+        expect(await eventFor(sub.subId)).toMatchObject({ value: [7] });
+        await revokeRead(otherAppUid);
+    });
+
+    it('settles a durable row when the grant is withdrawn', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const sub = await subscribeDurable(
+            `kv:${otherAppUid}:cart:*`,
+            ownAppToken,
+        );
+
+        await revokeRead(otherAppUid);
+        await vi.waitFor(
+            async () => {
+                const row =
+                    await env.server.stores.durableSubscription.getBySubId(
+                        sub.subId,
+                    );
+                expect(row?.suspendedReason).toBe('permission_revoked');
+            },
+            { timeout: 5000, interval: 50 },
+        );
+
+        delivered.length = 0;
+        await kvSet(env.users.user.token, 'cart:items', [8], {
+            appUuid: otherAppUid,
+        });
+        await quiet();
+        expect(delivered).toEqual([]);
+    });
+
+    it('stops an existing row when the target stops sharing its data', async () => {
+        await clearRows();
+        const closedAppUid = await makeApp();
+        await grantRead(closedAppUid);
+        await subscribe(`kv:${closedAppUid}:cart:*`, ownAppToken);
+
+        await stopSharing(closedAppUid);
+        delivered.length = 0;
+
+        await kvSet(env.users.user.token, 'cart:items', [9], {
+            appUuid: closedAppUid,
+        });
+        await quiet();
+        expect(delivered).toEqual([]);
+
+        // And nothing new may be made against it either.
+        await expect(
+            subscribe(`kv:${closedAppUid}:orders`, ownAppToken),
+        ).rejects.toMatchObject({ legacyCode: 'forbidden' });
+        await revokeRead(closedAppUid);
+    });
+
+    it('withholds a private key from a granted cross-app row, but not from its owner', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const owner = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            otherAppToken,
+            { includeValue: true },
+        );
+        const cross = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            ownAppToken,
+            { includeValue: true },
+        );
+        delivered.length = 0;
+
+        await kvSet(otherAppToken, 'secret:token', 's', {
+            disableSharing: true,
+        });
+        await eventFor(owner.subId);
+        await quiet();
+        expect(delivered.some((d) => d.subId === cross.subId)).toBe(false);
+
+        // A shared key under the same subscription still reaches it.
+        delivered.length = 0;
+        await kvSet(otherAppToken, 'secret:shared', 'v');
+        expect(await eventFor(cross.subId)).toMatchObject({ value: 'v' });
+
+        await revokeRead(otherAppUid);
+    });
+
+    it('keeps withholding every further mutation on the private key', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const owner = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            otherAppToken,
+        );
+        const cross = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            ownAppToken,
+        );
+        await kvSet(
+            otherAppToken,
+            'secret:live',
+            { count: 0 },
+            { disableSharing: true },
+        );
+        await eventFor(owner.subId);
+
+        for (const mutate of [
+            () => kvIncr(otherAppToken, 'secret:live', { count: 1 }),
+            () => kvUpdate(otherAppToken, 'secret:live', { count: 2 }),
+            () => kvExpire(otherAppToken, 'secret:live', 60),
+            () => kvDel(otherAppToken, 'secret:live'),
+        ]) {
+            delivered.length = 0;
+            await mutate();
+            await eventFor(owner.subId);
+            await quiet();
+            expect(delivered.some((d) => d.subId === cross.subId)).toBe(false);
+        }
+
+        await revokeRead(otherAppUid);
+    });
+
+    it('withholds a private key from a durable cross-app row', async () => {
+        await clearRows();
+        await grantRead(otherAppUid);
+        const owner = await subscribe(
+            `kv:${otherAppUid}:secret:*`,
+            otherAppToken,
+        );
+        const cross = await subscribeDurable(
+            `kv:${otherAppUid}:secret:*`,
+            ownAppToken,
+            { includeValue: true },
+        );
+        delivered.length = 0;
+
+        await kvSet(otherAppToken, 'secret:durable', 'x', {
+            disableSharing: true,
+        });
+        await eventFor(owner.subId);
+        await quiet();
+
+        expect(delivered.some((d) => d.subId === cross.subId)).toBe(false);
+
+        // A positive control: the durable row is genuinely live and reaches
+        // a shared key, so the withholding above isn't just a slow delivery.
+        delivered.length = 0;
+        await kvSet(otherAppToken, 'secret:durable-shared', 'v');
+        expect(await eventFor(cross.subId)).toMatchObject({ value: 'v' });
+
+        await revokeRead(otherAppUid);
+    });
+});
+
+describe('the app slot in a `kv:` subject, from a plain account session', () => {
+    it('refuses an app slot too long to store rather than truncate the anchor', async () => {
+        await clearRows();
+        const subject = `kv:${'a'.repeat(4000)}:key`;
+
+        // No app on this actor, so the cross-app gate never runs — the store's
+        // own width guard is what stands between this and a truncated anchor.
+        await expect(
+            subscribeDurable(subject, env.users.user.token),
+        ).rejects.toMatchObject({ legacyCode: 'events_value_too_large' });
+    });
+});
+
+describe('the writer never pays for the subscriber', () => {
+    it('completes the write when the dispatcher throws', async () => {
+        const dispatch = vi
+            .spyOn(events(), 'dispatchKv')
+            .mockImplementation(() => {
+                throw new Error('dispatcher is down');
+            });
+
+        try {
+            await expect(
+                kvSet(ownAppToken, 'still-written', 1),
+            ).resolves.toBeUndefined();
+        } finally {
+            dispatch.mockRestore();
+        }
+    });
+});

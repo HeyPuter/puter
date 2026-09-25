@@ -25,6 +25,7 @@ import uglifyjs from 'uglify-js';
 import { lib_paths, css_paths, js_paths } from './src/static-assets.js';
 import { fileURLToPath } from 'url';
 import BaseConfig from './webpack/BaseConfig.cjs';
+import { copyPdfThumbnailAssets } from './tools/copyPdfThumbnailAssets.js';
 
 // Polyfill __dirname, which doesn't exist in modules mode
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -59,6 +60,7 @@ async function build (options) {
         fs.rmSync(path.join(__dirname, 'dist'), { recursive: true });
     }
     fs.mkdirSync(path.join(__dirname, 'dist'));
+    await copyPdfThumbnailAssets(path.join(__dirname, 'dist'));
 
     // -----------------------------------------------
     // Concat/merge the JS libraries and save them to ./dist/libs.js
