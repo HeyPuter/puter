@@ -117,6 +117,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [80, ['0085_event-subscriptions-include-value.sql']],
     [81, ['0086_subdomains-app-owner-cascade.sql']],
     [82, ['0087_feedback-attachments.sql']],
+    [83, ['0088_apps-index-url.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

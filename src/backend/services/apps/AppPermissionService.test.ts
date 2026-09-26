@@ -395,6 +395,153 @@ describe('AppPermissionService — app-root-dir rewriter', () => {
         ).toBe(false);
     });
 
+    /** Point `app` at a new hosted subdomain rooted at the owner's `dirName`. */
+    const moveAppRoot = async (
+        owner: Actor,
+        app: { id: number },
+        dirName: string,
+    ) => {
+        const sub = `apx${Math.random().toString(36).slice(2, 10)}`;
+        const entry = await server.stores.fsEntry.getEntryByPath(
+            `/${owner.user.username}/${dirName}`,
+        );
+        await server.stores.subdomain.create({
+            userId: owner.user.id!,
+            subdomain: sub,
+            rootDirId: entry!.id as number,
+        });
+        await server.stores.app.update(app.id, {
+            index_url: `https://${sub}.${HOSTING_DOMAIN}/index.html`,
+        });
+        return entry!;
+    };
+
+    const storedRows = (owner: Actor, target: { id: number }) =>
+        server.stores.permission.listUserAppPermsFromPrimary(
+            owner.user.id!,
+            target.id,
+        );
+
+    const grantAs = (
+        owner: Actor,
+        target: { uid: string },
+        permission: string,
+        extra?: Record<string, unknown>,
+    ) =>
+        runWithContext({ actor: owner }, () =>
+            permissions.grantUserAppPermission(
+                owner,
+                target.uid,
+                permission,
+                extra,
+            ),
+        );
+
+    const revokeAs = (
+        owner: Actor,
+        target: { uid: string },
+        permission: string,
+    ) =>
+        runWithContext({ actor: owner }, () =>
+            permissions.revokeUserAppPermission(owner, target.uid, permission),
+        );
+
+    it('revoke withdraws the root the grant resolved after the app moves', async () => {
+        const owner = await makeUser();
+        const { app, entry } = await makeHostedApp(owner);
+        const target = await makeApp(owner.user.id!);
+        const pseudo = `app-root-dir:${app.uid}:write`;
+
+        await grantAs(owner, target, pseudo);
+        const newRoot = await moveAppRoot(owner, app, 'Documents');
+        await revokeAs(owner, target, pseudo);
+
+        const rows = await storedRows(owner, target);
+        expect(rows.map((r) => r.permission)).not.toContain(
+            `fs:${entry.uuid}:write`,
+        );
+        expect(rows.map((r) => r.permission)).not.toContain(
+            `fs:${newRoot.uuid}:write`,
+        );
+    });
+
+    it('revoke withdraws a recorded grant once the app has no root at all', async () => {
+        const owner = await makeUser();
+        const { app, entry } = await makeHostedApp(owner);
+        const target = await makeApp(owner.user.id!);
+        const pseudo = `app-root-dir:${app.uid}:write`;
+
+        await grantAs(owner, target, pseudo);
+        await server.stores.app.update(app.id, {
+            index_url: 'https://example.com/index.html',
+        });
+        await revokeAs(owner, target, pseudo);
+
+        expect(
+            (await storedRows(owner, target)).map((r) => r.permission),
+        ).not.toContain(`fs:${entry.uuid}:write`);
+    });
+
+    it('revoke falls back to the current root for a row with no recorded source', async () => {
+        const owner = await makeUser();
+        const { app, entry } = await makeHostedApp(owner);
+        const target = await makeApp(owner.user.id!);
+        await server.stores.permission.upsertUserAppPerm(
+            owner.user.id!,
+            target.id,
+            `fs:${entry.uuid}:write`,
+            {},
+        );
+
+        await revokeAs(owner, target, `app-root-dir:${app.uid}:write`);
+
+        expect(await storedRows(owner, target)).toEqual([]);
+    });
+
+    it('re-granting over a row with no recorded source records it', async () => {
+        const owner = await makeUser();
+        const { app, entry } = await makeHostedApp(owner);
+        const target = await makeApp(owner.user.id!);
+        const pseudo = `app-root-dir:${app.uid}:write`;
+        await server.stores.permission.upsertUserAppPerm(
+            owner.user.id!,
+            target.id,
+            `fs:${entry.uuid}:write`,
+            { note: 'kept' },
+        );
+
+        await grantAs(owner, target, pseudo);
+        expect(await storedRows(owner, target)).toMatchObject([
+            {
+                permission: `fs:${entry.uuid}:write`,
+                extra: { note: 'kept', grantedAs: pseudo },
+            },
+        ]);
+
+        await moveAppRoot(owner, app, 'Documents');
+        await revokeAs(owner, target, pseudo);
+        expect(await storedRows(owner, target)).toEqual([]);
+    });
+
+    it('does not let a caller plant a recorded source on a direct grant', async () => {
+        const owner = await makeUser();
+        const { app } = await makeHostedApp(owner);
+        const target = await makeApp(owner.user.id!);
+        const pseudo = `app-root-dir:${app.uid}:write`;
+        const documents = await server.stores.fsEntry.getEntryByPath(
+            `/${owner.user.username}/Documents`,
+        );
+        const direct = `fs:${documents!.uuid}:write`;
+
+        await grantAs(owner, target, direct, { grantedAs: pseudo });
+        expect((await storedRows(owner, target))[0].extra).toEqual({});
+
+        await revokeAs(owner, target, pseudo);
+        expect(
+            (await storedRows(owner, target)).map((r) => r.permission),
+        ).toEqual([direct]);
+    });
+
     it('refuses to resolve an app the actor does not own', async () => {
         const owner = await makeUser();
         const stranger = await makeUser();

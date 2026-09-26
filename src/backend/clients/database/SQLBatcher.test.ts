@@ -126,7 +126,7 @@ describe('SQLBatcher', () => {
     });
 
     it('drops the oldest item with reason queueOverflow at the high-water mark', async () => {
-        const conn = makeConnection(happyBatch);
+        const conn = makeConnection(() => [[{ n: 0 }], undefined]);
         const { pool } = makePool(conn);
         const batcher = new SQLBatcher(pool, {
             maxTimeInQueue: 5,
@@ -275,6 +275,65 @@ describe('SQLBatcher', () => {
         await expect(batcher.query('UPDATE hot SET x', [])).rejects.toMatchObject(
             { code: 'ER_LOCK_DEADLOCK' },
         );
+    });
+
+    it('sends a lone write as-is, outside a transaction', async () => {
+        const conn = makeConnection((sql) => {
+            if (isBatchQuery(sql)) throw new Error('unexpected batch query');
+            return [{ affectedRows: 1 }, undefined];
+        });
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, { maxBatchSize: 1 });
+
+        const result = await batcher.query('UPDATE t SET x = ?', [1]);
+        expect(result[0]).toEqual({ affectedRows: 1 });
+        expect(conn.query).toHaveBeenCalledTimes(1);
+        expect(conn.query).toHaveBeenCalledWith('UPDATE t SET x = ?', [1]);
+        expect(conn.beginTransaction).not.toHaveBeenCalled();
+        expect(conn.commit).not.toHaveBeenCalled();
+        expect(conn.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs a lone write the server rejects once, without tripping the breaker', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const conn = makeConnection((sql) => {
+            if (sql === 'INSERT dup') throw makeError('ER_DUP_ENTRY');
+            return [{ affectedRows: 1 }, undefined];
+        });
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, {
+            maxBatchSize: 1,
+            failureThreshold: 1,
+            cooldownMs: 60_000,
+        });
+
+        await expect(batcher.query('INSERT dup', [])).rejects.toMatchObject({
+            code: 'ER_DUP_ENTRY',
+        });
+        expect(conn.query).toHaveBeenCalledTimes(1);
+        expect(conn.rollback).not.toHaveBeenCalled();
+        expect(warnSpy).not.toHaveBeenCalled();
+        // The server answered, so it is up: the next write goes through.
+        await expect(batcher.query('INSERT fine', [])).resolves.toBeTruthy();
+        warnSpy.mockRestore();
+    });
+
+    it('retries a lone write on a connection the server closed for inactivity', async () => {
+        let attempts = 0;
+        const conn = makeConnection(() => {
+            attempts++;
+            if (attempts === 1) {
+                throw makeError('ER_CLIENT_INTERACTION_TIMEOUT');
+            }
+            return [{ affectedRows: 1 }, undefined];
+        });
+        const { pool, getConnection } = makePool(conn);
+        const batcher = new SQLBatcher(pool, { maxBatchSize: 1 });
+
+        const result = await batcher.query('INSERT x', []);
+        expect(result[0]).toEqual({ affectedRows: 1 });
+        expect(attempts).toBe(2);
+        expect(getConnection).toHaveBeenCalledTimes(2);
     });
 
     it('never retries deterministic row-level errors and does not escalate the breaker', async () => {
