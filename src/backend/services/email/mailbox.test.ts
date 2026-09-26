@@ -1,7 +1,9 @@
 import { Readable } from 'node:stream';
-import { describe, expect, test } from 'vitest';
-import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import type { PuterServer } from '../../server.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import { createTestUser, setupTestServer } from '../../testUtil.js';
 import {
     MAIL_CONTENT_TYPE,
     copyIntoInbox,
@@ -21,15 +23,33 @@ import {
 const UUID_V7 =
     /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-const user = (over: Partial<UserRow> = {}): UserRow =>
-    ({
-        id: 7,
-        uuid: '00000000-0000-4000-8000-000000000007',
-        username: 'dan',
-        email: 'dan@example.com',
-        password: '$2b$10$hash',
-        ...over,
-    }) as UserRow;
+// A real in-memory backend rather than stand-in services: these functions
+// hand their arguments straight to the filesystem, so a fake would only prove
+// which methods were called.
+let server: PuterServer;
+let dan: UserRow;
+
+// `frankfurt` is wired to the same bucket the test server already has, so a
+// message filed for a Frankfurt account lands somewhere real and the region it
+// was placed in can be read back off the entry.
+const FRANKFURT_REGION = 'eu-central-1';
+
+beforeAll(async () => {
+    server = await setupTestServer({
+        servers: {
+            frankfurt: {
+                bucket: 'puter-local',
+                bucketRegion: FRANKFURT_REGION,
+            },
+        },
+    } as never);
+    await createTestUser(server, { username: 'dan', password: 'secret123!' });
+    dan = (await server.stores.user.getByUsername('dan')) as UserRow;
+});
+
+afterAll(async () => {
+    await server?.shutdown();
+});
 
 describe('addresses', () => {
     test('both Puter domains are internal, case-insensitively', () => {
@@ -60,35 +80,37 @@ describe('account eligibility', () => {
     });
 
     test('the owner of an address is its permanent account, else nothing', async () => {
-        const rows = new Map<string, UserRow>([
-            ['dan', user()],
-            [
-                'tmp',
-                user({ username: 'tmp', email: null, password: undefined }),
-            ],
-        ]);
-        const users = {
-            getByUsername: async (name: string) => rows.get(name) ?? null,
-        };
-        expect(await findMailboxOwner(users, 'dan@puter.email')).toBe(
-            rows.get('dan'),
+        // A temp account has neither password nor email, which is how one is
+        // minted before signup completes.
+        await server.stores.user.create({
+            username: 'tmp',
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+            requires_email_confirmation: false,
+        });
+
+        const owner = await findMailboxOwner(
+            server.stores.user,
+            'dan@puter.email',
         );
-        expect(await findMailboxOwner(users, 'tmp@puter.email')).toBeNull();
-        expect(await findMailboxOwner(users, 'nobody@puter.email')).toBeNull();
+        expect(owner?.username).toBe('dan');
+        expect(
+            await findMailboxOwner(server.stores.user, 'tmp@puter.email'),
+        ).toBeNull();
+        expect(
+            await findMailboxOwner(server.stores.user, 'nobody@puter.email'),
+        ).toBeNull();
     });
 
     test('a mailbox is set up when ~/.mail is a directory', async () => {
-        const dirs = new Map<string, Partial<FSEntry>>([
-            ['/dan/.mail', { isDir: true }],
-            ['/bob/.mail', { isDir: false }],
-        ]);
-        const fsEntries = {
-            getEntryByPath: async (path: string) =>
-                (dirs.get(path) as FSEntry) ?? null,
-        };
-        expect(await hasMailbox(fsEntries, { username: 'dan' })).toBe(true);
-        expect(await hasMailbox(fsEntries, { username: 'bob' })).toBe(false);
-        expect(await hasMailbox(fsEntries, { username: 'eve' })).toBe(false);
+        expect(await hasMailbox(server.stores.fsEntry, dan)).toBe(false);
+
+        await server.services.fs.mkdir(dan.id, {
+            path: mailboxPath(dan.username),
+            createMissingParents: true,
+        });
+        expect(await hasMailbox(server.stores.fsEntry, dan)).toBe(true);
     });
 });
 
@@ -125,108 +147,77 @@ describe('layout', () => {
 });
 
 describe('storeInboxMessage', () => {
-    const fakeFs = () => {
-        const writes: Array<{
-            userId: number;
-            metadata: Record<string, unknown>;
-            content: unknown;
-            homeRegion?: string;
-        }> = [];
-        const fs = {
-            write: async (
-                userId: number,
-                request: {
-                    fileMetadata: Record<string, unknown>;
-                    fileContent: unknown;
-                },
-                _tracker?: unknown,
-                _allowance?: number,
-                homeRegion?: string,
-            ) => {
-                writes.push({
-                    userId,
-                    metadata: request.fileMetadata,
-                    content: request.fileContent,
-                    homeRegion,
-                });
-                return { fsEntry: { path: request.fileMetadata.path } };
-            },
-        };
-        return { fs: fs as never, writes };
-    };
-
     test("files under today's inbox folder, in the owner's home region", async () => {
-        const { fs, writes } = fakeFs();
-        const owner = user({ home: 'frankfurt' });
-        const content = Readable.from([Buffer.from('raw')]);
-        const entry = await storeInboxMessage(fs, owner, {
+        await createTestUser(server, {
+            username: 'frank',
+            password: 'secret123!',
+        });
+        const created = (await server.stores.user.getByUsername(
+            'frank',
+        )) as UserRow;
+        await server.stores.user.update(created.id, { home: 'frankfurt' });
+        const owner = (await server.stores.user.getByUsername(
+            'frank',
+        )) as UserRow;
+
+        const entry = await storeInboxMessage(server.services.fs, owner, {
             subject: 'hi',
-            content,
+            content: Readable.from([Buffer.from('raw')]),
             size: 3,
         });
 
-        expect(writes).toHaveLength(1);
-        const [write] = writes;
-        expect(write.userId).toBe(7);
-        expect(write.homeRegion).toBe('frankfurt');
-        expect(write.content).toBe(content);
-        expect(write.metadata).toMatchObject({
-            size: 3,
-            contentType: MAIL_CONTENT_TYPE,
-            createMissingParents: true,
-            overwrite: false,
-            dedupeName: false,
-        });
-        const path = write.metadata.path as string;
-        expect(path.startsWith(`/dan/.mail/objects/${mailDay()}/`)).toBe(true);
-        expect(path.split('/').at(-1)).toMatch(
+        expect(entry.path).toBe(
+            `${mailFolderPath('frank', 'objects', mailDay())}/${entry.name}`,
+        );
+        expect(entry.name).toMatch(
             new RegExp(`^${UUID_V7.source.slice(1, -1)}--aGk$`),
         );
-        expect(entry).toEqual({ path });
+        expect(entry.size).toBe(3);
+        expect(JSON.parse(entry.metadata as string)).toMatchObject({
+            contentType: MAIL_CONTENT_TYPE,
+        });
+        // The message follows the account, rather than landing wherever the
+        // request happened to arrive.
+        expect(entry.bucketRegion).toBe(FRANKFURT_REGION);
+
+        const stored = await server.stores.fsEntry.getEntryByPath(entry.path);
+        expect(stored?.uuid).toBe(entry.uuid);
     });
 
     test('an explicit day and name are used as given', async () => {
-        const { fs, writes } = fakeFs();
-        await storeInboxMessage(fs, user(), {
+        const entry = await storeInboxMessage(server.services.fs, dan, {
             content: Buffer.from('raw'),
             size: 3,
             day: '2020-01-01',
             name: 'fixed',
         });
-        expect(writes[0].metadata.path).toBe(
-            '/dan/.mail/objects/2020-01-01/fixed',
-        );
+        expect(entry.path).toBe('/dan/.mail/objects/2020-01-01/fixed');
     });
 });
 
 describe('copyIntoInbox', () => {
     test("makes the day folder, then copies under the caller's name", async () => {
-        const calls: string[] = [];
-        const parent = { uid: 'parent', path: '/dan/.mail/objects/2020-01-01' };
-        const source = { uid: 'src', path: '/al/.mail/sent/2020-01-01/m' };
-        const fs = {
-            mkdir: async (userId: number, input: Record<string, unknown>) => {
-                calls.push(
-                    `mkdir ${userId} ${input.path} ${input.createMissingParents}`,
-                );
-                return parent;
-            },
-            copy: async (userId: number, input: Record<string, unknown>) => {
-                calls.push(
-                    `copy ${userId} ${(input.source as { uid: string }).uid} -> ${(input.destinationParent as { uid: string }).uid}/${input.newName}`,
-                );
-                return { path: `${parent.path}/${input.newName}` };
-            },
-        };
-        const entry = await copyIntoInbox(fs as never, user(), {
-            source: source as FSEntry,
-            name: 'm',
-            day: '2020-01-01',
+        const source = await storeInboxMessage(server.services.fs, dan, {
+            content: Buffer.from('original'),
+            size: 8,
+            day: '2020-02-02',
+            name: 'source',
         });
-        expect(calls).toEqual([
-            'mkdir 7 /dan/.mail/objects/2020-01-01 true',
-            'copy 7 src -> parent/m',
-        ]);
-        expect(entry).toEqual({ path: '/dan/.mail/objects/2020-01-01/m' });
+
+        const copied = await copyIntoInbox(server.services.fs, dan, {
+            source,
+            name: 'copied',
+            day: '2020-03-03',
+        });
+
+        expect(copied.path).toBe('/dan/.mail/objects/2020-03-03/copied');
+        // The day folder did not exist before the copy; `copy` cannot create
+        // it, so the function has to.
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                '/dan/.mail/objects/2020-03-03',
+            ),
+        ).toBeTruthy();
+        expect(copied.size).toBe(source.size);
     });
 });

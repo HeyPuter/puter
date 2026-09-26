@@ -101,7 +101,7 @@ export const mailObjectName = (subject: unknown): string => {
  * address never tells one user which accounts are temp.
  */
 export async function findMailboxOwner(
-    users: Pick<UserStore, 'getByUsername'>,
+    users: UserStore,
     address: string,
 ): Promise<UserRow | null> {
     const user = await users.getByUsername(puterEmailUsername(address));
@@ -110,8 +110,8 @@ export async function findMailboxOwner(
 
 /** Whether the account has set its mailbox up: `~/.mail` exists. */
 export async function hasMailbox(
-    fsEntries: Pick<FSEntryStore, 'getEntryByPath'>,
-    owner: Pick<UserRow, 'username'>,
+    fsEntries: FSEntryStore,
+    owner: UserRow,
 ): Promise<boolean> {
     const entry = await fsEntries.getEntryByPath(mailboxPath(owner.username));
     return entry?.isDir === true;
@@ -134,7 +134,7 @@ export interface InboxMessage {
  * rather than wherever the request landed, so the mailbox reads locally.
  */
 export async function storeInboxMessage(
-    fs: Pick<FSService, 'write'>,
+    fs: FSService,
     owner: UserRow,
     message: InboxMessage,
 ): Promise<FSEntry> {
@@ -166,7 +166,7 @@ export async function storeInboxMessage(
  * folder is made first; `mkdir` is idempotent.
  */
 export async function copyIntoInbox(
-    fs: Pick<FSService, 'mkdir' | 'copy'>,
+    fs: FSService,
     owner: UserRow,
     message: { source: FSEntry; name: string; day?: string },
 ): Promise<FSEntry> {
