@@ -20,6 +20,7 @@
 import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { EventMap } from '../../clients/event/types.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -551,7 +552,12 @@ export class WebDAVController extends PuterController {
                 'Content-Length': String(result.contentLength ?? 0),
             });
         }
-        result.body.pipe(res);
+        try {
+            await pipeline(result.body, res);
+        } catch {
+            // Client disconnect or upstream stream error: pipeline already
+            // tore down both ends, so nothing is left dangling to crash on.
+        }
     }
 
     // -- PROPFIND ----------------------------------------------------
