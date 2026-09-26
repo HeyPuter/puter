@@ -50,6 +50,7 @@
     "build:workerLib:coverage": "cd src/puter-js && npm run build:coverage && cd ../worker && npm run build",
     "start:gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node ./tools/start.mjs",
+    "start:smtp": "node ./tools/start.mjs --smtp",
     "dev": "npm start",
     "build": "npm run setupExtensions && npm run build:ts && cd src/gui && node ./build.js && cd ../puter-js && npm run build",
     "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",
