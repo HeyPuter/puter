@@ -18,9 +18,52 @@
  */
 
 import type { IChatModel } from '../../types.js';
+import { deepSeekPricing, type DeepSeekModelId } from './pricing.js';
 
-// Hardcoded from https://models.dev/api.json
+const dynamicCosts = (modelId: DeepSeekModelId) => ({
+    tokens: 1_000_000,
+    get prompt_tokens() {
+        return deepSeekPricing.costs(modelId).prompt;
+    },
+    get completion_tokens() {
+        return deepSeekPricing.costs(modelId).completion;
+    },
+    get cached_tokens() {
+        return deepSeekPricing.costs(modelId).cached;
+    },
+});
+
 export const DEEPSEEK_MODELS: IChatModel[] = [
+    {
+        puterId: 'deepseek:deepseek/deepseek-flash',
+        id: 'deepseek-flash',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        name: 'DeepSeek Flash',
+        aliases: [
+            'deepseek/deepseek-flash',
+            'deepseek-v4-flash',
+            'deepseek/deepseek-v4-flash',
+            'deepseek:deepseek/deepseek-v4-flash',
+            'deepseek-v4-flash-vision-exp',
+            'deepseek/deepseek-v4-flash-vision-exp',
+            'deepseek:deepseek/deepseek-v4-flash-vision-exp',
+            'deepseek-chat',
+            'deepseek/deepseek-chat',
+            'deepseek:deepseek/deepseek-chat',
+            'deepseek-reasoner',
+            'deepseek/deepseek-reasoner',
+            'deepseek:deepseek/deepseek-reasoner',
+        ],
+        context: 1_000_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        promptTokensIncludeCached: true,
+        costs: dynamicCosts('deepseek-flash'),
+        max_tokens: 384_000,
+    },
     {
         puterId: 'deepseek:deepseek/deepseek-v4-pro',
         id: 'deepseek-v4-pro',
@@ -30,24 +73,13 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
         knowledge: '2026-04',
         release_date: '2026-04-24',
         name: 'DeepSeek Chat',
-        aliases: [
-            'deepseek/deepseek-v4-pro',
-            'deepseek-chat',
-            'deepseek/deepseek-chat',
-            'deepseek/deepseek-reasoner',
-            'deepseek:deepseek/deepseek-reasoner',
-            'deepseek:deepseek/deepseek-chat',
-        ],
+        aliases: ['deepseek/deepseek-v4-pro'],
         context: 1_000_000,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 174,
-            completion_tokens: 348,
-            cached_tokens: 1.45,
-        },
+        promptTokensIncludeCached: true,
+        costs: dynamicCosts('deepseek-v4-pro'),
         max_tokens: 384_000,
     },
 ];

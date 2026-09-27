@@ -115,6 +115,10 @@ In case of an error, the `Promise` will reject with an error message.
 
 We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
 
+For DeepSeek's direct provider, use `deepseek-flash` for the Flash price tier or `deepseek-v4-pro` to select Pro explicitly. Existing `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `deepseek-chat`, and `deepseek-reasoner` selections continue to use the Flash tier.
+
+DeepSeek prices follow its published [pricing page](https://api-docs.deepseek.com/quick_start/pricing/) and can change. Peak prices apply Monday through Friday from 01:00 to 04:00 and 06:00 to 10:00 UTC, except on Chinese public holidays; all other times use off-peak prices. Puter refreshes the published rates hourly and retains the last verified rates if the page cannot be read. If the public holiday calendar for a year has not been published and configured, Puter uses off-peak prices for that year.
+
 ## Response Normalization
 
 Most vendors respond in the OpenAI chat format, where `message.content` is a string and tool calls appear as `message.tool_calls`. Anthropic models historically respond in Anthropic's native format instead, where `message.content` is an array of content blocks such as `[{ type: "text", text: "..." }]`.

@@ -43,6 +43,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     input_cost_key?: keyof T;
     output_cost_key?: keyof T;
     costs: T;
+    /** The prompt count includes cached tokens, which have their own rate. */
+    promptTokensIncludeCached?: boolean;
     /**
      * A request whose input exceeds `threshold` tokens is billed at raised
      * rates for the whole request, not only the tokens past the threshold:

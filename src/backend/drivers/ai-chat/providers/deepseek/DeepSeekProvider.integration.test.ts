@@ -20,7 +20,7 @@
 /**
  * Integration test for the DeepSeek provider.
  *
- * Uses `deepseek-chat` (the cheap V3 chat model, provider default).
+ * Uses `deepseek-chat` (the Flash legacy alias).
  * Skipped when `PUTER_TEST_AI_DEEPSEEK_API_KEY` is unset.
  */
 
