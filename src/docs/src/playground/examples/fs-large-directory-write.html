@@ -1,27 +1,29 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
-    <button id="dedupe">Write with dedupeName</button>
-    <button id="refuse">Write with overwrite: false</button>
+    <h3>Upload endpoint</h3>
+    <button id="dedupe">Upload invoice.pdf (keep both)</button>
+    <button id="refuse">Upload invoice.pdf (refuse duplicates)</button>
     <script>
+        // Two people send the same filename seconds apart. One policy keeps
+        // both; the other refuses the second and lets the caller rename it.
         document.getElementById('dedupe').addEventListener('click', async () => {
-            // Keeps both rather than replacing: report-1.txt, report-2.txt, …
-            const file = await puter.fs.write('uploads/report.txt', 'data', {
+            const file = await puter.fs.write('uploads/invoice.pdf', 'data', {
                 dedupeName: true,
                 createMissingParents: true,
             });
-            puter.print(`wrote ${file.name}<br>`);
+            puter.print(`stored as ${file.name}<br>`);
         });
 
         document.getElementById('refuse').addEventListener('click', async () => {
             try {
-                await puter.fs.write('uploads/report.txt', 'data', {
+                await puter.fs.write('uploads/invoice.pdf', 'data', {
                     overwrite: false,
                     createMissingParents: true,
                 });
-                puter.print('wrote it — the name was free<br>');
+                puter.print('stored — the name was free<br>');
             } catch (e) {
-                puter.print(`refused: ${e.code ?? e.message}<br>`);
+                puter.print(`rejected, ask for a new name: ${e.code ?? e.message}<br>`);
             }
         });
     </script>

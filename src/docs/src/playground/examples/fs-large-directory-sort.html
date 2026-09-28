@@ -1,14 +1,17 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
-    <button id="name">Sort by name</button>
+    <h3>Media gallery</h3>
+    <button id="name">Name</button>
     <button id="modified">Newest first</button>
-    <button id="deep">Recursive, depth 2</button>
+    <button id="deep">Include subfolders</button>
     <script>
+        // The sort header of a gallery, and the toggle that pulls in everything
+        // filed under this year's subfolders.
         const setup = async () => {
             await puter.fs.write('uploads/a.txt', 'a', { createMissingParents: true });
             await puter.fs.write('uploads/b.txt', 'b');
-            await puter.fs.write('uploads/nested/c.txt', 'c', { createMissingParents: true });
+            await puter.fs.write('uploads/2026/c.txt', 'c', { createMissingParents: true });
         };
 
         const show = (items) =>
