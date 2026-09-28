@@ -1,0 +1,24 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <input id="app" value="contacts" placeholder="app name or uid">
+    <button id="go">Ask to read its data</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            const name = document.getElementById('app').value.trim();
+            if (!name) return;
+
+            try {
+                // delete is NOT part of write — ask for it separately if needed.
+                const granted = await puter.perms.request('appData', {
+                    app: { name },
+                    scopes: { kv: ['get', 'list'], fs: 'read' },
+                });
+                puter.print(granted ? `Can read ${name} data` : 'Declined');
+            } catch (e) {
+                puter.print(`${e.code}: ${e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

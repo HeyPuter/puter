@@ -1,0 +1,25 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="go">Ask for two paths</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            const { username } = await puter.auth.getUser();
+
+            try {
+                // create decides what happens when the path does not exist yet.
+                const granted = await puter.perms.request('permission', {
+                    permissions: [
+                        `fs:/${username}/Projects:read`,
+                        `fs:/${username}/Archive:read`,
+                    ],
+                    create: 'dir',
+                });
+                puter.print(granted ? 'Granted' : 'Declined');
+            } catch (e) {
+                puter.print(`${e.code}: ${e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>
