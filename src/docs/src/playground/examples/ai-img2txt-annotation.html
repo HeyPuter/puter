@@ -1,0 +1,31 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // Loading ...
+            puter.print(`Loading...`);
+
+            // Ask Mistral OCR to fill a JSON schema from the document
+            const annotation = await puter.ai.img2txt('https://assets.puter.site/letter.png', {
+                model: 'mistral-ocr-latest',
+                documentAnnotationFormat: {
+                    type: 'json_schema',
+                    json_schema: {
+                        name: 'letter',
+                        schema: {
+                            type: 'object',
+                            properties: {
+                                greeting: { type: 'string' },
+                                signature: { type: 'string' },
+                            },
+                            required: ['greeting', 'signature'],
+                        },
+                    },
+                },
+            });
+            puter.print(JSON.parse(annotation).signature);
+        })();
+    </script>
+</body>
+</html>

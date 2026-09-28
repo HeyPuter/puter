@@ -19,6 +19,7 @@
 
 import { posix as pathPosix } from 'node:path';
 import { Readable } from 'node:stream';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSService } from '../../services/fs/FSService.js';
@@ -65,8 +66,7 @@ export interface LoadedFile {
  * uuid? }`.
  */
 export type FileInputRef =
-    | string
-    | { path?: string; uid?: string; uuid?: string };
+    string | { path?: string; uid?: string; uuid?: string };
 
 export interface OpenedFileInput {
     body: Readable;
@@ -132,9 +132,18 @@ export async function loadFileInput(
                 { legacyCode: 'bad_request' },
             );
         }
-        const arrayBuf = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuf);
-        assertMax(buffer, options.maxBytes);
+        // Stream under the cap: a remote body is never buffered past maxBytes.
+        const declaredLength = Number(response.headers.get('content-length'));
+        if (options.maxBytes && declaredLength > options.maxBytes) {
+            await response.body?.cancel();
+            throw tooLarge(options.maxBytes);
+        }
+        const buffer = response.body
+            ? await collectStream(
+                  Readable.fromWeb(response.body as WebReadableStream),
+                  options.maxBytes,
+              )
+            : Buffer.alloc(0);
         const contentType = response.headers.get('content-type');
         const mime =
             contentType?.split(';')[0]?.trim() ||

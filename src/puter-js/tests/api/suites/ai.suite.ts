@@ -668,6 +668,49 @@ export default suite('ai', {
         }
     },
 
+    'img2txt routes by model name alone': async (t) => {
+        useApiToken(t);
+        // Keyless: each model resolves to its provider, then fails on that
+        // provider's missing credentials — never as an unknown model.
+        const models = [
+            'aws-textract',
+            'textract',
+            'mistral-ocr-latest',
+            'mistral-ocr-4-0',
+            'mistral-ocr-2512',
+        ];
+        for (const model of models) {
+            const text = await rejectionText(() =>
+                t.puter.ai.img2txt(TINY_PNG, { model }),
+            );
+            t.assert.ok(
+                !text.includes('Unknown OCR model'),
+                `model "${model}" should resolve to a provider, got ${text}`,
+            );
+        }
+    },
+
+    'img2txt rejects retired, unknown and mismatched OCR models': async (t) => {
+        useApiToken(t);
+        const cases: Array<[Record<string, string>, string]> = [
+            [{ model: 'mistral-ocr-2505' }, 'no longer available'],
+            [{ model: 'ai-suite-no-such-ocr-model' }, 'Unknown OCR model'],
+            [
+                { model: 'mistral-ocr-latest', provider: 'aws-textract' },
+                'not served by provider',
+            ],
+        ];
+        for (const [options, expected] of cases) {
+            const text = await rejectionText(() =>
+                t.puter.ai.img2txt(TINY_PNG, options),
+            );
+            t.assert.ok(
+                text.includes(expected),
+                `${JSON.stringify(options)} should reject with "${expected}", got ${text}`,
+            );
+        }
+    },
+
     'the legacy per-provider OCR driver names still route': async (t) => {
         useApiToken(t);
         for (const driver of ['aws-textract', 'mistral']) {
@@ -1130,6 +1173,15 @@ export default suite('ai', {
             error.message,
             `Input size cannot be larger than ${10 * 1024 * 1024}`,
         );
+    },
+
+    'img2txt accepts a Mistral inline source above the Textract limit': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.img2txt(
+            oversizedDataUri('image/png', 10 * 1024 * 1024, 2),
+            { model: 'mistral-ocr-latest', testMode: true },
+        );
+        t.assert.ok(text.includes('sample OCR response'));
     },
 
     // -- speech2txt --------------------------------------------------

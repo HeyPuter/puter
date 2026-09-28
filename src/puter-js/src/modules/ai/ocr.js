@@ -13,18 +13,25 @@ import { dataUriByteLength, isBlobLike, isPlainObject } from './lib/args.js';
  * }} OcrResult
  */
 
-const MAX_INPUT_SIZE = 10 * 1024 * 1024;
+const DEFAULT_MAX_INPUT_SIZE = 10 * 1024 * 1024;
+// Inline sources travel as base64 in a JSON body capped at 50 MB.
+const MISTRAL_MAX_INPUT_SIZE = 36 * 1024 * 1024;
 
 // The unified OCR driver picks the provider from `options.provider`.
 const OCR_DRIVER = 'ai-ocr';
 
 /**
- * Reduce the provider-specific recognition result to plain text.
+ * Reduce the recognition result to a string: the requested document
+ * annotation when there is one, the recognized text otherwise.
  * @param {OcrResult | null | undefined} result
+ * @param {boolean} [wantsAnnotation]
  * @returns {string}
  */
-const toText = (result) => {
+const toText = (result, wantsAnnotation = false) => {
     if ( ! result ) return '';
+    if ( wantsAnnotation && typeof result.document_annotation === 'string' ) {
+        return result.document_annotation;
+    }
     if ( Array.isArray(result.blocks) && result.blocks.length ) {
         let str = '';
         for ( const block of result.blocks ) {
@@ -122,10 +129,17 @@ export async function img2txt (sourceOrOptions, optionsOrTestMode, testModeOrOpt
         options.source = await utils.blobToDataUri(options.source.source);
     }
 
+    const requestedModel = typeof options.model === 'string' ? options.model.trim().toLowerCase() : '';
+    const requestedProvider = typeof options.provider === 'string' ? options.provider.trim().toLowerCase() : '';
+    const maxInputSize = requestedModel.startsWith('mistral-ocr-') ||
+        (!requestedModel && ['mistral', 'mistral-ocr'].includes(requestedProvider))
+        ? MISTRAL_MAX_INPUT_SIZE
+        : DEFAULT_MAX_INPUT_SIZE;
+
     if ( typeof options.source === 'string' &&
         options.source.startsWith('data:') &&
-        dataUriByteLength(options.source) > MAX_INPUT_SIZE ) {
-        throw { message: `Input size cannot be larger than ${ MAX_INPUT_SIZE}`, code: 'input_too_large' };
+        dataUriByteLength(options.source) > maxInputSize ) {
+        throw { message: `Input size cannot be larger than ${ maxInputSize}`, code: 'input_too_large' };
     }
 
     return await utils.makeDriverMethod({
@@ -135,6 +149,6 @@ export async function img2txt (sourceOrOptions, optionsOrTestMode, testModeOrOpt
         argNames: ['source'],
         puter,
         testMode: testMode ?? false,
-        transform: async (result) => toText(result),
+        transform: async (result) => toText(result, options.documentAnnotationFormat !== undefined),
     })(options);
 }

@@ -18,9 +18,10 @@
  */
 
 import {
-    AnalyzeDocumentCommand,
+    DetectDocumentTextCommand,
     InvalidS3ObjectException,
     TextractClient,
+    UnsupportedDocumentException,
 } from '@aws-sdk/client-textract';
 import { Mistral } from '@mistralai/mistralai';
 import { Actor } from '../../core/actor.js';
@@ -32,6 +33,14 @@ import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
 import { OCR_COSTS } from './costs.js';
+import {
+    DEFAULT_OCR_MODEL,
+    findOcrModel,
+    OCR_MAX_INPUT_BYTES,
+    RETIRED_OCR_MODELS,
+    type OcrModel,
+    type OcrProviderId,
+} from './models.js';
 
 /**
  * Driver implementing `puter-ocr` — document OCR. Two providers: •
@@ -42,15 +51,27 @@ interface RecognizeArgs {
     source?: unknown;
     file?: unknown;
     provider?: string;
-    // Mistral-specific options — ignored by Textract.
     model?: string;
+    // Mistral-specific options — ignored by Textract.
     pages?: number[];
     includeImageBase64?: boolean;
     imageLimit?: number;
     imageMinSize?: number;
     bboxAnnotationFormat?: unknown;
     documentAnnotationFormat?: unknown;
+    documentAnnotationPrompt?: string;
+    tableFormat?: string;
+    extractHeader?: boolean;
+    extractFooter?: boolean;
     test_mode?: boolean;
+}
+
+/** One recognized line, in the same shape for every provider. */
+interface OcrBlock {
+    type: string;
+    text: string;
+    confidence?: number;
+    page: number;
 }
 
 interface TextractBlock {
@@ -67,6 +88,7 @@ interface MistralOcrResponse {
         images?: unknown[];
         dimensions?: unknown;
     }>;
+    documentAnnotation?: string | null;
     usageInfo?: { pagesProcessed?: number };
 }
 
@@ -82,7 +104,7 @@ const OCR_PROVIDERS = ['aws-textract', 'mistral'] as const;
 
 // Aliases callers may use in place of a canonical provider id. Resolved here
 // rather than in the SDK so a new alias reaches every caller at once.
-const PROVIDER_BY_ALIAS: Record<string, string> = {
+const PROVIDER_BY_ALIAS: Record<string, OcrProviderId> = {
     aws: 'aws-textract',
     'aws-textract': 'aws-textract',
     textract: 'aws-textract',
@@ -90,10 +112,57 @@ const PROVIDER_BY_ALIAS: Record<string, string> = {
     'mistral-ocr': 'mistral',
 };
 
-const normalizeOcrProvider = (value: unknown): string | undefined =>
+const normalizeOcrProvider = (value: unknown): OcrProviderId | undefined =>
     typeof value === 'string'
         ? PROVIDER_BY_ALIAS[value.trim().toLowerCase()]
         : undefined;
+
+const TABLE_FORMATS = new Set(['markdown', 'html']);
+
+const badRequest = (message: string) =>
+    new HttpError(400, message, { legacyCode: 'bad_request' });
+
+/**
+ * Accept a Mistral annotation format in the REST spelling
+ * (`json_schema.schema`) or the SDK spelling (`jsonSchema.schemaDefinition`)
+ * and return the SDK shape.
+ */
+const toMistralResponseFormat = (
+    name: string,
+    value: unknown,
+): Record<string, unknown> => {
+    const format = value as Record<string, unknown> | null;
+    const jsonSchema = (format?.jsonSchema ?? format?.json_schema) as
+        Record<string, unknown> | undefined;
+    const schema = jsonSchema?.schemaDefinition ?? jsonSchema?.schema;
+    if (
+        !format ||
+        typeof format !== 'object' ||
+        (format.type !== undefined && format.type !== 'json_schema') ||
+        !schema ||
+        typeof schema !== 'object'
+    ) {
+        throw badRequest(
+            `\`${name}\` must be { type: 'json_schema', json_schema: { name, schema } }`,
+        );
+    }
+    return {
+        type: 'json_schema',
+        jsonSchema: {
+            name:
+                typeof jsonSchema?.name === 'string'
+                    ? jsonSchema.name
+                    : 'annotation',
+            schemaDefinition: schema,
+            ...(typeof jsonSchema?.description === 'string' && {
+                description: jsonSchema.description,
+            }),
+            ...(typeof jsonSchema?.strict === 'boolean' && {
+                strict: jsonSchema.strict,
+            }),
+        },
+    };
+};
 
 export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
@@ -118,7 +187,7 @@ export class OCRDriver extends PuterDriver {
     }
 
     // Older SDK bundles name the provider in the driver slot instead of
-    // passing `{ provider }`; `#resolveProvider` reads the requested alias
+    // passing `{ provider }`; `#resolveModel` reads the requested alias
     // back off the Context.
     readonly driverAliases = [...OCR_PROVIDERS];
     readonly isDefault = true;
@@ -175,11 +244,7 @@ export class OCRDriver extends PuterDriver {
     async recognize(args: RecognizeArgs) {
         if (args.test_mode) return sampleResponse();
 
-        const provider = this.#resolveProvider(args);
-        if (!provider)
-            throw new HttpError(500, 'No OCR provider configured', {
-                legacyCode: 'internal_error',
-            });
+        const model = this.#resolveModel(args);
 
         const actor = Context.get('actor');
         if (!actor)
@@ -188,9 +253,15 @@ export class OCRDriver extends PuterDriver {
             });
 
         const input = args.source ?? args.file;
-        if (!input)
-            throw new HttpError(400, '`source` is required', {
-                legacyCode: 'bad_request',
+        if (!input) throw badRequest('`source` is required');
+
+        if (model.provider === 'aws-textract' && !this.#awsConfig)
+            throw new HttpError(500, 'AWS credentials not configured', {
+                legacyCode: 'internal_error',
+            });
+        if (model.provider === 'mistral' && !this.#mistral)
+            throw new HttpError(500, 'Mistral OCR not configured', {
+                legacyCode: 'internal_error',
             });
 
         const loaded = await loadFileInput(
@@ -198,55 +269,78 @@ export class OCRDriver extends PuterDriver {
             this.services.fs,
             actor,
             input,
-            { acceptWebInput: true },
+            {
+                acceptWebInput: true,
+                maxBytes: OCR_MAX_INPUT_BYTES[model.provider],
+            },
         );
 
-        if (provider === 'aws-textract') {
-            if (!this.#awsConfig)
-                throw new HttpError(500, 'AWS credentials not configured', {
-                    legacyCode: 'internal_error',
-                });
-            return this.#textractRecognize(loaded, actor);
-        }
-        if (provider === 'mistral') {
-            if (!this.#mistral)
-                throw new HttpError(500, 'Mistral OCR not configured', {
-                    legacyCode: 'internal_error',
-                });
-            return this.#mistralRecognize(loaded, args, actor);
-        }
-        throw new HttpError(400, `Unknown OCR provider: ${provider}`, {
-            legacyCode: 'bad_request',
-        });
+        return model.provider === 'aws-textract'
+            ? this.#textractRecognize(loaded, model, actor)
+            : this.#mistralRecognize(loaded, args, model, actor);
     }
 
     /**
-     * Decide which provider handles a call: an explicit `provider` wins, then
-     * the legacy driver alias the caller dispatched through, then whichever
-     * provider is configured.
+     * Decide which model handles a call. A `model` picks its own provider; an
+     * explicit `provider`, then the legacy driver alias the caller dispatched
+     * through, then whichever provider is configured pick that provider's
+     * default model.
      */
-    #resolveProvider(args: RecognizeArgs): string | null {
+    #resolveModel(args: RecognizeArgs): OcrModel {
+        let provider: OcrProviderId | undefined;
         if (args.provider) {
-            const named = normalizeOcrProvider(args.provider);
-            if (!named) {
-                throw new HttpError(
-                    400,
+            provider = normalizeOcrProvider(args.provider);
+            if (!provider) {
+                throw badRequest(
                     `Unknown OCR provider: ${args.provider}. Available: ${OCR_PROVIDERS.join(', ')}`,
-                    { legacyCode: 'bad_request' },
                 );
             }
-            return named;
         }
-        return (
+
+        if (args.model !== undefined) {
+            if (typeof args.model !== 'string' || !args.model.trim())
+                throw badRequest('`model` must be a non-empty string');
+            const retired = RETIRED_OCR_MODELS[args.model.trim().toLowerCase()];
+            if (retired)
+                throw badRequest(
+                    `${args.model} is no longer available: ${retired}`,
+                );
+            const model = findOcrModel(args.model);
+            if (!model) throw badRequest(`Unknown OCR model: ${args.model}`);
+            if (provider && model.provider !== provider)
+                throw badRequest(
+                    `OCR model ${args.model} is not served by provider ${args.provider}`,
+                );
+            return model;
+        }
+
+        provider ??=
             normalizeOcrProvider(Context.get('driverName')) ??
-            this.#defaultProvider()
-        );
+            this.#defaultProvider();
+        if (!provider)
+            throw new HttpError(500, 'No OCR provider configured', {
+                legacyCode: 'internal_error',
+            });
+        return findOcrModel(DEFAULT_OCR_MODEL[provider])!;
     }
 
-    #defaultProvider(): 'aws-textract' | 'mistral' | null {
+    #defaultProvider(): OcrProviderId | null {
         if (this.#awsConfig) return 'aws-textract';
         if (this.#mistral) return 'mistral';
         return null;
+    }
+
+    async #assertCredits(actor: Actor, costPerPage: number) {
+        // Page count is only known once the provider answers, so pre-flight
+        // one page's cost and meter the real total afterward.
+        const hasCredits = await this.services.metering.hasEnoughCredits(
+            actor,
+            costPerPage,
+        );
+        if (!hasCredits)
+            throw new HttpError(402, 'Insufficient credits', {
+                legacyCode: 'insufficient_funds',
+            });
     }
 
     // -- AWS Textract -------------------------------------------------
@@ -265,17 +359,13 @@ export class OCRDriver extends PuterDriver {
         return client;
     }
 
-    async #textractRecognize(loaded: LoadedFile, actor: Actor) {
-        const usageType = 'aws-textract:detect-document-text:page';
-        const costPerPage = OCR_COSTS[usageType];
-        const hasCredits = await this.services.metering.hasEnoughCredits(
-            actor!,
-            costPerPage,
-        );
-        if (!hasCredits)
-            throw new HttpError(402, 'Insufficient credits', {
-                legacyCode: 'insufficient_funds',
-            });
+    async #textractRecognize(
+        loaded: LoadedFile,
+        model: OcrModel,
+        actor: Actor,
+    ) {
+        const costPerPage = OCR_COSTS[model.pageUsageType];
+        await this.#assertCredits(actor, costPerPage);
 
         // Prefer S3 direct source if the file is FS-backed; fall back to raw bytes.
         const s3Info =
@@ -300,61 +390,55 @@ export class OCRDriver extends PuterDriver {
                     ? { S3Object: { Bucket: s3Info.bucket, Name: s3Info.key } }
                     : { Bytes: loaded.buffer };
             return client.send(
-                new AnalyzeDocumentCommand({
-                    Document: document,
-                    FeatureTypes: ['LAYOUT'],
-                }),
+                new DetectDocumentTextCommand({ Document: document }),
             );
         };
 
         let response;
         try {
-            response = await tryRun(Boolean(s3Info));
-        } catch (err) {
-            if (s3Info && err instanceof InvalidS3ObjectException) {
+            try {
+                response = await tryRun(Boolean(s3Info));
+            } catch (err) {
+                if (!(s3Info && err instanceof InvalidS3ObjectException))
+                    throw err;
                 response = await tryRun(false);
-            } else {
-                throw err;
             }
+        } catch (err) {
+            if (err instanceof UnsupportedDocumentException)
+                throw badRequest(
+                    'AWS Textract reads JPEG, PNG, TIFF and single-page PDF documents; use a Mistral OCR model for multi-page PDFs and other formats',
+                );
+            throw err;
         }
 
-        const blocks: Array<{
-            type: string;
-            confidence: number;
-            text: string;
-        }> = [];
+        const blocks: OcrBlock[] = [];
         let pageCount = 0;
         for (const block of (response.Blocks ?? []) as TextractBlock[]) {
             if (block.BlockType === 'PAGE') {
                 pageCount += 1;
                 continue;
             }
-            if (
-                [
-                    'CELL',
-                    'TABLE',
-                    'MERGED_CELL',
-                    'LAYOUT_FIGURE',
-                    'LAYOUT_TEXT',
-                    'WORD',
-                ].includes(block.BlockType ?? '')
-            )
-                continue;
+            if (block.BlockType !== 'LINE' || !block.Text) continue;
             blocks.push({
-                type: `text/textract:${block.BlockType ?? 'UNKNOWN'}`,
+                type: 'text/textract:LINE',
+                text: block.Text,
                 confidence: Number(block.Confidence ?? 0),
-                text: block.Text ?? '',
+                page: Math.max(pageCount - 1, 0),
             });
         }
 
         const pages = pageCount || 1;
         this.#aiMetering.incrementUsage(
             actor,
-            usageType,
+            model.pageUsageType,
             pages,
             costPerPage * pages,
         );
-        return { blocks };
+        return {
+            model: model.id,
+            blocks,
+            text: blocks.map((b) => b.text).join('\n'),
+        };
     }
 
     // -- Mistral OCR --------------------------------------------------
@@ -362,23 +446,13 @@ export class OCRDriver extends PuterDriver {
     async #mistralRecognize(
         loaded: LoadedFile,
         args: RecognizeArgs,
+        model: OcrModel,
         actor: Actor,
     ) {
-        // Gate on credits before the paid upstream call, mirroring the
-        // Textract branch. Page count isn't known until Mistral responds, so
-        // pre-flight one page's cost and meter the real total afterward.
-        const hasCredits = await this.services.metering.hasEnoughCredits(
-            actor,
-            OCR_COSTS['mistral-ocr:ocr:page'],
-        );
-        if (!hasCredits)
-            throw new HttpError(402, 'Insufficient credits', {
-                legacyCode: 'insufficient_funds',
-            });
-
-        const model = args.model ?? 'mistral-ocr-latest';
-        const chunk = this.#mistralBuildChunk(loaded);
-        const payload: Record<string, unknown> = { model, document: chunk };
+        const payload: Record<string, unknown> = {
+            model: model.id,
+            document: this.#mistralBuildChunk(loaded),
+        };
         if (args.pages) payload.pages = args.pages;
         if (args.includeImageBase64 !== undefined)
             payload.includeImageBase64 = args.includeImageBase64;
@@ -387,16 +461,41 @@ export class OCRDriver extends PuterDriver {
         if (typeof args.imageMinSize === 'number')
             payload.imageMinSize = args.imageMinSize;
         if (args.bboxAnnotationFormat !== undefined)
-            payload.bboxAnnotationFormat = args.bboxAnnotationFormat;
+            payload.bboxAnnotationFormat = toMistralResponseFormat(
+                'bboxAnnotationFormat',
+                args.bboxAnnotationFormat,
+            );
         if (args.documentAnnotationFormat !== undefined)
-            payload.documentAnnotationFormat = args.documentAnnotationFormat;
+            payload.documentAnnotationFormat = toMistralResponseFormat(
+                'documentAnnotationFormat',
+                args.documentAnnotationFormat,
+            );
+        if (typeof args.documentAnnotationPrompt === 'string')
+            payload.documentAnnotationPrompt = args.documentAnnotationPrompt;
+        if (args.tableFormat !== undefined) {
+            if (!TABLE_FORMATS.has(args.tableFormat))
+                throw badRequest("`tableFormat` must be 'markdown' or 'html'");
+            payload.tableFormat = args.tableFormat;
+        }
+        if (typeof args.extractHeader === 'boolean')
+            payload.extractHeader = args.extractHeader;
+        if (typeof args.extractFooter === 'boolean')
+            payload.extractFooter = args.extractFooter;
 
-        const response = await this.#mistral!.ocr.process(payload);
         const annotations =
             payload.documentAnnotationFormat !== undefined ||
             payload.bboxAnnotationFormat !== undefined;
-        this.#recordMistralUsage(response, actor, annotations);
-        return this.#normalizeMistralResponse(response);
+        await this.#assertCredits(
+            actor,
+            OCR_COSTS[model.pageUsageType] +
+                (annotations && model.annotationUsageType
+                    ? OCR_COSTS[model.annotationUsageType]
+                    : 0),
+        );
+
+        const response = await this.#mistral!.ocr.process(payload);
+        this.#recordMistralUsage(response, model, actor, annotations);
+        return this.#normalizeMistralResponse(response, model);
     }
 
     #mistralBuildChunk(loaded: LoadedFile): Record<string, unknown> {
@@ -404,11 +503,14 @@ export class OCRDriver extends PuterDriver {
             loaded.mimeType ??
             mimeFromName(loaded.filename) ??
             'application/octet-stream';
-        const isPdf =
-            mime.includes('pdf') ||
-            loaded.filename.toLowerCase().endsWith('.pdf');
+        // Declared documents (PDF, DOCX, PPTX, ...) and PDF bytes go as a
+        // document; images and untyped bytes keep the image chunk.
+        const isDocument =
+            loaded.buffer.subarray(0, 4).toString('latin1') === '%PDF' ||
+            loaded.filename.toLowerCase().endsWith('.pdf') ||
+            (!mime.startsWith('image/') && mime !== 'application/octet-stream');
         const dataUrl = `data:${mime};base64,${loaded.buffer.toString('base64')}`;
-        if (isPdf) {
+        if (isDocument) {
             return {
                 type: 'document_url',
                 documentUrl: dataUrl,
@@ -418,10 +520,10 @@ export class OCRDriver extends PuterDriver {
         return { type: 'image_url', imageUrl: { url: dataUrl } };
     }
 
-    #normalizeMistralResponse(response: MistralOcrResponse) {
+    #normalizeMistralResponse(response: MistralOcrResponse, model: OcrModel) {
         const pages = response?.pages ?? [];
-        const blocks: Array<{ type: string; text: string; page?: number }> = [];
-        for (const page of pages) {
+        const blocks: OcrBlock[] = [];
+        for (const [position, page] of pages.entries()) {
             if (typeof page?.markdown !== 'string') continue;
             const lines = page.markdown
                 .split('\n')
@@ -431,28 +533,25 @@ export class OCRDriver extends PuterDriver {
                 blocks.push({
                     type: 'text/mistral:LINE',
                     text: line,
-                    page: page.index,
+                    page: page.index ?? position,
                 });
             }
         }
-        const text =
-            blocks.length > 0
-                ? blocks.map((b) => b.text).join('\n')
-                : pages
-                      .map((p) => p?.markdown ?? '')
-                      .join('\n\n')
-                      .trim();
         return {
-            model: response?.model,
+            model: response?.model ?? model.id,
             pages,
             usage_info: response?.usageInfo,
+            ...(typeof response?.documentAnnotation === 'string' && {
+                document_annotation: response.documentAnnotation,
+            }),
             blocks,
-            text,
+            text: blocks.map((b) => b.text).join('\n'),
         };
     }
 
     #recordMistralUsage(
         response: MistralOcrResponse,
+        model: OcrModel,
         actor: Actor,
         annotations: boolean,
     ) {
@@ -462,16 +561,16 @@ export class OCRDriver extends PuterDriver {
                 (Array.isArray(response?.pages) ? response.pages.length : 1);
             this.#aiMetering.incrementUsage(
                 actor,
-                'mistral-ocr:ocr:page',
+                model.pageUsageType,
                 pagesProcessed,
-                OCR_COSTS['mistral-ocr:ocr:page'] * pagesProcessed,
+                OCR_COSTS[model.pageUsageType] * pagesProcessed,
             );
-            if (annotations) {
+            if (annotations && model.annotationUsageType) {
                 this.#aiMetering.incrementUsage(
                     actor,
-                    'mistral-ocr:annotations:page',
+                    model.annotationUsageType,
                     pagesProcessed,
-                    OCR_COSTS['mistral-ocr:annotations:page'] * pagesProcessed,
+                    OCR_COSTS[model.annotationUsageType] * pagesProcessed,
                 );
             }
         } catch {
@@ -482,12 +581,15 @@ export class OCRDriver extends PuterDriver {
 
 function sampleResponse() {
     return {
+        model: 'test-mode',
         blocks: [
             {
                 type: 'text/puter:sample-output',
                 confidence: 1,
                 text: 'test_mode is enabled; this is a sample OCR response.',
+                page: 0,
             },
         ],
+        text: 'test_mode is enabled; this is a sample OCR response.',
     };
 }

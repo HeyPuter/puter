@@ -346,6 +346,24 @@ describe('ai.img2txt driver payloads', () => {
         expect(text).toBe('line one\nline two\n');
     });
 
+    it('img2txt resolves to the document annotation when one was requested', async () => {
+        FakeXHR.respondWith = () => ({
+            success: true,
+            result: {
+                blocks: [{ type: 'text/mistral:LINE', text: 'Total: 42' }],
+                document_annotation: '{"total":"42"}',
+            },
+        });
+        const annotation = await ai.img2txt('https://example.com/invoice.pdf', {
+            model: 'mistral-ocr-latest',
+            documentAnnotationFormat: { type: 'json_schema', json_schema: { name: 'invoice', schema: { type: 'object' } } },
+        });
+        expect(annotation).toBe('{"total":"42"}');
+        // Without the option the same result still reads as text.
+        const text = await ai.img2txt('https://example.com/invoice.pdf');
+        expect(text).toBe('Total: 42\n');
+    });
+
     it('img2txt rejects without a source', async () => {
         await expect(ai.img2txt({})).rejects.toMatchObject({ code: 'source_required' });
     });
@@ -368,6 +386,33 @@ describe('ai.img2txt driver payloads', () => {
         base64Len += (4 - (base64Len % 4)) % 4;
         const uri = prefix + 'A'.repeat(base64Len);
         await expect(ai.img2txt(uri)).rejects.toMatchObject({ code: 'input_too_large' });
+    });
+
+    it('img2txt accepts an inline document over 10MB for a Mistral model or provider', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'recognized' } });
+        const uri = `data:application/pdf;base64,${'A'.repeat(14 * 1024 * 1024)}`;
+        for (const options of [{ model: 'mistral-ocr-latest' }, { provider: 'mistral' }]) {
+            await expect(ai.img2txt(uri, options)).resolves.toBe('recognized');
+        }
+    });
+
+    it('img2txt rejects a Mistral inline source that would not fit the 50MB request body', async () => {
+        let base64Len = Math.ceil(((36 * 1024 * 1024) + 1) * 4 / 3);
+        base64Len += (4 - (base64Len % 4)) % 4;
+        const uri = `data:application/pdf;base64,${'A'.repeat(base64Len)}`;
+        await expect(ai.img2txt(uri, { model: 'mistral-ocr-latest' }))
+            .rejects.toMatchObject({ code: 'input_too_large' });
+    });
+
+    it('img2txt keeps its string result when normalization is requested', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'recognized' } });
+        ai.normalize = true;
+        try {
+            await expect(ai.img2txt('https://example.com/scan.png', { normalize: false }))
+                .resolves.toBe('recognized');
+        } finally {
+            ai.normalize = undefined;
+        }
     });
 });
 

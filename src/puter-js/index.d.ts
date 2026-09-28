@@ -42,6 +42,7 @@ export type {
     Img2TxtOptions,
     ListTTSEnginesOptions,
     ListTTSVoicesOptions,
+    OcrAnnotationFormat,
     Speech2SpeechOptions,
     Speech2TxtOptions,
     Speech2TxtResult,

@@ -144,20 +144,38 @@
  */
 
 /**
+ * A Mistral OCR annotation format: the JSON schema the annotation must follow.
+ * `jsonSchema` / `schemaDefinition` are accepted as aliases of `json_schema` / `schema`.
+ *
+ * @typedef {Object} OcrAnnotationFormat
+ * @property {'json_schema'} [type]
+ * @property {{ name?: string, description?: string, schema: Record<string, unknown>, strict?: boolean }} [json_schema]
+ * @property {{ name?: string, description?: string, schemaDefinition: Record<string, unknown>, strict?: boolean }} [jsonSchema]
+ */
+
+/**
  * Options for `img2txt()` (OCR).
  *
  * @typedef {Object} Img2TxtOptions
- * @property {string | File | Blob} [source]
- * @property {string} [provider]
+ * @property {string | File | Blob} [source] Image or document: URL, Puter path, data URI, `File` or `Blob`.
+ * @property {string} [model] OCR model: `'aws-textract'` (alias `'textract'`), `'mistral-ocr-latest'`
+ * (OCR 4.1; aliases `'mistral-ocr-4'`, `'mistral-ocr-4-1'`), `'mistral-ocr-4-0'`, or `'mistral-ocr-2512'`
+ * (OCR 3; aliases `'mistral-ocr-3'`, `'mistral-ocr-3-0'`). The model picks its provider.
+ * @property {string} [provider] `'aws-textract'` (default) or `'mistral'`; aliases `'aws'`, `'textract'`,
+ * `'mistral-ocr'`. Without a `model`, the provider's default model runs.
  * @property {boolean} [testMode]
  * @property {boolean} [test_mode] `snake_case` spelling of `testMode`, forwarded to the driver as-is.
- * @property {string} [model]
- * @property {number[]} [pages]
- * @property {boolean} [includeImageBase64]
- * @property {number} [imageLimit]
- * @property {number} [imageMinSize]
- * @property {string} [bboxAnnotationFormat]
- * @property {string} [documentAnnotationFormat]
+ * @property {number[]} [pages] Mistral: 0-based page indexes to process.
+ * @property {boolean} [includeImageBase64] Mistral: include extracted images in the provider response.
+ * @property {number} [imageLimit] Mistral: maximum number of images to extract.
+ * @property {number} [imageMinSize] Mistral: minimum height and width of an image to extract.
+ * @property {OcrAnnotationFormat} [bboxAnnotationFormat] Mistral: schema for per-image annotations.
+ * @property {OcrAnnotationFormat} [documentAnnotationFormat] Mistral: schema for a document-level
+ * annotation. When set, `img2txt()` resolves to the annotation (a JSON string) instead of the text.
+ * @property {string} [documentAnnotationPrompt] Mistral: instructions for the document annotation.
+ * @property {'markdown' | 'html'} [tableFormat] Mistral: extract tables in this format.
+ * @property {boolean} [extractHeader] Mistral: move page headers out of the text.
+ * @property {boolean} [extractFooter] Mistral: move page footers out of the text.
  */
 
 /**
