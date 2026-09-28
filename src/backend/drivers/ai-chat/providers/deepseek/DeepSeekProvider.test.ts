@@ -17,17 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Offline unit tests for DeepSeekProvider.
- *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs DeepSeekProvider directly against the live
- * wired `MeteringService` so the recording side is exercised end-to-
- * end. DeepSeek is OpenAI-compatible so the OpenAI SDK is mocked at
- * the module boundary; that's the real network egress point. The
- * companion integration test (DeepSeekProvider.integration.test.ts)
- * exercises the real DeepSeek endpoint.
- */
+/** Offline provider tests with an in-memory server and mocked OpenAI network boundary. */
 
 import { Writable } from 'node:stream';
 import {
@@ -145,9 +135,9 @@ describe('DeepSeekProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('DeepSeekProvider model catalog', () => {
-    it('returns deepseek-v4-pro as the default', () => {
+    it('returns deepseek-flash as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('deepseek-v4-pro');
+        expect(provider.getDefaultModel()).toBe('deepseek-flash');
     });
 
     it('exposes the static DEEPSEEK_MODELS list verbatim from models()', () => {
@@ -165,6 +155,9 @@ describe('DeepSeekProvider model catalog', () => {
             }
         }
         expect(ids).toContain('deepseek-v4-pro');
+        expect(ids).toContain('deepseek-flash');
+        expect(ids).toContain('deepseek-v4-flash');
+        expect(ids).toContain('deepseek-v4-flash-vision-exp');
         expect(ids).toContain('deepseek-chat');
         expect(ids).toContain('deepseek/deepseek-v4-pro');
     });
@@ -474,26 +467,34 @@ describe('DeepSeekProvider model resolution', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-pro');
+        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-flash');
+        const flash = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-flash')!;
         expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
+            { prompt_tokens: 1, completion_tokens: 1, cached_tokens: 0 },
             expect.anything(),
-            'deepseek:deepseek-v4-pro',
-            expect.any(Object),
+            'deepseek:deepseek-flash',
+            {
+                prompt_tokens: Number(flash.costs.prompt_tokens),
+                completion_tokens: Number(flash.costs.completion_tokens),
+                cached_tokens: 0,
+            },
         );
     });
 
-    // The legacy DeepSeek chat/reasoner ids (and their `deepseek/…` and
-    // `deepseek:deepseek/…` variants) are aliased onto deepseek-v4-pro
-    // so callers using the old names get transparently upgraded — and
-    // metered against the v4-pro canonical prefix.
     it.each([
+        'deepseek-v4-flash',
+        'deepseek/deepseek-v4-flash',
+        'deepseek:deepseek/deepseek-v4-flash',
+        'deepseek-v4-flash-vision-exp',
+        'deepseek/deepseek-v4-flash-vision-exp',
+        'deepseek:deepseek/deepseek-v4-flash-vision-exp',
         'deepseek-chat',
         'deepseek/deepseek-chat',
         'deepseek:deepseek/deepseek-chat',
+        'deepseek-reasoner',
         'deepseek/deepseek-reasoner',
         'deepseek:deepseek/deepseek-reasoner',
-    ])('maps legacy alias %s onto deepseek-v4-pro', async (alias) => {
+    ])('maps Flash and legacy alias %s onto deepseek-flash', async (alias) => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -504,11 +505,11 @@ describe('DeepSeekProvider model resolution', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-v4-pro');
+        expect(createMock.mock.calls[0]![0].model).toBe('deepseek-flash');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'deepseek:deepseek-v4-pro',
+            'deepseek:deepseek-flash',
             expect.any(Object),
         );
     });
@@ -550,22 +551,89 @@ describe('DeepSeekProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
 
-        // deepseek-v4-pro costs: prompt=174, completion=348, cached=1.45
         const chat = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-v4-pro')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('deepseek:deepseek-v4-pro');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * Number(chat.costs.prompt_tokens),
+            prompt_tokens: 90 * Number(chat.costs.prompt_tokens),
             completion_tokens: 50 * Number(chat.costs.completion_tokens),
             cached_tokens: 10 * Number(chat.costs.cached_tokens ?? 0),
         });
+    });
+
+    it('charges a fully cached prompt only at the cache rate', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 0,
+                prompt_tokens_details: { cached_tokens: 100 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'deepseek-flash',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const flash = DEEPSEEK_MODELS.find((m) => m.id === 'deepseek-flash')!;
+        expect(recordSpy).toHaveBeenCalledWith(
+            { prompt_tokens: 0, completion_tokens: 0, cached_tokens: 100 },
+            expect.anything(),
+            'deepseek:deepseek-flash',
+            {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                cached_tokens: 100 * Number(flash.costs.cached_tokens),
+            },
+        );
+    });
+
+    it('uses DeepSeek cache hit and miss counts when provided', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 1,
+                prompt_cache_hit_tokens: 40,
+                prompt_cache_miss_tokens: 60,
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'deepseek-v4-pro',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(recordSpy).toHaveBeenCalledWith(
+            { prompt_tokens: 60, completion_tokens: 1, cached_tokens: 40 },
+            expect.anything(),
+            'deepseek:deepseek-v4-pro',
+            expect.any(Object),
+        );
     });
 
     it('preserves OpenAI-shaped tool_calls on the assistant response', async () => {
@@ -693,7 +761,7 @@ describe('DeepSeekProvider.complete streaming', () => {
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('deepseek:deepseek-v4-pro');
         expect(overrides).toEqual({
-            prompt_tokens: 4 * Number(chat.costs.prompt_tokens),
+            prompt_tokens: 3 * Number(chat.costs.prompt_tokens),
             completion_tokens: 2 * Number(chat.costs.completion_tokens),
             cached_tokens: 1 * Number(chat.costs.cached_tokens ?? 0),
         });

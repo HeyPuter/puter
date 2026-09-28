@@ -41,6 +41,7 @@ import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider
 import { BytePlusProvider } from './providers/byteplus/BytePlusProvider.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
+import { deepSeekPricing } from './providers/deepseek/pricing.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
@@ -824,6 +825,9 @@ export class ChatCompletionDriver extends PuterDriver {
             model,
             trackedInputTokens(usage, model),
         );
+        const cachedTokens = Number.isFinite(usage.cached_tokens)
+            ? Math.max(0, usage.cached_tokens)
+            : 0;
 
         let inputMicroCents = 0;
         let outputMicroCents = 0;
@@ -836,6 +840,11 @@ export class ChatCompletionDriver extends PuterDriver {
 
             if (key === 'usd_cents') continue;
             if (key === 'tokens') continue;
+
+            const amount =
+                model.promptTokensIncludeCached && key === inputKey
+                    ? Math.max(0, rawAmount - cachedTokens)
+                    : rawAmount;
 
             // thinking_tokens → output rate fallback
             let rate = costs[key];
@@ -859,9 +868,9 @@ export class ChatCompletionDriver extends PuterDriver {
 
             sawAnyRate = true;
             if (isOutputKey(key)) {
-                outputMicroCents += rawAmount * rate * multipliers.output;
+                outputMicroCents += amount * rate * multipliers.output;
             } else {
-                inputMicroCents += rawAmount * rate * multipliers.input;
+                inputMicroCents += amount * rate * multipliers.input;
             }
         }
 
@@ -1276,6 +1285,15 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const deepseekKey = readKey(providers['deepseek']);
         if (deepseekKey) {
+            deepSeekPricing.onRefreshError = () => {
+                this.clients.alarm.create(
+                    'deepseek_pricing_refresh_failed',
+                    'DeepSeek pricing refresh failed; using last verified rates',
+                    {},
+                    'warning',
+                    { dedup: true },
+                );
+            };
             this.#providers['deepseek'] = new DeepSeekProvider(
                 { apiKey: deepseekKey },
                 metering,

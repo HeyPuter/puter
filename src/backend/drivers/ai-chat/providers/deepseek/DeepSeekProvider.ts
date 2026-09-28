@@ -26,6 +26,7 @@ import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { DEEPSEEK_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { deepSeekPricing } from './pricing.js';
 
 export class DeepSeekProvider implements IChatProvider {
     #openai: OpenAI;
@@ -38,10 +39,11 @@ export class DeepSeekProvider implements IChatProvider {
             baseURL: 'https://api.deepseek.com',
         });
         this.#meteringService = meteringService;
+        deepSeekPricing.start();
     }
 
     getDefaultModel() {
-        return 'deepseek-v4-pro';
+        return 'deepseek-flash';
     }
 
     models() {
@@ -60,6 +62,7 @@ export class DeepSeekProvider implements IChatProvider {
         max_tokens,
         temperature,
     }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+        await deepSeekPricing.refreshIfStale();
         const actor = Context.get('actor');
         const availableModels = this.models();
         const modelUsed =
@@ -122,14 +125,29 @@ export class DeepSeekProvider implements IChatProvider {
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
+                const deepSeekUsage = usage as typeof usage & {
+                    prompt_cache_hit_tokens?: number;
+                    prompt_cache_miss_tokens?: number;
+                };
+                const cachedTokens =
+                    deepSeekUsage.prompt_cache_hit_tokens ??
+                    usage.prompt_tokens_details?.cached_tokens ??
+                    0;
                 const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
+                const meteredUsage = {
+                    prompt_tokens:
+                        deepSeekUsage.prompt_cache_miss_tokens ??
+                        Math.max(0, (usage.prompt_tokens ?? 0) - cachedTokens),
+                    completion_tokens: usage.completion_tokens ?? 0,
+                    cached_tokens: cachedTokens,
+                };
                 const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
+                    Object.entries(meteredUsage).map(([k, v]) => {
                         return [k, v * modelUsed.costs[k]];
                     }),
                 );
                 this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+                    meteredUsage,
                     actor!,
                     `deepseek:${modelUsed.id}`,
                     costsOverrideFromModel,

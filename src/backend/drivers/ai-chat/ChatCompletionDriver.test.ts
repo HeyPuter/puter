@@ -463,6 +463,53 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
         expect(data.service_used).toBe('fake-chat');
     });
 
+    it('charges cached prompt tokens only at their cache rate', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'cached-pricing',
+                costs_currency: 'usd-cents',
+                input_cost_key: 'prompt_tokens',
+                output_cost_key: 'completion_tokens',
+                promptTokensIncludeCached: true,
+                costs: {
+                    tokens: 1_000_000,
+                    prompt_tokens: 100,
+                    completion_tokens: 200,
+                    cached_tokens: 10,
+                },
+                max_tokens: 8192,
+            },
+        ]);
+        const driver = await makeDriver();
+        const costEvents = captureEvent('ai.prompt.cost-calculated');
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 1,
+                cached_tokens: 40,
+            },
+            finish_reason: 'stop',
+        } as never);
+
+        await withTestActor(() =>
+            driver.complete({
+                model: 'cached-pricing',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        const data = costEvents[0]![1] as {
+            input_ucents: number;
+            output_ucents: number;
+        };
+        expect(data.input_ucents).toBe(60 * 100 + 40 * 10);
+        expect(data.output_ucents).toBe(200);
+    });
+
     it('injects `usd_cents` on the usage object derived from the cost map', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {
