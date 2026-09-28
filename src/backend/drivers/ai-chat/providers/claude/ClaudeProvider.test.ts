@@ -790,7 +790,12 @@ describe('ClaudeProvider.complete request shape', () => {
         });
     });
 
-    it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5'])(
+    it.each([
+        'claude-fable-5-1',
+        'claude-opus-5-5',
+        'claude-sonnet-5-5',
+        'claude-sonnet-5',
+    ])(
         'omits temperature for %s',
         async (model) => {
             const { provider } = makeProvider();
@@ -809,7 +814,12 @@ describe('ClaudeProvider.complete request shape', () => {
         },
     );
 
-    it.each(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5'])(
+    it.each([
+        'claude-fable-5-1',
+        'claude-opus-5-5',
+        'claude-sonnet-5-5',
+        'claude-sonnet-5',
+    ])(
         'uses adaptive thinking and output effort on %s',
         async (model) => {
             const { provider } = makeProvider();
@@ -941,7 +951,23 @@ describe('ClaudeProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('routes the bare claude-sonnet alias to sonnet 5.5 rather than sonnet 5', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-sonnet',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+            'claude-sonnet-5-5',
+        );
+    });
+
+        it('falls back to the default model when given an unknown id', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);
 
@@ -975,6 +1001,9 @@ describe('ClaudeProvider.complete non-stream output', () => {
         ['claude-opus', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-latest', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-5-latest', 'claude-opus-5', 500, 625, 1000, 50, 2500],
+        ['claude-sonnet-5-5', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
+        ['claude-sonnet', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
+        ['claude-sonnet-latest', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
         ['claude-sonnet-5', 'claude-sonnet-5', 200, 250, 400, 20, 1000],
     ])(
         'resolves and meters %s at its current rates',

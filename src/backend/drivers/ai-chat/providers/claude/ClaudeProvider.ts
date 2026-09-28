@@ -358,11 +358,12 @@ export class ClaudeProvider implements IChatProvider {
             reasoningEffort: requestedReasoningEffort,
             maxTokens: max_tokens,
         });
-        // Fable 5/5.1, Sonnet 5, and Opus 4.7+ reject non-default sampling; omit temperature entirely.
+        // Fable 5/5.1, Sonnet 5/5.5, and Opus 4.7+ reject non-default sampling; omit temperature entirely.
         // Other models require temperature=1 when thinking is enabled.
         const omitsTemperature = [
             'claude-fable-5-1',
             'claude-fable-5',
+            'claude-sonnet-5-5',
             'claude-sonnet-5',
             'claude-opus-4-7',
             'claude-opus-4-8',
@@ -377,6 +378,7 @@ export class ClaudeProvider implements IChatProvider {
         const supportsEffort = [
             'claude-fable-5-1',
             'claude-fable-5',
+            'claude-sonnet-5-5',
             'claude-sonnet-5',
             'claude-opus-5-5',
             'claude-opus-5',
@@ -811,6 +813,7 @@ export class ClaudeProvider implements IChatProvider {
         if (
             modelId === 'claude-fable-5-1' ||
             modelId === 'claude-fable-5' ||
+            modelId === 'claude-sonnet-5-5' ||
             modelId === 'claude-sonnet-5' ||
             modelId === 'claude-opus-5-5' ||
             modelId === 'claude-opus-5' ||
