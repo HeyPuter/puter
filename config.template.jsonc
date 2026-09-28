@@ -255,6 +255,38 @@
         }
     },
 
+    // ── Inbound mail (separate process) ─────────────────────────────────
+    // Mailboxes addressed at one of your own domains. `secret` gates the
+    // ingress endpoint that files a message into the recipient's ~/.mail.
+    //
+    // `localServer` additionally runs an SMTP listener that accepts mail from
+    // other mail servers and hands each message to that endpoint. It runs as
+    // its own process - `npm run start:smtp`, or the `smtp` compose profile -
+    // and stores nothing itself. Without it, nothing delivers to the endpoint
+    // unless you point something else at it.
+    //
+    // The listener is unauthenticated by nature: anything on the internet may
+    // hand it a message for an address in `localDomains`. It performs no spam,
+    // SPF, DKIM or DMARC checks. Read the self-hosting guide before exposing
+    // it.
+    // "userEmail": {
+    //     "secret": "a long random string",
+    //     "localServer": true,
+    //     "localDomains": ["example.com"],
+    //     // Container-internal by default; publish 25 onto it from outside.
+    //     "localPort": 2525,
+    //     // Defaults to <api_base_url>/email/ingress. The endpoint is served
+    //     // on the `api` subdomain, so when this points somewhere internal,
+    //     // `localIngressHost` has to name that virtual host.
+    //     "localIngressUrl": "http://puter:4100/email/ingress",
+    //     "localIngressHost": "api.example.com",
+    //     "localHostname": "mx.example.com",
+    //     "localMaxRecipients": 50,
+    //     // Concurrent connections. Each message is held in memory while it
+    //     // is delivered, so this also bounds memory use.
+    //     "localMaxClients": 20
+    // },
+
     // ── Sharing ─────────────────────────────────────────────────────────
     // Email a recipient who already has an account about a new share. On
     // unless set to false; they opt out via the unsubscribe link, or by

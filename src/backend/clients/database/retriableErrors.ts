@@ -32,6 +32,7 @@ const RETRIABLE_ERROR_CODES = new Set([
     'ENETUNREACH',
     'EAI_AGAIN',
     POOL_ACQUIRE_TIMEOUT,
+    'ER_CLIENT_INTERACTION_TIMEOUT',
 ]);
 
 const RETRIABLE_ERROR_MESSAGES = [
@@ -52,6 +53,9 @@ const NEVER_SENT_ERROR_CODES = new Set([
     'ENETUNREACH',
     'EAI_AGAIN',
     POOL_ACQUIRE_TIMEOUT,
+    // The server closed the pooled connection for inactivity before the
+    // statement arrived, so nothing ran.
+    'ER_CLIENT_INTERACTION_TIMEOUT',
 ]);
 
 /**

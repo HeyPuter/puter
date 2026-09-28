@@ -577,7 +577,10 @@ export class S3ObjectStore extends PuterStore {
         ) {
             return Number(input.contentLength);
         }
-        if (Number.isFinite(input.sizeHint) && Number(input.sizeHint) >= 0) {
+        // A 0 hint is the "length unknown" placeholder streamed writes pass
+        // (legacy signed write, chunked WebDAV PUT); taking it literally
+        // declares an empty body.
+        if (Number.isFinite(input.sizeHint) && Number(input.sizeHint) > 0) {
             return Number(input.sizeHint);
         }
         if (Buffer.isBuffer(input.body) || input.body instanceof Uint8Array) {

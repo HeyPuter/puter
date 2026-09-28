@@ -18,6 +18,12 @@
 // so proprietary extensions can live outside this repository:
 //
 //     npm start --server=puter.com --extensions=../puter-private/gui-extensions
+//
+// `--smtp` builds and runs the inbound SMTP receiver instead of the backend.
+// It is a separate process and exits immediately unless
+// `userEmail.localServer` is set:
+//
+//     npm start -- --smtp
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -55,9 +61,19 @@ const run = (cmd, args, opts = {}) => new Promise((resolve, reject) => {
 
 const server = getFlag('server');
 const extensions = getFlag('extensions');
+const smtp =
+    process.argv.slice(2).includes('--smtp') ||
+    Boolean(process.env.npm_config_smtp);
 
 try {
-    if ( server ) {
+    if ( smtp ) {
+        await run(npm, ['run', 'build:ts']);
+        await run(process.execPath, [
+            '--enable-source-maps',
+            '-r', './dist/src/backend/telemetry.js',
+            './dist/src/backend/smtp/index.js',
+        ]);
+    } else if ( server ) {
         const args = ['dev-server.js', `--server=${server}`];
         if ( extensions ) args.push(`--extensions=${resolveExtensionPaths(extensions)}`);
         await run(process.execPath, args, {

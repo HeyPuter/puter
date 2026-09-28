@@ -2,6 +2,7 @@
 // but rather it performs some common sense checks to ensure that WebDAV support isn't irrevocably broken in puter
 import type { Request, RequestHandler, Response } from 'express';
 import { Readable, Writable } from 'node:stream';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { hash as bcryptHash } from 'bcrypt';
@@ -1197,7 +1198,7 @@ describe('WebDAVController verbs', () => {
      * A response double that is also a Writable, so handlers that end with
      * `body.pipe(res)` (GET) work without a socket.
      */
-    const makeStreamRes = () => {
+    const makeStreamRes = ({ abortOnFirstChunk = false } = {}) => {
         const chunks: Buffer[] = [];
         const captured = {
             statusCode: 200,
@@ -1209,6 +1210,9 @@ describe('WebDAVController verbs', () => {
         const sink = new Writable({
             write(chunk, _encoding, callback) {
                 chunks.push(Buffer.from(chunk as Buffer));
+                // A client that hangs up mid-download surfaces as the
+                // response being destroyed, not as a write error.
+                if (abortOnFirstChunk) sink.destroy();
                 callback();
             },
         });
@@ -1332,6 +1336,87 @@ describe('WebDAVController verbs', () => {
             expect(captured.statusCode).toBe(206);
             expect(captured.headers['content-range']).toBe('bytes 2-5/10');
             expect(captured.text()).toBe('2345');
+        });
+
+        /**
+         * Swap the object store's answer for one GET so the body stream is
+         * under the test's control. Intercepts at the S3 SDK client, the real
+         * boundary; every other command still hits the in-memory S3.
+         */
+        const serveBody = (body: Readable) => {
+            const client = server.clients.s3.get(
+                server.stores.s3Object.resolveRegion(null),
+            );
+            const original = client.send.bind(client);
+            return vi.spyOn(client, 'send').mockImplementation(((
+                command: unknown,
+            ) =>
+                command instanceof GetObjectCommand
+                    ? Promise.resolve({
+                          Body: body,
+                          ContentLength: 7,
+                          ContentType: 'text/plain',
+                      })
+                    : original(command as never)) as never);
+        };
+
+        it('tears down the upstream stream when the client disconnects mid-download', async () => {
+            const { actor, username } = await makeUser();
+            const path = `/${username}/Documents/abort-me.txt`;
+            await putFile(actor, path, 'streamed');
+
+            // Never ends on its own: only a teardown can finish it.
+            const body = new Readable({ read() {} });
+            body.push('partial');
+            const send = serveBody(body);
+            const { res } = makeStreamRes({ abortOnFirstChunk: true });
+            try {
+                await dispatchMiddleware(
+                    makeReq({ method: 'GET', path, actor }),
+                    res,
+                    noop,
+                );
+            } finally {
+                send.mockRestore();
+            }
+
+            expect((res as unknown as Writable).destroyed).toBe(true);
+            expect(body.destroyed).toBe(true);
+        });
+
+        it('survives the upstream stream failing mid-download', async () => {
+            const { actor, username } = await makeUser();
+            const path = `/${username}/Documents/reset-me.txt`;
+            await putFile(actor, path, 'streamed');
+
+            // First read hands over a chunk, the next one fails the way a
+            // dropped storage connection does. Without an error listener on
+            // the body that event would take the process down.
+            let reads = 0;
+            const body = new Readable({
+                read() {
+                    reads += 1;
+                    if (reads === 1) this.push('partial');
+                    else this.destroy(new Error('upstream reset'));
+                },
+            });
+            const send = serveBody(body);
+            const { res, captured } = makeStreamRes();
+            try {
+                await expect(
+                    dispatchMiddleware(
+                        makeReq({ method: 'GET', path, actor }),
+                        res,
+                        noop,
+                    ),
+                ).resolves.toBeUndefined();
+            } finally {
+                send.mockRestore();
+            }
+
+            expect(captured.statusCode).toBe(200);
+            expect((res as unknown as Writable).destroyed).toBe(true);
+            expect(body.destroyed).toBe(true);
         });
 
         it('refuses to GET a directory', async () => {

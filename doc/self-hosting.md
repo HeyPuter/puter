@@ -35,6 +35,12 @@ Optional services (compose profile `ai`, opt-in):
 | `puter-ollama`      | `ollama/ollama` | Local LLM provider (CPU; GPU passthrough opt-in)               |
 | `puter-ollama-init` | `ollama/ollama` | One-shot — pulls the default model (`tinyllama`) on first boot |
 
+Optional services (compose profile `smtp`, opt-in):
+
+| Container    | Image                    | Role                                                     |
+| ------------ | ------------------------ | -------------------------------------------------------- |
+| `puter-smtp` | `ghcr.io/heyputer/puter` | Receives mail over SMTP and files it into user mailboxes |
+
 State lives under `./puter/data/<service>/`.
 
 ---
@@ -144,6 +150,16 @@ Why these knobs:
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
 - `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
 - `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. Caddy routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
+- **Bucket CORS** — the browser uploads file bytes straight to RustFS with a cross-origin `PUT` to the presigned URL (Dev Center deploy, `puter.fs.upload`). That only works if the bucket answers the `OPTIONS` preflight with `Access-Control-Allow-*` headers. The `s3-init` container applies those rules on every boot (`put-bucket-cors`, origins `*` — the signed URL is the credential, and the SDK sends no cookies). If deploys fail with `No 'Access-Control-Allow-Origin' header is present`, re-run it: `docker compose run --rm s3-init`. Verify with:
+
+  ```bash
+  curl -sk -X OPTIONS "https://s3.<domain>/<bucket>/test" \
+    -H "Origin: https://<domain>" \
+    -H "Access-Control-Request-Method: PUT" \
+    -H "Access-Control-Request-Headers: content-type" -D - -o /dev/null | grep -i access-control
+  ```
+
+  You should see `access-control-allow-origin`, `allow-methods: GET, HEAD, PUT, POST, DELETE`, `allow-headers: *`, and `max-age: 3600`.
 - `trust_proxy: 1` — Caddy terminates TLS and forwards `X-Forwarded-For`. Without this, `req.ip` is the docker-network address of the Caddy container instead of the real client IP, which breaks rate limiting and IP-based audit logs. `1` = one trusted hop (Caddy). Bump to `2` if you put Cloudflare in front of Caddy; never set `true` (it trusts every hop and makes XFF forgeable).
 
 > If you ever change `MARIADB_PASSWORD` after first boot, `.env` alone won't update MariaDB — its credentials are baked into `./puter/data/mariadb/` on first init. Either rotate the password inside MariaDB by hand or `docker compose down && rm -rf ./puter/data/mariadb` to start fresh.
@@ -502,6 +518,95 @@ The `ollama` and `ollama-init` services live behind a compose profile so they do
 Without `--profile ai`, the `ollama` containers stay down and Puter (with `enabled: false`) doesn't try to reach them — the rest of the stack runs identically.
 
 For GPU acceleration (NVIDIA), uncomment the `deploy:` block under the `ollama` service in [docker-compose.yml](../docker-compose.yml). Requires `nvidia-container-toolkit` on the host.
+
+## Optional: receiving mail over SMTP
+
+Puter can give each account a mailbox at a domain you control. Two pieces are
+involved, and they are configured together under `userEmail`:
+
+- an **ingress endpoint** (`POST /email/ingress`) that files a message into the
+  recipient's `~/.mail`. It exists whenever `userEmail.secret` is set.
+- the **`puter-smtp` receiver**, which accepts mail from other mail servers and
+  hands each message to that endpoint. It runs as its own process, behind the
+  `smtp` compose profile.
+
+> **Read this before you expose it.** An inbound mail server is unauthenticated
+> by nature: anyone on the internet may hand it a message for any address in
+> `localDomains`. Puter performs **no** spam filtering and **no** SPF, DKIM or
+> DMARC checks — whatever is delivered is stored in the recipient's mailbox and
+> counts against their storage. If that is not acceptable, put a filtering relay
+> in front of it and point `localDomains` at that instead.
+
+1. Configure it in `puter/config/config.json`:
+
+    ```json
+    "userEmail": {
+        "secret": "a long random string",
+        "localServer": true,
+        "localDomains": ["example.com"]
+    }
+    ```
+
+    `secret` is shared between the two halves; generate it with
+    `openssl rand -hex 32`. `localDomains` lists the domains this server accepts
+    mail for — anything else is refused at `RCPT TO`, which is what stops it
+    being used as an open relay. It has no default, and the receiver refuses to
+    start without it.
+
+    The receiver posts to `<api_base_url>/email/ingress` unless you set
+    `localIngressUrl`. The endpoint is served on the `api` subdomain, so if you
+    point it at an internal address to skip the reverse proxy, name that virtual
+    host too or the request will 404:
+
+    ```json
+    "localIngressUrl": "http://puter:4100/email/ingress",
+    "localIngressHost": "api.example.com"
+    ```
+
+    `localIngressHost` defaults to the host of `api_base_url`, which is usually
+    what you want.
+
+2. Bring it up with the `smtp` profile:
+
+    ```bash
+    docker compose --profile smtp up -d
+    docker compose logs -f puter-smtp
+    ```
+
+3. Point DNS at it:
+
+    ```dns
+    mx.example.com.   A    203.0.113.10
+    example.com.      MX   10 mx.example.com.
+    ```
+
+    Also set a `PTR` record for the address that resolves back to
+    `mx.example.com` — many senders refuse mail from a server without one.
+
+    Inbound TCP port 25 must reach the host. **Most cloud providers block port
+    25 by default and residential ISPs block it permanently**; if you cannot get
+    it unblocked, this will not work no matter how it is configured. The
+    container itself binds 2525 (it runs unprivileged) and compose publishes
+    `${SMTP_PORT:-25}` onto it, so you can move the host port if you need to.
+
+A message is held in memory while it is being delivered, so peak memory is
+bounded by `localMaxClients` (default 20) times the 25 MiB message ceiling.
+Lower `localMaxClients` on a small host. There is no queue and no retry
+schedule — if delivery fails, the sending server is told to try again later and
+retrying is its job.
+
+Mail is stored as `message/rfc822` objects under `~/.mail/objects/<date>/` and
+read back through `puter.email` in the SDK.
+
+Every setting is documented in
+[config.template.jsonc](../config.template.jsonc). Two deliberate limits, both
+in the name of keeping the self-hosted path simple: it does not offer STARTTLS,
+so mail arrives in the clear, and it applies no per-sender rate limiting. Put a
+filtering relay in front if either matters to you.
+
+Note this is a *receiving* server only: it never sends, and it must not be used
+for authenticated submission. Outbound transactional mail is the separate
+`email` block above.
 
 ## Building from source instead of pulling
 

@@ -258,16 +258,11 @@ export class SQLBatcher {
         }
         if (batch.length === 0) return;
 
-        const query = `${batch.map((b) => b.sql.replace(/;+\s*$/, '')).join(';')}; SELECT 1`; // SELECT 1 forces mysql2 to return array
-        const values = batch.map((b) => b.values ?? []).flat();
-
         let connection;
         try {
             connection = await this.#acquireConnection();
         } catch (error) {
-            this.#consecutiveFailures++;
-            this.#lastFailureAt = Date.now();
-            flushFailureCounter.add(1, this.#metricAttrs);
+            this.#recordFlushFailure();
             console.warn(
                 'SQLBatcher could not acquire connection for flush:',
                 error,
@@ -277,6 +272,14 @@ export class SQLBatcher {
             }
             return;
         }
+
+        if (batch.length === 1 && !this.readOnly) {
+            await this.#flushLoneWrite(batch[0], connection);
+            return;
+        }
+
+        const query = `${batch.map((b) => b.sql.replace(/;+\s*$/, '')).join(';')}; SELECT 1`; // SELECT 1 forces mysql2 to return array
+        const values = batch.map((b) => b.values ?? []).flat();
 
         // Run the coalesced multi-statement inside an explicit transaction so
         // a single bad statement (e.g. a duplicate-key INSERT) rolls back the
@@ -333,7 +336,7 @@ export class SQLBatcher {
             async () => {
                 while (cursor < batch.length) {
                     const i = cursor++;
-                    settled[i] = await this.#runFallbackItem(batch[i]);
+                    settled[i] = await this.#runItem(batch[i]);
                 }
             },
         );
@@ -367,7 +370,34 @@ export class SQLBatcher {
         }
     }
 
-    // Run one fallback item, retrying transient failures with backoff.
+    // A single statement is atomic under autocommit, so it skips BEGIN/COMMIT
+    // and their round trips. With no transaction to roll back, a failure is
+    // not re-run wholesale; only the per-item retry policy applies.
+    async #flushLoneWrite(item, connection) {
+        const r = await this.#runItem(item, connection);
+        if (r.ok) {
+            this.#consecutiveFailures = 0;
+            item.resolve(r.value);
+            return;
+        }
+        // An error the server answered with (duplicate key, bad SQL) means it
+        // is up; only failing to reach it counts toward the breaker.
+        if (isRetriableError(r.error)) {
+            this.#recordFlushFailure();
+        } else {
+            this.#consecutiveFailures = 0;
+            flushFailureCounter.add(1, this.#metricAttrs);
+        }
+        item.reject(r.error);
+    }
+
+    #recordFlushFailure() {
+        this.#consecutiveFailures++;
+        this.#lastFailureAt = Date.now();
+        flushFailureCounter.add(1, this.#metricAttrs);
+    }
+
+    // Run one item on its own, retrying transient failures with backoff.
     // A read-only batcher may retry anything transient; a batcher that
     // carries writes only retries failures where the statement provably
     // did not apply — either it never reached the server, or the server
@@ -378,33 +408,37 @@ export class SQLBatcher {
     // than surfacing: an item is a single statement, so a deadlock victim has
     // been fully undone, and the caller sees an unhandled 500 for what the
     // database is telling us to just run again.
-    async #runFallbackItem(b) {
+    async #runItem(b, connection) {
         let attempt = 0;
         while (true) {
-            let connection;
-            try {
-                connection = await this.#acquireConnection();
-            } catch (error) {
-                return { ok: false, error };
+            if (!connection) {
+                try {
+                    connection = await this.#acquireConnection();
+                } catch (error) {
+                    return { ok: false, error };
+                }
             }
+            let error;
             try {
                 return {
                     ok: true,
                     value: await connection.query(b.sql, b.values ?? []),
                 };
-            } catch (error) {
-                const canRetry = this.readOnly
-                    ? isRetriableError(error) || isRolledBackError(error)
-                    : isNeverSentError(error) || isRolledBackError(error);
-                if (!canRetry || attempt >= ITEM_RETRY_ATTEMPTS) {
-                    return { ok: false, error };
-                }
-                attempt++;
-                fallbackItemRetriesCounter.add(1, this.#metricAttrs);
-                await sleep(RETRY_BASE_BACKOFF_MS * attempt);
+            } catch (e) {
+                error = e;
             } finally {
                 connection.release();
+                connection = undefined;
             }
+            const canRetry = this.readOnly
+                ? isRetriableError(error) || isRolledBackError(error)
+                : isNeverSentError(error) || isRolledBackError(error);
+            if (!canRetry || attempt >= ITEM_RETRY_ATTEMPTS) {
+                return { ok: false, error };
+            }
+            attempt++;
+            fallbackItemRetriesCounter.add(1, this.#metricAttrs);
+            await sleep(RETRY_BASE_BACKOFF_MS * attempt);
         }
     }
 }

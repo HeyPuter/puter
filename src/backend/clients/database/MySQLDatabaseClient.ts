@@ -30,6 +30,8 @@ import { compareMigrationFilenames } from './migrationFilenames.js';
 import type { IConfig } from '../../types';
 
 const DEFAULT_SELECT_TIMEOUT_MS = 30_000;
+const DEFAULT_CONNECTION_LIMIT = 30;
+const IDLE_TIMEOUT_MS = 60_000;
 
 const replicaFailoverCounter = metrics
     .getMeter('puter-backend')
@@ -54,7 +56,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     private replicaPool!: Pool;
     private db!: SQLBatcher;
     private dbReplica!: SQLBatcher;
-    /** Primary pool, SELECT-only: same rows as `db`, without the transaction. */
+    /** Primary pool, SELECT-only: same rows as `db`, coalesced like the replica. */
     private dbPrimaryRead!: SQLBatcher;
     private configuration = Configuration.SINGLE;
     private shutdownStarted = false;
@@ -136,7 +138,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
                 throw error;
             }
             replicaFailoverCounter.add(1);
-            result = await this.db.execute(query, params);
+            result = await this.dbPrimaryRead.execute(query, params);
         }
         if (!result) return [];
         return (result[0] as Record<string, unknown>[]) ?? [];
@@ -300,9 +302,19 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     // ------------------------------------------------------------------
 
     private createPool(poolConfig: PoolConfig): Pool {
+        const connectionLimit =
+            poolConfig.connectionLimit ?? DEFAULT_CONNECTION_LIMIT;
         const pool = createPool({
             maxPreparedStatements: 900,
-            connectionLimit: 30,
+            connectionLimit,
+            // mysql2 only reaps idle connections when maxIdle < connectionLimit.
+            // Unreaped, they sit until the server's wait_timeout closes them,
+            // and the next statement sent on one fails. 0 means unlimited,
+            // and a negative maxIdle would crash the reaper.
+            ...(connectionLimit > 1 && { maxIdle: connectionLimit - 1 }),
+            idleTimeout: IDLE_TIMEOUT_MS,
+            // Reaped connections say goodbye instead of dropping the socket.
+            gracefulEnd: true,
             enableKeepAlive: true,
             ...poolConfig,
             multipleStatements: true,
@@ -330,21 +342,20 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         return pool;
     }
 
+    /**
+     * One write per flush. Coalesced writes share a transaction, so unrelated
+     * callers hold each other's row locks until COMMIT and deadlock; a lone
+     * statement needs no BEGIN/COMMIT round trips.
+     */
     private createPrimaryBatcher(pool: Pool): SQLBatcher {
         return new SQLBatcher(pool, {
-            maxTimeInQueue: 30,
-            maxBatchSize: 5,
+            maxBatchSize: 1,
             poolLabel: 'primary',
             acquireTimeoutMs: this.config.database?.acquireTimeoutMs,
         });
     }
 
-    /**
-     * Reads that must see the primary still only read, so they skip the
-     * batcher's transaction wrapper. Worth a separate batcher because BEGIN and
-     * COMMIT are round trips: against a primary in another region they cost
-     * more than the query.
-     */
+    /** Reads that must see the primary, still coalesced. */
     private createPrimaryReadBatcher(pool: Pool): SQLBatcher {
         return new SQLBatcher(pool, {
             maxTimeInQueue: 30,

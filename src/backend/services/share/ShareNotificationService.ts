@@ -675,6 +675,21 @@ export class ShareNotificationService extends PuterService {
             return;
         }
 
+        // Items are built per share before the holder is loaded; the links
+        // also name the holder, so the GUI can offer this account.
+        const linked = items.map((item) =>
+            item.path
+                ? {
+                      ...item,
+                      link: shareDeepLink(
+                          this.#appLink(),
+                          item.path,
+                          app?.match,
+                          holder.uuid,
+                      ),
+                  }
+                : item,
+        );
         await this.#queueDigest(
             `user:${holderId}`,
             {
@@ -685,7 +700,7 @@ export class ShareNotificationService extends PuterService {
             },
             issuer,
             count,
-            items,
+            linked,
             mayOpen,
             app,
         );
@@ -967,6 +982,7 @@ export class ShareNotificationService extends PuterService {
                                 this.#appLink(),
                                 digestItemPaths(entries),
                                 linkApp,
+                                first.recipientUuid,
                             ),
                             // The template composes the unsubscribe URL from
                             // the origin, so `?` and `=` stay literal instead

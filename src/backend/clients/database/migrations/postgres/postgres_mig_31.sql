@@ -15,7 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Mirrors SQLite migration 0087: a team may require 2FA of the accounts it
--- provisioned. Idempotent -- there is no per-file applied-state tracking, so
--- a replay must find the column already present and do nothing.
-ALTER TABLE "group" ADD COLUMN IF NOT EXISTS require_2fa smallint NOT NULL DEFAULT 0;
+-- Mirrors SQLite migration 0087: Contact Us attachment metadata, a JSON array
+-- of `{name, type, size}` (NULL when none).
+
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS attachments text DEFAULT NULL;

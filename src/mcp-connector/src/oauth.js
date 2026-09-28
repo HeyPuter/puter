@@ -10,9 +10,10 @@
 //   client → POST /token                -> { access_token: <puter token> }
 //   client → MCP calls with Authorization: Bearer <puter token>   (the existing path)
 //
-// Stateless: the short-lived `flow` (authorize→callback) and `code`
-// (callback→token) blobs are AES-GCM sealed with a worker secret, so nothing is
-// persisted. PKCE (S256) is enforced when the client provides a challenge.
+// Stateless: the `client_id` (which carries its registered redirect URIs) and
+// the short-lived `flow` (authorize→callback) and `code` (callback→token) blobs
+// are AES-GCM sealed with a worker secret, so nothing is persisted. PKCE (S256)
+// is enforced when the client provides a challenge.
 //
 // Discovery: serves RFC 8414 (authorization-server) and RFC 9728
 // (protected-resource) metadata, plus RFC 7591 dynamic client registration.
@@ -144,6 +145,34 @@ function protectedResourceMetadata(event) {
     });
 }
 
+// ---- redirect URIs ---------------------------------------------------------
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+// Registrable redirect URI: absolute, no fragment, plain http only on loopback.
+function parseRedirectUri(value) {
+    if (typeof value !== 'string' || value.includes('#')) return null;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' && !LOOPBACK_HOSTS.has(url.hostname) ? null : url;
+    } catch {
+        return null;
+    }
+}
+
+// Exact match, except a loopback redirect may use any port (RFC 8252 §7.3).
+function isRegisteredRedirect(registered, redirectUri) {
+    if (registered.includes(redirectUri)) return true;
+    const wanted = parseRedirectUri(redirectUri);
+    if (!wanted || !LOOPBACK_HOSTS.has(wanted.hostname)) return false;
+    wanted.port = '';
+    return registered.some((uri) => {
+        const url = new URL(uri);
+        url.port = '';
+        return url.href === wanted.href;
+    });
+}
+
 // ---- endpoints -------------------------------------------------------------
 
 // GET /authorize — kick off the flow by sending the browser to Puter's authme.
@@ -159,6 +188,23 @@ async function authorize(event) {
         return json(400, {
             error: 'invalid_request',
             error_description: 'response_type=code and redirect_uri are required',
+        });
+    }
+
+    // Answer these directly; an unmatched redirect_uri must never be redirected to.
+    let client;
+    try {
+        client = await unseal(p.get('client_id') || '');
+    } catch {
+        return json(400, {
+            error: 'invalid_request',
+            error_description: 'unknown client_id; register the client again',
+        });
+    }
+    if (!Array.isArray(client?.redirectUris) || !isRegisteredRedirect(client.redirectUris, redirectUri)) {
+        return json(400, {
+            error: 'invalid_request',
+            error_description: 'redirect_uri is not registered for this client_id',
         });
     }
 
@@ -248,13 +294,24 @@ async function token(event) {
     return json(200, { access_token: payload.token, token_type: 'Bearer', scope: 'puter' });
 }
 
-// POST /register — dynamic client registration (RFC 7591). We don't persist
-// clients; security rests on PKCE + the redirect_uri sealed into the flow.
+// POST /register — dynamic client registration (RFC 7591). Registration is
+// open; the client_id is the sealed list of redirect URIs /authorize accepts.
 async function register(event) {
-    const body = await event.request.json().catch(() => ({}));
-    const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris : [];
+    let body;
+    try {
+        body = await event.request.json();
+    } catch {
+        body = null;
+    }
+    const redirectUris = body?.redirect_uris;
+    if (!Array.isArray(redirectUris) || redirectUris.length === 0 || !redirectUris.every(parseRedirectUri)) {
+        return json(400, {
+            error: 'invalid_redirect_uri',
+            error_description: 'redirect_uris must be absolute URLs without a fragment; http is only allowed for loopback',
+        });
+    }
     return json(201, {
-        client_id: `puter-mcp-${crypto.randomUUID()}`,
+        client_id: await seal({ redirectUris }),
         client_id_issued_at: Math.floor(Date.now() / 1000),
         redirect_uris: redirectUris,
         grant_types: ['authorization_code'],

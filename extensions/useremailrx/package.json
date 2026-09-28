@@ -1,0 +1,6 @@
+{
+    "name": "emailrx",
+    "version": "1.0.0",
+    "main": "index.ts",
+    "description": "Internal service which handles routing puter emails to users"
+}

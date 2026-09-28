@@ -23,6 +23,7 @@ import {
     ownerFromSharePath,
     SHARE_DEEP_LINK_ITEMS_LIMIT,
     SHARE_DEEP_LINK_MAX_LENGTH,
+    SHARE_RECIPIENT_PARAM,
     shareDeepLink,
     sharedViewLink,
     shareTargetLink,
@@ -98,6 +99,52 @@ describe('shareDeepLink', () => {
 });
 
 describe('sharedViewLink', () => {
+    it('names the account that received the share', () => {
+        const recipientUuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+        const path = `/alice/${UID}/a.txt`;
+        const link = sharedViewLink(
+            'https://puter.com',
+            [path],
+            null,
+            recipientUuid,
+        );
+        expect(link).toBe(
+            `https://puter.com/?shared=${encodeURIComponent(path)}&${SHARE_RECIPIENT_PARAM}=${recipientUuid}`,
+        );
+        expect(shareDeepLink('https://puter.com', path, null, recipientUuid))
+            .toBe(link);
+    });
+
+    it('carries the app and the recipient together', () => {
+        const recipientUuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+        const path = `/alice/${UID}/a.txt`;
+        const params = new URL(
+            shareDeepLink('https://puter.com', path, 'draw-app', recipientUuid),
+        ).searchParams;
+        expect(params.getAll('shared')).toEqual([path]);
+        expect(params.get('shared_app')).toBe('draw-app');
+        expect(params.get(SHARE_RECIPIENT_PARAM)).toBe(recipientUuid);
+    });
+
+    it('reserves room for the app and recipient before spending the length cap on items', () => {
+        const paths = Array.from(
+            { length: SHARE_DEEP_LINK_ITEMS_LIMIT },
+            (_, i) => `/alice/${UID}/${'quarterly report '.repeat(8)}${i}.pdf`,
+        );
+        const recipientUuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+        const app = `app-${'x'.repeat(60)}`;
+        const link = sharedViewLink(
+            'https://puter.com',
+            paths,
+            app,
+            recipientUuid,
+        );
+        expect(link.length).toBeLessThanOrEqual(SHARE_DEEP_LINK_MAX_LENGTH);
+        const params = new URL(link).searchParams;
+        expect(params.get('shared_app')).toBe(app);
+        expect(params.get(SHARE_RECIPIENT_PARAM)).toBe(recipientUuid);
+    });
+
     it('repeats the parameter once per item, in order', () => {
         const link = sharedViewLink('https://puter.com', [
             `/alice/${UID}/a.txt`,

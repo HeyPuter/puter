@@ -35,8 +35,8 @@
  *
  * The return leg now carries `opener_state`, the same pair re-signed. Only the
  * server can produce or check that signature, so the popup redeems it here.
- * A missing, forged, or expired proof yields nothing and the popup falls back
- * to its browser-attested sources.
+ * A proof that is missing, expired, or not this browser's yields nothing and
+ * the popup falls back to its browser-attested sources.
  */
 
 /**
@@ -45,24 +45,24 @@
  * @param {string|null|undefined} proof - The `opener_state` query parameter.
  * @param {string|null|undefined} msgId - The popup's current `msg_id`. A proof
  *   minted for a different one belongs to another flow.
+ * @param {string|null|undefined} action - The popup's current action. A proof
+ *   is minted on the sign-in return leg and is good only there.
  * @returns {Promise<{opener_origin: string|null, oidc_login: boolean, user_uuid: string|null}|null>}
  *   `null` when there is no usable proof. `user_uuid` is the account that
  *   completed OIDC; the caller must confirm it matches the current user before
  *   treating `oidc_login` as consent to skip the account picker.
  */
-export const verifyOidcPopupReturn = async (proof, msgId) => {
+export const verifyOidcPopupReturn = async (proof, msgId, action) => {
     if (!proof) return null;
 
     let attested;
     try {
-        const resp = await fetch(
-            `${window.api_origin}/auth/oidc/verify-popup-return`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ opener_state: proof }),
-            },
-        );
+        const resp = await fetch('/auth/oidc/verify-popup-return', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ opener_state: proof }),
+        });
         // A rejected proof is the expected answer to a crafted link, not an
         // anomaly — the popup carries on with its attested sources.
         if (!resp.ok) return null;
@@ -85,6 +85,7 @@ export const verifyOidcPopupReturn = async (proof, msgId) => {
     ) {
         return null;
     }
+    if (attested.action !== action) return null;
 
     return {
         opener_origin: attested.opener_origin,

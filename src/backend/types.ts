@@ -181,6 +181,46 @@ export interface IEmailConfig {
     [key: string]: unknown;
 }
 
+/**
+ * Puter-addressed user mailboxes: the shared secret the ingress endpoint
+ * checks, and the optional local SMTP receiver that feeds it.
+ *
+ * The receiver is the self-hosted stand-in for an externally-hosted inbound
+ * mail path — `localServer` switches it on the same way `workers.localServer`
+ * switches workers to an in-process implementation. It runs as its own process,
+ * so nothing here affects the main server when it is off.
+ */
+export interface IUserEmailConfig {
+    /** Shared secret the ingress endpoint requires. Unset disables ingress. */
+    secret?: string;
+    /** Run the local SMTP receiver. Absent or falsy and nothing binds. */
+    localServer?: boolean;
+    /** Bind port. Default 2525 — set 25 only where the process may bind it. */
+    localPort?: number;
+    /** Bind address. Default '0.0.0.0'. */
+    localHost?: string;
+    /** Domains to accept recipients for. Required with `localServer`. */
+    localDomains?: string[];
+    /** Greeting and EHLO name. Defaults to the first accepted domain. */
+    localHostname?: string;
+    /** Ingress URL. Defaults to `<api_base_url>/email/ingress`. */
+    localIngressUrl?: string;
+    /**
+     * Host header to send. The ingress route is served on the `api` subdomain,
+     * so this must name it when `localIngressUrl` points at an internal
+     * address. Defaults to the host of `api_base_url`.
+     */
+    localIngressHost?: string;
+    /** Envelope recipients accepted per message. Default 50. */
+    localMaxRecipients?: number;
+    /**
+     * Concurrent client connections. Default 20. Each message is held in memory
+     * while it is delivered, so this also bounds memory use.
+     */
+    localMaxClients?: number;
+    [key: string]: unknown;
+}
+
 /** Prelude (https://prelude.so) Verify v2 — SMS phone verification provider. */
 export interface IPreludeConfig {
     /** Prelude v2 API key (sent as `Authorization: Bearer <apiKey>`). */
@@ -209,12 +249,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -941,6 +976,8 @@ interface IConfigOptional {
     kvCache: IKvCacheConfig;
     pager: IPagerConfig;
     email: IEmailConfig;
+    /** Puter-addressed user mailboxes and the optional local SMTP receiver. */
+    userEmail: IUserEmailConfig;
     /** Optional — only set when SMS phone verification (Prelude) is wired in. */
     prelude: IPreludeConfig;
     /** Optional — only set when a ClickHouse analytics client is wired in. */
@@ -1230,7 +1267,8 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

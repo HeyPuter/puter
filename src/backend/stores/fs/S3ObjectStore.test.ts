@@ -703,6 +703,64 @@ describe('S3ObjectStore upload sizing', () => {
         ]);
     });
 
+    it('treats a sizeHint of 0 on a stream as unknown and uploads every byte', async () => {
+        const { store: fake, sent } = makeFakeStore({
+            maxSingleUploadSize: 100,
+            partSize: 100,
+            respond: (command) =>
+                command.name === 'CreateMultipartUploadCommand'
+                    ? { UploadId: 'upload-1' }
+                    : { ETag: 'etag-1' },
+        });
+
+        await fake.uploadFromServer(
+            {
+                bucket,
+                objectKey: 'k',
+                contentType: 'text/plain',
+                body: Readable.from([Buffer.from('hello world')]),
+                sizeHint: 0,
+            },
+            region,
+        );
+
+        expect(names(sent)).toEqual([
+            'CreateMultipartUploadCommand',
+            'UploadPartCommand',
+            'CompleteMultipartUploadCommand',
+        ]);
+        expect(sent[1]?.input.ContentLength).toBe(11);
+    });
+
+    it('stores an empty object for an empty stream with a sizeHint of 0', async () => {
+        const { store: fake, sent } = makeFakeStore({
+            maxSingleUploadSize: 100,
+            partSize: 100,
+            respond: (command) =>
+                command.name === 'CreateMultipartUploadCommand'
+                    ? { UploadId: 'upload-1' }
+                    : {},
+        });
+
+        await fake.uploadFromServer(
+            {
+                bucket,
+                objectKey: 'k',
+                contentType: 'text/plain',
+                body: Readable.from([]),
+                sizeHint: 0,
+            },
+            region,
+        );
+
+        expect(names(sent)).toEqual([
+            'CreateMultipartUploadCommand',
+            'AbortMultipartUploadCommand',
+            'PutObjectCommand',
+        ]);
+        expect(sent[2]?.input.ContentLength).toBe(0);
+    });
+
     it('splits a buffer body into parts of the resolved part size', async () => {
         const { store: fake, sent } = makeFakeStore({
             maxSingleUploadSize: 4,

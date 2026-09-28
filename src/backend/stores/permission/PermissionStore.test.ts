@@ -176,6 +176,30 @@ describe('PermissionStore', () => {
             ).toEqual([]);
         });
 
+        it('lists every row for one user and app from the primary', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+            const otherApp = await makeApp(user.id);
+            await store.upsertUserAppPerm(user.id, app.id, 'driver:a', {
+                v: 1,
+            });
+            await store.upsertUserAppPerm(user.id, app.id, 'driver:b', {});
+            await store.upsertUserAppPerm(user.id, otherApp.id, 'driver:c', {});
+
+            const rows = await store.listUserAppPermsFromPrimary(
+                user.id,
+                app.id,
+            );
+            expect(
+                rows
+                    .map((r) => ({ permission: r.permission, extra: r.extra }))
+                    .sort((a, b) => a.permission.localeCompare(b.permission)),
+            ).toEqual([
+                { permission: 'driver:a', extra: { v: 1 } },
+                { permission: 'driver:b', extra: {} },
+            ]);
+        });
+
         it('returns nothing for an empty permission list', async () => {
             const user = await makeUser();
             const app = await makeApp(user.id);

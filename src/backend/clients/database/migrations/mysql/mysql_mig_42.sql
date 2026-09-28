@@ -15,7 +15,25 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Mirrors SQLite migration 0087: a team may require 2FA of the accounts it
--- provisioned. Added through `_puter_add_col` as mysql_mig_32 does, so a
--- replay finds the column and does nothing.
-CALL _puter_add_col('group', 'require_2fa', '`require_2fa` tinyint(1) NOT NULL DEFAULT 0');
+-- Mirrors SQLite migration 0087: Contact Us attachment metadata, a JSON array
+-- of `{name, type, size}` (NULL when none). Guarded by a throwaway procedure,
+-- as in mysql_mig_21.
+
+DROP PROCEDURE IF EXISTS _puter_add_feedback_attachments;
+DELIMITER //
+CREATE PROCEDURE _puter_add_feedback_attachments()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'feedback'
+      AND COLUMN_NAME  = 'attachments'
+  ) THEN
+    ALTER TABLE `feedback` ADD COLUMN `attachments` text DEFAULT NULL;
+  END IF;
+END//
+DELIMITER ;
+
+CALL _puter_add_feedback_attachments();
+
+DROP PROCEDURE IF EXISTS _puter_add_feedback_attachments;

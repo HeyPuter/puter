@@ -184,7 +184,8 @@ describe('compareMigrationFilenames', () => {
 //
 // `read()` normally goes to the replica batcher; when the replica side is
 // degraded (batcher load-shed or a transient connection error) and a real
-// replica is configured, the read retries once on the primary batcher.
+// replica is configured, the read retries once on the primary read batcher.
+// The write batcher is left unset, so a failover that reached it would throw.
 
 type Batcher = { execute: ReturnType<typeof vi.fn> };
 
@@ -200,7 +201,7 @@ const makeClient = (opts: {
     // inject the batchers directly. Configuration enum: SINGLE=0, REPLICA=1.
     Object.assign(client as unknown as Record<string, unknown>, {
         dbReplica: opts.replica,
-        db: opts.primary,
+        dbPrimaryRead: opts.primary,
         configuration: opts.multiNode === false ? 0 : 1,
     });
     return client;
@@ -284,6 +285,10 @@ const startClient = async (
 // must answer with one row-set per statement plus one for the SELECT 1.
 const rowSets = (...sets: unknown[][]) => [[...sets, [{ 1: 1 }]], undefined];
 
+// Writes go out one statement at a time, so the driver answers with just the
+// result header.
+const writeHeader = (header: Record<string, unknown>) => [header, undefined];
+
 beforeEach(() => {
     createdPools.length = 0;
     createPoolMock.mockClear();
@@ -303,6 +308,9 @@ describe('MySQLDatabaseClient — pool construction', () => {
         expect(createdPools[0].poolConfig).toEqual({
             maxPreparedStatements: 900,
             connectionLimit: 30,
+            maxIdle: 29,
+            idleTimeout: 60_000,
+            gracefulEnd: true,
             enableKeepAlive: true,
             host: 'db.internal',
             port: 3307,
@@ -311,6 +319,32 @@ describe('MySQLDatabaseClient — pool construction', () => {
             database: 'puterdb',
             multipleStatements: true,
         });
+    });
+
+    // mysql2 skips its idle reaper unless maxIdle < connectionLimit, and an
+    // unreaped connection is closed by the server under the pool's feet.
+    it('keeps the idle reaper on when a pool sets its own connection limit', async () => {
+        await startClient({
+            replica: { host: 'replica.internal', connectionLimit: 10 },
+        });
+
+        expect(createdPools[1].poolConfig).toMatchObject({
+            connectionLimit: 10,
+            maxIdle: 9,
+            idleTimeout: 60_000,
+        });
+    });
+
+    // mysql2 reads 0 as unlimited; a maxIdle of -1 would crash its reaper.
+    it('leaves maxIdle to mysql2 for an unlimited pool', async () => {
+        await startClient({
+            replica: { host: 'replica.internal', connectionLimit: 0 },
+        });
+
+        expect(createdPools[1].poolConfig).toMatchObject({
+            connectionLimit: 0,
+        });
+        expect(createdPools[1].poolConfig).not.toHaveProperty('maxIdle');
     });
 
     it('falls back to loopback defaults when the endpoint is unspecified', async () => {
@@ -401,10 +435,30 @@ describe('MySQLDatabaseClient — query interface', () => {
         ]);
     });
 
+    it('sends a write on its own, outside a transaction', async () => {
+        const client = await startClient();
+        const pool = createdPools[0];
+        pool.respond = () => writeHeader({ affectedRows: 1 });
+
+        await client.write('UPDATE `user` SET `username` = ? WHERE `id` = ?', [
+            'ada',
+            1,
+        ]);
+
+        expect(pool.calls).toEqual([
+            {
+                sql: 'UPDATE `user` SET `username` = ? WHERE `id` = ?',
+                values: ['ada', 1],
+            },
+        ]);
+        expect(pool.connections[0].beginTransaction).not.toHaveBeenCalled();
+        expect(pool.connections[0].commit).not.toHaveBeenCalled();
+    });
+
     it('maps the mysql result header onto the shared write result', async () => {
         const client = await startClient();
         createdPools[0].respond = () =>
-            rowSets({ insertId: 42, affectedRows: 2 } as unknown as unknown[]);
+            writeHeader({ insertId: 42, affectedRows: 2 });
 
         await expect(
             client.write('UPDATE `user` SET `username` = ? WHERE `id` = ?', [
@@ -420,7 +474,7 @@ describe('MySQLDatabaseClient — query interface', () => {
 
     it('reports no rows affected when the header omits the counters', async () => {
         const client = await startClient();
-        createdPools[0].respond = () => rowSets({} as unknown as unknown[]);
+        createdPools[0].respond = () => writeHeader({});
 
         await expect(client.write('DELETE FROM `user`')).resolves.toEqual({
             insertId: 0,
@@ -432,17 +486,14 @@ describe('MySQLDatabaseClient — query interface', () => {
     it('builds an INSERT with quoted identifiers and positional params', async () => {
         const client = await startClient();
         const pool = createdPools[0];
-        pool.respond = () =>
-            rowSets({ insertId: 7, affectedRows: 1 } as unknown as unknown[]);
+        pool.respond = () => writeHeader({ insertId: 7, affectedRows: 1 });
 
         await expect(
             client.insert('user', { username: 'ada', email: null }),
         ).resolves.toMatchObject({ insertId: 7 });
 
         expect(pool.calls[0]).toEqual({
-            sql:
-                'INSERT INTO `user` (`username`, `email`) VALUES (?, ?); ' +
-                'SELECT 1',
+            sql: 'INSERT INTO `user` (`username`, `email`) VALUES (?, ?)',
             values: ['ada', null],
         });
     });
