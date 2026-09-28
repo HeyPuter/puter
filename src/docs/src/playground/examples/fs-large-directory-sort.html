@@ -1,0 +1,36 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="name">Sort by name</button>
+    <button id="modified">Newest first</button>
+    <button id="deep">Recursive, depth 2</button>
+    <script>
+        const setup = async () => {
+            await puter.fs.write('uploads/a.txt', 'a', { createMissingParents: true });
+            await puter.fs.write('uploads/b.txt', 'b');
+            await puter.fs.write('uploads/nested/c.txt', 'c', { createMissingParents: true });
+        };
+
+        const show = (items) =>
+            puter.print(items.map(i => i.name).join(', ') + '<br>');
+
+        document.getElementById('name').addEventListener('click', async () => {
+            await setup();
+            show(await puter.fs.readdir({ path: 'uploads', sortBy: 'name' }));
+        });
+
+        document.getElementById('modified').addEventListener('click', async () => {
+            await setup();
+            show(await puter.fs.readdir({
+                path: 'uploads', sortBy: 'modified', sortOrder: 'desc',
+            }));
+        });
+
+        document.getElementById('deep').addEventListener('click', async () => {
+            await setup();
+            // Sorting by name orders by full path, so folders stay together.
+            show(await puter.fs.readdir({ path: 'uploads', recursive: true, depth: 2 }));
+        });
+    </script>
+</body>
+</html>
