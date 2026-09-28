@@ -36,7 +36,7 @@ puter.events.list(options)
 Each subscription is the object [`onPersistent()`](/Events/onPersistent/) returns. In particular:
 
 - `contextKeys` (Array | null) and `contextHash` (String | null) describe the stored `context`. **Values are never returned**, since context often holds secrets. The hash changes whenever a value does.
-- `suspendedAt` (Number | null) and `suspendedReason` (String | null) are set when a subscription is [suspended](/Events/#suspended-subscriptions): `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
+- `suspendedAt` (Number | null) and `suspendedReason` (String | null) are set when a subscription is [suspended](/Events/onPersistent/#suspended-subscriptions): `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
 - `targets` (Array) can include `'push'`, which is accepted but delivers nothing yet.
 
 The promise rejects with `{ message, code }`: `too_many_requests` over the listing rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
@@ -45,7 +45,7 @@ The promise rejects with `{ message, code }`: `too_many_requests` over the listi
 
 <strong class="example-title">List everything this account is watching</strong>
 
-```html
+```html;events-list
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -72,7 +72,7 @@ The promise rejects with `{ message, code }`: `too_many_requests` over the listi
 
 <strong class="example-title">Find the ones that stopped, and why</strong>
 
-```html
+```html;events-list-suspended
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

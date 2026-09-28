@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-An [events worker](/Events/#events-worker) runs an app's published [handlers](/Events/handlers/). Each app has at most one, however many handlers it publishes.
+An **events worker** runs an app's published [handlers](/Events/handlers/) when no client is connected to receive a delivery. Each app has at most one, created when it publishes its first handler, however many handlers it publishes.
 
 A hosted Puter deployment may bill each app's events worker as a monthly cost, even if nothing ever delivers to it. Use this API to see which apps have one and remove the ones you don't need.
 
@@ -64,7 +64,7 @@ Both methods reject with `{ message, code }`:
 
 <strong class="example-title">List an account's events workers, and destroy one that is no longer needed</strong>
 
-```html
+```html;events-workers
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

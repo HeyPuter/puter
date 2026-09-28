@@ -270,7 +270,7 @@ The mutation and read budgets are per user, per app, not per team: administering
 
 ### Events
 
-See [Events](/Events/) for how subscriptions, handlers and gap markers work.
+See [Events](/Events/) for an overview, [`onLocal()`](/Events/onLocal/#gaps) for gap markers, and [`onPersistent()`](/Events/onPersistent/#suspended-subscriptions) for suspension.
 
 #### What an account can hold
 
@@ -298,7 +298,7 @@ Counted per event, per region:
 
 - KV limits follow the plan of the **key's owner**, not the writer's or the subscribers'. If the owner's plan can't be looked up, the free numbers apply. A server with no metering uses the paid numbers.
 - They count subscriptions, not people. A user with three tabs open counts three times.
-- Past the limit, the next subscriptions get a [gap marker](/Events/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
+- Past the limit, the next subscriptions get a [gap marker](/Events/onLocal/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
 - The region that handles the write delivers to every persistent subscription plus its own connected clients. Other regions deliver only to their own connected clients. So persistent subscriptions share one budget per event, while session subscriptions spread across regions can reach more in total.
 - `includeValue` values are left out of every delivery for a change when more than **128** subscriptions match it (whatever the owner's plan), when the filter-check limit stops the count early, or when the value is over **16 KB**.
 

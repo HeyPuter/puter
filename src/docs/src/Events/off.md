@@ -25,7 +25,7 @@ A `Promise` that resolves when the subscription is gone. It never rejects: calli
 
 <strong class="example-title">Watch a directory, then stop watching it</strong>
 
-```html
+```html;events-off
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

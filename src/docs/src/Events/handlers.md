@@ -23,7 +23,7 @@ await puter.events.handlers.remove('indexDocument', { appUid });
 
 A handler is serialized with `Function.prototype.toString()` and run later, somewhere else, so nothing around the function comes with it.
 
-Every identifier a handler uses must be a parameter, something the handler declares itself, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` isn't available in the [events worker](/Events/#events-worker); use the `user` binding, which has the same access your app has for that user in a tab. The SDK checks this before sending and rejects with `events_handler_free_variable`, naming the identifier:
+Every identifier a handler uses must be a parameter, something the handler declares itself, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` isn't available in the [events worker](/Events/workers/); use the `user` binding, which has the same access your app has for that user in a tab. The SDK checks this before sending and rejects with `events_handler_free_variable`, naming the identifier:
 
 ```js
 const endpoint = 'https://example.com/ingest';
@@ -98,11 +98,11 @@ Resolves to `{ name, removed, suspended }`.
 
 Renaming is publishing the new name and removing the old one. Subscriptions don't follow: users have to subscribe again, so their subscriptions never silently switch to different code.
 
-An app's first published handler creates its [events worker](/Events/#events-worker), and removing the last one takes it down. See [`puter.events.workers`](/Events/workers/).
+An app's first published handler creates its [events worker](/Events/workers/), and removing the last one takes it down.
 
 ### Refusing a delivery
 
-In the events worker, a handler that returns takes the delivery, and one that throws is retried later. When retrying can't help (a malformed event, say), throw an error with `terminal: true` or `code: 'events_terminal'`. The delivery is dropped and replaced by a [gap marker](/Events/#gap-marker) with `reason: 'handler_rejected'`.
+In the events worker, a handler that returns takes the delivery, and one that throws is retried later. When retrying can't help (a malformed event, say), throw an error with `terminal: true` or `code: 'events_terminal'`. The delivery is dropped and replaced by a [gap marker](/Events/onLocal/#gaps) with `reason: 'handler_rejected'`.
 
 ```js
 await puter.events.handlers.publish('ingestUpload', async ({ event }) => {
@@ -115,7 +115,7 @@ await puter.events.handlers.publish('ingestUpload', async ({ event }) => {
 }, { appUid });
 ```
 
-See [`onPersistent()`](/Events/onPersistent/#where-the-handler-runs) for the full list of outcomes, and [suspended subscriptions](/Events/#suspended-subscriptions) for what happens to a suspended subscription's backlog.
+See [`onPersistent()`](/Events/onPersistent/#where-the-handler-runs) for the full list of outcomes, and [suspended subscriptions](/Events/onPersistent/#suspended-subscriptions) for what happens to a suspended subscription's backlog.
 
 ## Errors
 
@@ -141,7 +141,7 @@ All four methods reject with `{ message, code }`:
 
 <strong class="example-title">Publish a handler, bind a subscription to it, then take it away</strong>
 
-```html
+```html;events-handlers
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -188,7 +188,7 @@ All four methods reject with `{ message, code }`:
 
 <strong class="example-title">Deploy a whole set from a build step</strong>
 
-```html
+```html;events-handlers-publish-all
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

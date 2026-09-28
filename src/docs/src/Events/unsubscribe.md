@@ -39,7 +39,7 @@ An app can only end subscriptions it created. An account session can end any of 
 
 <strong class="example-title">Create a persistent subscription, then end it</strong>
 
-```html
+```html;events-unsubscribe
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

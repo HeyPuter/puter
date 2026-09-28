@@ -1,0 +1,30 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const name = `pinned-${puter.randName()}`;
+            const app = await puter.apps.create(name, `https://example.com/${name}`);
+
+            const handler = ({ event, ctx }) => console.log(ctx.label, event.path);
+            await puter.events.handlers.publish('onWrite', handler, { appUid: app.uid });
+
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+
+            // Passing the function sends its hash: if somebody redeployed
+            // `onWrite` in the meantime, this fails rather than binding you to
+            // code you never saw.
+            const sub = await puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                handlerName: 'onWrite',
+                handler,
+                context: { label: 'inbox' },
+            });
+
+            puter.print(`bound to ${sub.handlerName}<br>`);
+            await puter.events.unsubscribe(sub.subId);
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const seen = new Set();
+
+            const show = (event) => {
+                if (seen.has(event.id)) return;
+                seen.add(event.id);
+                puter.print(`${event.notification.title}<br>`);
+            };
+
+            // Live first, so nothing arriving during the catch-up is lost —
+            // `id` is what makes the overlap harmless.
+            const sub = await puter.events.onLocal('notif:account',
+                ({ event }) => show(event));
+
+            const page = await puter.events.fetch({ subject: 'notif:account' });
+            page.items.forEach(show);
+
+            await sub.off();
+        })();
+    </script>
+</body>
+</html>

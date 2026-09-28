@@ -1,0 +1,27 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Create a directory to watch
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+
+            // (2) Subscribe to everything under it
+            const sub = await puter.events.onLocal(`fs:${dir}`, ({ event }) => {
+                if (event.op === 'gap') {
+                    puter.print(`missed some changes (${event.reason})<br>`);
+                    return;
+                }
+                puter.print(`${event.op}: ${event.path}<br>`);
+            });
+
+            // (3) Change something — the handler runs
+            await puter.fs.write(`${dir}/hello.txt`, 'Hello!');
+
+            // (4) Stop listening (cleanup)
+            setTimeout(() => sub.off(), 2000);
+        })();
+    </script>
+</body>
+</html>

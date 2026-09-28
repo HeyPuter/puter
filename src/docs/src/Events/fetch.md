@@ -58,7 +58,7 @@ The promise rejects with `{ message, code }`: `fetch_unsupported_subject` for `f
 
 <strong class="example-title">Catch up on everything missed</strong>
 
-```html
+```html;events-fetch
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -87,7 +87,7 @@ The promise rejects with `{ message, code }`: `fetch_unsupported_subject` for `f
 
 <strong class="example-title">Read the missed ones, then keep listening</strong>
 
-```html
+```html;events-fetch-then-listen
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

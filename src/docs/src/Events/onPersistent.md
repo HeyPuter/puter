@@ -10,7 +10,7 @@ Creates a subscription that outlives this connection. It's stored on the account
 
 The subscription is live immediately in the region where it was created. Changes made in other regions can take a moment longer (usually well under a second) to reach it right after this call resolves.
 
-See [Events](/Events/) for the subject grammar and the event shape.
+See [`onLocal()`](/Events/onLocal/#subjects) for the subject grammar and the event shape.
 
 ## Syntax
 ```js
@@ -22,8 +22,8 @@ puter.events.onPersistent(options)
 #### `options` (Object) (required)
 
 - `subject` (String) (required): What to watch, in the same form `onLocal()` takes, e.g. `fs:~/Documents` or `fs:~/inbox/*.json:add`.
-- `delivery` (String): The [delivery class](/Events/#delivery-class). `'broadcast'` (default) delivers to every listener. `'single'` delivers each event to exactly one consumer, which must acknowledge it, and requires `handlerName`.
-- `targets` (Array): Where deliveries may go: any of `'socket'`, `'worker'`, `'push'`. Defaults to `['socket', 'worker']` when an app subscribes and `['socket']` when an account session with no app does. A subscription with no app can't target `'worker'`, because the [events worker](/Events/#events-worker) belongs to an app. `'push'` is reserved for future device notifications: it's accepted (except with `single`) but delivers nothing yet.
+- `delivery` (String): `'broadcast'` (default) delivers to every listener. `'single'` delivers each event to exactly one consumer, which must acknowledge it, and requires `handlerName`.
+- `targets` (Array): Where deliveries may go: any of `'socket'`, `'worker'`, `'push'`. Defaults to `['socket', 'worker']` when an app subscribes and `['socket']` when an account session with no app does. A subscription with no app can't target `'worker'`, because the [events worker](/Events/workers/) belongs to an app. `'push'` is reserved for future device notifications: it's accepted (except with `single`) but delivers nothing yet.
 - `handlerName` (String): The published handler to run. Required for `single`.
 - `handler` (Function | String | Object): The handler source you wrote this subscription against: a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The subscription is created only if it matches what's published under `handlerName`, so `handlerName` is required with it. Passing a function also runs it in this client (see below).
 - `context` (Object): Values the handler needs, passed to it as a frozen `ctx`. **Up to 4 KB serialized**; see below.
@@ -45,11 +45,11 @@ Background handlers run as a worker session for your app, which appears in the u
 
 ## Where the handler runs
 
-The handler runs **in this client while it's connected**, and in the app's events worker when it isn't. It's the same code either way, called with:
+The handler runs **in this client while it's connected**, and in the app's [events worker](/Events/workers/) when it isn't. It's the same code either way, called with:
 
 | Binding | What it is |
 | --- | --- |
-| `event` | The event, or a gap marker. |
+| `event` | The [event](/Events/onLocal/#the-event), or a [gap marker](/Events/onLocal/#gaps). |
 | `ctx` | The frozen `context` this subscription was created with. |
 | `user` | A `puter` bound to the account holding the subscription, with the same access your app has for that user in a tab. In a client, it's the ambient `puter`. |
 | `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, otherwise the environment's `fetch`. |
@@ -91,6 +91,27 @@ await puter.events.onPersistent({
 
 Over **4 KB** serialized, the call fails with `events_context_too_large` before any request is made. Context is stored in plaintext and only read when delivering. [`puter.events.list()`](/Events/list/) returns its **key names and a hash**, never the values. For more than 4 KB, put the data in a file and pass the path in `context`.
 
+## Suspended subscriptions
+
+A persistent subscription can stop without being unsubscribed. It's then *suspended*, not deleted, and [`list()`](/Events/list/) shows `suspendedAt` and `suspendedReason`:
+
+| `suspendedReason` | Cause | Resumes when |
+| --- | --- | --- |
+| `handler_not_found` | Its handler was removed. | A handler is published under that name again. |
+| `failures` | Its handler failed 5 times in a row. | The handler is published again. |
+| `no_credit` | Its holder ran out of credit. | The balance is topped up (checked every few minutes). |
+| `permission_revoked` | The permission or share it relied on was withdrawn. | **Never.** Subscribe again. |
+
+A suspended subscription stops delivering and isn't billed. Its backlog is cut to 100 deliveries and kept for 24 hours (`handler_not_found`, `failures`) or 1 hour (`no_credit`), then replaced by one gap marker. A `permission_revoked` backlog is dropped immediately. Suspended subscriptions are deleted after 30 days.
+
+## Delivery guarantees
+
+Clients connect to the nearest region. Events reach a client wherever it's connected, and `ack()` works on any connection.
+
+- `single` deliveries are **at-least-once**: one may arrive twice, with the same `event.id`. Make handlers safe to run twice.
+- Undelivered events are held in the region where the change happened. If that region goes down, only what it was holding is lost.
+- Order is kept within a region and is best-effort across regions. Coalescing (250 ms) also runs per region, so two quick writes can arrive as one event nearby and as two farther away.
+
 ## Return value
 
 A `Promise` that resolves to the subscription:
@@ -101,7 +122,7 @@ A `Promise` that resolves to the subscription:
 - `appUid` (String | null): The app that created it, or `null` if an account session did.
 - `contextKeys` (Array | null), `contextHash` (String | null): the key names and a hash of the stored context, never its values.
 - `createdAt`, `expiresAt` (Number | null): unix seconds.
-- `suspendedAt` (Number | null), `suspendedReason` (String | null): set when the subscription is [suspended](/Events/#suspended-subscriptions).
+- `suspendedAt` (Number | null), `suspendedReason` (String | null): set when the subscription is [suspended](#suspended-subscriptions).
 - `off()` (Function): Ends the subscription and stops running its handler here. Same as [`puter.events.unsubscribe(subId)`](/Events/unsubscribe/).
 
 The promise rejects with `{ message, code }`:
@@ -134,7 +155,7 @@ The promise rejects with `{ message, code }`:
 
 <strong class="example-title">Watch a folder with a handler that keeps running</strong>
 
-```html
+```html;events-persistent
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -178,7 +199,7 @@ The promise rejects with `{ message, code }`:
 
 <strong class="example-title">Bind to the exact source you wrote against</strong>
 
-```html
+```html;events-persistent-pinned
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

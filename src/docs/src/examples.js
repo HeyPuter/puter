@@ -578,6 +578,95 @@ const examples = [
         ],
     },
     {
+        title: 'Events',
+        children: [
+            {
+                title: 'Watch a Folder',
+                description: 'Watch a folder for changes with the Puter.js Events API and print each one as it happens. Run and modify this example in the playground.',
+                slug: 'events-watch-folder',
+                source: '/playground/examples/events-watch-folder.html',
+            },
+            {
+                title: 'Watch a Path Before It Exists',
+                description: 'Subscribe to a file that does not exist yet and react when it is created, using the Puter.js Events API. Try it in the playground.',
+                slug: 'events-watch-missing',
+                source: '/playground/examples/events-watch-missing.html',
+            },
+            {
+                title: 'Watch Key-Value Changes',
+                description: 'Watch a key and a key prefix in your app\'s key-value store with the Puter.js Events API. Run and experiment with this example in the playground.',
+                slug: 'events-watch-kv',
+                source: '/playground/examples/events-watch-kv.html',
+            },
+            {
+                title: 'Stop Watching',
+                description: 'End a session subscription with the Puter.js Events API. Run and modify this example in the playground.',
+                slug: 'events-off',
+                source: '/playground/examples/events-off.html',
+            },
+            {
+                title: 'Keep Watching in the Background',
+                description: 'Publish a handler and create a persistent subscription that keeps running when your app is closed, using the Puter.js Events API. Try it in the playground.',
+                slug: 'events-persistent',
+                source: '/playground/examples/events-persistent.html',
+            },
+            {
+                title: 'Bind to a Handler Version',
+                description: 'Create a persistent subscription that only binds to the handler source you wrote against, using the Puter.js Events API. Run it in the playground.',
+                slug: 'events-persistent-pinned',
+                source: '/playground/examples/events-persistent-pinned.html',
+            },
+            {
+                title: 'List Persistent Subscriptions',
+                description: 'List the persistent subscriptions an account holds with the Puter.js Events API. Run and experiment with this example in the playground.',
+                slug: 'events-list',
+                source: '/playground/examples/events-list.html',
+            },
+            {
+                title: 'Find Suspended Subscriptions',
+                description: 'Find persistent subscriptions that stopped delivering, and why, with the Puter.js Events API. Try it in the playground.',
+                slug: 'events-list-suspended',
+                source: '/playground/examples/events-list-suspended.html',
+            },
+            {
+                title: 'End a Persistent Subscription',
+                description: 'Create and end a persistent subscription with the Puter.js Events API. Run and modify this example in the playground.',
+                slug: 'events-unsubscribe',
+                source: '/playground/examples/events-unsubscribe.html',
+            },
+            {
+                title: 'Catch Up on Notifications',
+                description: 'Page through notifications missed while your app was closed with the Puter.js Events API. Run it in the playground.',
+                slug: 'events-fetch',
+                source: '/playground/examples/events-fetch.html',
+            },
+            {
+                title: 'Catch Up, Then Keep Listening',
+                description: 'Read missed notifications and keep listening for new ones without duplicates, using the Puter.js Events API. Try it in the playground.',
+                slug: 'events-fetch-then-listen',
+                source: '/playground/examples/events-fetch-then-listen.html',
+            },
+            {
+                title: 'Publish and Remove a Handler',
+                description: 'Publish, list and remove an events handler with the Puter.js Events API. Run and experiment with this example in the playground.',
+                slug: 'events-handlers',
+                source: '/playground/examples/events-handlers.html',
+            },
+            {
+                title: 'Deploy a Set of Handlers',
+                description: 'Publish several events handlers in one call from a build step with the Puter.js Events API. Run it in the playground.',
+                slug: 'events-handlers-publish-all',
+                source: '/playground/examples/events-handlers-publish-all.html',
+            },
+            {
+                title: 'List and Destroy Events Workers',
+                description: 'List the apps that have an events worker and destroy one you no longer need, using the Puter.js Events API. Try it in the playground.',
+                slug: 'events-workers',
+                source: '/playground/examples/events-workers.html',
+            },
+        ],
+    },
+    {
         title: 'Networking',
         children: [
             {
