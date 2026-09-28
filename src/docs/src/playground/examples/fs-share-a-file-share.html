@@ -1,0 +1,24 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <input id="who" placeholder="username or email">
+    <button id="go">Share report.txt</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            const recipient = document.getElementById('who').value.trim();
+            if (!recipient) return;
+
+            await puter.fs.write('report.txt', 'Quarterly numbers');
+
+            try {
+                // A string with an @ is read as an email, anything else as a username.
+                const [share] = await puter.fs.share('report.txt', recipient);
+                puter.print(`Shared with ${share.holder ?? recipient} as ${share.mode}<br>`);
+                puter.print(share.isNew ? 'New access' : 'They already had access');
+            } catch (e) {
+                puter.print(`Could not share: ${e.code ?? e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

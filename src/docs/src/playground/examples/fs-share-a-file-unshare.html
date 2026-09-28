@@ -1,0 +1,25 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <input id="path" value="report.txt">
+    <input id="who" placeholder="username or email">
+    <button id="go">Stop sharing</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            const path = document.getElementById('path').value.trim();
+            const recipient = document.getElementById('who').value.trim();
+            if (!recipient) return;
+
+            try {
+                const { revoked } = await puter.fs.unshare(path, recipient);
+                // 0 is not an error — there was simply nothing to withdraw.
+                puter.print(revoked > 0
+                    ? `Withdrew ${revoked} grant(s)`
+                    : 'Nothing to withdraw');
+            } catch (e) {
+                puter.print(`Could not unshare: ${e.code ?? e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

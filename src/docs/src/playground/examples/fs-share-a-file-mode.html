@@ -1,0 +1,30 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <input id="who" placeholder="username or email">
+    <select id="mode">
+        <option>read</option>
+        <option>write</option>
+        <option>manage</option>
+    </select>
+    <button id="go">Share</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            const recipient = document.getElementById('who').value.trim();
+            if (!recipient) return;
+            const mode = document.getElementById('mode').value;
+
+            await puter.fs.write('budget.xlsx', 'a,b,c');
+
+            try {
+                // Sharing again replaces their access rather than adding a second share.
+                const [share] = await puter.fs.share('budget.xlsx', recipient, mode);
+                puter.print(`mode: ${share.mode}<br>`);
+                puter.print(`isNew: ${share.isNew}`);
+            } catch (e) {
+                puter.print(`Could not share: ${e.code ?? e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>
