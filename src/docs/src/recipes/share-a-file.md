@@ -7,7 +7,15 @@ order: 45
 
 **Use this when** two people need the same file. Sharing hands a named person
 access to something in your storage, so they reach it from their own account
-without you copying anything or minting a link.
+without you copying anything or minting a link. Things this is the backbone of:
+
+- A **document editor** with a Share button, and a list of who currently has the
+  draft.
+- A **design or photo tool** that hands a folder of assets to a collaborator at
+  `write`, and to a reviewer at `read`.
+- An **inbox** of "shared with me" work, built from `listShared()`.
+- A **hand-off flow** where access is granted for a review and withdrawn when it
+  is signed off.
 
 For a temporary URL to one file — an `<img>` tag, a download button — you want
 [`puter.fs.getReadURL()`](/FS/getReadURL/) instead; see
