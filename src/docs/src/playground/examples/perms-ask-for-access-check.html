@@ -1,0 +1,27 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="go">Save to Documents</button>
+    <script>
+        const details = { name: 'Documents', access: 'write' };
+
+        (async () => {
+            // check() never prompts, so it can decide what the UI offers.
+            const held = await puter.perms.check('folder', details);
+            document.getElementById('go').textContent = held
+                ? 'Save to Documents'
+                : 'Allow access, then save';
+        })();
+
+        document.getElementById('go').addEventListener('click', async () => {
+            const path = await puter.perms.request('folder', details);
+            if (!path) {
+                puter.print('Access declined');
+                return;
+            }
+            await puter.fs.write(`${path}/notes.txt`, 'Saved!');
+            puter.print('Saved');
+        });
+    </script>
+</body>
+</html>

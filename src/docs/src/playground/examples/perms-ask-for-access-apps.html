@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="apps">Read my apps</button>
+    <button id="subdomains">Publish subdomains</button>
+    <script>
+        // These two resolve to a plain boolean, unlike 'folder' and 'email'.
+        document.getElementById('apps').addEventListener('click', async () => {
+            const granted = await puter.perms.request('apps');
+            puter.print(granted ? 'Can read apps' : 'Declined');
+        });
+
+        document.getElementById('subdomains').addEventListener('click', async () => {
+            // access defaults to 'read'; 'write' covers reading too.
+            const granted = await puter.perms.request('subdomains', { access: 'write' });
+            puter.print(granted ? 'Can manage subdomains' : 'Declined');
+        });
+    </script>
+</body>
+</html>

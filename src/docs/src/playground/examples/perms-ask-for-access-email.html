@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="go">Show my email address</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            // Resolves to the address itself, not a boolean.
+            const email = await puter.perms.request('email');
+
+            puter.print(email ? email : 'Declined');
+        });
+    </script>
+</body>
+</html>

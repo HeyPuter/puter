@@ -1,0 +1,23 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="go">Save a note to Documents</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            // Resolves to the folder's path, or undefined when declined.
+            const path = await puter.perms.request('folder', {
+                name: 'Documents',
+                access: 'write',
+            });
+
+            if (!path) {
+                puter.print('Access declined');
+                return;
+            }
+
+            await puter.fs.write(`${path}/notes.txt`, 'Saved!');
+            puter.print(`Wrote to ${path}/notes.txt`);
+        });
+    </script>
+</body>
+</html>
