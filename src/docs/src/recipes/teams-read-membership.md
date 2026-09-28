@@ -6,8 +6,16 @@ order: 60
 ---
 
 **Use this when** your app should adapt to the team the signed-in user belongs
-to, such as labelling their workspace or offering colleagues in a picker
-instead of asking them to type usernames.
+to rather than treating everyone as a lone user. A few things this unlocks:
+
+- A **task board** that offers colleagues in an assignee dropdown instead of
+  asking for a typed username.
+- A **document editor** whose share dialog suggests the people you actually work
+  with.
+- A **dashboard** that greets someone with their team's name and keeps each
+  team's data under its own key.
+- An **onboarding screen** that can tell "you have no team yet" apart from "this
+  Puter has no teams at all" — and say something useful either way.
 
 Everything here is read-only. Creating a team, adding accounts to it and paying
 for them are done by the team owner from their own Puter account, never from an
