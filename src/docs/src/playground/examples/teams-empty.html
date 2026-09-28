@@ -1,0 +1,41 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        // Three situations end with an empty picker, and each wants its own message.
+        async function loadColleagues () {
+            let teams;
+            try {
+                teams = await puter.teams.list();
+            } catch (e) {
+                if (e.code !== 'not_found') throw e;
+                return { state: 'unavailable' };
+            }
+
+            const team = teams[0];
+            if (!team) return { state: 'no-team' };
+
+            try {
+                return { state: 'ok', items: await puter.teams.listDirectory(team.uid) };
+            } catch (e) {
+                if (e.code !== 'team_not_found') throw e;
+                return { state: 'closed', team };
+            }
+        }
+
+        const MESSAGES = {
+            unavailable: 'Teams are not available on this Puter.',
+            'no-team': 'You are not on a team yet.',
+            closed: 'Ask the team owner to open the directory to apps.',
+        };
+
+        (async () => {
+            const result = await loadColleagues();
+            puter.print(`<b>${result.state}</b><br>`);
+            puter.print(result.state === 'ok'
+                ? `${result.items.length} colleague(s)`
+                : MESSAGES[result.state]);
+        })();
+    </script>
+</body>
+</html>

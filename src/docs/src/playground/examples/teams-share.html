@@ -1,0 +1,27 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="go">Share a draft with my team</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            const [team] = await puter.teams.list().catch(() => []);
+            if (!team) { puter.print('No team'); return; }
+
+            await puter.fs.write('drafts/proposal.md', '# Proposal', {
+                createMissingParents: true,
+            });
+
+            try {
+                // Reaches anyone added to the team later, unlike a per-person loop.
+                const shares = await puter.fs.share(
+                    'drafts/proposal.md', { team: team.uid }, 'write',
+                );
+                puter.print(`Shared with ${team.name} (${shares.length} grant)<br>`);
+                puter.print(`holder is ${shares[0].holder} — there is no one person`);
+            } catch (e) {
+                puter.print(`Could not share: ${e.code ?? e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>
