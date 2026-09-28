@@ -5,9 +5,18 @@ tags: [perms, auth]
 order: 15
 ---
 
-**Use this when** your app needs something outside its own storage — a file in
-the user's Documents, their email address, the list of apps they have — and you
-want the user to approve it first.
+**Use this when** your app needs something outside its own storage and wants the
+user to approve it first. What that looks like in practice:
+
+- A **photo editor** that opens and saves back into the user's Pictures folder,
+  instead of making them download and re-upload.
+- A **newsletter or receipts feature** that needs the account's email address to
+  send to.
+- A **launcher or backup tool** that reads the list of apps the user has.
+- A **deploy button** that publishes to one of the user's own subdomains.
+
+None of these can happen silently — the user is asked, once, and the answer is
+remembered.
 
 Two calls cover all of it:
 [`puter.perms.request()`](/Perms/request/) asks, and
