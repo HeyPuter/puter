@@ -214,6 +214,11 @@ export interface IUserEmailConfig {
     /** Envelope recipients accepted per message. Default 50. */
     localMaxRecipients?: number;
     /**
+     * Local parts that take feedback instead of naming a mailbox. Default
+     * `['fbl', 'abuse', 'postmaster']`.
+     */
+    feedbackAddresses?: string[];
+    /**
      * Concurrent client connections. Default 20. Each message is held in memory
      * while it is delivered, so this also bounds memory use.
      */

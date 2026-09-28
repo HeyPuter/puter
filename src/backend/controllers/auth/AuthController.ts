@@ -235,6 +235,15 @@ export const RESERVED_USERNAMES = new Set([
     'contact',
     'mail',
     'email',
+    // Role mailboxes: a Puter address names its account, so these must never
+    // be ownable.
+    'abuse',
+    'postmaster',
+    'hostmaster',
+    'fbl',
+    'security',
+    'noreply',
+    'no-reply',
     'null',
     'undefined',
     'test',

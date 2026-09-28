@@ -21,7 +21,10 @@ const state = vi.hoisted(() => ({
         userId: number;
         path: string;
         homeRegion?: string;
+        content?: unknown;
     }>,
+    feedback: [] as Array<{ to: string; from: string | null; raw: Buffer }>,
+    takeFeedback: true,
 }));
 
 vi.mock('@heyputer/backend/src/extensions', () => ({
@@ -37,6 +40,25 @@ vi.mock('@heyputer/backend/src/extensions', () => ({
             state.routes.push({ path, handler });
         },
         import(layer: string) {
+            if (layer === 'client') {
+                return {
+                    event: {
+                        async emitAndWait(
+                            key: string,
+                            data: {
+                                to: string;
+                                from: string | null;
+                                raw: Buffer;
+                                handled: boolean;
+                            },
+                        ) {
+                            if (key !== 'email.ingress.feedback') return;
+                            state.feedback.push(data);
+                            if (state.takeFeedback) data.handled = true;
+                        },
+                    },
+                };
+            }
             if (layer === 'store') {
                 return {
                     user: {
@@ -49,7 +71,13 @@ vi.mock('@heyputer/backend/src/extensions', () => ({
                 fs: {
                     async write(
                         userId: number,
-                        { fileMetadata }: { fileMetadata: { path: string } },
+                        {
+                            fileMetadata,
+                            fileContent,
+                        }: {
+                            fileMetadata: { path: string };
+                            fileContent: unknown;
+                        },
                         _uploadTracker?: unknown,
                         _storageAllowanceMax?: number,
                         homeRegion?: string,
@@ -58,6 +86,7 @@ vi.mock('@heyputer/backend/src/extensions', () => ({
                             userId,
                             path: fileMetadata.path,
                             homeRegion,
+                            content: fileContent,
                         });
                         return { fsEntry: { path: fileMetadata.path } };
                     },
@@ -103,7 +132,12 @@ const ingress = async (
             : {
                   'content-length': over.contentLength ?? String(body.length),
               };
-    req.query = { SECRET: over.secret ?? SECRET, to, subject: 'hi' };
+    req.query = {
+        SECRET: over.secret ?? SECRET,
+        to,
+        from: 'someone@example.com',
+        subject: 'hi',
+    };
 
     let status = 200;
     let ended = false;
@@ -140,6 +174,8 @@ const ingress = async (
 beforeEach(() => {
     state.users.clear();
     state.writes.length = 0;
+    state.feedback.length = 0;
+    state.takeFeedback = true;
 });
 
 describe('temporary accounts cannot receive', () => {
@@ -264,5 +300,56 @@ describe('refusals dispose of the body nobody read', () => {
         expect(status).toBe(413);
         expect(destroyed).toBe(true);
         expect(state.writes).toEqual([]);
+    });
+});
+
+describe('feedback addresses', () => {
+    test('are handed to a listener and reach no mailbox', async () => {
+        const { status, ended } = await ingress('fbl@puter.email');
+        expect(status).toBe(200);
+        expect(ended).toBe(true);
+        expect(state.feedback).toHaveLength(1);
+        expect(state.feedback[0].to).toBe('fbl@puter.email');
+        expect(state.feedback[0].from).toBe('someone@example.com');
+        expect(state.feedback[0].raw.toString()).toContain('hello');
+        expect(state.writes).toEqual([]);
+    });
+
+    test('match the local part case-insensitively', async () => {
+        await ingress('Abuse@puter.email');
+        expect(state.feedback).toHaveLength(1);
+    });
+
+    test('fall through to normal routing when nobody takes them', async () => {
+        state.takeFeedback = false;
+        state.users.set('abuse', permanent(3, 'abuse'));
+
+        const { status } = await ingress('abuse@puter.email');
+        expect(status).toBe(200);
+        expect(state.feedback).toHaveLength(1);
+        // The body was already read, so the buffered copy is what is stored.
+        expect(state.writes).toHaveLength(1);
+        expect(Buffer.isBuffer(state.writes[0].content)).toBe(true);
+    });
+
+    test('an unclaimed one with no such account is still a 404', async () => {
+        state.takeFeedback = false;
+        const { status } = await ingress('postmaster@puter.email');
+        expect(status).toBe(404);
+    });
+
+    test('only count on a Puter mail domain', async () => {
+        state.users.set('abuse', permanent(3, 'abuse'));
+        await ingress('abuse@example.com');
+        expect(state.feedback).toEqual([]);
+    });
+
+    test('are refused over the feedback size cap without being read', async () => {
+        const { status, destroyed } = await ingress('fbl@puter.email', {
+            contentLength: String(5 * 1024 * 1024 + 1),
+        });
+        expect(status).toBe(413);
+        expect(destroyed).toBe(true);
+        expect(state.feedback).toEqual([]);
     });
 });

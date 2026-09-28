@@ -790,6 +790,22 @@ describe('AuthController.handleSignup', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it.each(['abuse', 'postmaster', 'fbl'])(
+        'rejects the role mailbox name "%s"',
+        async (username) => {
+            await expect(
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `a_${uniq()}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
+
     it('rejects an invalid email format', async () => {
         await expect(
             controller.handleSignup(
