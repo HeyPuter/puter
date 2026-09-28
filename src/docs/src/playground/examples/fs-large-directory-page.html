@@ -1,0 +1,24 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            await puter.fs.mkdir('uploads', { createMissingParents: true }).catch(() => {});
+            for (let i = 0; i < 7; i++) {
+                await puter.fs.write(`uploads/file-${i}.txt`, `n=${i}`);
+            }
+
+            // cursor (even null) switches the result to a page object.
+            let page = await puter.fs.readdir({ path: 'uploads', cursor: null, limit: 3 });
+            let n = 0;
+
+            for (;;) {
+                puter.print(`<b>page ${++n}</b>: ${page.items.map(i => i.name).join(', ')}<br>`);
+                // Present only while more pages remain — that is the stop condition.
+                if (!page.cursor) break;
+                page = await puter.fs.readdir({ path: 'uploads', cursor: page.cursor, limit: 3 });
+            }
+        })();
+    </script>
+</body>
+</html>

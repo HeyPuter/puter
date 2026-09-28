@@ -456,6 +456,42 @@ const examples = [
                 slug: 'fs-share-a-file-mode',
                 source: '/playground/examples/fs-share-a-file-mode.html',
             },
+{
+                title: 'page through a large directory',
+                description: 'Read a directory one page at a time with a cursor using Puter.js filesystem API. Run and experiment with this example in the playground.',
+                slug: 'fs-large-directory-page',
+                source: '/playground/examples/fs-large-directory-page.html',
+            },
+{
+                title: 'stream directory pages',
+                description: 'Walk a large directory with an async iterator using Puter.js filesystem API. Run and modify this example instantly in your browser.',
+                slug: 'fs-large-directory-stream',
+                source: '/playground/examples/fs-large-directory-stream.html',
+            },
+{
+                title: 'sort and descend a directory',
+                description: 'Sort a directory listing and read subdirectories with Puter.js filesystem API. Run and experiment with this example in the playground.',
+                slug: 'fs-large-directory-sort',
+                source: '/playground/examples/fs-large-directory-sort.html',
+            },
+{
+                title: 'count a directory while paging',
+                description: 'Get a total entry count alongside a page of results with Puter.js filesystem API. Run and modify this example directly in your browser.',
+                slug: 'fs-large-directory-total',
+                source: '/playground/examples/fs-large-directory-total.html',
+            },
+{
+                title: 'write without clobbering',
+                description: 'Keep both files or refuse to replace one with dedupeName and overwrite in Puter.js filesystem API. Run and experiment with this example in the playground.',
+                slug: 'fs-large-directory-write',
+                source: '/playground/examples/fs-large-directory-write.html',
+            },
+{
+                title: 'create the folders on the way',
+                description: 'Write into a directory tree that does not exist yet with Puter.js filesystem API. Run and modify this example instantly in your browser.',
+                slug: 'fs-large-directory-parents',
+                source: '/playground/examples/fs-large-directory-parents.html',
+            },
         ],
     },
     {
