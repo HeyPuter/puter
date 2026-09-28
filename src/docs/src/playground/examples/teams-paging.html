@@ -1,0 +1,25 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="more">Load more colleagues</button>
+    <script>
+        let team, cursor = null, done = false;
+
+        document.getElementById('more').addEventListener('click', async () => {
+            if (done) return;
+            team ??= (await puter.teams.list())[0];
+            if (!team) { puter.print('No team'); done = true; return; }
+
+            const page = await puter.teams.listDirectory(team.uid, { limit: 5, cursor });
+            for (const entry of page.items) puter.print(`${entry.username}<br>`);
+
+            // Absent cursor is the end — not a short page.
+            cursor = page.cursor ?? null;
+            if (!page.cursor) {
+                done = true;
+                puter.print('<b>— end of list —</b>');
+            }
+        });
+    </script>
+</body>
+</html>
