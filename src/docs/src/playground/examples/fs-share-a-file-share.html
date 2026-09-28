@@ -1,20 +1,26 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
+    <h3>Proposal.md</h3>
     <input id="who" placeholder="username or email">
-    <button id="go">Share report.txt</button>
+    <button id="go">Share draft</button>
     <script>
+        // The Share button of a document editor: the draft is already saved,
+        // and the user types who should get it.
         document.getElementById('go').addEventListener('click', async () => {
             const recipient = document.getElementById('who').value.trim();
             if (!recipient) return;
 
-            await puter.fs.write('report.txt', 'Quarterly numbers');
+            await puter.fs.write('drafts/proposal.md', '# Proposal', {
+                createMissingParents: true,
+            });
 
             try {
                 // A string with an @ is read as an email, anything else as a username.
-                const [share] = await puter.fs.share('report.txt', recipient);
+                const [share] = await puter.fs.share('drafts/proposal.md', recipient);
                 puter.print(`Shared with ${share.holder ?? recipient} as ${share.mode}<br>`);
-                puter.print(share.isNew ? 'New access' : 'They already had access');
+                // Tells "just granted" from "already had it" — worth a toast, or silence.
+                puter.print(share.isNew ? 'Invitation sent' : 'They already had the draft');
             } catch (e) {
                 puter.print(`Could not share: ${e.code ?? e.message}`);
             }

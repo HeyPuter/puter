@@ -1,20 +1,29 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
+    <h3>Shared with me</h3>
     <script>
+        // The "shared with me" inbox of a collaborative app.
         (async () => {
             // Resolves to { items, cursor? } — not to an array.
             const { items } = await puter.fs.listShared();
 
             if (items.length === 0) {
-                puter.print('Nothing has been shared with you yet.');
+                puter.print('Nothing yet. Files colleagues share appear here.');
                 return;
             }
 
             for (const item of items) {
+                // Label with `name`: the path is masked and has no useful folder.
                 puter.print(`<b>${item.name}</b> — ${item.mode}, from ${item.owner}<br>`);
-                // Masked path: /<owner>/<uid>/<name>, usable with any puter.fs method.
-                puter.print(`${item.path}<br><br>`);
+
+                // The masked path still works with any puter.fs method.
+                if (!item.isDir) {
+                    const blob = await puter.fs.read(item.path);
+                    puter.print(`${(await blob.text()).slice(0, 60)}<br><br>`);
+                } else {
+                    puter.print('(folder)<br><br>');
+                }
             }
         })();
     </script>
