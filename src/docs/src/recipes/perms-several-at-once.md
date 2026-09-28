@@ -7,7 +7,18 @@ order: 16
 
 **Use this when** one prompt is better than four. Asking for
 [a folder](/recipes/perms-ask-for-access/) at a time works, but an app that
-needs three things at startup should not put up three dialogs.
+needs three things at startup should not put up three dialogs. Where this comes
+up:
+
+- A **first-run screen** that asks for everything the app needs at once, so the
+  user decides once instead of being interrupted all afternoon.
+- A **settings page** that renders every toggle in its true state before the
+  user touches anything.
+- A **plugin or companion app** that reads another app's data — a calendar
+  widget reading a notes app's entries — and has to say exactly which
+  operations it wants.
+- An **importer** that needs folders which do not exist yet, and would rather
+  they were created on approval than fail afterwards.
 
 This carries on from [asking for access](/recipes/perms-ask-for-access/), which
 covers the single-resource form.
