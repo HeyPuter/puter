@@ -1,0 +1,35 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <label>Team: <select id="team"><option>Loading…</option></select></label>
+    <button id="save">Save a column</button>
+    <script>
+        const select = document.getElementById('team');
+
+        (async () => {
+            const teams = await puter.teams.list().catch(() => []);
+            if (teams.length === 0) {
+                select.innerHTML = '<option>No team</option>';
+                return;
+            }
+            select.innerHTML = '';
+            for (const team of teams) {
+                const option = document.createElement('option');
+                option.textContent = team.name ?? team.handle ?? 'Unnamed';
+                // uid, not handle: a handle can be renamed or released.
+                option.value = team.uid;
+                select.append(option);
+            }
+        })();
+
+        document.getElementById('save').addEventListener('click', async () => {
+            const uid = select.selectedOptions[0]?.value;
+            if (!uid) return;
+            // Each team's data lives under its own key.
+            await puter.kv.set(`board:${uid}:columns`, ['todo', 'doing', 'done']);
+            puter.print(`saved board:${uid}:columns<br>`);
+            puter.print(JSON.stringify(await puter.kv.get(`board:${uid}:columns`)));
+        });
+    </script>
+</body>
+</html>

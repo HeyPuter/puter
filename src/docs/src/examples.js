@@ -968,6 +968,42 @@ const examples = [
                 slug: 'teams-directory',
                 source: '/playground/examples/teams-directory.html',
             },
+            {
+                title: 'Recipe: an assignee picker',
+                description: 'Build an assignee picker from a team directory and store the uuid with Puter.js teams API. Run and experiment with this example in the playground.',
+                slug: 'teams-picker',
+                source: '/playground/examples/teams-picker.html',
+            },
+            {
+                title: 'Recipe: load a big team page by page',
+                description: 'Fetch colleagues a page at a time with a cursor using Puter.js teams API. Run and modify this example instantly in your browser.',
+                slug: 'teams-paging',
+                source: '/playground/examples/teams-paging.html',
+            },
+            {
+                title: "Recipe: keep each team's data apart",
+                description: 'Switch between teams and namespace stored data by team uid with Puter.js teams API. Run and experiment with this example in the playground.',
+                slug: 'teams-switch',
+                source: '/playground/examples/teams-switch.html',
+            },
+            {
+                title: 'Recipe: share a document with the whole team',
+                description: 'Share a file with every member of a team, including future ones, with Puter.js. Run and modify this example directly in your browser.',
+                slug: 'teams-share',
+                source: '/playground/examples/teams-share.html',
+            },
+            {
+                title: 'Recipe: show an owner-only panel',
+                description: 'Use isOwner to decide what a team admin view renders with Puter.js teams API. Run and experiment with this example in the playground.',
+                slug: 'teams-owner',
+                source: '/playground/examples/teams-owner.html',
+            },
+            {
+                title: 'Recipe: tell the empty cases apart',
+                description: 'Distinguish teams being unavailable, having no team, and a closed directory with Puter.js teams API. Run and modify this example in your browser.',
+                slug: 'teams-empty',
+                source: '/playground/examples/teams-empty.html',
+            },
         ],
     },
     {
