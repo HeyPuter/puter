@@ -1,21 +1,24 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
-    <button id="go">Ask for two paths</button>
+    <h3>Importer</h3>
+    <button id="go">Choose destination folders</button>
     <script>
+        // An importer wants two folders that may not exist yet, and would
+        // rather they were created on approval than fail after it.
         document.getElementById('go').addEventListener('click', async () => {
             const { username } = await puter.auth.getUser();
 
             try {
-                // create decides what happens when the path does not exist yet.
                 const granted = await puter.perms.request('permission', {
                     permissions: [
-                        `fs:/${username}/Projects:read`,
-                        `fs:/${username}/Archive:read`,
+                        `fs:/${username}/Imported:read`,
+                        `fs:/${username}/Imported-Archive:read`,
                     ],
+                    // 'dir' forces directories; the default would guess from the name.
                     create: 'dir',
                 });
-                puter.print(granted ? 'Granted' : 'Declined');
+                puter.print(granted ? 'Folders ready — import can start' : 'Import cancelled');
             } catch (e) {
                 puter.print(`${e.code}: ${e.message}`);
             }
