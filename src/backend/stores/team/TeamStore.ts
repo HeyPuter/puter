@@ -38,6 +38,8 @@ export interface TeamRow {
     created_at: string;
     /** Whether an app acting for a member may read the member list. */
     directory_enabled: number;
+    /** Whether the accounts this team provisioned must hold 2FA. */
+    require_2fa: number;
 }
 
 export const TEAM_KIND = 'team';
@@ -55,6 +57,8 @@ export interface OrgSeatRow {
     team_uid: string;
     team_name: string | null;
     owner_user_id: number;
+    /** Carried here so the per-request 2FA gate costs no extra read. */
+    require_2fa: number;
 }
 
 export interface TeamMemberRow {
@@ -284,6 +288,7 @@ export class TeamStore extends PuterStore {
             name?: string;
             handle?: string | null;
             directoryEnabled?: boolean;
+            require2fa?: boolean;
         },
     ): Promise<TeamRow | null> {
         const sets: string[] = [];
@@ -306,6 +311,10 @@ export class TeamStore extends PuterStore {
         if (changes.directoryEnabled !== undefined) {
             sets.push('`directory_enabled` = ?');
             params.push(changes.directoryEnabled ? 1 : 0);
+        }
+        if (changes.require2fa !== undefined) {
+            sets.push('`require_2fa` = ?');
+            params.push(changes.require2fa ? 1 : 0);
         }
         if (sets.length === 0) return this.getByUid(uid);
 
@@ -714,7 +723,7 @@ export class TeamStore extends PuterStore {
         const rows = (await this.clients.db.read(
             'SELECT ug.`id`, ug.`user_id`, u.`uuid`, u.`username`, ' +
                 'g.`uid` AS `team_uid`, g.`name` AS `team_name`, ' +
-                'g.`owner_user_id` ' +
+                'g.`owner_user_id`, g.`require_2fa` ' +
                 'FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
                 'JOIN `group` g ON g.`id` = ug.`group_id` ' +

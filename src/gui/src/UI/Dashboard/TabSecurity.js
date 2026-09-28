@@ -22,6 +22,7 @@ import UIWindow2FASetup from '../UIWindow2FASetup.js';
 import UIWindowChangePassword from '../UIWindowChangePassword.js';
 import UIWindowBlockedSenders from '../UIWindowBlockedSenders.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
+import { isOrgSeat } from './orgSeat.js';
 
 const TabSecurity = {
     id: 'security',
@@ -87,8 +88,8 @@ const TabSecurity = {
         h += `<button class="button manage-blocked-senders">${i18n('manage')}</button>`;
         h += '</div>';
 
-        // 2FA card (only for non-temp users with confirmed email)
-        if ( !user.is_temp && user.email_confirmed ) {
+        // A seat has no address by design, and its team may require 2FA.
+        if ( !user.is_temp && (user.email_confirmed || isOrgSeat(user)) ) {
             const twoFaStatusClass = user.otp ? 'dashboard-settings-card-success' : 'dashboard-settings-card-warning';
             h += `<div class="dashboard-card dashboard-settings-card dashboard-settings-card-2fa ${twoFaStatusClass}">`;
             h += '<div class="dashboard-settings-card-content">';

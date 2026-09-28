@@ -17,8 +17,7 @@ const secretsEqual = (a: string, b: string): boolean =>
 
 const INGRESS_SECRET = (
     (extension.config as Record<string, unknown>).userEmail as
-        | { secret?: string }
-        | undefined
+        { secret?: string } | undefined
 )?.secret;
 
 if (!INGRESS_SECRET) {

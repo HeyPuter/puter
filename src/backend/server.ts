@@ -45,6 +45,7 @@ import {
     requireAuthGate,
     requireCardVerifiedGate,
     requirePhoneVerifiedGate,
+    requireTeam2fa,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -1017,6 +1018,8 @@ export class PuterServer {
         // confirm-email / -phone, card verification, whoami, save-account, …).
         if (needsAuth && !opts.allowUnconfirmed) {
             mwChain.push(requireVerifiedAccount());
+            // Same opt-out: a member owing 2FA must still reach those routes.
+            mwChain.push(requireTeam2fa(this.stores?.team));
         }
 
         // block access tokens by default

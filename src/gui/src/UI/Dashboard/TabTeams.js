@@ -70,6 +70,7 @@ const SVG = (body) =>
 const ICONS = {
     team: SVG('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
     directory: SVG('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><circle cx="11" cy="9.5" r="2"/><path d="M7.5 15a4 4 0 0 1 7 0"/>'),
+    shield: SVG('<path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 8.5-4.1-.8-7-4.3-7-8.5V6z"/><path d="M9.5 12l1.8 1.8 3.4-3.6"/>'),
     copy: SVG('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
     check: SVG('<path d="M20 6L9 17l-5-5"/>'),
     close: SVG('<path d="M18 6L6 18"/><path d="M6 6l12 12"/>'),
@@ -172,6 +173,15 @@ const renderMemberActions = (member) => {
         label: i18n('teams_reissue_credential'),
         attrs: forMember,
     });
+    // Only while the rule is on: otherwise a member can clear it themselves.
+    if ( state.selected?.require2fa ) {
+        h += teamActionButton({
+            className: 'teams-reset-2fa',
+            icon: 'shield',
+            label: i18n('teams_reset_2fa'),
+            attrs: forMember,
+        });
+    }
     h += member.disabled
         ? teamActionButton({
             className: 'teams-enable',
@@ -351,9 +361,27 @@ const renderDirectory = () => {
     return h;
 };
 
+const renderRequire2fa = () => {
+    const on = state.selected?.require2fa === true;
+    let h = '<div class="dashboard-card dashboard-settings-card teams-require-2fa">';
+    h += '<div class="dashboard-settings-card-content">';
+    h += `<div class="dashboard-settings-card-icon">${ICONS.shield}</div>`;
+    h += '<div class="dashboard-settings-card-info">';
+    h += `<strong>${i18n('teams_require_2fa_label')}</strong>`;
+    h += `<span class="teams-directory-note">${i18n(on ? 'teams_require_2fa_on_note' : 'teams_require_2fa_off_note')}</span>`;
+    h += '</div></div>';
+    h += '<label class="dashboard-switch teams-require-2fa-toggle">';
+    h += `<input type="checkbox" class="teams-require-2fa-check"${on ? ' checked' : ''} aria-label="${html_encode(i18n('teams_require_2fa_label', [], false))}">`;
+    h += '<span class="dashboard-switch-slider"></span>';
+    h += '</label>';
+    h += '</div>';
+    return h;
+};
+
 const renderOwnerView = () => {
     let h = renderHero();
     h += renderDirectory();
+    h += renderRequire2fa();
     h += renderAddAccount();
     h += renderMembers();
     h += renderAudit({ title: i18n('teams_audit'), hint: i18n('teams_audit_hint') });
@@ -609,6 +637,21 @@ const addAccount = async ($el_window) => {
     }
 };
 
+const resetTwoFactor = async ($el_window, username) => {
+    const ok = await confirm(
+        $el_window,
+        `<p>${i18n('teams_reset_2fa_confirm', { username })}</p>`,
+        i18n('teams_reset_2fa_confirm_action', [], false),
+    );
+    if ( ! ok ) return;
+    try {
+        await puter.teams.resetTwoFactor(state.selected.uid, username);
+        await refresh($el_window);
+    } catch (e) {
+        await showError($el_window, e);
+    }
+};
+
 const reissueCredential = async ($el_window, username) => {
     const ok = await confirm(
         $el_window,
@@ -675,6 +718,27 @@ const deleteMemberAccount = async ($el_window, username) => {
         await refresh($el_window);
     } catch (e) {
         await showError($el_window, e);
+    }
+};
+
+const setRequire2fa = async ($el_window, enabled) => {
+    // Turning it on locks out every account without 2FA until they enrol, so
+    // it is confirmed; turning it off only lifts a requirement.
+    if ( enabled ) {
+        const ok = await confirm(
+            $el_window,
+            i18n('teams_require_2fa_confirm'),
+            i18n('teams_require_2fa_confirm_action', [], false),
+            'primary',
+        );
+        if ( ! ok ) return paint($el_window);
+    }
+    try {
+        await puter.teams.update(state.selected.uid, { require2fa: enabled });
+        await refresh($el_window);
+    } catch (e) {
+        await showError($el_window, e);
+        await refresh($el_window);
     }
 };
 
@@ -817,6 +881,12 @@ const TabTeams = {
         });
         $el_window.on('change', `${SECTION} .teams-directory-check`, function () {
             setDirectoryEnabled($el_window, $(this).is(':checked'));
+        });
+        $el_window.on('click', `${SECTION} .teams-reset-2fa`, function () {
+            resetTwoFactor($el_window, $(this).attr('data-username'));
+        });
+        $el_window.on('change', `${SECTION} .teams-require-2fa-check`, function () {
+            setRequire2fa($el_window, $(this).is(':checked'));
         });
         $el_window.on('change', `${SECTION} .teams-picker-select`, async function () {
             state.selected = state.teams.find(t => t.uid === $(this).val()) ?? state.selected;
