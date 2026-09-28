@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // Same array as request(), but every entry answers a boolean.
+            const [hasDocuments, hasEmail, hasApps] = await puter.perms.check([
+                { resource: 'folder', name: 'Documents', access: 'write' },
+                { resource: 'email' },
+                { resource: 'apps' },
+            ]);
+
+            puter.print(`Documents: ${hasDocuments}<br>`);
+            puter.print(`Email: ${hasEmail}<br>`);
+            puter.print(`Apps: ${hasApps}<br><br>`);
+            puter.print('Nothing was prompted for — check() never asks.');
+        })();
+    </script>
+</body>
+</html>

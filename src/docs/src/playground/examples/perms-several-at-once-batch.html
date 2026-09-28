@@ -1,0 +1,21 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="go">Ask for three things</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            // One dialog, and only for whatever is not already granted.
+            const [documents, email, canReadApps] = await puter.perms.request([
+                { resource: 'folder', name: 'Documents', access: 'write' },
+                { resource: 'email' },
+                { resource: 'apps' },
+            ]);
+
+            // Results are positional: the path, the address, a boolean.
+            puter.print(`Documents: ${documents ?? 'declined'}<br>`);
+            puter.print(`Email: ${email ?? 'declined'}<br>`);
+            puter.print(`Apps: ${canReadApps}`);
+        });
+    </script>
+</body>
+</html>
