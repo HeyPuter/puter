@@ -6,11 +6,11 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Reads events a subject already recorded, a page at a time. A subscription only delivers while something is listening; `fetch()` is how a client catches up on what happened while it was closed, offline, or asleep.
+Reads events a subject has stored, a page at a time. A subscription only delivers while something is listening; `fetch()` catches up on what happened while the client was closed or offline.
 
-It is a plain query. Nothing is registered, no position is stored for you, and calling it twice returns the same answer: you keep the `cursor` and pass it back as `after`.
+It's a plain query: nothing is registered, no position is saved, and calling it twice returns the same result. You keep the `cursor` and pass it back as `after`.
 
-Only subjects with a store behind them can answer, which today means **`notif:` alone** — the notification mailbox. `fs:` and `kv:` keep no log, and asking for one is refused with `fetch_unsupported_subject` rather than answered with an empty page you would read as "nothing happened".
+Only **`notif:`** (the notification mailbox) stores events. `fs:` and `kv:` are refused with `fetch_unsupported_subject` rather than answered with an empty page.
 
 ## Syntax
 ```js
@@ -21,38 +21,38 @@ puter.events.fetch(options)
 
 #### `options` (Object) (required)
 
-- `subject` (String) (required): What to read. `notif:account` for your account's notifications, `notif:app-user` for the ones belonging to the app you are running as, or the fully qualified `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, to whoever owns it), and `app-user` (about your data inside an app).
-- `after` (String): The `cursor` from a previous page. Leave it off to start from the oldest notification still kept.
-- `limit` (Number): Events per page. Capped at 200; defaults to 50.
+- `subject` (String) (required): What to read: `notif:account` (the account's notifications), `notif:app-user` (the ones belonging to the app you're running as), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app).
+- `after` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept.
+- `limit` (Number): Events per page. Defaults to 50, max 200.
 
 ## Return value
 
 A `Promise` for `{ items, cursor }`:
 
-- `items` — the events, **oldest first**, in the same shape a live delivery has.
-- `cursor` — pass it as `after` to read the next page. It is absent when there is nothing after this page, which is how you know you are caught up.
+- `items`: the events, **oldest first**, in the same shape as live deliveries.
+- `cursor`: pass it as `after` to read the next page. It's absent on the last page.
 
 Each item is a notification event:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | String | The notification's uid. The same id the live delivery of that notification carries, so a client that reconnects mid-catch-up can drop the duplicate. |
-| `subject` | String | `notif:<appId or userId>:<audience>` — the slice of the mailbox it belongs to. |
+| `id` | String | The notification's uid. Live deliveries carry the same id, so you can drop duplicates. |
+| `subject` | String | `notif:<appId or userId>:<audience>`: the part of the mailbox it belongs to. |
 | `op` | String | Always `post`. |
-| `uid` | String | The notification's uid, as the mailbox names it. |
-| `type` | String | What kind of notification it is, from the published catalog — `share.received`, `app.worker.deployed`, and so on. |
+| `uid` | String | The notification's uid. |
+| `type` | String | The kind of notification, from the published catalog: `share.received`, `app.worker.deployed`, and so on. |
 | `audience` | String | `account`, `developer`, or `app-user`. |
-| `appUid` | String \| null | The app it is about, or `null` for one from the platform. |
-| `notification` | Object | The payload — `title`, `text`, `icon`, `fields`. |
+| `appUid` | String \| null | The app it's about, or `null` for platform notifications. |
+| `notification` | Object | The payload: `title`, `text`, `icon`, `fields`. |
 | `self` | Boolean | Always `true`: a mailbox is your own. |
 | `ts` | Number | When it was created, in milliseconds since the epoch. |
 | `seq` | Number | Position within the page. |
 
-An app sees only what its audience allows: `account` notifications (email changed, credits exhausted, an account action) are never returned to an app, whatever subject it names; `developer` notifications only where the recipient owns the app. Nothing is refused for asking — a slice you may not see comes back empty, so the call cannot be used to find out what exists.
+Apps never see `account` notifications (email changed, credits exhausted, and so on), and see `developer` notifications only for apps the user owns. Asking for a slice you can't see returns an empty page rather than an error, so the call doesn't reveal what exists.
 
-How long a notification is kept depends on the deployment's retention window, not a fixed number. A fetch reads whatever is still there, so a client away longer than the retention window starts from what is left, not from where it stopped.
+Notifications are kept for the deployment's retention window. A client away for longer starts from what's left.
 
-The promise rejects with `{ message, code }` — `fetch_unsupported_subject` for a family with no store, `invalid_subject` or `invalid_subject_audience` for one that does not parse, `too_many_requests` over the fetch budget, `events_disabled` where events are off, `events_failed` for anything the server answered that the SDK could not make sense of.
+The promise rejects with `{ message, code }`: `fetch_unsupported_subject` for `fs:` or `kv:`, `invalid_subject` or `invalid_subject_audience` for a subject that doesn't parse, `too_many_requests` over the rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
 
 ## Examples
 

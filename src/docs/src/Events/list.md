@@ -6,9 +6,9 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Lists the persistent subscriptions created with [`puter.events.onPersistent()`](/Events/onPersistent/). Session subscriptions made with `onLocal()` are not listed — they live with the connection and are not stored anywhere.
+Lists the persistent subscriptions created with [`puter.events.onPersistent()`](/Events/onPersistent/). Session subscriptions from `onLocal()` aren't stored, so they aren't listed.
 
-An app sees only the subscriptions it created. A session acting for the account sees them all, **including ones left behind by an app that is gone** — so the account is where a stray subscription gets revoked from.
+An app sees only the subscriptions it created. An account session sees all of them, **including ones left by apps that have been deleted**, so that's where to clean up stray subscriptions.
 
 ## Syntax
 ```js
@@ -21,23 +21,25 @@ puter.events.list(options)
 #### `options` (Object) (optional)
 
 - `limit` (Number): Maximum subscriptions per request. Capped at 200; defaults to 50.
-- `cursor` (String | null): Continuation token from a previous page. Passing it — `null` included — switches the return value to a single page envelope.
-- `includeTotal` (Boolean): Adds `total` to the envelope. Request it on the first page only; it costs more the more subscriptions exist.
+- `cursor` (String | null): The cursor from a previous page. Passing it (even `null`) returns a single page instead of the full list.
+- `includeTotal` (Boolean): Adds `total` to the page. Ask for it on the first page only; it gets slower as the count grows.
 - `stream` (Boolean): Returns an async iterator of page envelopes instead of a promise.
 
 ## Return value
 
-With no pagination params, a `Promise` for an array of every subscription, fetched page by page under the hood. With `cursor` or `includeTotal`, a `Promise` for one page: `{ items, cursor?, total? }` — `cursor` is present only while more pages exist. With `stream: true`, an async iterator of those envelopes.
+- No pagination options: a `Promise` for an array of every subscription (fetched page by page for you).
+- With `cursor` or `includeTotal`: a `Promise` for one page, `{ items, cursor?, total? }`. `cursor` is present while more pages exist.
+- With `stream: true`: an async iterator of pages.
 
-**Pages may be short.** Never read `items.length < limit` as the end of the list; iterate until `cursor` is absent.
+**Pages can be short.** Don't treat `items.length < limit` as the end; keep going until `cursor` is absent.
 
 Each subscription is the object [`onPersistent()`](/Events/onPersistent/) returns. In particular:
 
-- `contextKeys` (Array | null) and `contextHash` (String | null) describe the stored `context`. **The values are never returned** — the context is where an API key lives, and a listing is the one surface an app can call repeatedly. The hash changes whenever any value does, which is enough to tell two subscriptions apart or to notice one was re-created.
-- `suspendedAt` (Number | null) and `suspendedReason` (String | null) say whether a subscription stopped delivering without being removed, and why: `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
-- `targets` (Array) may list `'push'` — it is accepted when subscribing, but nothing delivers through it yet.
+- `contextKeys` (Array | null) and `contextHash` (String | null) describe the stored `context`. **Values are never returned**, since context often holds secrets. The hash changes whenever a value does.
+- `suspendedAt` (Number | null) and `suspendedReason` (String | null) are set when a subscription is [suspended](/Events/#suspended-subscriptions): `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
+- `targets` (Array) can include `'push'`, which is accepted but delivers nothing yet.
 
-The promise rejects with `{ message, code }` — `too_many_requests` over the listing budget, `events_disabled` where events are off, `events_failed` for anything the server answered that the SDK could not make sense of.
+The promise rejects with `{ message, code }`: `too_many_requests` over the listing rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
 
 ## Examples
 

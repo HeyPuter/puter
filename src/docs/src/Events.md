@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-The Events API tells your app when something changes. Subscribe to a *subject* — a file, a directory, a path that does not exist yet, a key-value key — and a handler runs every time it changes.
+The Events API tells your app when something changes. Subscribe to a *subject* (a file, a directory, a path that doesn't exist yet, or a key-value key) and your handler runs every time it changes.
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', ({ event }) => {
@@ -19,105 +19,130 @@ await sub.off();
 
 ## Terms
 
-Terms used across the Events API and its sub-pages.
-
 #### Subject
-What you are watching — a file, a directory, a key-value key, or a slice of the notification mailbox. Written as a short string, e.g. `fs:~/Documents` or `kv:cart`. See [Subjects](#subjects) below.
+What you watch, written as a string such as `fs:~/Documents` or `kv:cart`. See [Subjects](#subjects).
 
 #### Anchor
-`{ uid, path }` of the node a subscription is actually keyed to: the subject itself, or its nearest existing ancestor when the subject names something that does not exist yet. See [Watching something that does not exist yet](#watching-something-that-does-not-exist-yet).
+The `{ uid, path }` of the node a subscription is attached to: the subject itself, or its nearest existing parent when the subject doesn't exist yet.
 
-#### Gap marker
-An event with `op: 'gap'` sent in place of one or more events a limit dropped. It means "something happened, re-read what you are watching" — not "nothing changed". See [Gaps](#gaps).
+#### Session subscription
+Made with [`onLocal()`](/Events/onLocal/). It lives on this client's connection and ends when the connection closes.
 
-#### Delivery class
-Whether a persistent subscription's events go to every listener (`broadcast`, the default) or to exactly one consumer that must acknowledge each one (`single`). Set with the `delivery` option on [`onPersistent()`](/Events/onPersistent/).
+#### Persistent subscription
+Made with [`onPersistent()`](/Events/onPersistent/). It's stored on the account, keeps running while your app is closed, and runs a published handler.
+
+#### Handler
+Code your app publishes under a name for persistent subscriptions to run. See [`puter.events.handlers`](/Events/handlers/).
 
 #### Events worker
-The background runtime that invokes an app's published handlers when no client is connected to receive the delivery directly. One per app; it stands up on that app's first published handler. See [`puter.events.workers`](/Events/workers/).
+Runs an app's handlers when no client is connected to receive a delivery. Each app has one, created when it publishes its first handler. See [`puter.events.workers`](/Events/workers/).
+
+#### Delivery class
+How a persistent subscription delivers: `broadcast` (the default) sends each event to every listener, and `single` sends it to exactly one consumer, which must acknowledge it.
+
+#### Gap marker
+An event with `op: 'gap'`, sent in place of events a limit dropped. It means "something changed, re-read what you're watching", not "nothing changed". See [Gaps](#gaps).
 
 #### Share handle
-An opaque token that lets one account subscribe to a slice of another account's key-value namespace without learning whose data it is or where in the namespace it sits. See [Sharing a region with another user](#sharing-a-region-with-another-user).
+A token that lets another account watch part of your key-value data without learning whose data it is or where it sits. See [Sharing key-value data with another user](#sharing-key-value-data-with-another-user).
 
 ## Subjects
-
-A subject names what you are watching, and optionally the one operation you care about:
 
 ```
 fs:<path or uid>[:<op>]
 kv:<key>
 kv:<appId>:<key>
-```
-
-- **Path** — absolute (`/alice/Documents`) or home-relative (`~/Documents`). Subscribing to a directory covers everything under it, at any depth.
-- **Uid** — the `uid` of a file or directory, for watching one specific node no matter where it moves to.
-- **Op** — one of `add`, `write`, `move`, `remove`, `meta`. Leave it off to get all of them. Nothing emits `meta` yet, so a subscription limited to it stays quiet.
-
-```js
-await puter.events.onLocal('fs:~/Documents', handler);              // everything under Documents
-await puter.events.onLocal('fs:~/Documents/notes.txt:write', handler); // one file, writes only
-await puter.events.onLocal('fs:~/Pictures/*.png', handler);         // one segment of wildcard
-await puter.events.onLocal('fs:~/Projects/**/build.log', handler);  // across directories
-```
-
-`*` matches within one path segment, `**` crosses directories, and `?` matches one character. A subject may use `*` once per segment and `**` once in total; anything more is rejected with `invalid_subject_pattern`.
-
-```
 notif:<audience>
 notif:<appId>:<audience>
 ```
 
-- **Notifications** — `notif:` names a slice of the account's notification mailbox: `notif:account` for notifications about the account, `notif:app-user` for the ones belonging to the app you are running as, `notif:developer` for the ones about an app you own. An app never names its own id; the two-segment form is expanded for you. Unlike `fs:` and `kv:`, notifications are also **stored**, which is what makes [`fetch()`](/Events/fetch/) possible for them and not for the others.
+### Files
 
-### Key-value subjects
+- **Path**: absolute (`/alice/Documents`) or home-relative (`~/Documents`). A directory covers everything under it, at any depth.
+- **Uid**: the `uid` of a file or directory, to follow one node wherever it moves.
+- **Op**: one of `add`, `write`, `move`, `remove`, `meta`. Leave it off to get all of them. Nothing emits `meta` yet.
 
-A `kv:` subject watches your app's key-value store. Write it with just the key and it is read against the app you are running as:
+```js
+await puter.events.onLocal('fs:~/Documents', handler);                  // everything under Documents
+await puter.events.onLocal('fs:~/Documents/notes.txt:write', handler);  // one file, writes only
+await puter.events.onLocal('fs:~/Pictures/*.png', handler);             // wildcard within one segment
+await puter.events.onLocal('fs:~/Projects/**/build.log', handler);      // across directories
+```
+
+`*` matches within one path segment, `**` crosses directories, and `?` matches one character. A subject may use one `*` per segment and one `**` in total; more is rejected with `invalid_subject_pattern`.
+
+#### Watching something that doesn't exist yet
+
+A subject can name a path that isn't there. The subscription anchors on the nearest existing directory and matches the rest as a pattern, so you get the event when the path appears:
+
+```js
+// Nothing at this path yet. The handler runs when it's created.
+await puter.events.onLocal('fs:~/Documents/inbox/trigger.json:add', ({ event }) => {
+    process(event.path);
+});
+```
+
+If the anchor is deleted, a subscription made with a uid ends. One made with a path or pattern moves up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
+
+### Notifications
+
+`notif:` watches part of the account's notification mailbox:
+
+- `notif:account`: notifications about the account.
+- `notif:app-user`: notifications belonging to the app you're running as.
+- `notif:developer`: notifications about an app you own.
+
+The two-segment form is expanded to your app's id for you. Notifications are stored, which is why only `notif:` works with [`fetch()`](/Events/fetch/).
+
+### Key-value data
+
+A `kv:` subject watches your app's key-value store:
 
 ```js
 await puter.events.onLocal('kv:cart', ({ event }) => refresh(event.key));   // exactly the key `cart`
 await puter.events.onLocal('kv:cart*', handler);                            // every key starting with `cart`
 ```
 
-> **Exact by default; add `*` to widen.** `kv:cart` matches the key `cart` and nothing else, while `kv:cart*` matches every key starting with `cart`. This is the opposite of [`puter.kv.list()`](/KV/list/), whose `pattern` is always a prefix match with or without the `*`.
+> **Exact by default; add `*` to widen.** `kv:cart` matches only `cart`, and `kv:cart*` matches every key starting with `cart`. This is the opposite of [`puter.kv.list()`](/KV/list/), which always matches a prefix.
 
-Only a trailing `*` is allowed. A `*` in the middle, or a `?`, is rejected with `invalid_kv_pattern`.
+Only a trailing `*` is allowed. A `*` anywhere else, or a `?`, is rejected with `invalid_kv_pattern`.
 
-A key that contains `:` needs the fully qualified three-part form, since the second segment is always read as an app id:
-
-```js
-await puter.events.onLocal('kv:orders:pending', handler);   // app `orders`, key `pending`
-```
-
-Get your own app's id from `puter.appID` and build the subject from it when your keys are namespaced:
+The segment after `kv:` is read as an app id when there are more segments after it, so a key that contains `:` needs the full three-part form:
 
 ```js
-await puter.events.onLocal(`kv:${puter.appID}:orders:pending`, handler);
+await puter.events.onLocal('kv:orders:pending', handler);                  // app `orders`, key `pending`
+await puter.events.onLocal(`kv:${puter.appID}:orders:pending`, handler);   // your app, key `orders:pending`
 ```
 
-The `subject` and [anchor](#anchor) on the subscription you get back are always fully qualified, whichever form you subscribed with.
+The `subject` and [anchor](#anchor) on the returned subscription are always in the full form.
 
-A delivery names the key and not what it now holds, so a handler that needs the value reads it back. Ask for it instead with `includeValue`, and eligible `set` deliveries carry the new value while `del` deliveries carry `null`:
+#### Getting the new value
+
+A delivery names the key, not its value. Pass `includeValue: true` to receive the new value as `event.value` (`null` on a `del`, absent on an `expire`):
 
 ```js
 await puter.events.onLocal('kv:cart', ({ event }) => render(event.value), { includeValue: true });
 ```
 
-A value over **16 KB** serialized is not inlined: the event arrives without `value`, and you read the key as you would have anyway.
+The value is left out, and you read the key yourself, when:
 
-Values are also omitted from every delivery when the event matches more than **128 subscriptions in that region**, or the filter-evaluation ceiling prevents completing that count, even with `includeValue: true`. The count includes subscriptions that did not request values and is taken before delivery-time permission checks and delivery truncation. The key and other event metadata are still delivered.
+- it's over **16 KB** serialized, or
+- more than **128** subscriptions match the change in that region (including ones that didn't ask for values), or the filter-check limit stops the count early.
 
-An `expire` never carries one, since the value did not change. `includeValue` is accepted on `kv:` subjects only — anything else is refused with `invalid_include_value`. It works through a [share handle](#share-handle) too, which is how a holder sees what was written in a region it cannot otherwise read.
+`includeValue` only works on `kv:` subjects; elsewhere it's refused with `invalid_include_value`.
 
-Watching **another app's** key-value data takes the same consent as reading it: that app must not have opted out of data sharing, and the user must have granted your app `app-data:<appId>:kv:read`. It is checked when you subscribe and again on every delivery, so deliveries stop the moment either goes away. Where the feature is not enabled, a cross-app subject is refused with `events_cross_app_disabled`.
+#### Another app's data
 
-An entry the other app wrote with `disableSharing` is never delivered to you either, the same as a read would not see it. Marking a key private produces no event of its own, so a value you already have for it may be stale.
+Watching another app's key-value data takes the same consent as reading it: the app must allow data sharing, and the user must grant your app `app-data:<appId>:kv:read`. Both are checked when you subscribe and on every delivery. Where cross-app watching is off, the subject is refused with `events_cross_app_disabled`.
 
-### Sharing a region with another user
+Entries the other app wrote with `disableSharing` are never delivered. Marking a key private produces no event, so a value you already have for it may be stale.
 
-A `kv:` subject always means your own namespace. Watching part of *someone else's* takes a [share handle](#share-handle): the owner mints one over a key prefix and gives it out, and whoever holds it subscribes with the handle where an app id would go:
+### Sharing key-value data with another user
+
+`kv:` always means your own data. To let another account watch part of yours, mint a [share handle](#share-handle) over a key prefix and give it to them. They subscribe with the handle where an app id would go:
 
 ```js
-// The owner, sharing one workspace with another account.
+// The owner shares one workspace with another account.
 const res = await fetch(`${puter.APIOrigin}/events/kv-handles`, {
     method: 'POST',
     headers: {
@@ -126,8 +151,7 @@ const res = await fetch(`${puter.APIOrigin}/events/kv-handles`, {
     },
     body: JSON.stringify({
         granteeUsername: 'bob',
-        // Grant on a segment you will never rename. The handle pins this
-        // prefix, so a later reorganization of the keys does not move it.
+        // Use a segment you'll never rename: the handle is fixed to this prefix.
         prefix: `workspace:${workspaceId}:`,
     }),
 });
@@ -135,42 +159,32 @@ const { handle } = await res.json();
 ```
 
 ```js
-// Bob, watching every key written in that workspace.
-// `event.key` is relative to the handle: `messages:1`, not the owner's
-// `workspace:<id>:messages:1`.
+// Bob watches every key written in that workspace.
+// `event.key` is relative to the handle: `messages:1`, not `workspace:<id>:messages:1`.
 await puter.events.onLocal(`kv:${handle}:*`, ({ event }) => render(event.key));
 ```
 
-The handle is the whole of what the holder learns: not whose data it is, not where in the namespace it sits, and not anything above the prefix it was granted on. Events name it too: `subject` and `key` on every delivery are relative to the handle, in the same grammar the subscription was written in. `kv:<handle>:messages:*` narrows to part of the shared region, and one handle per channel gives one subscription covering every key written in that channel. Subscribe with `includeValue` to receive eligible values, subject to the 16 KB size limit and the threshold of 128 matching subscriptions. A share handle grants event access, not KV read access: when values are omitted, the app needs a separate authorized way to fetch the shared data. Revoking the handle stops event delivery.
+- **The holder learns only the handle**: not whose data it is, where it sits, or anything above the prefix. `subject` and `key` in their deliveries are relative to the handle. `kv:<handle>:messages:*` narrows to part of the shared region.
+- **Values:** `includeValue` works through a handle, with the same limits. A handle grants events, not reads, so when a value is left out the holder needs some other authorized way to read it.
+- **Use a stable prefix.** A handle stays on the prefix it was minted on. Rename `workspace:<uuid>:` to `project:<uuid>:` and existing handles point at keys nothing writes. Prefer synthetic ids (`workspace:<uuid>:`, `thread:<uuid>:`) over names that might change (`acme-corp:`).
+- **Prefixes are literal.** `*`, `?` and empty segments (`workspace::abc:`) are refused with `invalid_kv_share_prefix`. The trailing `:` is optional.
+- **Keys can't leave the handle.** A handle with no key after it, or a key using `..`, is refused with `invalid_kv_handle_key`.
 
-**Key layout is the access boundary.** A handle pins the prefix it was granted on, and nothing rewrites it afterwards: rename `workspace:<uuid>:` to `project:<uuid>:` and every handle already given out points at keys nothing writes any more. Grant on a **stable synthetic segment** — `workspace:<uuid>:`, `thread:<uuid>:` — rather than a semantic one like `acme-corp:` or `q3-planning:`, which is more likely to get renamed later.
+**Managing handles.** `GET /events/kv-handles` lists the handles the account has minted, revoked ones included. `DELETE /events/kv-handles/<handle>` revokes one, and every subscription on it is suspended with `permission_revoked` and its backlog dropped. Revoking an already-revoked handle isn't an error. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for how many handles an account can hold. Temporary accounts can't mint handles (`events_kv_handle_requires_account`). Where the feature is off, minting and handle subjects fail with `events_kv_handles_disabled`.
 
-`GET /events/kv-handles` lists what the account has minted, revoked ones included, and `DELETE /events/kv-handles/<handle>` takes one back — the grant goes with it, and every subscription standing on it is suspended with `permission_revoked` and its backlog dropped. Revoking is idempotent: a handle already taken back answers with the moment it stopped rather than an error. A paid account may hold out 500 live handles at a time and a free account 200. Any one app's namespace is bounded further — 100 and 50 — so no single app can spend the account's whole budget; a handle minted without naming a namespace answers to the account cap alone. Retired ones stay listed and count against neither, and revoking frees a slot at once. Past either the mint fails with `events_kv_handle_limit_reached`, and a temporary account may not mint at all — `events_kv_handle_requires_account`. Where the feature is not enabled, minting and handle subjects are refused with `events_kv_handles_disabled`.
+**Apps.** An app can mint, list and revoke handles for its user, but only inside its own namespace and with the user's consent: `manage:kv-share:<userUuid>:<appId>:<prefix>`, requested with [`puter.perms.request()`](/Perms/request/). The prefix supplies its segments, so `workspace:abc:` ends the permission as `…:workspace:abc`. The consent must name a prefix; asking for the whole namespace is refused with `invalid_kv_share_prefix`. An app that lists handles sees only its own namespace.
 
-A prefix names a region, so it is taken as written: `*` and `?` are refused (`invalid_kv_share_prefix`), and so is an empty key segment — `workspace::abc:` is not read as `workspace:abc:`. Only the trailing delimiter is optional.
+| Refused with | When |
+| --- | --- |
+| `events_kv_handle_not_delegated` | Minting or revoking outside the consented prefix, or after the consent was withdrawn (the handle stays in place). |
+| `events_kv_handle_outside_namespace` | Minting outside the app's own namespace. |
+| `events_kv_handle_owner_only` | The caller is an access token the app issued, a different app of the same user, or the handle is outside the app's namespace. |
 
-An app can mint on its user's behalf, but only inside its own namespace and only where the user has granted it. The consent is `manage:kv-share:<userUuid>:<appId>:<prefix>` (the prefix contributing its segments, so `workspace:abc:` ends the string as `…:workspace:abc`), requested with [`puter.perms.request()`](/Perms/request/). The consent has to name a region: a request over the whole namespace is refused with `invalid_kv_share_prefix`. Minting outside the region it was given, or outside the app's own namespace, is refused with `events_kv_handle_not_delegated` and `events_kv_handle_outside_namespace` respectively. An app may list and revoke as well, bounded the same way its minting is: `GET /events/kv-handles` answers an app with the handles in its own namespace only, and `DELETE /events/kv-handles/<handle>` takes one of those back while the app still holds the `manage:` delegation covering it. Once the delegation is withdrawn the revoke is refused with `events_kv_handle_not_delegated` and the handle stands. An access token the app issued, another app of the same user, and a handle outside the app's own namespace are all refused with `events_kv_handle_owner_only`.
+An app can also subscribe through a handle, but only when the shared region belongs to that same app. A different app, even for the same user, is refused as if the handle didn't exist.
 
-An app may also use a handle on its user's behalf. A subscription made while running as an app works when the shared region belongs to that same app — the one named in the grant the handle stands for. Running as a different app, even for the same user, is refused the same way a handle nobody minted would be: reading the handle takes its own consent, and a grant given to one app never carries over to another.
+### What you're allowed to watch
 
-A key under a handle is relative to the region it was granted on, so anything that reads as an attempt to leave it — a bare handle naming no key, or a key trying to walk out with `..` — is refused with `invalid_kv_handle_key` rather than composed into a path outside the grant.
-
-### Watching something that does not exist yet
-
-A subject is allowed to name a path that is not there. The subscription's [anchor](#anchor) becomes the nearest directory that *does* exist, and the rest of the subject becomes a pattern matched under it — so the event you get is the one where the path appears:
-
-```js
-// Nothing at this path yet — the handler runs when it is created.
-await puter.events.onLocal('fs:~/Documents/inbox/trigger.json:add', ({ event }) => {
-    process(event.path);
-});
-```
-
-Wildcards work the same way: `*` matches within one path segment, `**` crosses directories, and both cost the same.
-
-### What you are allowed to watch
-
-Subscribing takes the same access as reading. A subject you cannot read — and a subject that is not there — both fail with `subject_does_not_exist`, so the call cannot be used to find out which one it was. Access is re-checked on every delivery too: when a share is revoked, deliveries stop immediately.
+Subscribing takes the same access as reading. A subject you can't read and a subject that doesn't exist both fail with `subject_does_not_exist`, so the error doesn't reveal which. Access is checked again on every delivery: when a share is revoked, deliveries stop immediately.
 
 ## The event
 
@@ -179,16 +193,16 @@ The handler is called with `{ event }`. A filesystem change carries:
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | String | Unique id for the event. |
-| `subject` | String | The subject the change was projected onto, naming the node it happened to (`fs:<uid>:<op>`) — not the subject string you subscribed with. |
-| `op` | String | `add`, `write`, `move`, or `remove`. `move` covers a move and an in-place rename, and `add` covers a copy's destination as well as a create. |
+| `subject` | String | The node it happened to, as `fs:<uid>:<op>`. Not the subject you subscribed with. |
+| `op` | String | `add` (a create, or a copy's destination), `write`, `move` (a move or a rename), or `remove`. |
 | `uid` | String | The uid of the node that changed. |
 | `path` | String | The path of the node that changed. |
-| `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that side — a subscription on the destination folder alone is not told where the node came from. |
-| `self` | Boolean | `true` when the change was made by the account holding the subscription. Check it to ignore your own writes. |
+| `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that location. |
+| `self` | Boolean | `true` when the account holding the subscription made the change. Use it to ignore your own writes. |
 | `ts` | Number | When it happened, in milliseconds since the epoch. |
-| `seq` | Number | Position within one dispatch, for changes that fan out to several subscriptions. |
+| `seq` | Number | Position within one dispatch, when a change goes to several subscriptions. |
 
-A key-value change carries `key` where a filesystem change carries `uid` and `path` — there is no node to name — and a different set of ops:
+A key-value change carries `key` instead of `uid` and `path`, and different ops:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -196,18 +210,27 @@ A key-value change carries `key` where a filesystem change carries `uid` and `pa
 | `subject` | String | `kv:<appId>:<key>`, naming the key that changed. |
 | `op` | String | `set` for a write, `del` for a removal, `expire` when only the key's lifetime changed. |
 | `key` | String | The key that changed. |
-| `value` | Any | What the key holds after the change — the written value on a `set`, `null` on a `del`. Only on a subscription made with `includeValue`, only up to 16 KB serialized, only when the complete match count is at most 128 subscriptions in the region, and never on an `expire`. |
+| `value` | Any | The new value (`null` on a `del`). Only with `includeValue`, and only within the [limits above](#getting-the-new-value). Never on an `expire`. |
 | `self` | Boolean | As above. |
 | `ts` | Number | As above. |
 | `seq` | Number | As above. |
 
-Nothing else is included — in particular there is no field naming *who* made the change, because on a shared folder that would tell every subscriber who else is in there. The new **value** rides only where the subscription asked for it with `includeValue`, and only while the delivery re-check still passes, so a revoked grant or handle stops the values with the events.
+Events never say *who* made a change: on a shared folder, that would tell every subscriber who else has access.
 
-Emptying a whole store with [`puter.kv.flush()`](/KV/flush/) delivers nothing: no subject names "everything in this namespace went", and the keys a flush can enumerate are not reliably the keys it removed.
+[`puter.kv.flush()`](/KV/flush/) delivers nothing, since the keys a flush can list aren't reliably the keys it removed.
 
 ### Gaps
 
-Every per-event limit truncates the delivery rather than failing anything, and sends a **gap marker** in its place: an event with `op: 'gap'`, a `reason`, and no `uid` or `path`. A gap means something happened that you were not told the details of, so treat it as "re-read what I am watching", never as "nothing changed". A persistent subscription that was suspended long enough for its held backlog to lapse gets one too, with `reason: 'suspended_backlog_expired'`.
+Limits never make a subscription fail. Instead they send a **gap marker** in place of what was dropped: an event with `op: 'gap'`, a `reason`, and no `uid` or `path`. Treat it as "re-read what I'm watching", never as "nothing changed".
+
+| `reason` | Cause |
+| --- | --- |
+| `matched_subscription_limit` | The event matched more subscriptions than one event may reach. |
+| `filter_evaluation_limit` | The event had more subscription filters to check than one event may check. |
+| `delivery_rate_limit` | This subscription went over its per-minute delivery rate. |
+| `backlog_overflow` | The undelivered backlog was full, so the oldest deliveries were dropped. |
+| `handler_rejected` | The handler refused the delivery (a `4xx`, or a thrown terminal error). |
+| `suspended_backlog_expired` | The subscription stayed suspended past the time its backlog is kept. |
 
 ```js
 await puter.events.onLocal('fs:~/Documents', async ({ event }) => {
@@ -218,21 +241,23 @@ await puter.events.onLocal('fs:~/Documents', async ({ event }) => {
 
 ## Catching up on what you missed
 
-A subscription delivers while something is listening. For what happened while nothing was, [`puter.events.fetch()`](/Events/fetch/) reads the subject's own store a page at a time:
+A subscription only delivers while something is listening. For what happened in between, [`puter.events.fetch()`](/Events/fetch/) reads a subject's stored events a page at a time:
 
 ```js
 const page = await puter.events.fetch({ subject: 'notif:account' });
 for (const event of page.items) show(event.notification);
-if (page.cursor) { /* more where that came from — pass it back as `after` */ }
+if (page.cursor) { /* more pages: pass it back as `after` */ }
 ```
 
-Nothing is registered and no position is kept for you: you hold the cursor. Only `notif:` has a store behind it — `fs:` and `kv:` keep no log and refuse the call rather than answering with an empty page. A notification's `id` is the same whether it arrived live or came back from a fetch, so overlapping the two and dropping ids you have already seen is the way to catch up without missing or repeating anything.
+You keep the cursor; nothing is stored for you. Only `notif:` has stored events. `fs:` and `kv:` are refused rather than answered with an empty page. A notification has the same `id` live and from `fetch()`, so you can run both and drop duplicates.
 
-## Two kinds of subscription
+## Session subscriptions
 
-`onLocal()` subscriptions are **session-scoped**: nothing is stored, nothing runs while the page is closed, and the server drops them when the connection goes away. Every subscription this client makes rides one connection, which opens on the first `onLocal()` and closes when the last subscription ends. A Puter worker invocation is short-lived, so `onLocal()` there is only useful for the lifetime of that one invocation — a worker that wants to react to changes over time should use [`onPersistent()`](/Events/onPersistent/) with a `worker` target and a published handler instead.
+`onLocal()` subscriptions store nothing and run nothing while the page is closed. All of a client's session subscriptions share one connection, opened by the first `onLocal()` and closed when the last one ends.
 
-When the connection drops and comes back — a network blip, a sign-in, an API origin change, or the server closing it because another of the account's sessions signed out — the SDK reconnects and subscribes again for you, backing off when the server was the one that closed it. The handler and the subscription object stay the same; only `subId` changes, which is why nothing should be stored against it. The subscription lapses and your `onError` callback is told only if re-subscribing fails, the reconnect is refused (`reauth_required` when the session was signed out), or the server keeps closing the connection (`events_connection_failed`):
+In a Puter worker, a session subscription only lasts for that one invocation. To react to changes from a worker, use [`onPersistent()`](/Events/onPersistent/) with a published handler.
+
+If the connection drops (a network blip, a sign-in, an API origin change, or the server closing it), the SDK reconnects and subscribes again. The handler and subscription object stay the same; only `subId` changes, so don't store anything against it. `onError` is called only if the subscription can't be restored: re-subscribing fails, the reconnect is refused (`reauth_required` after a sign-out), or the server keeps closing the connection (`events_connection_failed`).
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', handler, {
@@ -240,7 +265,9 @@ const sub = await puter.events.onLocal('fs:~/Documents', handler, {
 });
 ```
 
-[`onPersistent()`](/Events/onPersistent/) subscriptions are **stored against the account**. They keep matching with nothing open, survive every reconnect, and end only when you call [`unsubscribe()`](/Events/unsubscribe/) or their `expiresAt` passes. What runs is a *handler* your app deployed by name. A handler running here rides the same connection and survives the same reconnects; if the connection is lost for good it stops running here and its own `onError` is told, but the subscription itself carries on — the handler runs here again once this client connects again (signing in again, or a new subscription).
+## Persistent subscriptions
+
+[`onPersistent()`](/Events/onPersistent/) subscriptions are stored on the account. They keep matching with nothing open, survive reconnects, and end only when you call [`unsubscribe()`](/Events/unsubscribe/) or their `expiresAt` passes. Each one runs a handler your app published by name:
 
 ```js
 // Once, at deploy time
@@ -256,41 +283,57 @@ await puter.events.onPersistent({
 });
 ```
 
-### Handlers cannot close over anything
+A delivery goes to a connected client when there is one, and to the app's [events worker](#events-worker) when there isn't. Pass `handler` as a function to run it in this client too; it's the same code, called with the same `{ event, ctx, user, fetch, ack }`.
 
-A handler is deployed, not called: it is serialized and run later, somewhere else, so it cannot close over any variable from where it was defined. Values reach it through **`context`** instead, evaluated once at subscribe time and capped at 4 KB. See [`puter.events.handlers`](/Events/handlers/) for the full rules and error codes, and [`onPersistent()`](/Events/onPersistent/) for how `context` is passed in.
+### Handlers can't use outside variables
 
-Publishing your first handler for an app stands up an [events worker](#events-worker) for it; see [`puter.events.workers`](/Events/workers/) to list and destroy them.
+A handler is serialized and run later, somewhere else, so it can't use variables from where it was defined. Pass values through **`context`** instead, which is captured once when you subscribe and capped at 4 KB. See [`puter.events.handlers`](/Events/handlers/) for the rules.
 
-### Running when nobody is there takes consent
+### Running in the background needs consent
 
-A persistent subscription delivers to a connected client when there is one, and runs the app's handler in the background when there is not. The background half is a separate thing to agree to — your code running on the user's account with nobody watching — so it takes the per-app permission **`events:background`**, requested with [`puter.perms.request()`](/Perms/request/) and revocable wherever the user manages the app's access. Without it, subscribing with `worker` among its `targets` (the default for an app) fails with `events_background_consent_required`; taking it back suspends every worker-target subscription that app holds for that user. A subscription that only wants deliveries while your app is open asks for `targets: ['socket']` and needs no consent.
+Running your handler while the user isn't there needs the per-app permission **`events:background`**, requested with [`puter.perms.request()`](/Perms/request/). Without it, a subscription that targets `worker` (the default for an app) fails with `events_background_consent_required`. If the user revokes it, every worker-target subscription the app holds for them is suspended. A subscription that only wants deliveries while your app is open can pass `targets: ['socket']` and needs no consent.
 
-A third target, `'push'`, is reserved for a future device-notification transport. It is accepted today (except on a `single` subscription) but nothing delivers through it yet.
+The `'push'` target is reserved for future device notifications. It's accepted (except on `single` subscriptions) but delivers nothing yet.
 
-Pass `handler` as a **function** and it runs here too, whenever this client is the one the delivery goes to — the same body that runs in the worker, with the same `{ event, ctx, user, fetch, ack }`. See [`onPersistent()`](/Events/onPersistent/) for the acknowledgement rules; the short version is that a `single` delivery is settled by returning from the handler, and a handler that throws sees the event again.
+### Suspended subscriptions
 
-A persistent subscription can also stop without you unsubscribing: its handler was removed, its holder ran out of credit, the handler kept failing, or the share it was made under was withdrawn. It is then *suspended* rather than deleted, and [`list()`](/Events/list/) reports `suspendedAt` and `suspendedReason`. Everything but a withdrawn grant can resume.
+A persistent subscription can stop without being unsubscribed. It's then *suspended*, not deleted, and [`list()`](/Events/list/) shows `suspendedAt` and `suspendedReason`:
 
-### Where your client is connected does not matter
+| `suspendedReason` | Cause | Resumes when |
+| --- | --- | --- |
+| `handler_not_found` | Its handler was removed. | A handler is published under that name again. |
+| `failures` | Its handler failed 5 times in a row. | The handler is republished. |
+| `no_credit` | Its holder ran out of credit. | The balance is topped up (checked every few minutes). |
+| `permission_revoked` | The permission or share it relied on was withdrawn. | **Never.** Subscribe again. |
 
-Puter runs in several places, and a client connects to whichever one is nearest. An event finds the connection wherever it is, `ack()` settles the delivery on whichever connection you called it on, and the shape of everything you receive is identical either way.
+A suspended subscription stops delivering and isn't billed. Its backlog is cut to 100 deliveries and kept for 24 hours (`handler_not_found`, `failures`) or 1 hour (`no_credit`), then replaced by one gap marker. A `permission_revoked` backlog is dropped immediately. Suspended subscriptions are deleted after 30 days.
 
-The one consequence worth knowing is the one already stated: a `single` delivery is **at-least-once**. Undelivered events are held where the change happened, so a deployment going down loses only what it was still holding — the subscription itself, and everything already delivered, is unaffected. Handlers are asked to be idempotent for this reason, and `event.id` is the key to deduplicate on.
+### Delivery guarantees
 
-Ordering follows the same shape: a subscription's own deliveries stay in order within the region that emits them, but the ordering is best effort across regions, and the 250 ms coalescing window is applied per region rather than globally. Two writes made moments apart can therefore arrive coalesced into one event in a region near the writer and as two separate ones somewhere farther away.
+Clients connect to the nearest region. Events reach a client wherever it's connected, and `ack()` works on any connection.
+
+- `single` deliveries are **at-least-once**: one may arrive twice, with the same `event.id`. Make handlers safe to run twice.
+- Undelivered events are held in the region where the change happened. If that region goes down, only what it was holding is lost.
+- Order is kept within a region and is best-effort across regions. Coalescing (250 ms) also runs per region, so two quick writes can arrive as one event nearby and as two farther away.
 
 ## Limits
 
-Subscriptions per connection, persistent subscriptions per account, published handlers per app, subscribe calls per minute, and how much one event may fan out are all capped — see [Rate Limits and Quotas](/rate-limits-and-quotas/). A KV change delivers to at most **128 matching subscriptions for a free or anonymous key owner** or **512 for a paid key owner**, per region; these count subscriptions, not people. Other event families retain their 50-subscription cap. Deliveries are coalesced over 250 ms per subject, so a multipart upload or a save loop arrives as one event rather than one per write.
+The main ones:
+
+- 50 session subscriptions per connection.
+- 500 persistent subscriptions per paid account, 100 per free account, and a smaller share for each app.
+- One KV change reaches at most 512 subscriptions per region for a paid key owner and 128 for a free one. Other events reach 50. These count subscriptions, not people.
+- Writes to the same subject within 250 ms arrive as one event.
+
+See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for every limit and what each is counted against.
 
 ## Functions
 
-- **[`puter.events.onLocal()`](/Events/onLocal/)** - Subscribe to a subject for as long as this client is connected
+- **[`puter.events.onLocal()`](/Events/onLocal/)** - Subscribe for as long as this client is connected
 - **[`subscription.off()`](/Events/off/)** - End a session subscription
 - **[`puter.events.onPersistent()`](/Events/onPersistent/)** - Subscribe with a subscription that keeps running when your app is closed
 - **[`puter.events.list()`](/Events/list/)** - List the persistent subscriptions this caller holds
 - **[`puter.events.unsubscribe()`](/Events/unsubscribe/)** - End a persistent subscription
 - **[`puter.events.fetch()`](/Events/fetch/)** - Read what a subject recorded while nothing was listening
-- **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers a persistent subscription runs
-- **[`puter.events.workers`](/Events/workers/)** - List and destroy the events worker a published handler set stands up
+- **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers persistent subscriptions run
+- **[`puter.events.workers`](/Events/workers/)** - List and destroy an app's events worker
