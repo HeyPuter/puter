@@ -41,6 +41,9 @@ const AUDIT_ACTION_KEYS = {
     delete_account: 'teams_audit_delete_account',
     directory_enabled: 'teams_audit_directory_enabled',
     directory_disabled: 'teams_audit_directory_disabled',
+    require_2fa_enabled: 'teams_audit_require_2fa_enabled',
+    require_2fa_disabled: 'teams_audit_require_2fa_disabled',
+    reset_member_2fa: 'teams_audit_reset_member_2fa',
 };
 
 /** i18n keys for the reasons the team attaches to an action. */

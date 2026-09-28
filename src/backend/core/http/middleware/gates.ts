@@ -258,6 +258,42 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
     };
 };
 
+/** Just the seat read the 2FA gate needs, so gates stay store-agnostic. */
+export interface Team2faLookup {
+    getOrgSeat(
+        userId: number,
+    ): Promise<{ require_2fa?: number | null } | null | undefined>;
+}
+
+/**
+ * Reject a team-provisioned account whose team requires 2FA until it has some.
+ * Derived, not stamped: a flag left behind by a member leaving would lock them
+ * out of their own account with no team left to clear it.
+ */
+export const assertTeam2fa = async (
+    user: AccountGateUser | undefined,
+    teams: Team2faLookup | undefined,
+): Promise<void> => {
+    if (!user || user.otp_enabled) return;
+    if (typeof user.id !== 'number' || !teams?.getOrgSeat) return;
+    const seat = await teams.getOrgSeat(user.id);
+    if (!seat || Number(seat.require_2fa) !== 1) return;
+    throw new HttpError(
+        403,
+        'Your team requires two-factor authentication. Set it up to continue.',
+        { legacyCode: 'two_factor_required' as never },
+    );
+};
+
+/** {@link assertTeam2fa} as route middleware. */
+export const requireTeam2fa = (
+    teams: Team2faLookup | undefined,
+): RequestHandler => {
+    return (req, _res, next) => {
+        assertTeam2fa(req.actor?.user, teams).then(() => next(), next);
+    };
+};
+
 /**
  * Reject accounts still pending a signup-time verification (email, phone, card,
  * password change). Default-on for authenticated routes; the flows that clear
