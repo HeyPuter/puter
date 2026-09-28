@@ -7,6 +7,16 @@ order: 46
 
 **Use this when** a directory has more in it than you want in memory at once, or
 when you are writing into a folder that other things are also writing into.
+Typically:
+
+- A **file browser** with an infinite-scrolling list, a sort header, and a
+  "showing 50 of 214" label.
+- A **media gallery** that shows the newest uploads first and walks
+  subdirectories to find them.
+- An **upload endpoint** where two people can send `invoice.pdf` a second apart
+  and neither should lose theirs.
+- A **report generator** writing to `reports/2026/q3/` before that folder tree
+  exists.
 
 Reading a whole directory is one call and covered in
 [storing files](/recipes/store-files/). This is what to do when that is no

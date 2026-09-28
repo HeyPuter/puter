@@ -1,24 +1,25 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
+    <h3>Report generator</h3>
     <script>
+        // Writing this quarter's report before the year/quarter folders exist.
         (async () => {
-            // Without createMissingParents this fails: reports/2026/q3 is absent.
+            const path = 'reports/2026/q3/summary.txt';
+
             try {
-                await puter.fs.write('reports/2026/q3/summary.txt', 'no parents');
-                puter.print('wrote it (the folders already existed)<br>');
+                await puter.fs.write(path, 'no parents');
+                puter.print('wrote it — the folders already existed<br>');
             } catch (e) {
                 puter.print(`without the option: ${e.code ?? e.message}<br>`);
             }
 
-            await puter.fs.write('reports/2026/q3/summary.txt', 'with parents', {
-                createMissingParents: true,
-            });
+            await puter.fs.write(path, 'Q3 summary', { createMissingParents: true });
             puter.print('with createMissingParents: written<br><br>');
 
-            // mkdir takes the same three options.
-            await puter.fs.mkdir('reports/2027/q1', { createMissingParents: true });
-            puter.print('and the same for mkdir');
+            // mkdir takes the same three options, so next quarter is one call.
+            await puter.fs.mkdir('reports/2026/q4', { createMissingParents: true });
+            puter.print('q4 folder ready for next time');
         })();
     </script>
 </body>

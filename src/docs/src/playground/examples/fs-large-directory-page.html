@@ -1,24 +1,35 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
+    <h3>File browser</h3>
+    <button id="more">Load more</button>
     <script>
-        (async () => {
-            await puter.fs.mkdir('uploads', { createMissingParents: true }).catch(() => {});
-            for (let i = 0; i < 7; i++) {
-                await puter.fs.write(`uploads/file-${i}.txt`, `n=${i}`);
+        // An infinite-scrolling list: one page per scroll to the bottom,
+        // standing in here for a button.
+        let cursor = null, done = false, seeded = false;
+
+        document.getElementById('more').addEventListener('click', async () => {
+            if (done) return;
+
+            if (!seeded) {
+                for (let i = 0; i < 7; i++) {
+                    await puter.fs.write(`uploads/file-${i}.txt`, `n=${i}`, {
+                        createMissingParents: true,
+                    });
+                }
+                seeded = true;
             }
 
-            // cursor (even null) switches the result to a page object.
-            let page = await puter.fs.readdir({ path: 'uploads', cursor: null, limit: 3 });
-            let n = 0;
+            const page = await puter.fs.readdir({ path: 'uploads', cursor, limit: 3 });
+            for (const item of page.items) puter.print(`${item.name}<br>`);
 
-            for (;;) {
-                puter.print(`<b>page ${++n}</b>: ${page.items.map(i => i.name).join(', ')}<br>`);
-                // Present only while more pages remain — that is the stop condition.
-                if (!page.cursor) break;
-                page = await puter.fs.readdir({ path: 'uploads', cursor: page.cursor, limit: 3 });
+            // Absent cursor is the end — not a short page.
+            cursor = page.cursor ?? null;
+            if (!page.cursor) {
+                done = true;
+                puter.print('<b>— end of directory —</b>');
             }
-        })();
+        });
     </script>
 </body>
 </html>

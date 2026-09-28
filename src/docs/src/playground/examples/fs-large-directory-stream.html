@@ -1,18 +1,24 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
+    <h3>Gallery — load everything</h3>
     <script>
+        // Walking the whole directory to build an index, without holding the
+        // full listing or tracking a cursor by hand.
         (async () => {
-            await puter.fs.mkdir('uploads', { createMissingParents: true }).catch(() => {});
             for (let i = 0; i < 7; i++) {
-                await puter.fs.write(`uploads/file-${i}.txt`, `n=${i}`);
+                await puter.fs.write(`uploads/file-${i}.txt`, `n=${i}`, {
+                    createMissingParents: true,
+                });
             }
 
-            // Same pages as the cursor loop, without the bookkeeping.
-            let n = 0;
+            let seen = 0, pages = 0;
             for await (const page of puter.fs.readdir({ path: 'uploads', stream: true, limit: 3 })) {
-                puter.print(`<b>page ${++n}</b>: ${page.items.map(i => i.name).join(', ')}<br>`);
+                pages++;
+                seen += page.items.length;
+                puter.print(`page ${pages}: ${page.items.map(i => i.name).join(', ')}<br>`);
             }
+            puter.print(`<br><b>${seen} items over ${pages} pages</b>`);
         })();
     </script>
 </body>
