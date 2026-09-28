@@ -104,6 +104,50 @@ describe('TeamStore', () => {
         });
     });
 
+    it('creates a team even when replica reads cannot see it yet', async () => {
+        const db = server.clients.db as unknown as {
+            read: (q: string, p?: unknown[]) => Promise<unknown[]>;
+            pread: (q: string, p?: unknown[]) => Promise<unknown[]>;
+        };
+        const [realRead, realPread] = [db.read.bind(db), db.pread.bind(db)];
+        // sqlite's pread delegates to read, so the primary is pinned separately.
+        db.pread = realRead;
+        db.read = async (q: string, p?: unknown[]) =>
+            /FROM `group`/u.test(q) ? [] : realRead(q, p);
+
+        try {
+            const created = await store.create({
+                ownerUserId: owner.id,
+                name: 'Lagging Replica',
+            });
+            expect(created).toMatchObject({ name: 'Lagging Replica' });
+        } finally {
+            [db.read, db.pread] = [realRead, realPread];
+        }
+    });
+
+    it('leaves no team behind when the row cannot be read back at all', async () => {
+        const db = server.clients.db as unknown as {
+            read: (q: string, p?: unknown[]) => Promise<unknown[]>;
+            pread: (q: string, p?: unknown[]) => Promise<unknown[]>;
+        };
+        const [realRead, realPread] = [db.read.bind(db), db.pread.bind(db)];
+        const blind = async (q: string, p?: unknown[]) =>
+            /FROM `group`/u.test(q) ? [] : realRead(q, p);
+        [db.read, db.pread] = [blind, blind];
+
+        const loner = await makeUser();
+        try {
+            await expect(
+                store.create({ ownerUserId: loner.id, name: 'Doomed' }),
+            ).rejects.toThrow(/disappeared/u);
+        } finally {
+            [db.read, db.pread] = [realRead, realPread];
+        }
+
+        expect(await store.countOwned(loner.id)).toBe(0);
+    });
+
     it('creates a team without a handle', async () => {
         const created = await store.create({
             ownerUserId: owner.id,

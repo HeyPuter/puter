@@ -148,10 +148,7 @@ const RESERVED_HANDLES = new Set([
 ]);
 
 export type HandleRejection =
-    | 'too_short'
-    | 'too_long'
-    | 'malformed'
-    | 'reserved';
+    'too_short' | 'too_long' | 'malformed' | 'reserved';
 
 /** Trimmed and capped, so the same name is accepted on every engine. */
 export const normalizeTeamName = (name: string): string => {
@@ -215,6 +212,15 @@ export class TeamStore extends PuterStore {
         return (rows[0] as unknown as TeamRow) ?? null;
     }
 
+    /** For reading back a row this request just wrote; the replica may lag. */
+    async #readByUidFromPrimary(uid: string): Promise<TeamRow | null> {
+        const rows = await this.clients.db.pread(
+            `SELECT * FROM \`group\` WHERE \`uid\` = ? AND ${this.#live()}`,
+            [uid, TEAM_KIND],
+        );
+        return (rows[0] as unknown as TeamRow) ?? null;
+    }
+
     /** Includes soft-deleted rows, so an audit survives its team. */
     async getByUidIncludingDeleted(uid: string): Promise<TeamRow | null> {
         const rows = await this.clients.db.read(
@@ -271,9 +277,16 @@ export class TeamStore extends PuterStore {
             [uid, input.ownerUserId, TEAM_KIND, name, handle, '{}', '{}'],
         );
 
-        const created = await this.getByUid(uid);
-        if (!created)
+        const created = await this.#readByUidFromPrimary(uid);
+        if (!created) {
+            // Unreachable to the caller, but still counts against their cap.
+            await this.clients.db.write(
+                'DELETE FROM `group` WHERE `uid` = ? AND `kind` = ?',
+                [uid, TEAM_KIND],
+            );
             throw new Error('team disappeared immediately after insert');
+        }
+        await this.#cachePut(`team:row:${uid}`, created);
         return created;
     }
 
@@ -314,7 +327,9 @@ export class TeamStore extends PuterStore {
             [...params, uid, TEAM_KIND],
         );
         await this.#bustRow(uid);
-        return this.getByUid(uid);
+        const updated = await this.#readByUidFromPrimary(uid);
+        if (updated) await this.#cachePut(`team:row:${uid}`, updated);
+        return updated;
     }
     /** Releases the handle, since nothing addresses by it; keeps `name`. */
     async softDelete(uid: string): Promise<boolean> {
@@ -516,6 +531,13 @@ export class TeamStore extends PuterStore {
             return read();
         }
         const value = await read();
+        // A miss may just be a lagging replica; caching it holds for the TTL.
+        if (value !== null && value !== undefined)
+            await this.#cachePut(key, value);
+        return value;
+    }
+
+    async #cachePut(key: string, value: unknown): Promise<void> {
         try {
             await this.clients.redis.set(
                 key,
@@ -526,7 +548,6 @@ export class TeamStore extends PuterStore {
         } catch {
             /* a cache that cannot be written is still correct */
         }
-        return value;
     }
 
     async #bust(...keys: string[]): Promise<void> {
