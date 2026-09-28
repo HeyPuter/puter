@@ -12,6 +12,7 @@ const recipeTags = {
     hosting: 'Hosting',
     workers: 'Workers',
     ui: 'UI',
+    teams: 'Teams',
     performance: 'Performance',
     'data-modeling': 'Data Modeling',
 };
