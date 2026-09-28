@@ -1,26 +1,31 @@
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
-    <button id="go">Save to Documents</button>
+    <h3>Notes app — settings</h3>
+    <label><input type="checkbox" id="toggle"> Autosave to Documents</label>
+    <button id="save">Save a note</button>
     <script>
         const details = { name: 'Documents', access: 'write' };
+        const toggle = document.getElementById('toggle');
 
         (async () => {
-            // check() never prompts, so it can decide what the UI offers.
-            const held = await puter.perms.check('folder', details);
-            document.getElementById('go').textContent = held
-                ? 'Save to Documents'
-                : 'Allow access, then save';
+            // check() never prompts, so a settings screen can render the real
+            // state without a dialog appearing the moment it opens.
+            toggle.checked = await puter.perms.check('folder', details);
         })();
 
-        document.getElementById('go').addEventListener('click', async () => {
+        toggle.addEventListener('change', async () => {
+            if (!toggle.checked) return;
             const path = await puter.perms.request('folder', details);
-            if (!path) {
-                puter.print('Access declined');
-                return;
-            }
-            await puter.fs.write(`${path}/notes.txt`, 'Saved!');
-            puter.print('Saved');
+            // Snap back if they declined, so the switch never lies.
+            toggle.checked = Boolean(path);
+        });
+
+        document.getElementById('save').addEventListener('click', async () => {
+            const path = await puter.perms.request('folder', details);
+            if (!path) return puter.print('Autosave is off');
+            await puter.fs.write(`${path}/note.txt`, 'Saved!');
+            puter.print(`Saved to ${path}/note.txt`);
         });
     </script>
 </body>
