@@ -1264,6 +1264,47 @@ describe('AuthController.handleLogin', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
+    // A deleted row still answering from cache reaches the session INSERT.
+    it('answers 401 rather than 500 when the account row is gone but still cached', async () => {
+        const goneName = `lg_${Math.random().toString(36).slice(2, 10)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: goneName,
+                email: `${goneName}@test.local`,
+                password,
+            }),
+            makeRes(),
+        );
+        const gone = await server.stores.user.getByUsername(goneName);
+
+        const realWrite = server.clients.db.write.bind(server.clients.db);
+        const writeSpy = vi
+            .spyOn(server.clients.db, 'write')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (/INSERT INTO `sessions`/.test(sql)) {
+                    throw Object.assign(new Error('FOREIGN KEY constraint'), {
+                        code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+                    });
+                }
+                return realWrite(sql, params);
+            });
+
+        try {
+            await expect(
+                controller.handleLogin(
+                    makeReq({ username: goneName, password }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 401 });
+        } finally {
+            writeSpy.mockRestore();
+        }
+
+        expect(
+            await server.clients.redis.get(`users:username:${goneName}`),
+        ).toBeNull();
+    });
+
     it('refuses an email the account has moved off', async () => {
         const moverName = `lm_${Math.random().toString(36).slice(2, 10)}`;
         const oldEmail = `${moverName}-old@test.local`;
@@ -3292,6 +3333,54 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(decoded.app_uid).toBe(body.app_uid);
         const fresh = await server.stores.app.getByUid(body.app_uid);
         expect(fresh?.index_url).toBe(origin);
+    });
+
+    // sqlite doesn't enforce FKs, so inject the driver error at the db client.
+    describe('when the app row is gone but still cached', () => {
+        const fkError = Object.assign(new Error('FOREIGN KEY constraint'), {
+            code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+        });
+
+        it('answers 404 rather than 500, and retires the stale cache entry', async () => {
+            const doomed = await (
+                server.stores.app.create as unknown as (
+                    fields: Record<string, unknown>,
+                    opts: { ownerUserId: number },
+                ) => Promise<{ uid: string; id: number }>
+            )(
+                {
+                    name: `fk-${uuidv4()}`,
+                    title: 'Deleted under a warm cache',
+                    index_url: 'https://example.test/fk.html',
+                },
+                { ownerUserId: user.id },
+            );
+
+            const realWrite = server.clients.db.write.bind(server.clients.db);
+            const writeSpy = vi
+                .spyOn(server.clients.db, 'write')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    if (/user_to_app_permissions/.test(sql)) throw fkError;
+                    return realWrite(sql, params);
+                });
+
+            try {
+                await expect(
+                    inCtx(actor, () =>
+                        controller.handleGetUserAppToken(
+                            makeReq({ app_uid: doomed.uid }, { actor }),
+                            makeRes(),
+                        ),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 404 });
+            } finally {
+                writeSpy.mockRestore();
+            }
+
+            expect(
+                await server.clients.redis.get(`apps:uid:${doomed.uid}`),
+            ).toBeNull();
+        });
     });
 });
 

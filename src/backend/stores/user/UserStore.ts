@@ -437,9 +437,14 @@ export class UserStore extends PuterStore {
             `SELECT * FROM \`user\` WHERE \`${prop}\` = ?` +
             (prop === 'email' ? ` ${EMAIL_OWNER_ORDER}` : '') +
             ' LIMIT 1';
-        const rows = force
-            ? await this.clients.db.pread(sql, [value])
-            : await this.clients.db.tryHardRead(sql, [value]);
+        // Only the primary reliably knows a tombstoned row is gone.
+        const tombstoned =
+            !force &&
+            (await this.isCacheKeyTombstoned([this.#cacheKey(prop, value)]));
+        const rows =
+            force || tombstoned
+                ? await this.clients.db.pread(sql, [value])
+                : await this.clients.db.tryHardRead(sql, [value]);
         const row = rows[0];
         if (!row) return null;
 
@@ -561,6 +566,15 @@ export class UserStore extends PuterStore {
         if (!insertId)
             throw new Error('Failed to create user — no insertId returned');
 
+        // A reused username/address retires its predecessor's tombstone.
+        await this.clearCacheTombstones(
+            this.#cacheKeysForUser({
+                id: insertId,
+                uuid: fields.uuid,
+                username: fields.username,
+                email: fields.email,
+            } as UserRow),
+        );
         const user = await this.getById(insertId, { force: true });
         if (!user) throw new Error('Failed to fetch created user');
         return user;
@@ -804,6 +818,20 @@ export class UserStore extends PuterStore {
         if (cached) await this.invalidate(cached);
     }
 
+    /** Invalidate a deleted row; pass it as read _before_ the delete. */
+    async markDeleted(user: UserRow): Promise<void> {
+        await this.tombstoneCacheKeys(this.#cacheKeysForUser(user));
+    }
+
+    /**
+     * `markDeleted` for a row we only know by id; the stale copy names its
+     * keys.
+     */
+    async markDeletedById(id: number): Promise<void> {
+        const cached = await this.#readCache('id', id);
+        if (cached) await this.markDeleted(cached);
+    }
+
     // -- Internals ----------------------------------------------------
 
     #cacheKey(prop: UserIdProperty, value: unknown): string {
@@ -858,6 +886,8 @@ export class UserStore extends PuterStore {
     async #writeCache(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysToWrite(user);
         if (keys.length === 0) return;
+        // A replica behind the delete still returns the row.
+        if (await this.isCacheKeyTombstoned(keys)) return;
         const serialized = JSON.stringify(user);
         await Promise.all(
             keys.map((key) =>

@@ -450,6 +450,10 @@ export class AppStore extends PuterStore {
         if (!insertId)
             throw new Error('Failed to create app — no insertId returned');
 
+        // A reused name retires its predecessor's tombstone.
+        await this.clearCacheTombstones(
+            this.#cacheKeysForApp({ id: insertId, uid, name: allowed.name }),
+        );
         const fresh = await this.getById(insertId);
         if (fresh?.name) {
             await this.#clearOldAppNamesForName(fresh.name);
@@ -527,6 +531,10 @@ export class AppStore extends PuterStore {
                 'Failed to create origin-bootstrap app — no insertId returned',
             );
 
+        // Deterministic uid: this is the re-bootstrap of a deleted app.
+        await this.clearCacheTombstones(
+            this.#cacheKeysForApp({ id: insertId, uid, name: fields.name }),
+        );
         const fresh = await this.getById(insertId);
         await this.#invalidateListCachesForApps([fresh]);
         return fresh;
@@ -631,7 +639,8 @@ export class AppStore extends PuterStore {
         await this.clients.db.write('DELETE FROM `apps` WHERE `id` = ?', [
             appId,
         ]);
-        await this.invalidate(app);
+        // Tombstone, so a lagging replica can't cache the row back for a day.
+        await this.markDeleted(app);
         return true;
     }
 
@@ -791,6 +800,12 @@ export class AppStore extends PuterStore {
         await this.#invalidateListCachesForApps([app]);
     }
 
+    /** Invalidate a deleted row; pass it as read _before_ the delete. */
+    async markDeleted(app) {
+        await this.tombstoneCacheKeys(this.#cacheKeysForApp(app));
+        await this.#invalidateListCachesForApps([app]);
+    }
+
     async invalidateById(id) {
         const app =
             (await this.#readCache('id', id)) ??
@@ -821,19 +836,29 @@ export class AppStore extends PuterStore {
         const cached = await this.#readCache(prop, value);
         if (cached) return cached;
 
-        const normalized = await this.#readFromDb(prop, value);
+        // Only the primary reliably knows a tombstoned row is gone.
+        const tombstoned = await this.isCacheKeyTombstoned([
+            this.#cacheKey(prop, value),
+        ]);
+        const normalized = await this.#readFromDb(prop, value, {
+            primary: tombstoned,
+        });
         if (!normalized) return null;
 
         this.#writeCache(normalized).catch(() => {});
         return normalized;
     }
 
-    async #readFromDb(prop, value) {
+    async #readFromDb(prop, value, { primary = false } = {}) {
+        const read = primary
+            ? (sql, params) => this.clients.db.pread(sql, params)
+            : (sql, params) => this.clients.db.read(sql, params);
+
         if (prop === 'name') {
             // Direct match on the live `apps.name` always wins — a current
             // owner of the name takes precedence over any historical
             // redirect still lingering in `old_app_names`.
-            const directRows = await this.clients.db.read(
+            const directRows = await read(
                 'SELECT * FROM `apps` WHERE `name` = ? LIMIT 1',
                 [value],
             );
@@ -843,7 +868,7 @@ export class AppStore extends PuterStore {
             return this.#resolveByOldName(value);
         }
 
-        const rows = await this.clients.db.read(
+        const rows = await read(
             `SELECT * FROM \`apps\` WHERE \`${prop}\` = ? LIMIT 1`,
             [value],
         );
@@ -952,6 +977,8 @@ export class AppStore extends PuterStore {
     async #writeCache(app) {
         const keys = this.#cacheKeysForApp(app);
         if (keys.length === 0) return;
+        // A replica behind the delete still returns the row.
+        if (await this.isCacheKeyTombstoned(keys)) return;
         const serialized = JSON.stringify(app);
         await Promise.all(
             keys.map((k) =>
