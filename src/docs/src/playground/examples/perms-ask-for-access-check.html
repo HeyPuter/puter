@@ -1,0 +1,32 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Notes app — settings</h3>
+    <label><input type="checkbox" id="toggle"> Autosave to Documents</label>
+    <button id="save">Save a note</button>
+    <script>
+        const details = { name: 'Documents', access: 'write' };
+        const toggle = document.getElementById('toggle');
+
+        (async () => {
+            // check() never prompts, so a settings screen can render the real
+            // state without a dialog appearing the moment it opens.
+            toggle.checked = await puter.perms.check('folder', details);
+        })();
+
+        toggle.addEventListener('change', async () => {
+            if (!toggle.checked) return;
+            const path = await puter.perms.request('folder', details);
+            // Snap back if they declined, so the switch never lies.
+            toggle.checked = Boolean(path);
+        });
+
+        document.getElementById('save').addEventListener('click', async () => {
+            const path = await puter.perms.request('folder', details);
+            if (!path) return puter.print('Autosave is off');
+            await puter.fs.write(`${path}/note.txt`, 'Saved!');
+            puter.print(`Saved to ${path}/note.txt`);
+        });
+    </script>
+</body>
+</html>

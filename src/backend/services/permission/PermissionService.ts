@@ -303,6 +303,9 @@ export class PermissionService extends PuterService {
         const reading: ReadingNode[] = [];
         const workingState: ScanState = state ?? { antiCycleActors: [actor] };
 
+        // A sub-scan's reading answers only for its own path.
+        const pathScoped = workingState.antiCycleActors.length > 1;
+
         // -- Redis scan cache --
         // The per-actor cache generation is folded into the key so a
         // grant/revoke bump orphans this actor's cached readings at once.
@@ -315,7 +318,7 @@ export class PermissionService extends PuterService {
             options,
             generation,
         );
-        if (!scanOptions.noCache) {
+        if (!scanOptions.noCache && !pathScoped) {
             const cached = await this.stores.permission.getScanCache(cacheKey);
             if (cached) return cached as ReadingNode[];
         }
@@ -333,7 +336,7 @@ export class PermissionService extends PuterService {
                 data: {},
             });
             reading.push({ $: 'time', value: Date.now() - startTs });
-            await this.#maybeCacheScan(cacheKey, reading);
+            if (!pathScoped) await this.#maybeCacheScan(cacheKey, reading);
             return reading;
         }
 
@@ -426,7 +429,7 @@ export class PermissionService extends PuterService {
                 this.#scanNonShortcutImplicators(actor, options, reading),
                 this.#scanAccessToken(actor, options, reading),
                 this.#scanUserUser(actor, options, reading, workingState),
-                this.#scanUserGroup(actor, options, reading),
+                this.#scanUserGroup(actor, options, reading, workingState),
                 this.#scanUserAppImplied(actor, options, reading),
                 this.#scanUserApp(actor, options, reading),
                 this.#scanDevApp(actor, options, reading),
@@ -434,7 +437,7 @@ export class PermissionService extends PuterService {
         }
 
         reading.push({ $: 'time', value: Date.now() - startTs });
-        await this.#maybeCacheScan(cacheKey, reading);
+        if (!pathScoped) await this.#maybeCacheScan(cacheKey, reading);
         return reading;
     }
 
@@ -547,6 +550,7 @@ export class PermissionService extends PuterService {
         actor: Actor,
         options: string[],
         reading: ReadingNode[],
+        state: ScanState,
     ): Promise<void> {
         if (!isPlainUserActor(actor)) return;
         if (!actor.user?.id) return;
@@ -559,7 +563,18 @@ export class PermissionService extends PuterService {
             const issuerUser = await this.stores.user.getById(row.user_id);
             if (!issuerUser) continue;
             const issuerActor = this.#userToActor(issuerUser);
-            const issuerReading = await this.scan(issuerActor, row.permission);
+
+            // A sharer in their own group reaches their own row.
+            if (
+                state.antiCycleActors.some(
+                    (seen) => seen.user?.id === issuerActor.user.id,
+                )
+            )
+                continue;
+
+            const issuerReading = await this.scan(issuerActor, row.permission, {
+                antiCycleActors: [...state.antiCycleActors, issuerActor],
+            });
             reading.push({
                 $: 'path',
                 via: 'user-group',
