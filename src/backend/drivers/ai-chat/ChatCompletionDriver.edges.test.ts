@@ -167,6 +167,25 @@ const errorFor = async (
 // -- Provider registration -------------------------------------------
 
 describe('ChatCompletionDriver provider registration', () => {
+    it('routes test mode to fake-chat without calling the selected upstream provider', async () => {
+        const upstream = vi.spyOn(AzureChatProvider.prototype, 'complete');
+        const fake = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        const result = await withTestActor(() =>
+            fullDriver.complete({
+                model: 'gpt-4o',
+                provider: 'azure-openai',
+                messages: [{ role: 'user', content: 'hi' }],
+                test_mode: true,
+            }),
+        );
+
+        expect(upstream).not.toHaveBeenCalled();
+        expect(fake).toHaveBeenCalledOnce();
+        expect(fake.mock.calls[0]![0].model).toBe('fake');
+        expect('message' in result && result.message.model).toBe('fake');
+    });
+
     it('registers a model surface spanning every credentialed provider', async () => {
         const models = await fullDriver.models();
         const providers = new Set(models.map((m) => m.provider));
