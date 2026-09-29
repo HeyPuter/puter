@@ -1,32 +1,22 @@
 ---
 title: Ask for Access
-description: "Ask the user for access to a folder, their email address or their apps, and check what you already hold before prompting."
+description: "Learn how to request permissions with Puter.js to let your app use the user's folders, apps, subdomains and email address."
 tags: [perms, auth]
 order: 15
 ---
 
-**Use this when** your app needs something outside its own storage and wants the
-user to approve it first. What that looks like in practice:
+A Puter app runs in a sandbox. By default it can only use the files and
+resources it created itself. When your app needs something outside that sandbox,
+such as the user's Documents folder or their email address, it asks the user
+with the [permissions API](/Perms/). The user sees a prompt and approves or
+declines it. Puter remembers the answer, so the user is asked only once.
 
-- A **photo editor** that opens and saves back into the user's Pictures folder,
-  instead of making them download and re-upload.
-- A **newsletter or receipts feature** that needs the account's email address to
-  send to.
-- A **launcher or backup tool** that reads the list of apps the user has.
-- A **deploy button** that publishes to one of the user's own subdomains.
+## Ask for a Folder
 
-None of these can happen silently — the user is asked, once, and the answer is
-remembered.
-
-Two calls cover all of it:
-[`puter.perms.request()`](/Perms/request/) asks, and
-[`puter.perms.check()`](/Perms/check/) reports what is already held without
-asking. They take the same arguments, so you can offer an opt-in only where one
-is actually needed.
-
-## Ask for a folder
-
-Name the folder and the access you want. What comes back is the path:
+To use one of the user's folders, call
+[`puter.perms.request()`](/Perms/request/) with `'folder'`, the folder name and
+the access you need. It resolves to the folder's path, which you then use with
+the [filesystem API](/FS/):
 
 ```js
 const path = await puter.perms.request('folder', {
@@ -39,61 +29,67 @@ if (path) {
 }
 ```
 
-`access` defaults to `'read'`, and `'write'` covers reading too, so ask for
-`'write'` once rather than for both.
+The folder can be `Desktop`, `Documents`, `Pictures` or `Videos`. Access is
+`'read'` by default. Write access includes read access, so one `'write'` request
+covers both.
 
-The folder must be one of `Desktop`, `Documents`, `Pictures` or `Videos`. Trash
-and AppData are deliberately not askable.
+## Ask for Apps or Subdomains
 
-## Ask for the email address
+To read the list of the user's apps, call
+[`puter.perms.request()`](/Perms/request/) with `'apps'`. It resolves to `true`
+when granted, and then [`puter.apps.list()`](/Apps/list/) returns the user's
+apps:
+
+```js
+if (await puter.perms.request('apps')) {
+    const apps = await puter.apps.list();
+    console.log(apps.length);
+}
+```
+
+To publish to the user's subdomains, ask for `'subdomains'` with write access:
+
+```js
+const canPublish = await puter.perms.request('subdomains', { access: 'write' });
+```
+
+## Ask for the Email Address
+
+To get the user's email address, call [`puter.perms.request()`](/Perms/request/)
+with `'email'`. It resolves to the address itself:
 
 ```js
 const email = await puter.perms.request('email');
 
-if (email) console.log(email);
-```
-
-This resolves to the address itself, not a boolean. A denied request gives
-nothing back — everything `request()` returns is falsy when the user says no,
-whatever the resource would otherwise resolve to.
-
-## Ask about their apps or subdomains
-
-These two resolve to a plain boolean:
-
-```js
-const canRead = await puter.perms.request('apps');
-const canPublish = await puter.perms.request('subdomains', { access: 'write' });
-```
-
-## Check before you prompt
-
-`check()` never prompts and never changes anything. Use it to decide whether an
-opt-in is worth showing at all:
-
-```js
-if (await puter.perms.check('folder', { name: 'Documents', access: 'write' })) {
-    // Already granted — go straight to the work.
-} else if (!await puter.perms.request('folder', { name: 'Documents', access: 'write' })) {
-    console.log('Access declined');
-    return;
+if (email) {
+    console.log(email);
 }
 ```
 
-You do not have to guard every `request()` this way. `request()` already skips
-the prompt for anything the user has granted before, so calling it on its own is
-fine — `check()` is for when *your own UI* needs to know, such as hiding a
-button or labelling a setting.
+When the user declines, [`puter.perms.request()`](/Perms/request/) resolves to a
+falsy value for every resource. That is why a single `if` handles both outcomes
+in each example on this page.
 
-## Notes
+## Check Before You Ask
 
-- Everything `request()` returns is falsy when denied: `undefined` for a folder,
-  email or app directory, `false` for the boolean resources. `if (!result)` is
-  the one test that works for all of them.
-- `check()` always answers a boolean, whatever the resource. It answers `false`
-  for a partly-granted set, because a prompt is still needed to complete it.
-- There are older per-resource helpers such as `requestReadDocuments()` and
-  `requestEmail()`. They still work, but they are deprecated aliases for
-  `request()` — prefer `request()` in new code.
-- `request()` and `check()` also take an array, to put several asks behind a
-  single prompt.
+To find out whether access is already granted, call
+[`puter.perms.check()`](/Perms/check/). It takes the same arguments as
+[`puter.perms.request()`](/Perms/request/), resolves to `true` or `false`, and
+never shows a prompt. Use it when your own UI needs to show the current state,
+such as a settings toggle for saving to Documents:
+
+```js
+const details = { name: 'Documents', access: 'write' };
+
+toggle.checked = await puter.perms.check('folder', details);
+
+toggle.addEventListener('change', async () => {
+    if (toggle.checked) {
+        toggle.checked = Boolean(await puter.perms.request('folder', details));
+    }
+});
+```
+
+When you only need the access itself, call
+[`puter.perms.request()`](/Perms/request/) directly. It skips the prompt for
+anything the user has already granted.

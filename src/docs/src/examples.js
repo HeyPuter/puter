@@ -946,25 +946,7 @@ const examples = [
                 source: '/playground/examples/perms-request-permission.html',
             },
             {
-                title: 'Recipe: ask for a folder',
-                description: 'Ask the user for write access to Documents and save a file with Puter.js permissions API. Run and experiment with this example in the playground.',
-                slug: 'perms-ask-for-access-folder',
-                source: '/playground/examples/perms-ask-for-access-folder.html',
-            },
-            {
-                title: 'Recipe: ask for the email address',
-                description: "Ask the user for their email address with Puter.js permissions API. Run and modify this example instantly in your browser.",
-                slug: 'perms-ask-for-access-email',
-                source: '/playground/examples/perms-ask-for-access-email.html',
-            },
-            {
-                title: 'Recipe: ask about apps or subdomains',
-                description: 'Ask for read or write access to the user apps and subdomains with Puter.js permissions API. Run and experiment with this example in the playground.',
-                slug: 'perms-ask-for-access-apps',
-                source: '/playground/examples/perms-ask-for-access-apps.html',
-            },
-            {
-                title: 'Recipe: check before you prompt',
+                title: 'Check before you prompt',
                 description: 'Check whether access is already held before showing an opt-in with Puter.js permissions API. Run and modify this example directly in your browser.',
                 slug: 'perms-ask-for-access-check',
                 source: '/playground/examples/perms-ask-for-access-check.html',
