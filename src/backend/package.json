@@ -61,7 +61,7 @@
     "replicate": "^1.0.0",
     "sharp": "^0.35.4",
     "smtp-server": "^3.19.13",
-    "socket.io": "^4.8.3",
+    "socket.io": "^4.8.4",
     "svg-captcha": "^1.4.0",
     "together-ai": "^0.33.0",
     "ua-parser-js": "^1.0.41",
