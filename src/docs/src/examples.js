@@ -450,6 +450,12 @@ const examples = [
                 slug: 'fs-getShareLink',
                 source: '/playground/examples/fs-getShareLink.html',
             },
+            {
+                title: 'Choose how much access to give',
+                description: 'Grant read, write or manage access when sharing a file with Puter.js filesystem API. Run and modify this example instantly in your browser.',
+                slug: 'fs-share-a-file-mode',
+                source: '/playground/examples/fs-share-a-file-mode.html',
+            },
         ],
     },
     {
