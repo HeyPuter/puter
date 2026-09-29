@@ -522,31 +522,157 @@ export const incrExpressionBytes = (paths: string[]): number => {
 };
 
 /**
- * Split paths into batches whose expressions each fit `maxBytes`, preserving
- * order. A path always gets a batch even when it can't fit in one: a caller
- * narrowing down which path a rejection belongs to needs the single-path
- * attempt to happen rather than being told it is impossible.
+ * Split items into batches whose rendered expression each fits `maxBytes`,
+ * preserving order. An item always gets a batch even when it can't fit in one:
+ * a caller narrowing down which item a rejection belongs to needs the
+ * single-item attempt to happen rather than being told it is impossible.
  */
-export const chunkPathsForIncr = (
-    paths: string[],
-    maxBytes: number = INCR_EXPRESSION_BUDGET_BYTES,
-): string[][] => {
-    const batches: string[][] = [];
-    let batch: string[] = [];
+const chunkByExpressionBytes = <T>(
+    items: T[],
+    expressionBytes: (batch: T[]) => number,
+    maxBytes: number,
+): T[][] => {
+    const batches: T[][] = [];
+    let batch: T[] = [];
 
-    for (const path of paths) {
+    for (const item of items) {
         const wouldOverflow =
-            batch.length > 0 &&
-            incrExpressionBytes([...batch, path]) > maxBytes;
+            batch.length > 0 && expressionBytes([...batch, item]) > maxBytes;
         if (wouldOverflow) {
             batches.push(batch);
             batch = [];
         }
-        batch.push(path);
+        batch.push(item);
     }
     if (batch.length > 0) batches.push(batch);
 
     return batches;
+};
+
+/** Split incr paths into batches whose expressions each fit `maxBytes`. */
+export const chunkPathsForIncr = (
+    paths: string[],
+    maxBytes: number = INCR_EXPRESSION_BUDGET_BYTES,
+): string[][] => chunkByExpressionBytes(paths, incrExpressionBytes, maxBytes);
+
+/** One missing intermediate container `createPaths` needs to write. */
+interface CreatePathsLayerEntry {
+    path: PathToken[];
+    containerType: PathToken['type'];
+}
+
+/**
+ * The root skeleton (`null` when every path is the whole value) and the
+ * intermediate containers under it, grouped by depth, shallowest first.
+ */
+interface CreatePathsPlan {
+    nestedMapValue: Record<string, unknown> | unknown[] | null;
+    layers: CreatePathsLayerEntry[][];
+}
+
+/** Validate paths and plan what `createPaths` writes for them. No writes. */
+const planCreatePaths = (pathList: PathToken[][]): CreatePathsPlan => {
+    const nestedMapValue = (() => {
+        const rootIsList = pathList[0]?.[0]?.type === 'index';
+        if (
+            pathList.some(
+                (tokens) =>
+                    tokens[0] && (tokens[0].type === 'index') !== rootIsList,
+            )
+        )
+            throw new HttpError(400, 'kv: paths require incompatible roots', {
+                legacyCode: 'bad_request',
+            });
+        if (rootIsList) return [] as unknown[];
+
+        const valueRoot: Record<string, unknown> = {};
+        let hasPaths = false;
+        pathList.forEach((tokens) => {
+            if (tokens.length === 0) return;
+            hasPaths = true;
+            let cursor: Record<string, unknown> = valueRoot;
+            for (let i = 0; i < tokens.length - 1; i++) {
+                const token = tokens[i];
+                if (token.type === 'index') break;
+                const next = tokens[i + 1];
+                const container = next.type === 'index' ? [] : {};
+                // Own properties only: an inherited hit here would mean
+                // walking (and then writing to) the prototype chain.
+                const existing = Object.hasOwn(cursor, token.value)
+                    ? cursor[token.value]
+                    : undefined;
+                if (!isPlainObject(existing)) {
+                    cursor[token.value] = container;
+                }
+                if (Array.isArray(container)) break;
+                cursor = cursor[token.value] as Record<string, unknown>;
+            }
+        });
+        return hasPaths ? valueRoot : null;
+    })();
+
+    if (!nestedMapValue) return { nestedMapValue: null, layers: [] };
+
+    // Indexed ancestors must already exist, so they are never created.
+    const seen = new Map<string, CreatePathsLayerEntry>();
+    for (const tokens of pathList) {
+        for (let i = 1; i < tokens.length; i++) {
+            const prefix = tokens.slice(0, i);
+            if (prefix.at(-1)?.type === 'index') continue;
+            const id = JSON.stringify(prefix);
+            const containerType = tokens[i].type;
+            const existing = seen.get(id);
+            if (existing && existing.containerType !== containerType) {
+                throw new HttpError(
+                    400,
+                    'kv: paths require incompatible containers',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            seen.set(id, { path: prefix, containerType });
+        }
+    }
+
+    // Equal-depth prefixes never overlap, so each depth can share one write.
+    const byDepth = new Map<number, CreatePathsLayerEntry[]>();
+    for (const entry of seen.values()) {
+        const depth = entry.path.length;
+        let group = byDepth.get(depth);
+        if (!group) {
+            group = [];
+            byDepth.set(depth, group);
+        }
+        group.push(entry);
+    }
+    const layers = [...byDepth.keys()]
+        .sort((a, b) => a - b)
+        .map((depth) => byDepth.get(depth)!);
+
+    return { nestedMapValue, layers };
+};
+
+/** The `SET` assignment `createPaths` renders for one missing container. */
+const createPathsSetStatement = (
+    entry: CreatePathsLayerEntry,
+    idx: number,
+    renderer: PathExpressionRenderer,
+): string => {
+    const attrName = renderer.path(entry.path);
+    return `${attrName} = if_not_exists(${attrName}, :empty${idx})`;
+};
+
+/** Size of the update expression a layer's containers would render to. */
+const createPathsLayerExpressionBytes = (
+    entries: CreatePathsLayerEntry[],
+): number => {
+    const renderer = new PathExpressionRenderer();
+    return Buffer.byteLength(
+        `SET ${entries
+            .map((entry, index) =>
+                createPathsSetStatement(entry, index, renderer),
+            )
+            .join(', ')}`,
+    );
 };
 
 // -- SystemKVStore ----------------------------------------------------
@@ -1892,30 +2018,15 @@ export class SystemKVStore extends PuterStore {
 
         // Most increments land on an item whose parent maps already exist (a
         // day's counter is created once, then bumped on every event), so try
-        // the update directly and only pay the per-layer createPaths writes
-        // when a nested parent is genuinely missing — typically the first bump
-        // for a key. Mirrors the lazy ValidationException fallback in remove().
-        let createPathsUsage = 0;
-        let response;
-        try {
-            response = await runUpdate();
-        } catch (e) {
-            const err = e as Error;
-            if (err?.name !== 'ValidationException') throw e;
-            // An expression rejected for its own size is the one
-            // ValidationException createPaths cannot repair: it writes a layer
-            // per nested path — against this same item, so each of those writes
-            // costs the whole item — and then re-sends a byte-identical
-            // expression to be rejected again. Fail fast and let the caller
-            // send fewer paths at a time.
-            if (isOversizedExpression(err)) throw e;
-            createPathsUsage = await this.createPaths(
+        // the update directly and only pay for createPaths when a nested
+        // parent is genuinely missing — typically the first bump for a key.
+        const { response, createPathsUsage } =
+            await this.withCreatePathsFallback(
                 namespace,
                 key,
                 pathTokens,
+                runUpdate,
             );
-            response = await runUpdate();
-        }
         await this.#committed(
             actor,
             namespace,
@@ -1970,12 +2081,8 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
 
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
-
-        const createPathsUsage = await this.createPaths(
-            namespace,
-            key,
-            pathTokens,
-        );
+        // Reject incompatible paths before any write, not only on the fallback.
+        planCreatePaths(pathTokens);
 
         const renderer = new PathExpressionRenderer();
         const setStatements = pathTokens.map((tokens, idx) => {
@@ -1990,13 +2097,22 @@ export class SystemKVStore extends PuterStore {
             },
             {} as Record<string, unknown>,
         );
-        const response = await this.clients.dynamo.update(
-            this.tableName,
-            { key, namespace },
-            `SET ${setStatements.join(', ')}`,
-            valueAttributeValues,
-            renderer.names,
-        );
+        const runUpdate = () =>
+            this.clients.dynamo.update(
+                this.tableName,
+                { key, namespace },
+                `SET ${setStatements.join(', ')}`,
+                valueAttributeValues,
+                renderer.names,
+            );
+
+        const { response, createPathsUsage } =
+            await this.withCreatePathsFallback(
+                namespace,
+                key,
+                pathTokens,
+                runUpdate,
+            );
         await this.#committed(
             actor,
             namespace,
@@ -2111,12 +2227,8 @@ export class SystemKVStore extends PuterStore {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
-
-        const createPathsUsage = await this.createPaths(
-            namespace,
-            key,
-            pathTokens,
-        );
+        // Reject incompatible paths before any write, not only on the fallback.
+        planCreatePaths(pathTokens);
 
         const renderer = new PathExpressionRenderer();
         const setStatements = pathTokens.map((tokens, idx) => {
@@ -2142,13 +2254,22 @@ export class SystemKVStore extends PuterStore {
             renderer.names['#ttl'] = 'ttl';
         }
 
-        const response = await this.clients.dynamo.update(
-            this.tableName,
-            { key, namespace },
-            `SET ${setStatements.join(', ')}`,
-            valueAttributeValues,
-            renderer.names,
-        );
+        const runUpdate = () =>
+            this.clients.dynamo.update(
+                this.tableName,
+                { key, namespace },
+                `SET ${setStatements.join(', ')}`,
+                valueAttributeValues,
+                renderer.names,
+            );
+
+        const { response, createPathsUsage } =
+            await this.withCreatePathsFallback(
+                namespace,
+                key,
+                pathTokens,
+                runUpdate,
+            );
 
         await this.#committed(
             actor,
@@ -2238,111 +2359,86 @@ export class SystemKVStore extends PuterStore {
     }
 
     /**
-     * Create missing parent containers one layer at a time and return write
-     * units consumed. Indexed ancestors must already exist.
+     * Try `runUpdate`; on a ValidationException (typically a missing parent
+     * container), create the containers and retry once. An oversized expression
+     * is rethrown: createPaths can't fix it, and each of its writes costs the
+     * whole item.
+     */
+    private async withCreatePathsFallback<R>(
+        namespace: string,
+        key: string,
+        pathList: PathToken[][],
+        runUpdate: () => Promise<R>,
+    ): Promise<{ response: R; createPathsUsage: number }> {
+        try {
+            return { response: await runUpdate(), createPathsUsage: 0 };
+        } catch (e) {
+            const err = e as Error;
+            if (err?.name !== 'ValidationException') throw e;
+            if (isOversizedExpression(err)) throw e;
+            const createPathsUsage = await this.createPaths(
+                namespace,
+                key,
+                pathList,
+            );
+            return { response: await runUpdate(), createPathsUsage };
+        }
+    }
+
+    /**
+     * Create missing parent containers and return write units consumed. Indexed
+     * ancestors must already exist. The root skeleton goes first (for a key
+     * with no value it creates everything), then one write per depth,
+     * shallowest first, split only where the expression budget requires.
      */
     private async createPaths(
         namespace: string,
         key: string,
         pathList: PathToken[][],
     ): Promise<number> {
-        const nestedMapValue = (() => {
-            const rootIsList = pathList[0]?.[0]?.type === 'index';
-            if (
-                pathList.some(
-                    (tokens) =>
-                        tokens[0] &&
-                        (tokens[0].type === 'index') !== rootIsList,
-                )
-            )
-                throw new HttpError(
-                    400,
-                    'kv: paths require incompatible roots',
-                    {
-                        legacyCode: 'bad_request',
-                    },
-                );
-            if (rootIsList) return [] as unknown[];
+        const plan = planCreatePaths(pathList);
+        if (!plan.nestedMapValue) return 0;
 
-            const valueRoot: Record<string, unknown> = {};
-            let hasPaths = false;
-            pathList.forEach((tokens) => {
-                if (tokens.length === 0) return;
-                hasPaths = true;
-                let cursor: Record<string, unknown> = valueRoot;
-                for (let i = 0; i < tokens.length - 1; i++) {
-                    const token = tokens[i];
-                    if (token.type === 'index') break;
-                    const next = tokens[i + 1];
-                    const container = next.type === 'index' ? [] : {};
-                    // Own properties only: an inherited hit here would mean
-                    // walking (and then writing to) the prototype chain.
-                    const existing = Object.hasOwn(cursor, token.value)
-                        ? cursor[token.value]
-                        : undefined;
-                    if (!isPlainObject(existing)) {
-                        cursor[token.value] = container;
-                    }
-                    if (Array.isArray(container)) break;
-                    cursor = cursor[token.value] as Record<string, unknown>;
-                }
-            });
-            return hasPaths ? valueRoot : null;
-        })();
-
-        if (!nestedMapValue) return 0;
-
-        const allIntermediatePaths = new Map<string, PathToken[]>();
-        const containerTypes = new Map<string, PathToken['type']>();
-        allIntermediatePaths.set('', []);
-        for (const tokens of pathList) {
-            for (let i = 1; i < tokens.length; i++) {
-                const prefix = tokens.slice(0, i);
-                if (prefix.at(-1)?.type === 'index') continue;
-                const id = JSON.stringify(prefix);
-                allIntermediatePaths.set(id, prefix);
-                const containerType = tokens[i].type;
-                const existingType = containerTypes.get(id);
-                if (existingType && existingType !== containerType) {
-                    throw new HttpError(
-                        400,
-                        'kv: paths require incompatible containers',
-                        { legacyCode: 'bad_request' },
-                    );
-                }
-                containerTypes.set(id, containerType);
-            }
+        const rootRenderer = new PathExpressionRenderer();
+        const rootAttr = rootRenderer.path([]);
+        const rootResponse = await this.clients.dynamo.update(
+            this.tableName,
+            { key, namespace },
+            `SET ${rootAttr} = if_not_exists(${rootAttr}, :nestedMap)`,
+            { ':nestedMap': plan.nestedMapValue },
+            rootRenderer.names,
+        );
+        let writeUnits = Number(
+            rootResponse.ConsumedCapacity?.CapacityUnits ?? 0,
+        );
+        if (objectsEqual(rootResponse.Attributes?.value, plan.nestedMapValue)) {
+            return writeUnits;
         }
 
-        let writeUnits = 0;
-        const orderedPaths = [...allIntermediatePaths.values()].sort(
-            (left, right) => left.length - right.length,
-        );
-
-        for (const layerPath of orderedPaths) {
-            const renderer = new PathExpressionRenderer();
-            const attrName = renderer.path(layerPath);
-            const isRootLayer = layerPath.length === 0;
-            const nextType = containerTypes.get(JSON.stringify(layerPath));
-            const expressionValues = isRootLayer
-                ? { ':nestedMap': nestedMapValue }
-                : { ':emptyContainer': nextType === 'index' ? [] : {} };
-            const valueToken = isRootLayer ? ':nestedMap' : ':emptyContainer';
-
-            const response = await this.clients.dynamo.update(
-                this.tableName,
-                { key, namespace },
-                `SET ${attrName} = if_not_exists(${attrName}, ${valueToken})`,
-                expressionValues,
-                renderer.names,
+        for (const depthEntries of plan.layers) {
+            const batches = chunkByExpressionBytes(
+                depthEntries,
+                createPathsLayerExpressionBytes,
+                INCR_EXPRESSION_BUDGET_BYTES,
             );
-            writeUnits += Number(response.ConsumedCapacity?.CapacityUnits ?? 0);
-
-            if (
-                isRootLayer &&
-                objectsEqual(response.Attributes?.value, nestedMapValue)
-            ) {
-                return writeUnits;
+            for (const batch of batches) {
+                const renderer = new PathExpressionRenderer();
+                const expressionValues: Record<string, unknown> = {};
+                const setStatements = batch.map((entry, idx) => {
+                    expressionValues[`:empty${idx}`] =
+                        entry.containerType === 'index' ? [] : {};
+                    return createPathsSetStatement(entry, idx, renderer);
+                });
+                const response = await this.clients.dynamo.update(
+                    this.tableName,
+                    { key, namespace },
+                    `SET ${setStatements.join(', ')}`,
+                    expressionValues,
+                    renderer.names,
+                );
+                writeUnits += Number(
+                    response.ConsumedCapacity?.CapacityUnits ?? 0,
+                );
             }
         }
         return writeUnits;
