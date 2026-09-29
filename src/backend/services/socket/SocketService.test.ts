@@ -19,7 +19,15 @@
 
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import type { PuterServer } from '../../server.js';
 import {
@@ -29,6 +37,7 @@ import {
     type TestUserCredentials,
 } from '../../testUtil.js';
 import type { AuthResult } from '../auth/AuthService.js';
+import type { UploadProgressTrackerLike } from '../fs/types.js';
 import {
     accountSocketRoom,
     buildSocketReauthError,
@@ -640,6 +649,11 @@ describe('SocketService — outer.gui fan-out', () => {
         socketService = server.services.socket as unknown as SocketService;
     }, 60_000);
 
+    // Restores real timers even when a fake-timer test fails early.
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     afterAll(async () => {
         await server?.shutdown();
     }, 60_000);
@@ -720,47 +734,150 @@ describe('SocketService — outer.gui fan-out', () => {
         expect(await socketService.getLastChangeTimestamp(999998)).toBe(0);
     });
 
-    it('forwards upload progress deltas to the uploading user', async () => {
-        const spy = captureSends();
-        const callbacks: Array<(delta: number) => void> = [];
-        const tracker = {
-            total_: 100,
-            progress_: 40,
-            sub: (cb: (delta: number) => void) => callbacks.push(cb),
-        };
+    // Mirrors the tracker FSController puts on the event bus.
+    class FixtureUploadProgressTracker implements UploadProgressTrackerLike {
+        total = 0;
+        progress = 0;
+        #listeners: Array<(delta: number) => void> = [];
 
+        setTotal(value: number) {
+            this.total = value;
+        }
+
+        add(amount: number) {
+            this.progress += amount;
+            for (const listener of this.#listeners) listener(amount);
+        }
+
+        subscribe(callback: (delta: number) => void) {
+            this.#listeners.push(callback);
+            return {
+                detach: () => {
+                    const idx = this.#listeners.indexOf(callback);
+                    if (idx !== -1) this.#listeners.splice(idx, 1);
+                },
+            };
+        }
+    }
+
+    const emitUploadProgress = (
+        tracker: UploadProgressTrackerLike,
+        meta: Record<string, unknown>,
+    ) => {
         server.clients.event.emit(
             'fs.storage.upload-progress',
-            { upload_tracker: tracker, meta: { user_id: 77, op: 'write' } },
+            { upload_tracker: tracker, meta },
             {},
         );
-        expect(callbacks).toHaveLength(1);
-        callbacks[0](10);
+    };
+
+    it('sends the delta that completes an upload immediately', async () => {
+        const spy = captureSends();
+        const tracker = new FixtureUploadProgressTracker();
+        tracker.setTotal(100);
+        tracker.progress = 40;
+        emitUploadProgress(tracker, { user_id: 77, op: 'write' });
+
+        tracker.add(60);
         await vi.waitFor(() => expect(sends).toHaveLength(1));
         expect(sends[0]).toMatchObject({
             spec: { room: 77 },
             key: 'upload.progress',
-            data: { total: 100, loaded: 40, loaded_diff: 10, op: 'write' },
+            data: { total: 100, loaded: 100, loaded_diff: 60, op: 'write' },
         });
+        spy.mockRestore();
+    });
+
+    it('coalesces deltas within the flush window into a single send', async () => {
+        vi.useFakeTimers();
+        const spy = captureSends();
+        const tracker = new FixtureUploadProgressTracker();
+        tracker.setTotal(1000);
+        emitUploadProgress(tracker, { user_id: 79 });
+
+        tracker.add(10);
+        tracker.add(20);
+        tracker.add(30);
+        expect(sends).toHaveLength(0);
+
+        await vi.advanceTimersByTimeAsync(200);
+        expect(sends).toHaveLength(1);
+        expect(sends[0]).toMatchObject({
+            spec: { room: 79 },
+            key: 'upload.progress',
+            data: { total: 1000, loaded: 60, loaded_diff: 60 },
+        });
+        spy.mockRestore();
+    });
+
+    it('flushes on completion and leaves no pending timer behind', async () => {
+        vi.useFakeTimers();
+        const spy = captureSends();
+        const tracker = new FixtureUploadProgressTracker();
+        tracker.setTotal(100);
+        emitUploadProgress(tracker, { user_id: 80 });
+
+        tracker.add(10);
+        expect(sends).toHaveLength(0);
+        tracker.add(90);
+        expect(sends).toHaveLength(1);
+        expect(sends[0]).toMatchObject({
+            data: { total: 100, loaded: 100, loaded_diff: 100 },
+        });
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(sends).toHaveLength(1);
+        spy.mockRestore();
+    });
+
+    it('keeps coalescing when the total is unknown', async () => {
+        vi.useFakeTimers();
+        const spy = captureSends();
+        const tracker = new FixtureUploadProgressTracker();
+        emitUploadProgress(tracker, { user_id: 82 });
+
+        for (let i = 0; i < 50; i++) tracker.add(1024);
+        expect(sends).toHaveLength(0);
+
+        await vi.advanceTimersByTimeAsync(200);
+        expect(sends).toHaveLength(1);
+        expect(sends[0]).toMatchObject({
+            data: { total: 0, loaded: 50 * 1024, loaded_diff: 50 * 1024 },
+        });
+        spy.mockRestore();
+    });
+
+    it('flushes past-total bytes on the window instead of per chunk', async () => {
+        vi.useFakeTimers();
+        const spy = captureSends();
+        const tracker = new FixtureUploadProgressTracker();
+        tracker.setTotal(100);
+        emitUploadProgress(tracker, { user_id: 83 });
+
+        tracker.add(100);
+        tracker.add(10);
+        tracker.add(15);
+        expect(sends).toHaveLength(1);
+
+        await vi.advanceTimersByTimeAsync(200);
+        expect(sends).toHaveLength(2);
+        expect(sends[1]).toMatchObject({
+            data: { total: 100, loaded: 125, loaded_diff: 25 },
+        });
+        const sentDiffs = sends.map(
+            (s) => (s.data as { loaded_diff: number }).loaded_diff,
+        );
+        expect(sentDiffs.reduce((a, b) => a + b, 0)).toBe(125);
         spy.mockRestore();
     });
 
     it('labels a flagged transfer as a download and accepts the camelCase user id', async () => {
         const spy = captureSends();
-        const callbacks: Array<(delta: number) => void> = [];
-        server.clients.event.emit(
-            'fs.storage.upload-progress',
-            {
-                upload_tracker: {
-                    total_: 10,
-                    progress_: 10,
-                    sub: (cb: (d: number) => void) => callbacks.push(cb),
-                },
-                meta: { userId: 78, call_it_download: true },
-            },
-            {},
-        );
-        callbacks[0](10);
+        const tracker = new FixtureUploadProgressTracker();
+        tracker.setTotal(10);
+        emitUploadProgress(tracker, { userId: 78, call_it_download: true });
+
+        tracker.add(10);
         await vi.waitFor(() => expect(sends).toHaveLength(1));
         expect(sends[0].key).toBe('download.progress');
         expect(sends[0].spec).toEqual({ room: 78 });
@@ -769,26 +886,35 @@ describe('SocketService — outer.gui fan-out', () => {
 
     it('skips upload progress with no user in its metadata', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        let subscribed = false;
-        server.clients.event.emit(
-            'fs.storage.upload-progress',
-            {
-                upload_tracker: {
-                    total_: 1,
-                    progress_: 1,
-                    sub: () => {
-                        subscribed = true;
-                    },
-                },
-            },
-            {},
-        );
-        expect(subscribed).toBe(false);
+        const spy = captureSends();
+        const tracker = new FixtureUploadProgressTracker();
+        tracker.setTotal(1);
+
+        emitUploadProgress(tracker, {});
+        tracker.add(1);
+
+        expect(sends).toHaveLength(0);
         expect(warn).toHaveBeenCalledWith(
             '[socket] upload-progress missing user_id',
             expect.anything(),
         );
         warn.mockRestore();
+        spy.mockRestore();
+    });
+
+    it('ignores a tracker without subscribe', () => {
+        const error = vi.spyOn(console, 'error');
+        const bareTracker: UploadProgressTrackerLike = {
+            total: 5,
+            progress: 0,
+            setTotal() {},
+            add() {},
+        };
+
+        emitUploadProgress(bareTracker, { user_id: 81 });
+
+        expect(error).not.toHaveBeenCalled();
+        error.mockRestore();
     });
 });
 

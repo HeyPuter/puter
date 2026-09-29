@@ -33,6 +33,7 @@ import {
     checkRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import { PRESENCE_NO_APP } from '../../stores/events/PresenceStore.js';
+import type { UploadProgressTrackerLike } from '../fs/types.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -186,17 +187,16 @@ const LAST_CHANGE_TTL_SECONDS = 60 * 60 * 24 * 30;
 // ABOUT the timestamp, so re-bumping on them is wasted work.
 const ITEM_MUTATION_PREFIX = 'outer.gui.item.';
 
+// Upload trackers fire per stream chunk; sends are coalesced per window.
+const UPLOAD_PROGRESS_FLUSH_MS = 200;
+
 interface OuterGuiPayload {
     user_id_list?: Array<number | string>;
     response: unknown;
 }
 
 interface UploadProgressPayload {
-    upload_tracker: {
-        total_: number;
-        progress_: number;
-        sub: (callback: (delta: number) => void) => void;
-    };
+    upload_tracker: UploadProgressTrackerLike;
     meta?: Record<string, unknown>;
 }
 
@@ -800,7 +800,7 @@ export class SocketService extends PuterService {
             );
         });
 
-        // Upload progress — each tracker fires `.sub()` callbacks as
+        // Upload progress — each tracker fires `.subscribe()` callbacks as
         // bytes flow.
         this.clients.event.on(
             'fs.storage.upload-progress',
@@ -879,14 +879,43 @@ export class SocketService extends PuterService {
             ? 'download.progress'
             : 'upload.progress';
         const tracker = data.upload_tracker;
+        if (!tracker.subscribe) return;
 
-        tracker.sub((delta) => {
+        // The delta that first reaches a known total flushes at once so
+        // completion isn't held back; everything else waits for the window.
+        let pendingDelta = 0;
+        let flushTimer: ReturnType<typeof setTimeout> | null = null;
+        let reachedTotal = false;
+
+        const flush = () => {
+            if (flushTimer) clearTimeout(flushTimer);
+            flushTimer = null;
+            if (pendingDelta === 0) return;
+            const delta = pendingDelta;
+            pendingDelta = 0;
             void this.send({ room: userId }, wireName, {
                 ...meta,
-                total: tracker.total_,
-                loaded: tracker.progress_,
+                total: tracker.total,
+                loaded: tracker.progress,
                 loaded_diff: delta,
             });
+        };
+
+        tracker.subscribe((delta) => {
+            pendingDelta += delta;
+            if (
+                !reachedTotal &&
+                tracker.total > 0 &&
+                tracker.progress >= tracker.total
+            ) {
+                reachedTotal = true;
+                flush();
+                return;
+            }
+            if (!flushTimer) {
+                flushTimer = setTimeout(flush, UPLOAD_PROGRESS_FLUSH_MS);
+                flushTimer.unref?.();
+            }
         });
     }
 

@@ -166,8 +166,18 @@ const buildMultipartBody = (parts: MultipartPart[]): Buffer => {
     return Buffer.from(chunks.join(''), 'utf8');
 };
 
-const makeMultipartReq = (parts: MultipartPart[], actor: Actor): Request => {
-    const stream = Readable.from([buildMultipartBody(parts)]);
+const makeMultipartReq = (
+    parts: MultipartPart[],
+    actor: Actor,
+    chunkSize?: number,
+): Request => {
+    const body = buildMultipartBody(parts);
+    const chunks: Buffer[] = [];
+    const step = chunkSize ?? body.length;
+    for (let i = 0; i < body.length; i += step) {
+        chunks.push(body.subarray(i, i + step));
+    }
+    const stream = Readable.from(chunks);
     return Object.assign(stream, {
         body: undefined,
         query: {},
@@ -226,6 +236,46 @@ describe('FSController.write', () => {
         const stored = await server.stores.fsEntry.getEntryByPath(target);
         expect(stored?.userId).toBe(userId);
         expect(stored?.size).toBe(5);
+    });
+
+    it('emits an upload.progress socket event reaching loaded === total', async () => {
+        const { actor, userId, username } = await makeUser();
+        const target = `/${username}/Documents/write-progress.txt`;
+        const content = 'progress-bytes';
+        const send = vi.spyOn(server.services.socket, 'send');
+        const { res } = makeRes();
+
+        try {
+            await withActor(actor, () =>
+                controller.write(
+                    makeReq<WriteRequest>({
+                        body: {
+                            fileMetadata: {
+                                path: target,
+                                size: content.length,
+                                contentType: 'text/plain',
+                            },
+                            fileContent: content,
+                        } as WriteRequest,
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+
+            expect(send).toHaveBeenCalledWith(
+                { room: userId },
+                'upload.progress',
+                expect.objectContaining({
+                    total: content.length,
+                    loaded: content.length,
+                    loaded_diff: content.length,
+                    item_path: target,
+                }),
+            );
+        } finally {
+            send.mockRestore();
+        }
     });
 
     it('reports wasOverwrite and updates the row when overwriting', async () => {
@@ -1467,6 +1517,60 @@ describe('FSController.batchWrites (multipart)', () => {
         );
         const stored = await server.stores.fsEntry.getEntryByPath(paths[0]!);
         expect(stored?.size).toBe(5);
+    });
+
+    it('coalesces streamed upload progress when the declared size is 0', async () => {
+        const { actor, userId, username } = await makeUser();
+        const path = `/${username}/Documents/mp-progress.bin`;
+        const content = 'x'.repeat(64 * 1024);
+        const chunkSize = 4 * 1024;
+        const send = vi.spyOn(server.services.socket, 'send');
+        const { res } = makeRes();
+        // Scoped to this user: earlier tests' trailing flushes can land here.
+        const progressSends = () =>
+            send.mock.calls.filter(
+                ([spec, key]) =>
+                    key === 'upload.progress' &&
+                    (spec as { room?: unknown }).room === userId,
+            );
+
+        try {
+            await withActor(actor, () =>
+                controller.batchWrites(
+                    makeMultipartReq(
+                        [
+                            {
+                                kind: 'field',
+                                name: 'manifest',
+                                value: manifestFor([path]),
+                            },
+                            {
+                                kind: 'file',
+                                name: 'file-0',
+                                filename: 'progress.bin',
+                                content,
+                            },
+                        ],
+                        actor,
+                        chunkSize,
+                    ),
+                    res,
+                ),
+            );
+
+            const sumDiffs = () =>
+                progressSends().reduce(
+                    (sum, [, , data]) =>
+                        sum + (data as { loaded_diff: number }).loaded_diff,
+                    0,
+                );
+            await vi.waitFor(() => expect(sumDiffs()).toBe(content.length));
+            expect(progressSends().length).toBeLessThan(
+                content.length / chunkSize,
+            );
+        } finally {
+            send.mockRestore();
+        }
     });
 
     it('maps positional `file` parts onto manifest order', async () => {
