@@ -181,4 +181,24 @@ describe('HostingController /delete-site', () => {
         expect(captured.body).toEqual({});
         expect(await server.stores.subdomain.getByUuid(site.uuid)).toBeNull();
     });
+
+    it('emits subdomain.delete so listeners can purge caches', async () => {
+        const { userId, actor } = await makeUser();
+        const site = await makeSite(userId);
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+
+        try {
+            await deleteSite(
+                makeReq({ body: { site_uuid: site.uuid }, actor }),
+                makeRes().res,
+            );
+            expect(emitSpy).toHaveBeenCalledWith(
+                'subdomain.delete',
+                { subdomain: site.subdomain, uid: String(site.uuid) },
+                {},
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+    });
 });
