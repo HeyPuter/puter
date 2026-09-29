@@ -1,25 +1,17 @@
 ---
 title: Share a File
-description: "Give another Puter user access to a file or folder, see what has been shared with you, and take access back again."
+description: "Learn how to add file sharing to your app with Puter.js, so users can share files in their Puter account with other people."
 tags: [fs, auth]
 order: 45
 ---
 
-**Use this when** two people need the same file. Sharing hands a named person
-access to something in your storage, so they reach it from their own account
-without you copying anything or minting a link. Things this is the backbone of:
+Every file in Puter lives inside one user's Puter account, and only that user
+can open it. When another Puter user needs the same file, share it with them
+using the [filesystem API](/FS/). They can then open it from their own account,
+without anyone copying the file or sending a link.
 
-- A **document editor** with a Share button, and a list of who currently has the
-  draft.
-- A **design or photo tool** that hands a folder of assets to a collaborator at
-  `write`, and to a reviewer at `read`.
-- An **inbox** of "shared with me" work, built from `listShared()`.
-- A **hand-off flow** where access is granted for a review and withdrawn when it
-  is signed off.
-
-For a temporary URL to one file — an `<img>` tag, a download button — you want
-[`puter.fs.getReadURL()`](/FS/getReadURL/) instead; see
-[storing files](/recipes/store-files/).
+This lets you build sharing right inside your app, so people can work together
+on a file.
 
 ## Share with someone
 
@@ -38,6 +30,9 @@ await puter.fs.share('report.txt', { username: 'alice' });
 await puter.fs.share('report.txt', { email: 'alice@example.com' });
 ```
 
+Sharing with an email address that has no Puter account yet sends an
+invitation instead, which grants access once that address is confirmed.
+
 ## Choose how much access
 
 The third argument is the mode, and it defaults to `'read'`:
@@ -46,25 +41,26 @@ The third argument is the mode, and it defaults to `'read'`:
 await puter.fs.share('budget.xlsx', 'alice', 'write');
 ```
 
-- `'read'` — open it.
-- `'write'` — open and change it. Does **not** allow sharing it onward.
-- `'manage'` — everything `'write'` allows, plus re-sharing it.
-- `'list'`, `'see'` — weaker than `read`, for making something discoverable
+- `'read'`: open it.
+- `'write'`: open and change it. Does **not** allow sharing it onward.
+- `'manage'`: everything `'write'` allows, plus re-sharing it.
+- `'list'`, `'see'`: weaker than `read`, for making something discoverable
   without exposing what is in it.
 
 Sharing the same item with the same person again **replaces** their access
-rather than stacking up, so raising someone from read to write is just another
-call:
+instead of adding a second share, so changing someone from read to write is one
+more call:
 
 ```js
 const [share] = await puter.fs.share('budget.xlsx', 'alice', 'write');
 
 share.mode;    // 'write'
-share.isNew;   // false — she already had access, at a different mode
+share.isNew;   // false, she already had access, at a different mode
 ```
 
-`isNew` is how you tell "I just gave this to someone" from "they already had
-it", which is the difference between showing a confirmation and staying quiet.
+The `isNew` field is `true` when the person did not have access before, and
+`false` when they already had access. Use it to decide whether to show a
+confirmation.
 
 ## See what has been shared with you
 
@@ -76,11 +72,11 @@ for (const item of items) {
 }
 ```
 
-Note the shape: this resolves to an object with an `items` array, not to an
+This resolves to an object with an `items` array, not to an
 array. Your own files are never in it.
 
 Shared items appear at a **masked path** of the form `/<owner>/<uid>/<name>`.
-It works with any `puter.fs` method, so you can read one straight off the
+It works with any `puter.fs` method, so you can read one directly from the
 listing:
 
 ```js
@@ -89,9 +85,9 @@ const blob = await puter.fs.read(first.path);
 console.log(await blob.text());
 ```
 
-What the mask withholds is *where* the item lives in the owner's storage, and
-what sits next to it. Label the item with `name` — the masked path has no
-meaningful folder to show.
+The masked path hides *where* the item is stored in the owner's account, and
+what other files are next to it. Label the item with `name`, since the masked
+path has no meaningful folder to show.
 
 ## See who you shared something with
 
@@ -104,7 +100,8 @@ for (const share of shares) {
 ```
 
 This lists shares made by **anyone** holding `manage` on the item, not only
-yours, so an owner can see what someone they trusted has passed on.
+yours, so an owner can see who else it was shared with by the people they gave
+`manage` to.
 
 ## Take access back
 
@@ -113,26 +110,7 @@ const { revoked } = await puter.fs.unshare('report.txt', 'alice');
 ```
 
 `revoked` counts the grants actually removed. `0` means there was nothing to
-withdraw, which is not an error — so unsharing twice is safe.
+remove, which is not an error, so unsharing twice is safe.
 
-Pass **yourself** as the recipient to walk away from something someone else
-shared with you.
-
-## Notes
-
-- Sharing with an email address that has no Puter account yet sends an
-  **invitation** instead. It appears in `getShares()` with `pending: true` and a
-  `null` `holder`, and grants nothing until that address is confirmed.
-- One call can take an array of recipients. If some succeed and others fail, the
-  promise still resolves with the ones that worked — it rejects only when every
-  one failed.
-- Rejections carry a `code`. The ones worth handling by name are
-  `user_does_not_exist`, `cannot_share_with_self`, `cannot_share_with_owner` and
-  `recipient_not_accepting_shares` (the recipient has blocked you or turned off
-  new shares; nothing is granted and they are not told).
-- Handing out access needs a verified phone or card on deployments that can
-  verify either, so a first share may reject with `phone_verification_required`.
-  Listing and withdrawing never ask for this.
-- Access that comes from a shared parent folder shows `inheritedFrom` set to
-  that folder. It is managed there — you cannot withdraw it from the item
-  itself.
+To remove your own access to a file someone else shared with you, pass
+**yourself** as the recipient.
