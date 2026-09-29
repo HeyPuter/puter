@@ -57,7 +57,7 @@
     "openai": "^6.34.0",
     "otpauth": "^9.5.2",
     "pg": "^8.21.0",
-    "postal-mime": "^3.0.0",
+    "postal-mime": "^3.0.1",
     "replicate": "^1.0.0",
     "sharp": "^0.35.4",
     "smtp-server": "^3.19.13",
