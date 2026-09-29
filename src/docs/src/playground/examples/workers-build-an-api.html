@@ -1,0 +1,62 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Notes</h3>
+    <input id="text" placeholder="Write a note">
+    <button id="save">Save note</button>
+    <button id="list">Show my notes</button>
+    <script>
+        // Every note is stored in the calling user's own KV through user.puter,
+        // so each user only ever sees their own notes.
+        const workerCode = `
+            router.post('/notes', async ({ request, user }) => {
+                if (!user) return new Response('sign in required', { status: 401 });
+
+                const { text } = await request.json();
+                if (typeof text !== 'string' || text.length === 0) {
+                    return new Response('text is required', { status: 400 });
+                }
+
+                const note = { id: crypto.randomUUID(), text, at: Date.now() };
+                await user.puter.kv.set('notes:' + note.id, note);
+                return note;
+            });
+
+            router.get('/notes', async ({ user }) => {
+                if (!user) return new Response('sign in required', { status: 401 });
+
+                const rows = await user.puter.kv.list('notes:', true);
+                return rows.map(row => row.value);
+            });
+        `;
+
+        let api;
+
+        async function deploy () {
+            await puter.fs.write('notes-api.js', workerCode);
+            const deployment = await puter.workers.create(puter.randName(), 'notes-api.js');
+            puter.print(`Deployed to ${deployment.url}, waiting for it to go live...<br>`);
+            // A new worker takes a few seconds to reach every edge server.
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            return deployment.url;
+        }
+
+        document.getElementById('save').addEventListener('click', async () => {
+            api ??= deploy();
+            // exec() sends the signed-in user, which is what gives the worker user.puter.
+            const res = await puter.workers.exec(`${await api}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: document.getElementById('text').value }),
+            });
+            puter.print(`${res.status}: ${await res.text()}<br>`);
+        });
+
+        document.getElementById('list').addEventListener('click', async () => {
+            api ??= deploy();
+            const notes = await (await puter.workers.exec(`${await api}/notes`)).json();
+            puter.print(`You have ${notes.length} note(s): ${notes.map(n => n.text).join(', ')}<br>`);
+        });
+    </script>
+</body>
+</html>

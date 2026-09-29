@@ -1,0 +1,41 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>App builder: project API</h3>
+    <input id="greeting" value="Welcome back">
+    <button id="ship">Ship change</button>
+    <button id="call">Call the worker</button>
+    <script>
+        const name = `project-${puter.randName()}`;
+        // The route greets whoever calls it, using their own Puter account.
+        const code = greeting => `
+            router.get('/', async ({ user }) => {
+                if (!user) return new Response('sign in required', { status: 401 });
+                const { username } = await user.puter.getUser();
+                return ${JSON.stringify(greeting)} + ', ' + username;
+            });
+        `;
+
+        const deployed = (async () => {
+            await puter.fs.write(`${name}.js`, code('Hello'));
+            const { url } = await puter.workers.create(name, `${name}.js`);
+            puter.print(`Created ${url}, live within about 30 seconds<br>`);
+            return url;
+        })();
+
+        document.getElementById('ship').addEventListener('click', async () => {
+            await deployed;
+            const info = await puter.workers.get(name);
+
+            // Overwriting the source file redeploys at the same URL.
+            await puter.fs.write(info.file_path, code(document.getElementById('greeting').value));
+            puter.print(`Shipped. ${info.url} serves the new code within about 30 seconds.<br>`);
+        });
+
+        document.getElementById('call').addEventListener('click', async () => {
+            const res = await puter.workers.exec(await deployed);
+            puter.print(`${res.status}: ${await res.text()}<br>`);
+        });
+    </script>
+</body>
+</html>
