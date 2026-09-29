@@ -1035,6 +1035,333 @@ describe('SystemKVStore', () => {
         });
     });
 
+    describe('createPaths write bounding', () => {
+        it('sends exactly one update when paths share a parent that already exists', async () => {
+            const key = 'shared-parent';
+            await target.update({ key, pathAndValueMap: { 'p.q': 1 } }, opts);
+
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                const result = await target.update(
+                    { key, pathAndValueMap: { 'p.r': 2, 'p.s': 3 } },
+                    opts,
+                );
+                expect(result.res).toMatchObject({ p: { q: 1, r: 2, s: 3 } });
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('add sends exactly one update when the parent list already exists', async () => {
+            const key = 'shared-parent-list';
+            await target.add(
+                { key, pathAndValueMap: { 'items.a': 'x' } },
+                opts,
+            );
+
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                const result = await target.add(
+                    { key, pathAndValueMap: { 'items.a': 'y' } },
+                    opts,
+                );
+                expect(result.res).toMatchObject({ items: { a: ['x', 'y'] } });
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        // The mocks below reject only the caller's own write, told apart from
+        // createPaths writes by its `:value`/`:append` tokens.
+        const oversized = () =>
+            Object.assign(
+                new Error(
+                    '1 validation error detected: Invalid UpdateExpression: Expression size has exceeded the maximum allowed size;',
+                ),
+                { name: 'ValidationException' },
+            );
+
+        it('update rejects an oversized expression without any createPaths writes', async () => {
+            const key = 'update-oversized';
+            // An existing value rules out createPaths' fresh-key shortcut.
+            await target.set({ key, value: { marker: true } }, opts);
+
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            const err = oversized();
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation((...args) => {
+                    const expression = String(args[2]);
+                    if (expression.includes(':value'))
+                        return Promise.reject(err);
+                    return real(...args);
+                });
+
+            try {
+                await expect(
+                    target.update(
+                        {
+                            key,
+                            pathAndValueMap: { 'a.b.c': 1, 'a.d.e': 2 },
+                        },
+                        opts,
+                    ),
+                ).rejects.toThrow(/Expression size/);
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('add rejects an oversized expression without any createPaths writes', async () => {
+            const key = 'add-oversized';
+            await target.set({ key, value: { marker: true } }, opts);
+
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            const err = oversized();
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation((...args) => {
+                    const expression = String(args[2]);
+                    if (expression.includes(':append'))
+                        return Promise.reject(err);
+                    return real(...args);
+                });
+
+            try {
+                await expect(
+                    target.add(
+                        {
+                            key,
+                            pathAndValueMap: { 'a.b.c': 1, 'a.d.e': 2 },
+                        },
+                        opts,
+                    ),
+                ).rejects.toThrow(/Expression size/);
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('still rejects incompatible roots without any write', async () => {
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await expect(
+                    target.update(
+                        {
+                            key: 'incompatible-roots',
+                            pathAndValueMap: { a: 1, '[0]': 2 },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                await expect(
+                    target.add(
+                        {
+                            key: 'incompatible-roots-add',
+                            pathAndValueMap: { a: [1], '[0]': [2] },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                expect(update).not.toHaveBeenCalled();
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('still rejects incompatible containers without any write', async () => {
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await expect(
+                    target.update(
+                        {
+                            key: 'incompatible-containers',
+                            pathAndValueMap: { 'a.b': 1, 'a[0]': 2 },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                await expect(
+                    target.add(
+                        {
+                            key: 'incompatible-containers-add',
+                            pathAndValueMap: { 'a.b': [1], 'a[0]': [2] },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                expect(update).not.toHaveBeenCalled();
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('bounds the update count by depth on a wide nested update, not by path count', async () => {
+            const key = 'wide-nested';
+            // An existing value rules out createPaths' fresh-key shortcut.
+            await target.set({ key, value: { marker: true } }, opts);
+
+            const pathAndValueMap: Record<string, unknown> = {};
+            for (let i = 0; i < 50; i++) {
+                pathAndValueMap[`a.b.sib${i}.leaf`] = i;
+            }
+            pathAndValueMap['a.b.deep.x.y.leaf'] = 'deep';
+
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                const result = await target.update(
+                    { key, pathAndValueMap },
+                    opts,
+                );
+
+                // 55 missing containers over 5 depths: one write per depth,
+                // the wide one split to fit the budget, not one per container.
+                expect(update.mock.calls.length).toBeLessThan(15);
+                for (const [, , expression] of update.mock.calls) {
+                    expect(Buffer.byteLength(expression)).toBeLessThanOrEqual(
+                        INCR_EXPRESSION_BUDGET_BYTES,
+                    );
+                }
+
+                const stored = await target.get({ key }, opts);
+                expect(stored.res).toMatchObject(result.res as object);
+                const value = stored.res as {
+                    marker: boolean;
+                    a: {
+                        b: Record<string, unknown> & {
+                            deep: { x: { y: { leaf: string } } };
+                        };
+                    };
+                };
+                expect(value.marker).toBe(true);
+                expect(value.a.b.sib0).toMatchObject({ leaf: 0 });
+                expect(value.a.b.sib49).toMatchObject({ leaf: 49 });
+                expect(value.a.b.deep.x.y.leaf).toBe('deep');
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('reports every write as usage, createPaths included', async () => {
+            const key = 'fallback-usage';
+            await target.set({ key, value: { marker: true } }, opts);
+
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                const { usage } = await target.update(
+                    { key, pathAndValueMap: { 'a.b.c': 1, 'a.d.e': 2 } },
+                    opts,
+                );
+
+                let billed = 0;
+                for (const result of update.mock.results) {
+                    try {
+                        const response = await result.value;
+                        billed += Number(
+                            response.ConsumedCapacity?.CapacityUnits ?? 0,
+                        );
+                    } catch {
+                        // The first attempt fails and reports no capacity.
+                    }
+                }
+                expect(update.mock.calls.length).toBeGreaterThan(2);
+                expect(usage.write).toBeGreaterThan(0);
+                expect(usage.write).toBe(billed);
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('announces a write that needed createPaths exactly once', async () => {
+            // Mutations are only announced for an actor with a numeric user id.
+            const announcedOpts = {
+                actor: { user: { id: 1, uuid: actor.user!.uuid } } as Actor,
+            };
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                const updated = await target.update(
+                    { key: 'announced', pathAndValueMap: { 'a.b': 1 } },
+                    announcedOpts,
+                );
+                const added = await target.add(
+                    { key: 'announced', pathAndValueMap: { 'c.d': 'x' } },
+                    announcedOpts,
+                );
+
+                const mutations = emit.mock.calls
+                    .filter(([name]) => name === 'kv.mutated')
+                    .map(([, payload]) => payload);
+                expect(mutations).toEqual([
+                    expect.objectContaining({
+                        keys: ['announced'],
+                        values: [updated.res],
+                    }),
+                    expect.objectContaining({
+                        keys: ['announced'],
+                        values: [added.res],
+                    }),
+                ]);
+            } finally {
+                emit.mockRestore();
+            }
+        });
+
+        it('rejects a non-numeric ttl before writing anything', async () => {
+            const key = 'nan-ttl';
+            await expect(
+                target.update(
+                    { key, pathAndValueMap: { 'a.b': 1 }, ttl: Number.NaN },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect((await target.get({ key }, opts)).res).toBeNull();
+        });
+
+        it.each([
+            ['a string', 'str'],
+            ['a number', 5],
+            ['a null', null],
+        ])(
+            'rejects a nested path under %s value and leaves it unchanged',
+            async (_label, value) => {
+                const key = 'scalar-root';
+                await target.set({ key, value }, opts);
+
+                const attempts = [
+                    () =>
+                        target.update(
+                            { key, pathAndValueMap: { 'a.b': 1 } },
+                            opts,
+                        ),
+                    () =>
+                        target.add(
+                            { key, pathAndValueMap: { 'a.b': 1 } },
+                            opts,
+                        ),
+                    () =>
+                        target.incr(
+                            { key, pathAndAmountMap: { 'a.b': 1 } },
+                            opts,
+                        ),
+                ];
+                for (const attempt of attempts) {
+                    await expect(attempt()).rejects.toMatchObject({
+                        name: 'ValidationException',
+                    });
+                }
+                expect((await target.get({ key }, opts)).res).toEqual(value);
+            },
+        );
+    });
+
     describe('remove', () => {
         it('removes a path that exists', async () => {
             await target.update(
@@ -1698,6 +2025,31 @@ describe('SystemKVStore', () => {
                     crossOpts,
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('refuses update and add on a private entry before any write', async () => {
+            await target.set(
+                { key: 'secret-doc', value: { a: {} }, disableSharing: true },
+                { actor, appUuid: 'app-other' },
+            );
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await expect(
+                    target.update(
+                        { key: 'secret-doc', pathAndValueMap: { 'a.b': 1 } },
+                        crossOpts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+                await expect(
+                    target.add(
+                        { key: 'secret-doc', pathAndValueMap: { 'a.c': 1 } },
+                        crossOpts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+                expect(update).not.toHaveBeenCalled();
+            } finally {
+                update.mockRestore();
+            }
         });
     });
 
