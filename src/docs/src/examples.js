@@ -945,6 +945,12 @@ const examples = [
                 slug: 'perms-request-permission',
                 source: '/playground/examples/perms-request-permission.html',
             },
+            {
+                title: 'Check before you prompt',
+                description: 'Check whether access is already held before showing an opt-in with Puter.js permissions API. Run and modify this example directly in your browser.',
+                slug: 'perms-ask-for-access-check',
+                source: '/playground/examples/perms-ask-for-access-check.html',
+            },
         ],
     },
     {
