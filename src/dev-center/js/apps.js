@@ -1893,14 +1893,13 @@ window.deploy = async function (app, items) {
         console.log(err);
     }
 
-    // --------------------------------------------------------------------
-    // Delete existing hostnames attached to this app directory if they exist
-    // --------------------------------------------------------------------
-    if ( current_app_dir?.subdomains.length > 0 ) {
-        for ( let subdomain of current_app_dir?.subdomains ) {
+    // Old hostnames are deleted only once the app points at the new one, so a
+    // deploy that dies midway never leaves the app on an unregistered name.
+    const deleteOldHostnames = () => {
+        for ( let subdomain of current_app_dir?.subdomains ?? [] ) {
             puter.hosting.delete(subdomain.subdomain);
         }
-    }
+    };
 
     // --------------------------------------------------------------------
     // Delete existing app directory
@@ -1971,7 +1970,7 @@ window.deploy = async function (app, items) {
         // --------------------------------------------------------------------
         puter.hosting.create(hostname, appdata_dir.path).then(async (res) => {
             // TODO this endpoint needs to be able to update only the specified fields
-            puter.apps.update(currently_editing_app.name, {
+            await puter.apps.update(currently_editing_app.name, {
                 indexURL: `${protocol}://${hostname}.${static_hosting_domain}`,
                 title: currently_editing_app.title,
                 name: currently_editing_app.name,
@@ -1981,6 +1980,7 @@ window.deploy = async function (app, items) {
                 background: currently_editing_app.background,
                 filetypeAssociations: currently_editing_app.filetype_associations,
             });
+            deleteOldHostnames();
             // set the 'Index URL' field for the 'Settings' tab
             $('#edit-app-index-url').val(`${protocol}://${hostname}.${static_hosting_domain}`);
             // show success message
@@ -2019,7 +2019,7 @@ window.deploy = async function (app, items) {
         // --------------------------------------------------------------------
         puter.hosting.create(hostname, appdata_dir.path).then(async (res) => {
             // TODO this endpoint needs to be able to update only the specified fields
-            puter.apps.update(currently_editing_app.name, {
+            await puter.apps.update(currently_editing_app.name, {
                 indexURL: `${protocol}://${hostname}.${static_hosting_domain}`,
                 title: currently_editing_app.title,
                 name: currently_editing_app.name,
@@ -2029,6 +2029,7 @@ window.deploy = async function (app, items) {
                 background: currently_editing_app.background,
                 filetypeAssociations: currently_editing_app.filetype_associations,
             });
+            deleteOldHostnames();
             // set the 'Index URL' field for the 'Settings' tab
             $('#edit-app-index-url').val(`${protocol}://${hostname}.${static_hosting_domain}`);
             // show success message
@@ -2062,7 +2063,7 @@ window.deploy = async function (app, items) {
             // ----------------------------------------
             puter.hosting.create(hostname, appdata_dir.path).then(async (res) => {
                 // TODO this endpoint needs to be able to update only the specified fields
-                puter.apps.update(currently_editing_app.name, {
+                await puter.apps.update(currently_editing_app.name, {
                     indexURL: `${protocol}://${hostname}.${static_hosting_domain}`,
                     title: currently_editing_app.title,
                     name: currently_editing_app.name,
@@ -2072,6 +2073,7 @@ window.deploy = async function (app, items) {
                     background: currently_editing_app.background,
                     filetypeAssociations: currently_editing_app.filetype_associations,
                 });
+                deleteOldHostnames();
                 // set the 'Index URL' field for the 'Settings' tab
                 $('#edit-app-index-url').val(`${protocol}://${hostname}.${static_hosting_domain}`);
                 // show success message

@@ -1752,6 +1752,63 @@ describe('AuthService (integration)', () => {
                 ).rejects.toMatchObject({ statusCode: 400 });
             },
         );
+
+        describe('after the origin-derived app is repointed', () => {
+            // The row get-user-app-token bootstraps on an origin's first visit.
+            const bootstrap = async (origin: string) =>
+                server.stores.app.createFromOrigin(
+                    await authService.appUidFromOrigin(origin),
+                    authService.canonicalizeOrigin(origin),
+                );
+
+            it('gives the old origin a new uid and leaves the app with the new one', async () => {
+                const origin = `https://moved-${uuidv4()}.example.com`;
+                const app = await bootstrap(origin);
+                const newHome = `https://new-home-${uuidv4()}.example.com`;
+                await server.stores.app.update(app.id, { index_url: newHome });
+
+                const next = await authService.appUidFromOrigin(origin);
+                expect(next).not.toBe(app.uid);
+                expect(await authService.appUidFromOrigin(origin)).toBe(next);
+                expect(await authService.appUidFromOrigin(newHome)).toBe(
+                    app.uid,
+                );
+            });
+
+            it('moves on again when the successor is repointed too', async () => {
+                const origin = `https://moved-twice-${uuidv4()}.example.com`;
+                const first = await bootstrap(origin);
+                await server.stores.app.update(first.id, {
+                    index_url: `https://a-${uuidv4()}.example.com`,
+                });
+                const second = await bootstrap(origin);
+                expect(second.uid).not.toBe(first.uid);
+                await server.stores.app.update(second.id, {
+                    index_url: `https://b-${uuidv4()}.example.com`,
+                });
+
+                const third = await authService.appUidFromOrigin(origin);
+                expect([first.uid, second.uid]).not.toContain(third);
+            });
+
+            it('keeps the uid while the app is still served from its origin', async () => {
+                // A path, on another hosting variant: misses the canonical
+                // index_url lookup but is still the same origin.
+                const sub = `kept-${Math.random().toString(36).slice(2, 10)}`;
+                const app = await bootstrap(
+                    `https://${sub}.site.puter.localhost`,
+                );
+                await server.stores.app.update(app.id, {
+                    index_url: `https://${sub}.app.puter.localhost/v2/index.html`,
+                });
+
+                expect(
+                    await authService.appUidFromOrigin(
+                        `https://${sub}.site.puter.localhost`,
+                    ),
+                ).toBe(app.uid);
+            });
+        });
     });
 
     describe('subdomainOwnerIdFromOrigin', () => {
