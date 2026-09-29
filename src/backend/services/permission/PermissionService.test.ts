@@ -1033,7 +1033,9 @@ describe('PermissionService (integration)', () => {
 
             // Fails closed: the durable write went first, so a failure there
             // leaves no flat entry granting access either.
-            expect(await permService.check(targetActor, permission)).toBeFalsy();
+            expect(
+                await permService.check(targetActor, permission),
+            ).toBeFalsy();
         });
 
         it('keeps the flat entry while another issuer still grants the permission', async () => {
@@ -1324,12 +1326,12 @@ describe('PermissionService — scan paths', () => {
             // Both used to be admin-only entries in the group-keyed map.
             // Nothing grants them now.
             const { actor } = await makeLooseUser();
-            expect(await permService.check(actor, 'local-terminal:access')).toBe(
+            expect(
+                await permService.check(actor, 'local-terminal:access'),
+            ).toBe(false);
+            expect(await permService.check(actor, `feature:${uuidv4()}`)).toBe(
                 false,
             );
-            expect(
-                await permService.check(actor, `feature:${uuidv4()}`),
-            ).toBe(false);
         });
 
         // Group permissions are seeded by migration, not written at runtime, so
@@ -1382,6 +1384,88 @@ describe('PermissionService — scan paths', () => {
                 false,
             );
         });
+
+        it('terminates when the sharer belongs to the group they shared into', async () => {
+            const { row: sharer, actor: sharerActor } = await makeGroupedUser();
+            const { row: member, actor: memberActor } = await makeGroupedUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [groupUid, sharer.id, '{}', '{}'],
+            );
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            await server.stores.group.addUsers(groupUid, [
+                sharer.username,
+                member.username,
+            ]);
+
+            const permission = `zztest:cyc-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(
+                sharer.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: sharer.id,
+                } as never,
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [sharer.id, group.id, permission, '{}'],
+            );
+
+            expect(await permService.check(memberActor, permission)).toBe(true);
+            expect(await permService.check(sharerActor, permission)).toBe(true);
+        }, 20_000);
+
+        it('does not let a cycle-pruned sub-reading deny the sharer later', async () => {
+            const { row: origin, actor: originActor } = await makeGroupedUser();
+            const { row: sharer, actor: sharerActor } = await makeGroupedUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [groupUid, origin.id, '{}', '{}'],
+            );
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            await server.stores.group.addUsers(groupUid, [
+                origin.username,
+                sharer.username,
+            ]);
+
+            const permission = `zztest:pcy-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(
+                origin.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: origin.id,
+                } as never,
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_user_permissions` ' +
+                    '(`holder_user_id`, `issuer_user_id`, `permission`, `extra`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [sharer.id, origin.id, permission, '{}'],
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [sharer.id, group.id, permission, '{}'],
+            );
+
+            expect(await permService.check(originActor, permission)).toBe(true);
+            expect(await permService.check(sharerActor, permission)).toBe(true);
+        }, 20_000);
     });
 
     describe('app-under-user grants', () => {
