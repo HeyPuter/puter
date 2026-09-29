@@ -47,8 +47,12 @@ export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (
 const DEFAULT_BROADCAST_REFRESH_TTL_SECONDS = 15 * 60;
 
 // Tombstone lifetime; must outlast replica lag.
-const CACHE_TOMBSTONE_TTL_SECONDS = 60;
-const CACHE_TOMBSTONE_SUFFIX = ':deleted';
+export const CACHE_TOMBSTONE_TTL_SECONDS = 60;
+export const CACHE_TOMBSTONE_SUFFIX = ':deleted';
+
+/** A tombstone marker rather than a cached row; peers must set it, not drop it. */
+export const isCacheTombstoneKey = (key: string): boolean =>
+    key.endsWith(CACHE_TOMBSTONE_SUFFIX);
 
 export const PuterStore = class PuterStore implements WithLifecycle {
     constructor(
@@ -146,6 +150,22 @@ export const PuterStore = class PuterStore implements WithLifecycle {
             keys: keys.map((key) => key + CACHE_TOMBSTONE_SUFFIX),
             broadcast: true,
         });
+    }
+
+    /**
+     * Write only if `keys` are untombstoned, and undo it if a delete lands
+     * mid-write — a row cached under a live tombstone is never re-checked.
+     */
+    protected async writeCacheUnlessDeleted(
+        keys: string[],
+        write: () => Promise<void>,
+    ): Promise<void> {
+        if (keys.length === 0) return;
+        if (await this.isCacheKeyTombstoned(keys)) return;
+        await write();
+        if (await this.isCacheKeyTombstoned(keys)) {
+            await this.publishCacheKeys({ keys, broadcast: true });
+        }
     }
 
     /**

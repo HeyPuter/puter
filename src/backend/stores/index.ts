@@ -88,7 +88,9 @@ declare module './types.js' {
 // stores/services can lean on them for cached lookups.
 // FSEntryStore depends on `kv` (pending-upload sessions live there).
 // S3ObjectStore is a leaf (clients.s3 only).
-// SessionStore / ShareStore / UserBlockStore are leaves — only use clients.db.
+// ShareStore / UserBlockStore are leaves — only use clients.db.
+// SessionStore also reaches UserStore to retire an account its insert found
+// deleted, so it must stay after `user`.
 export const puterStores = {
     kv: SystemKVStore,
     meteringBuffer: MeteringBufferStore,

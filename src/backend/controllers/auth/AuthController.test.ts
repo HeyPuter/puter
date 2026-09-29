@@ -716,9 +716,8 @@ describe('AuthController.handleSignup', () => {
             }),
             makeRes(),
         );
-        const occupant = await server.stores.user.getByUsername(
-            occupantUsername,
-        );
+        const occupant =
+            await server.stores.user.getByUsername(occupantUsername);
         const root = (await server.stores.fsEntry.getRootEntryForUser(
             occupant!.id,
         ))!;
@@ -3336,13 +3335,16 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
     });
 
     // sqlite doesn't enforce FKs, so inject the driver error at the db client.
-    describe('when the app row is gone but still cached', () => {
-        const fkError = Object.assign(new Error('FOREIGN KEY constraint'), {
-            code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
-        });
+    // The grant row keys both the app and the user; which one vanished decides
+    // the answer, and the drivers don't all name the constraint.
+    describe('when a parent row is gone but still cached', () => {
+        const fkError = () =>
+            Object.assign(new Error('FOREIGN KEY constraint'), {
+                code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+            });
 
-        it('answers 404 rather than 500, and retires the stale cache entry', async () => {
-            const doomed = await (
+        const makeApp = async () =>
+            (
                 server.stores.app.create as unknown as (
                     fields: Record<string, unknown>,
                     opts: { ownerUserId: number },
@@ -3356,29 +3358,64 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
                 { ownerUserId: user.id },
             );
 
+        /** Fails the grant insert without disturbing the rest of the handler. */
+        const failingGrant = async (fn: () => Promise<unknown>) => {
             const realWrite = server.clients.db.write.bind(server.clients.db);
-            const writeSpy = vi
+            const spy = vi
                 .spyOn(server.clients.db, 'write')
                 .mockImplementation(async (sql: string, params?: unknown[]) => {
-                    if (/user_to_app_permissions/.test(sql)) throw fkError;
+                    if (/user_to_app_permissions/.test(sql)) throw fkError();
                     return realWrite(sql, params);
                 });
-
             try {
-                await expect(
+                return await fn();
+            } finally {
+                spy.mockRestore();
+            }
+        };
+
+        it('answers 404 for a deleted app, and retires the stale cache entry', async () => {
+            const doomed = await makeApp();
+            // Straight to SQL; AppStore.delete would clear the stale entry.
+            await server.clients.db.write('DELETE FROM `apps` WHERE `id` = ?', [
+                doomed.id,
+            ]);
+
+            await expect(
+                failingGrant(() =>
                     inCtx(actor, () =>
                         controller.handleGetUserAppToken(
                             makeReq({ app_uid: doomed.uid }, { actor }),
                             makeRes(),
                         ),
                     ),
-                ).rejects.toMatchObject({ statusCode: 404 });
-            } finally {
-                writeSpy.mockRestore();
-            }
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
 
             expect(
                 await server.clients.redis.get(`apps:uid:${doomed.uid}`),
+            ).toBeNull();
+        });
+
+        it('answers 401 for a deleted account, leaving the live app cacheable', async () => {
+            const live = await makeApp();
+            await server.stores.app.getByUid(live.uid);
+
+            await expect(
+                failingGrant(() =>
+                    inCtx(actor, () =>
+                        controller.handleGetUserAppToken(
+                            makeReq({ app_uid: live.uid }, { actor }),
+                            makeRes(),
+                        ),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 401 });
+
+            // Tombstoning the app here would strand a perfectly live row.
+            expect(await server.stores.app.getByUid(live.uid)).toBeTruthy();
+            expect(
+                await server.clients.redis.get(`apps:uid:${live.uid}:deleted`),
             ).toBeNull();
         });
     });

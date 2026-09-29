@@ -307,6 +307,18 @@ export class UserStore extends PuterStore {
             )) as Array<Record<string, unknown>>;
             for (const row of rows) {
                 const user = this.#normalizeRow(row);
+                // Tombstoned: let the primary say if it's really gone.
+                if (
+                    await this.isCacheKeyTombstoned([
+                        this.#cacheKey('id', user.id),
+                    ])
+                ) {
+                    const fresh = await this.getByProperty('id', user.id, {
+                        force: true,
+                    });
+                    if (fresh) result.set(fresh.id, fresh);
+                    continue;
+                }
                 result.set(user.id, user);
                 this.#writeCache(user).catch(() => {
                     // Best-effort cache backfill.
@@ -820,7 +832,14 @@ export class UserStore extends PuterStore {
 
     /** Invalidate a deleted row; pass it as read _before_ the delete. */
     async markDeleted(user: UserRow): Promise<void> {
-        await this.tombstoneCacheKeys(this.#cacheKeysForUser(user));
+        // Only keys this row owned: an unconfirmed address may be held by
+        // several rows, and the owner still needs to be cacheable.
+        const owned = this.#cacheKeysToWrite(user);
+        const rest = this.#cacheKeysForUser(user).filter(
+            (key) => !owned.includes(key),
+        );
+        await this.tombstoneCacheKeys(owned);
+        await this.publishCacheKeys({ keys: rest, broadcast: true });
     }
 
     /**
@@ -829,7 +848,9 @@ export class UserStore extends PuterStore {
      */
     async markDeletedById(id: number): Promise<void> {
         const cached = await this.#readCache('id', id);
-        if (cached) await this.markDeleted(cached);
+        if (cached) return this.markDeleted(cached);
+        // No cached copy to name the rest, but the id key is always this row's.
+        await this.tombstoneCacheKeys([this.#cacheKey('id', id)]);
     }
 
     // -- Internals ----------------------------------------------------
@@ -885,31 +906,33 @@ export class UserStore extends PuterStore {
 
     async #writeCache(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysToWrite(user);
-        if (keys.length === 0) return;
-        // A replica behind the delete still returns the row.
-        if (await this.isCacheKeyTombstoned(keys)) return;
         const serialized = JSON.stringify(user);
-        await Promise.all(
-            keys.map((key) =>
-                this.clients.redis.set(
-                    key,
-                    serialized,
-                    'EX',
-                    CACHE_TTL_SECONDS,
+        // A replica behind the delete still returns the row.
+        await this.writeCacheUnlessDeleted(keys, async () => {
+            await Promise.all(
+                keys.map((key) =>
+                    this.clients.redis.set(
+                        key,
+                        serialized,
+                        'EX',
+                        CACHE_TTL_SECONDS,
+                    ),
                 ),
-            ),
-        );
+            );
+        });
     }
 
     async #refreshCache(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysToWrite(user);
-        if (keys.length === 0) return;
-        await this.publishCacheKeys({
-            keys,
-            serializedData: JSON.stringify(user),
-            ttlSeconds: CACHE_TTL_SECONDS,
-            broadcast: true,
-        });
+        // `#write` reads the replica, so it can refresh a row already deleted.
+        await this.writeCacheUnlessDeleted(keys, () =>
+            this.publishCacheKeys({
+                keys,
+                serializedData: JSON.stringify(user),
+                ttlSeconds: CACHE_TTL_SECONDS,
+                broadcast: true,
+            }),
+        );
     }
 
     /**

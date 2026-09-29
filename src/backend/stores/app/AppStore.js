@@ -146,6 +146,16 @@ export class AppStore extends PuterStore {
         return this.#getByProperty('name', name);
     }
 
+    /** Cache-free existence check against the primary. */
+    async existsOnPrimary(appId) {
+        if (appId === undefined || appId === null) return false;
+        const rows = await this.clients.db.pread(
+            'SELECT `id` FROM `apps` WHERE `id` = ? LIMIT 1',
+            [appId],
+        );
+        return rows.length > 0;
+    }
+
     /**
      * Batched lookup by id. Use this in place of `Promise.all(ids.map(
      * getById))` to avoid one connection per row on large id sets.
@@ -230,6 +240,18 @@ export class AppStore extends PuterStore {
             for (const row of rows) {
                 const app = this.#normalizeRow(row);
                 if (!app) continue;
+                // Tombstoned: let the primary say if it's really gone.
+                if (
+                    await this.isCacheKeyTombstoned([
+                        this.#cacheKey(prop, app[prop]),
+                    ])
+                ) {
+                    const fresh = await this.#readFromDb(prop, app[prop], {
+                        primary: true,
+                    });
+                    if (fresh) result.set(fresh[prop], fresh);
+                    continue;
+                }
                 result.set(app[prop], app);
                 this.#writeCache(app).catch(() => {});
             }
@@ -976,15 +998,20 @@ export class AppStore extends PuterStore {
 
     async #writeCache(app) {
         const keys = this.#cacheKeysForApp(app);
-        if (keys.length === 0) return;
-        // A replica behind the delete still returns the row.
-        if (await this.isCacheKeyTombstoned(keys)) return;
         const serialized = JSON.stringify(app);
-        await Promise.all(
-            keys.map((k) =>
-                this.clients.redis.set(k, serialized, 'EX', CACHE_TTL_SECONDS),
-            ),
-        );
+        // A replica behind the delete still returns the row.
+        await this.writeCacheUnlessDeleted(keys, async () => {
+            await Promise.all(
+                keys.map((k) =>
+                    this.clients.redis.set(
+                        k,
+                        serialized,
+                        'EX',
+                        CACHE_TTL_SECONDS,
+                    ),
+                ),
+            );
+        });
     }
 
     async #writeListCache(cacheKey, apps) {
@@ -1020,7 +1047,13 @@ export class AppStore extends PuterStore {
 
     async #refreshCache(app) {
         const keys = this.#cacheKeysForApp(app);
-        if (keys.length === 0) return;
+        // `update` reads the replica, so it can refresh a row already deleted.
+        await this.writeCacheUnlessDeleted(keys, () =>
+            this.#publishRefresh(keys, app),
+        );
+    }
+
+    async #publishRefresh(keys, app) {
         await this.publishCacheKeys({
             keys,
             serializedData: JSON.stringify(app),
