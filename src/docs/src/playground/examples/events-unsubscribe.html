@@ -1,0 +1,24 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+
+            const sub = await puter.events.onPersistent({ subject: `fs:${dir}` });
+            puter.print(`watching as ${sub.subId}<br>`);
+
+            await puter.events.unsubscribe(sub.subId);
+            puter.print('stopped<br>');
+
+            // Ending it twice is refused the same way an unknown id is.
+            try {
+                await puter.events.unsubscribe(sub.subId);
+            } catch (error) {
+                puter.print(`second attempt: ${error.code}<br>`);
+            }
+        })();
+    </script>
+</body>
+</html>

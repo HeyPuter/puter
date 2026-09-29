@@ -1,0 +1,26 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+
+            const sub = await puter.events.onLocal(`fs:${dir}`, ({ event }) => {
+                puter.print(`${event.op}: ${event.path}<br>`);
+            });
+
+            await puter.fs.write(`${dir}/first.txt`, 'delivered');
+
+            // Give the first change time to arrive, then stop listening
+            setTimeout(async () => {
+                await sub.off();
+                puter.print('stopped listening<br>');
+
+                // Nothing below is delivered
+                await puter.fs.write(`${dir}/second.txt`, 'not delivered');
+            }, 2000);
+        })();
+    </script>
+</body>
+</html>

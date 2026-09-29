@@ -1,0 +1,28 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const name = `retired-${puter.randName()}`;
+            const app = await puter.apps.create(name, `https://example.com/${name}`);
+
+            await puter.events.handlers.publish(
+                'ingestUpload',
+                async ({ event, ctx }) => {
+                    await fetch(ctx.endpoint, { method: 'POST', body: event.path });
+                },
+                { appUid: app.uid },
+            );
+
+            const { items, deployable } = await puter.events.workers.list();
+            puter.print(`this server deploys events workers: ${deployable}<br>`);
+            for (const worker of items) {
+                puter.print(`${worker.appName}: ${worker.handlerCount} handler(s)<br>`);
+            }
+
+            const destroyed = await puter.events.workers.destroy(app.uid);
+            puter.print(`removed ${destroyed.removed}, suspended ${destroyed.suspended}<br>`);
+        })();
+    </script>
+</body>
+</html>

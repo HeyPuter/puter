@@ -1,0 +1,16 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            for await (const page of puter.events.list({ stream: true })) {
+                for (const row of page.items) {
+                    if (!row.suspendedAt) continue;
+                    puter.print(`${row.subject} stopped: ${row.suspendedReason}<br>`);
+                }
+            }
+            puter.print('done<br>');
+        })();
+    </script>
+</body>
+</html>

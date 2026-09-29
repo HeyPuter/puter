@@ -1,0 +1,28 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) A directory to work in. `inbox/` below it does not exist yet.
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+
+            // (2) Subscribe anyway — the subscription anchors on `dir` and
+            //     matches the rest of the path as it appears.
+            const sub = await puter.events.onLocal(
+                `fs:${dir}/inbox/trigger.json:add`,
+                ({ event }) => puter.print(`appeared: ${event.path}<br>`),
+                { onError: (error) => puter.print(`subscription ended: ${error.code}<br>`) },
+            );
+            puter.print(`anchored on ${sub.anchor.path}, matching ${sub.match}<br>`);
+
+            // (3) Create it, several directories deep
+            await puter.fs.write(`${dir}/inbox/trigger.json`, '{}', {
+                createMissingParents: true,
+            });
+
+            setTimeout(() => sub.off(), 2000);
+        })();
+    </script>
+</body>
+</html>

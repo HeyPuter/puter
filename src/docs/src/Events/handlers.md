@@ -6,9 +6,9 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-A **handler** is a function your app deploys once, under a name, that persistent subscriptions bind to. A name is a label for deployed code, not an event: nothing triggers by name, and a handler runs only when a subscription bound to it has a delivery.
+A **handler** is a function your app publishes once, under a name, for persistent subscriptions to run. Nothing triggers a handler by name; it runs only when a subscription bound to it has a delivery.
 
-Publishing is a **developer** operation. An app token publishes into its own app; an account session has to name an app it owns with `appUid`. Either way the account must own the app.
+Publishing is a **developer** operation: the account must own the app. An app token publishes into its own app; an account session names the app with `appUid`.
 
 ```js
 await puter.events.handlers.publish('ingestUpload', async ({ event, ctx }) => {
@@ -19,16 +19,16 @@ await puter.events.handlers.list({ appUid });     // [{ name, hash, updatedAt, s
 await puter.events.handlers.remove('indexDocument', { appUid });
 ```
 
-## Handlers cannot close over anything
+## Handlers can't use outside variables
 
-A handler is serialized with `Function.prototype.toString()` and run later, somewhere else. A closed-over variable is not discouraged — it is **unrepresentable**, because nothing around the function survives the trip.
+A handler is serialized with `Function.prototype.toString()` and run later, somewhere else, so nothing around the function comes with it.
 
-Every identifier a handler names must be one of: a parameter, something the handler itself declares, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` is **not** one of them — a handler running in the [events worker](/Events/#events-worker) has no ambient SDK, and reaches the account through its `user` binding instead, with the same authority your app has for that user in a tab. The SDK checks this before the request and rejects with `events_handler_free_variable`, naming the identifier:
+Every identifier a handler uses must be a parameter, something the handler declares itself, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` isn't available in the [events worker](/Events/workers/); use the `user` binding, which has the same access your app has for that user in a tab. The SDK checks this before sending and rejects with `events_handler_free_variable`, naming the identifier:
 
 ```js
 const endpoint = 'https://example.com/ingest';
 
-// Rejected: `endpoint` is not a parameter, a local, or a known global.
+// Rejected: `endpoint` isn't a parameter, a local, or a known global.
 await puter.events.handlers.publish('ingestUpload', ({ event }) => fetch(endpoint), { appUid });
 
 // Accepted: the value travels with the subscription, not with the code.
@@ -36,7 +36,7 @@ await puter.events.handlers.publish('ingestUpload', ({ event, ctx }) => fetch(ct
 await puter.events.onPersistent({ subject: 'fs:~/inbox', handlerName: 'ingestUpload', context: { endpoint } });
 ```
 
-The check is deliberately conservative: anything it cannot resolve is refused with a clear message, rather than accepted and failed on first delivery in production.
+The check is strict on purpose: anything it can't resolve is refused now instead of failing on the first delivery.
 
 ## `publish()`
 
@@ -45,20 +45,18 @@ puter.events.handlers.publish(name, handler)
 puter.events.handlers.publish(name, handler, options)
 ```
 
-- `name` (String) (required): The name subscriptions bind to. Letters, digits and `_ . : -`, starting alphanumeric, up to 128 characters. Unique per app, and stable across source changes.
-- `handler` (Function | String | Object) (required): A function (serialized with `toString()`), a source string, or `{ file: '~/AppData/…/handler.js' }`. **A file reference resolves now, not at delivery** — the bytes as they are at this call are what gets deployed, so editing the file afterwards changes nothing until you publish again.
-- `options.replace` (Boolean): Take the name whatever is published under it.
+- `name` (String) (required): The name subscriptions bind to. Letters, digits and `_ . : -`, starting with a letter or digit, up to 128 characters. Unique within the app.
+- `handler` (Function | String | Object) (required): A function (serialized with `toString()`), a source string, or `{ file: '~/AppData/…/handler.js' }`. **A file is read now**, so later edits to it take effect only when you publish again.
+- `options.replace` (Boolean): Overwrite whatever is published under the name.
 - `options.appUid` (String): The app to publish into. Required for an account session.
 
-Resolves to `{ name, hash, updatedAt, outcome, resumed }`. `outcome` is `'created'`, `'updated'`, or `'unchanged'` when the same source was already published. `resumed` counts subscriptions this publish brought back out of suspension.
+Resolves to `{ name, hash, updatedAt, outcome, resumed }`. `outcome` is `'created'`, `'updated'`, or `'unchanged'` (the same source was already published). `resumed` counts suspended subscriptions this publish brought back.
 
-### Two build steps must not silently pick a winner
+### Concurrent publishes
 
-The source hash is a change detector and an idempotency key: publishing the **same** source again is a no-op. Publishing **different** source is an update — but only from a caller that knows what it is updating.
+Publishing the **same** source again does nothing. Publishing **different** source updates the handler, but only if you know what you're replacing.
 
-The SDK remembers the hash it last saw published for each name and sends it as the base. A publish whose base has moved under it — a second build step got there first — is refused with `events_handler_conflict`. Pass `replace: true` to say you mean to take the name regardless.
-
-A client that has never published or listed that name sends no base, so its publish can only create, or be idempotent.
+The SDK remembers the hash it last saw for each name and sends it with the publish. If someone else published in between, the publish fails with `events_handler_conflict`. Pass `replace: true` to overwrite anyway. A client that has never published or listed the name sends no hash, so it can only create the name or republish identical source.
 
 ## `publishAll()`
 
@@ -67,9 +65,9 @@ puter.events.handlers.publishAll(handlers)
 puter.events.handlers.publishAll(handlers, options)
 ```
 
-Publishes a set in one call — what a build step has. `handlers` is an array of `{ name, handler, replace? }`, capped at 50 entries and taken in order. An item the server refuses stops the pass, so a deploy never reports success over a half-published set; items before it are published, and the error names where it stopped.
+Publishes a set in one call, for build steps. `handlers` is an array of up to 50 `{ name, handler, replace? }`, published in order. If one is refused, publishing stops there: earlier items stay published, and the error says where it stopped.
 
-Resolves to an array of the same objects `publish()` returns.
+Resolves to an array of `publish()` results.
 
 ## `list()`
 
@@ -78,9 +76,9 @@ puter.events.handlers.list()
 puter.events.handlers.list(options)
 ```
 
-Resolves to `[{ name, hash, updatedAt, subscriptions }]` for everything the app has published, ordered by name. `subscriptions` counts what is bound to that name, **suspended ones included** — a suspended subscription is still a dependent, and it is the reason removing a name is not just a delete.
+Resolves to `[{ name, hash, updatedAt, subscriptions }]` for every handler the app has published, sorted by name. `subscriptions` counts the subscriptions bound to that name, **including suspended ones**.
 
-**Source is never returned.** It is the app's own code, read only on the delivery path.
+**Source is never returned.**
 
 ## `remove()`
 
@@ -93,18 +91,18 @@ Resolves to `{ name, removed, suspended }`.
 
 | Situation | What happens |
 | --- | --- |
-| Nothing is bound to the name | The handler is deleted outright. |
-| Subscriptions are bound to it | The handler is deleted **and** every subscription on it is *suspended* with `suspendedReason: 'handler_not_found'` — not deleted. The app's developer is notified. |
+| No subscriptions use the name | The handler is deleted. |
+| Subscriptions use it | The handler is deleted, and its subscriptions are *suspended* with `suspendedReason: 'handler_not_found'`, not deleted. The app's developer is notified. |
 
-**Publishing the name again resumes them.** That is what makes a bad deploy recoverable: the subscriptions keep their ids, their context and their place, and start delivering again on the next publish.
+**Publishing the name again resumes them**, with the same ids and context. This is how you recover from a bad deploy.
 
-Renaming is publish-new plus remove-old, and subscriptions do **not** follow — that is a re-subscribe, deliberately: silently repointing someone's subscription at different code is exactly what consent is protecting against.
+Renaming is publishing the new name and removing the old one. Subscriptions don't follow: users have to subscribe again, so their subscriptions never silently switch to different code.
 
-**An app's first published handler stands up an [events worker](/Events/#events-worker) for it.** See [`puter.events.workers`](/Events/workers/) to list and destroy them — the last handler removed here takes it down the same way.
+An app's first published handler creates its [events worker](/Events/workers/), and removing the last one takes it down.
 
-### Refusing a delivery outright
+### Refusing a delivery
 
-A handler running in the events worker normally has two outcomes: return (or resolve) and the delivery is taken, or throw and it is retried later. Sometimes neither is right — the delivery is malformed in a way retrying never fixes. Throw an error with `terminal: true`, or a `code` of `'events_terminal'`, and it is refused instead of retried. The invocation answers a `4xx` rather than the usual `5xx`, and the delivery is dropped with a [gap marker](/Events/#gap-marker) carrying `reason: 'handler_rejected'` instead of being sent again to the same handler.
+In the events worker, a handler that returns takes the delivery, and one that throws is retried later. When retrying can't help (a malformed event, say), throw an error with `terminal: true` or `code: 'events_terminal'`. The delivery is dropped and replaced by a [gap marker](/Events/onLocal/#gaps) with `reason: 'handler_rejected'`.
 
 ```js
 await puter.events.handlers.publish('ingestUpload', async ({ event }) => {
@@ -117,11 +115,7 @@ await puter.events.handlers.publish('ingestUpload', async ({ event }) => {
 }, { appUid });
 ```
 
-See [`onPersistent()`](/Events/onPersistent/) for the full `2xx`/`4xx`/`5xx` mapping this feeds into.
-
-### What a suspension does to the backlog
-
-A suspended subscription stops being delivered to and stops being metered, so it cannot go on holding a full backlog for free. On suspension its undelivered deliveries are trimmed to **100** and given a deadline: **24 hours** for `handler_not_found` and `failures`, **1 hour** for `no_credit`. Past the deadline they are dropped and one [gap marker](/Events/#gap-marker) with `reason: 'suspended_backlog_expired'` takes their place, so a resumed subscription learns there were events rather than reading the silence as "nothing changed". A subscription suspended by `permission_revoked` has its backlog **purged at once** and never resumes.
+See [`onPersistent()`](/Events/onPersistent/#where-the-handler-runs) for the full list of outcomes, and [suspended subscriptions](/Events/onPersistent/#suspended-subscriptions) for what happens to a suspended subscription's backlog.
 
 ## Errors
 
@@ -129,25 +123,25 @@ All four methods reject with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
-| `events_handler_free_variable` | The handler names something it cannot carry. The message names the identifier. |
-| `events_handler_invalid` | `handler` is not a function, a source string, or `{ file }`. |
-| `events_handler_name_invalid` | The name is empty, too long, or not an addressable identifier. |
-| `events_handler_conflict` | Different source is published under this name and the caller did not name it as the base. Pass `replace: true` to take it. |
-| `events_handler_app_required` | An account session did not name an app. |
-| `events_handler_forbidden` | The caller does not own the app, or is a scoped access token — and an app that is not there answers the same way. |
-| `events_handler_too_large` | The serialized handler is over 64 KB. |
-| `events_worker_too_large` | The app's handlers would exceed 5 MB of source combined. |
+| `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
+| `events_handler_invalid` | `handler` isn't a function, a source string, or `{ file }`. |
+| `events_handler_name_invalid` | The name is empty, too long, or has characters that aren't allowed. |
+| `events_handler_conflict` | Someone else published different source under this name since you last saw it. Pass `replace: true` to overwrite. |
+| `events_handler_app_required` | An account session didn't pass `appUid`. |
+| `events_handler_forbidden` | The caller doesn't own the app (or it doesn't exist), or is a scoped access token. |
+| `events_handler_too_large` | The handler is over 64 KB. |
+| `events_worker_too_large` | The app's handlers would exceed 5 MB combined. |
 | `events_handler_source_invalid` | The handler source is empty. |
-| `events_handler_limit` | The app already has the maximum number of published handlers. |
-| `too_many_requests` | Over the handler publish/remove budget. |
-| `events_disabled` | Events are not enabled on this server. |
-| `events_failed` | The server answered with something the SDK could not make sense of. |
+| `events_handler_limit` | The app already has the [maximum number of handlers](/rate-limits-and-quotas/#events). |
+| `too_many_requests` | Over the publish/remove rate limit. |
+| `events_disabled` | Events aren't enabled on this server. |
+| `events_failed` | The server sent a response the SDK couldn't read. |
 
 ## Examples
 
 <strong class="example-title">Publish a handler, bind a subscription to it, then take it away</strong>
 
-```html
+```html;events-handlers
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
@@ -194,7 +188,7 @@ All four methods reject with `{ message, code }`:
 
 <strong class="example-title">Deploy a whole set from a build step</strong>
 
-```html
+```html;events-handlers-publish-all
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>

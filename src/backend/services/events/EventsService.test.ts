@@ -2572,18 +2572,44 @@ describe('cross-user kv handles', () => {
         expect(sent[0].envelope.event).toMatchObject({ self: false });
     });
 
-    it('still delivers a private key under the granted region', async () => {
+    it('withholds a private key from the grantee, value and all', async () => {
         mintHandle();
         vi.useFakeTimers();
-        const { sub } = await subscribeAsGuest(`kv:${handle}:*`);
+        const { sub } = await service.subscribe(actorFor(guestId), socketId, {
+            subject: `kv:${handle}:*`,
+            includeValue: true,
+        });
 
-        await dispatchKv([`${PREFIX}title`], {
-            noShareKeys: [`${PREFIX}title`],
+        await dispatchKv([`${PREFIX}token`, `${PREFIX}title`], {
+            noShareKeys: [`${PREFIX}token`],
+            values: ['secret', 'hello'],
         });
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toHaveLength(1);
         expect(sent[0].envelope.subId).toBe(sub.subId);
+        expect(sent[0].envelope.event).toMatchObject({
+            key: 'title',
+            value: 'hello',
+        });
+        expect(JSON.stringify(sent)).not.toContain('secret');
+    });
+
+    it('withholds a private key from a grantee running as the namespace app', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        await service.subscribe(appActorFor(OWN_APP, guestId), socketId, {
+            subject: `kv:${handle}:*`,
+            includeValue: true,
+        });
+
+        await dispatchKv([`${PREFIX}token`], {
+            noShareKeys: [`${PREFIX}token`],
+            values: ['secret'],
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
     });
 
     it('leaves a key outside the granted region alone', async () => {

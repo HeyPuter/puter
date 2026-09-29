@@ -1,0 +1,22 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+            const sub = await puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                context: { label: 'inbox' },
+            });
+
+            for (const row of await puter.events.list()) {
+                puter.print(`${row.subject} — ${row.delivery}`);
+                puter.print(` (context: ${row.contextKeys?.join(', ') ?? 'none'})<br>`);
+            }
+
+            await puter.events.unsubscribe(sub.subId);
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const name = `pipeline-${puter.randName()}`;
+            const app = await puter.apps.create(name, `https://example.com/${name}`);
+
+            const published = await puter.events.handlers.publishAll([
+                {
+                    name: 'ingestUpload',
+                    handler: ({ event, ctx }) => fetch(ctx.ingest, { body: event.path }),
+                },
+                {
+                    name: 'indexDocument',
+                    handler: ({ event, ctx }) => fetch(ctx.index, { body: event.uid }),
+                },
+            ], { appUid: app.uid });
+
+            for (const handler of published) {
+                puter.print(`${handler.name} → ${handler.outcome}<br>`);
+            }
+        })();
+    </script>
+</body>
+</html>

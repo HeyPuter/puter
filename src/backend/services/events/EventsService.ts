@@ -4253,9 +4253,9 @@ export class EventsService extends PuterService {
      * move it. Asking each time is what makes that flip stop deliveries at
      * once.
      *
-     * `privateEntry` drops every cross-app row, share-handle rows included,
+     * `privateEntry` drops every cross-app row and every share-handle row
      * before any grant is asked: a private key reaches only rows a `get` would
-     * show it to.
+     * show it to, and a handle's holder is always another user.
      */
     async #kvStillAuthorized(
         rows: DispatchSubscription[],
@@ -4267,13 +4267,16 @@ export class EventsService extends PuterService {
         const decisions = new Map<string, Promise<boolean>>();
         const allowed = await Promise.all(
             rows.map((row) => {
-                if (privateEntry && isCrossAppKvRow(row.appUid, targetAppUid))
+                const shared = kvHandleFromSubject(row.subject) !== null;
+                if (
+                    privateEntry &&
+                    (shared || isCrossAppKvRow(row.appUid, targetAppUid))
+                )
                     return Promise.resolve(false);
                 // A row on a shared region is authorized by its grant, not by
                 // whose namespace it names — and that is one question per
                 // subscription, because the handle *is* the granted root.
-                if (kvHandleFromSubject(row.subject) !== null)
-                    return this.#kvShareHolds(row);
+                if (shared) return this.#kvShareHolds(row);
                 if (!isCrossAppKvRow(row.appUid, targetAppUid))
                     return Promise.resolve(true);
                 const key = `${row.holderUserId}|${row.appUid ?? ''}`;

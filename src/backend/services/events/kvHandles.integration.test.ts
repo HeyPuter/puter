@@ -552,6 +552,52 @@ describe('a write in the shared region', () => {
         ]);
     });
 
+    it('withholds a private key from the grantee, value and all', async () => {
+        await clearRows();
+        const { handle } = await mint();
+        const { sub } = await events().subscribe(guest.actor, SOCKET_ID, {
+            subject: `kv:${handle}:*`,
+            includeValue: true,
+        });
+        const ownerSub = (
+            await events().subscribe(owner.actor, SOCKET_ID, {
+                subject: `kv:os-global:${PREFIX}*`,
+            })
+        ).sub;
+        delivered.length = 0;
+
+        await runWithContext({ actor: owner.actor }, () =>
+            env.server.drivers.kvStore.set({
+                key: `${PREFIX}token`,
+                value: 'secret',
+                optConfig: { disableSharing: true },
+            }),
+        );
+        // The owner's own row proves the write was dispatched.
+        await vi.waitFor(
+            () =>
+                expect(
+                    delivered.some((one) => one.subId === ownerSub.subId),
+                ).toBe(true),
+            { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
+        );
+        await quiet();
+        expect(delivered.some((one) => one.subId === sub.subId)).toBe(false);
+
+        delivered.length = 0;
+        await ownerWrites(`${PREFIX}title`, 'hello');
+        await vi.waitFor(
+            () =>
+                expect(delivered.some((one) => one.subId === sub.subId)).toBe(
+                    true,
+                ),
+            { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
+        );
+        expect(
+            delivered.find((one) => one.subId === sub.subId)?.event,
+        ).toMatchObject({ key: 'title', value: 'hello' });
+    });
+
     it('stays inside the region the handle was granted on', async () => {
         await clearRows();
         const { handle } = await mint();

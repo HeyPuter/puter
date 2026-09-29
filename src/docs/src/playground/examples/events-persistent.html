@@ -1,0 +1,39 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) An app of your own to publish the handler under
+            const name = `ingest-${puter.randName()}`;
+            const app = await puter.apps.create(name, `https://example.com/${name}`);
+
+            // (2) Publish the handler. It closes over nothing — everything it
+            //     needs arrives as `ctx`.
+            await puter.events.handlers.publish(
+                'ingestUpload',
+                async ({ event, ctx }) => {
+                    await fetch(ctx.endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify({ path: event.path, key: ctx.apiKey }),
+                    });
+                },
+                { appUid: app.uid },
+            );
+
+            // (3) Subscribe. `context` is read now and never again.
+            const dir = `~/${puter.randName()}`;
+            await puter.fs.mkdir(dir);
+            const sub = await puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                handlerName: 'ingestUpload',
+                context: { endpoint: 'https://example.com/ingest', apiKey: 'k-123' },
+            });
+
+            puter.print(`watching ${dir} as ${sub.subId}<br>`);
+
+            // (4) It outlives this page. End it explicitly when you are done.
+            await puter.events.unsubscribe(sub.subId);
+        })();
+    </script>
+</body>
+</html>
