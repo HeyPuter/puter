@@ -3246,6 +3246,53 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         // Proves the row came from the bootstrap path, not an earlier test.
         expect(bootstrapped?.description).toMatch(/^App created from origin /);
     });
+
+    it('does not hand an origin the app that was repointed away from it', async () => {
+        // Whoever holds the origin next must not inherit the app, or the
+        // users who already authorized it.
+        const origin = `https://repointed-${uuidv4()}.example`;
+        const first = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                first,
+            ),
+        );
+        const movedUid = (first.body as { app_uid: string }).app_uid;
+        const moved = await server.stores.app.getByUid(movedUid);
+        await server.stores.app.update(moved!.id, {
+            index_url: `https://new-home-${uuidv4()}.example`,
+        });
+
+        const check = makeRes();
+        await inCtx(actor, () =>
+            controller.handleCheckApp(makeReq({ origin }, { actor }), check),
+        );
+        const checked = check.body as {
+            app_uid: string;
+            authenticated: boolean;
+            token?: string;
+        };
+        expect(checked.app_uid).not.toBe(movedUid);
+        expect(checked.authenticated).toBe(false);
+        expect(checked.token).toBeUndefined();
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        expect(body.app_uid).toBe(checked.app_uid);
+        const decoded = server.services.token.verify('auth', body.token) as {
+            app_uid: string;
+        };
+        expect(decoded.app_uid).toBe(body.app_uid);
+        const fresh = await server.stores.app.getByUid(body.app_uid);
+        expect(fresh?.index_url).toBe(origin);
+    });
 });
 
 // ── Access tokens: create + revoke ─────────────────────────────────

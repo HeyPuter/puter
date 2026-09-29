@@ -30,10 +30,12 @@ import type { PrivateLaunchDecision } from './privateLaunchAccess';
  * `puter.auth.token` to it.
  *
  * The other half of the rule lives on the write side: `SubdomainDriver.create`
- * refuses a name that some other user's app still points at
+ * refuses a name that an app still points at
  * (`buildHostedSubdomainIndexUrlCandidates`), so a freed name can't be
  * re-registered under someone else's launch origin. Only the app's own owner
- * may re-create it, which restores their app.
+ * may re-create it, which restores their app, and not through an unrelated app
+ * of theirs: the launch check below compares users, so it can't tell those
+ * apart.
  *
  * This module is the single home for both checks. `AppDriver` was the first
  * caller; `SuggestedAppsService` and `/get-launch-apps` build their own

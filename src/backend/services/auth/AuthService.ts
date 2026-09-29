@@ -47,6 +47,8 @@ import type {
 } from './types';
 
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+// Successor uids an origin can derive after its earlier apps were repointed.
+const MAX_ORIGIN_UID_GENERATIONS = 8;
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
@@ -777,25 +779,18 @@ export class AuthService extends PuterService {
      *    namespaced UUID
      */
     async appUidFromOrigin(origin: string): Promise<string> {
-        const parsed = this.#originFromUrl(origin);
-        if (!parsed) {
+        const appOrigin = await this.#appOriginFor(origin);
+        if (!appOrigin) {
             console.error('[auth] failed to parse origin URL', { origin });
             throw new HttpError(400, 'Invalid origin URL', {
                 legacyCode: 'bad_request',
             });
         }
-        // Aliased hosts and hosting-domain variants collapse to one canonical
-        // origin, so every spelling of the same app resolves to one uid.
-        const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
-        const canonical = this.#canonicalizeHostedOrigin(aliased) ?? aliased;
-        const event = { origin: canonical };
-        await this.clients.event?.emitAndWait('app.from-origin', event, {});
 
         // Blocked origins can't acquire an app token (or have one minted /
         // checked / granted), so the app loses every path to Puter resources.
-        const block = await this.services.appOriginBlocklist.isOriginBlocked(
-            event.origin,
-        );
+        const block =
+            await this.services.appOriginBlocklist.isOriginBlocked(appOrigin);
         if (block.blocked) {
             throw new HttpError(
                 403,
@@ -804,13 +799,51 @@ export class AuthService extends PuterService {
             );
         }
 
-        const canonicalUid = await this.#findCanonicalAppUidForOrigin(
-            event.origin,
-        );
+        const canonicalUid =
+            await this.#findCanonicalAppUidForOrigin(appOrigin);
         if (canonicalUid) return canonicalUid;
 
-        const uid = uuidv5(event.origin, APP_ORIGIN_UUID_NAMESPACE);
-        return `app-${uid}`;
+        return this.#derivedAppUidForOrigin(appOrigin);
+    }
+
+    /**
+     * Normalized origin of `url` with aliased hosts and hosting-domain variants
+     * collapsed, after `app.from-origin` listeners have rewritten it. Null when
+     * `url` isn't a usable web or extension URL.
+     */
+    async #appOriginFor(url: string): Promise<string | null> {
+        const parsed = this.#originFromUrl(url);
+        if (!parsed) return null;
+        const aliased = this.#canonicalizeAliasedOrigin(parsed) ?? parsed;
+        const canonical = this.#canonicalizeHostedOrigin(aliased) ?? aliased;
+        const event = { origin: canonical };
+        await this.clients.event?.emitAndWait('app.from-origin', event, {});
+        return event.origin;
+    }
+
+    /**
+     * `app-<uuidv5(origin)>`, unless that uid's row now lives at another
+     * origin. A repointed row keeps its uid (and the data and grants keyed to
+     * it), so the origin it left moves on to a successor uid instead of
+     * resolving to someone's app it no longer serves.
+     */
+    async #derivedAppUidForOrigin(origin: string): Promise<string> {
+        for (let gen = 0; gen <= MAX_ORIGIN_UID_GENERATIONS; gen++) {
+            const name = gen === 0 ? origin : `${origin}#${gen}`;
+            const uid = `app-${uuidv5(name, APP_ORIGIN_UUID_NAMESPACE)}`;
+            const app = await this.stores.app.getByUid(uid);
+            if (!app) return uid;
+            if (
+                typeof app.index_url === 'string' &&
+                (await this.#appOriginFor(app.index_url)) === origin
+            ) {
+                return uid;
+            }
+        }
+        // Past the cap the uid stops being derivable, but the row created for
+        // it records this origin as its index_url, so the canonical lookup
+        // finds it from then on.
+        return `app-${uuidv4()}`;
     }
 
     /**

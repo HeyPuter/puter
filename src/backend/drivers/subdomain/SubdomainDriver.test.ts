@@ -19,6 +19,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { makeActor } from '../../core/actor.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -763,12 +764,12 @@ describe('SubdomainDriver.delete', () => {
 const createAppWithIndexUrl = async (
     ownerUserId: number | null,
     indexUrl: string,
-    opts: { isPrivate?: boolean } = {},
+    opts: { isPrivate?: boolean; appOwner?: number } = {},
 ): Promise<{ id: number; uid: string }> => {
     const uid = `app-${uuidv4()}`;
     await server.clients.db.write(
-        `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`, \`app_owner\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
             uid,
             `app-${uid}`,
@@ -776,6 +777,7 @@ const createAppWithIndexUrl = async (
             indexUrl,
             ownerUserId,
             opts.isPrivate ? 1 : 0,
+            opts.appOwner ?? null,
         ],
     );
     const row = (
@@ -791,9 +793,9 @@ const createAppWithIndexUrl = async (
 // Deleting a hosted subdomain leaves the app row's `index_url` pointing
 // at the freed name. The GUI launcher appends `puter.auth.token` to that
 // URL, so whoever registers the name next would receive launch tokens
-// for the original app. `create` therefore refuses a name another user's
-// app still references — while leaving the app's own owner free to
-// re-create it.
+// for the original app. `create` therefore refuses a name an app still
+// references — while leaving the app's owner free to re-create it, though
+// not through an unrelated app they have open.
 
 describe('SubdomainDriver.create launch-origin reservation', () => {
     it("refuses a name another user's app still points at", async () => {
@@ -856,6 +858,84 @@ describe('SubdomainDriver.create launch-origin reservation', () => {
                     root_dir: `/${owner.actor.user!.username}/Public`,
                 },
             }),
+        )) as Record<string, unknown>;
+        expect(created.subdomain).toBe(sub);
+    });
+
+    // Built through `makeActor` so `effectiveApp` is derived the way the auth
+    // path derives it.
+    const asApp = (base: Actor, app: { uid: string; id: number }): Actor =>
+        makeActor({ ...base, app: { uid: app.uid, id: app.id } });
+
+    // An app may publish its own AppData directory without a grant.
+    const appDataDir = async (
+        user: { actor: Actor; userId: number },
+        app: { uid: string },
+    ): Promise<string> => {
+        const path = `/${user.actor.user!.username}/AppData/${app.uid}`;
+        await server.services.fs.mkdir(user.userId, {
+            path,
+            createMissingParents: true,
+        });
+        return path;
+    };
+
+    it("refuses the owner's name to an unrelated app they have open", async () => {
+        const owner = await makeUser();
+        const otherDev = await makeUser();
+        const sub = uniqueSubdomain('crossapp');
+
+        await createAppWithIndexUrl(
+            owner.userId,
+            `http://${sub}.site.puter.localhost/`,
+        );
+        const unrelated = await createAppWithIndexUrl(
+            otherDev.userId,
+            `https://unrelated-${sub}.example.test/`,
+        );
+        const root = await appDataDir(owner, unrelated);
+
+        await expect(
+            withActor(asApp(owner.actor, unrelated), () =>
+                driver.create({ object: { subdomain: sub, root_dir: root } }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409 });
+        expect(await server.stores.subdomain.getBySubdomain(sub)).toBeFalsy();
+    });
+
+    it('lets the holding app re-create its own name', async () => {
+        const owner = await makeUser();
+        const sub = uniqueSubdomain('selfheal');
+
+        const app = await createAppWithIndexUrl(
+            owner.userId,
+            `http://${sub}.site.puter.localhost/`,
+        );
+        const root = await appDataDir(owner, app);
+
+        const created = (await withActor(asApp(owner.actor, app), () =>
+            driver.create({ object: { subdomain: sub, root_dir: root } }),
+        )) as Record<string, unknown>;
+        expect(created.subdomain).toBe(sub);
+    });
+
+    it('lets the app that built the holder re-create its name', async () => {
+        const owner = await makeUser();
+        const sub = uniqueSubdomain('builder');
+
+        const builder = await createAppWithIndexUrl(
+            null,
+            `https://builder-${sub}.example.test/`,
+        );
+        await createAppWithIndexUrl(
+            owner.userId,
+            `http://${sub}.site.puter.localhost/`,
+            { appOwner: builder.id },
+        );
+        const root = await appDataDir(owner, builder);
+
+        const created = (await withActor(asApp(owner.actor, builder), () =>
+            driver.create({ object: { subdomain: sub, root_dir: root } }),
         )) as Record<string, unknown>;
         expect(created.subdomain).toBe(sub);
     });

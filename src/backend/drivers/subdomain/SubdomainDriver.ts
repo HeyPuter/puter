@@ -179,23 +179,29 @@ export class SubdomainDriver extends PuterDriver {
         }
         await this.#checkPublishAccess(entry, actor);
 
-        // A name some other user's app still points at is not free either.
-        // Deleting a hosted subdomain leaves the app row's `index_url` intact,
-        // and the GUI launcher appends `puter.auth.token` to whatever URL it is
-        // given — so registering the freed name would hand that app's launch
-        // token to whoever claimed it. The app's own owner is exempt:
-        // re-creating their site restores their app rather than hijacking it.
+        // A name an app still points at is not free either. Deleting a hosted
+        // subdomain leaves the app row's `index_url` intact, and the GUI
+        // launcher appends `puter.auth.token` to whatever URL it is given — so
+        // registering the freed name would hand that app's launch token to
+        // whoever claimed it. Only the app's owner may re-create it, acting as
+        // themselves, as that app, or as the app that built it. Any other app
+        // they have open is not them.
         // See `util/hostedAppBacking.ts` for the wider rule.
         //
         // Last check before the insert on purpose: `apps.index_url` is
         // unindexed, so this scan only runs for a request that would otherwise
         // have created the row, and it stays behind the same root_dir gate as
         // the existing uniqueness answer.
-        const appHoldingName = await this.stores.app.findByIndexUrlCandidates(
+        const appsHoldingName = (await this.stores.app.listByIndexUrlCandidates(
             buildHostedSubdomainIndexUrlCandidates(subdomain, this.config),
-            { excludeOwnerUserId: actor.user.id },
-        );
-        if (appHoldingName) {
+        )) as Array<Record<string, unknown>>;
+        const callerAppId = actor.effectiveApp?.id ?? null;
+        const mayRestore = (app: Record<string, unknown>) =>
+            Number(app.owner_user_id) === actor.user.id &&
+            (callerAppId === null ||
+                callerAppId === app.id ||
+                callerAppId === app.app_owner);
+        if (appsHoldingName.some((app) => !mayRestore(app))) {
             throw new HttpError(
                 409,
                 'A site with this subdomain already exists',
