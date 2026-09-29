@@ -1,0 +1,41 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Site dashboard</h3>
+    <button id="release">Release version 2</button>
+    <button id="rollback">Roll back to version 1</button>
+    <button id="delete">Delete site</button>
+    <script>
+        const name = puter.randName();
+        const v1 = `${name}-v1`;
+        const v2 = `${name}-v2`;
+
+        const ready = (async () => {
+            await puter.fs.mkdir(v1);
+            await puter.fs.write(`${v1}/index.html`, '<h1>Version 1</h1>');
+            await puter.fs.mkdir(v2);
+            await puter.fs.write(`${v2}/index.html`, '<h1>Version 2</h1>');
+
+            const site = await puter.hosting.create(name, v1);
+            const url = `https://${site.subdomain}.puter.site`;
+            puter.print(`Serving version 1 at <a href="${url}" target="_blank">${url}</a><br>`);
+        })();
+
+        async function serve (dir) {
+            await ready;
+            // Same name and URL, different folder.
+            const site = await puter.hosting.update(name, dir);
+            puter.print(`Now serving ${site.root_dir.path}<br>`);
+        }
+
+        document.getElementById('release').addEventListener('click', () => serve(v2));
+        document.getElementById('rollback').addEventListener('click', () => serve(v1));
+
+        document.getElementById('delete').addEventListener('click', async () => {
+            await ready;
+            await puter.hosting.delete(name);
+            puter.print('Site deleted. Both folders are still in your account.<br>');
+        });
+    </script>
+</body>
+</html>
