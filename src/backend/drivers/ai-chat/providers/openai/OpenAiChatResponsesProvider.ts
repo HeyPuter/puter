@@ -175,7 +175,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
-        const isGpt6Model = modelUsed.id.startsWith('gpt-6-');
+        const isGpt6Model = /^gpt-6[.-]/.test(modelUsed.id);
         const supportsReasoningControls =
             isGpt6Model ||
             (typeof model === 'string' && model.startsWith('gpt-5'));

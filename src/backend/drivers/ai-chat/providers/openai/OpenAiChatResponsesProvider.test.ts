@@ -199,11 +199,12 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
     });
 
     it.each([
-        ['gpt-6-sol', '2026-04-20', 200, 20, 1000],
-        ['gpt-6-luna', '2026-05-18', 10, 1, 50],
+        ['gpt-6.1-sol', '2026-04-30', '2026-09-29', 200, 10, 1000],
+        ['gpt-6-sol', '2026-04-20', '2026-09-22', 200, 20, 1000],
+        ['gpt-6-luna', '2026-05-18', '2026-09-22', 10, 1, 50],
     ])(
         'exposes %s with current pricing and limits',
-        (id, knowledge, input, cached, output) => {
+        (id, knowledge, releaseDate, input, cached, output) => {
             const { provider } = makeProvider();
             expect(
                 provider.models().find((model) => model.id === id),
@@ -211,7 +212,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
                 puterId: `openai:openai/${id}`,
                 aliases: [`openai/${id}`],
                 knowledge,
-                release_date: '2026-09-22',
+                release_date: releaseDate,
                 modalities: { input: ['text', 'image'], output: ['text'] },
                 costs_currency: 'usd-cents',
                 costs: {
@@ -419,7 +420,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(o3Args.verbosity).toBe('low');
     });
 
-    it.each(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+    it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'])(
         'maps flat controls to Responses options for %s aliases',
         async (model) => {
             const { provider } = makeProvider();
