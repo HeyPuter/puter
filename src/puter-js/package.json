@@ -55,6 +55,6 @@
         "open": "^10.2.0",
         "path-browserify": "1.0.1",
         "postal-mime": "^3.0.1",
-        "socket.io-client": "^4.8.3"
+        "socket.io-client": "^4.8.4"
     }
 }
