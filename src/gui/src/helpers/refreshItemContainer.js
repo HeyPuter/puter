@@ -21,6 +21,7 @@ import path from '../lib/path.js';
 import UIItem from '../UI/UIItem.js';
 import item_icon from './itemIcon.js';
 import list_all_shared from './listAllShared.js';
+import parse_item_metadata from './parseItemMetadata.js';
 import { remember_shared_roots } from './sharedAccess.js';
 
 const refresh_item_container = function (el_item_container, options) {
@@ -211,22 +212,13 @@ const refresh_item_container = function (el_item_container, options) {
                         visible = 'hidden';
                     }
 
-                    // metadata
-                    let metadata;
-                    if ( fsentry.metadata !== '' ) {
-                        try {
-                            metadata = JSON.parse(fsentry.metadata);
-                        }
-                        catch (e) {
-                        // Ignored
-                        }
-                    }
+                    const metadata = parse_item_metadata(fsentry.metadata);
 
                     const item_path = fsentry.path ?? path.join($(el_window).attr('data-path'), fsentry.name);
                     // render any item but Trash/AppData
                     if ( item_path !== window.trash_path && item_path !== window.appdata_path ) {
                     // if this is trash, get original name from item metadata
-                        fsentry.name = (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name;
+                        fsentry.name = metadata.original_name ?? fsentry.name;
                         const position = window.desktop_item_positions[fsentry.uid] ?? undefined;
                         UIItem({
                             appendTo: el_item_container,
@@ -235,7 +227,7 @@ const refresh_item_container = function (el_item_container, options) {
                             associated_app_name: fsentry.associated_app?.name,
                             path: item_path,
                             icon: await item_icon(fsentry),
-                            name: (metadata && metadata.original_name !== undefined) ? metadata.original_name : fsentry.name,
+                            name: fsentry.name,
                             is_dir: fsentry.is_dir,
                             multiselectable: !is_openFileDialog,
                             has_website: fsentry.has_website,
