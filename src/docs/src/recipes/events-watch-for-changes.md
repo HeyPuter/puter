@@ -256,7 +256,8 @@ updating without any sign.
 - [`puter.kv.flush()`](/KV/flush/) sends no event, and neither does a key that
   expires on its own.
 - [`puter.events.fetch()`](/Events/fetch/) cannot catch up on key-value or file
-  changes. It only reads notifications.
+  changes. It only reads notifications, as in [Catch Up on
+  Notifications](/recipes/events-catch-up-on-notifications/).
 - Watching a folder outside your app's own, such as the user's Documents, needs
   the user's permission first. [Ask for Access](/recipes/perms-ask-for-access/)
   covers it.
