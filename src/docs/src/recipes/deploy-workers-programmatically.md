@@ -1,17 +1,18 @@
 ---
-title: Deploy a Worker from Your App
-description: "Learn how to create, update, list and delete serverless workers from your own code with Puter.js, instead of publishing them by hand."
+title: Deploy Workers Programmatically
+description: "Learn how to deploy serverless workers from your app with Puter.js, so each user or project gets its own backend."
 tags: [workers]
 order: 42
 ---
 
-You can publish a [serverless worker](/Workers/) by hand from puter.com. You
-can also do it from code, with the [Workers API](/Workers/#workers-api). Your
-app then creates a worker, updates its code and removes it, the same way it
-writes files.
+Some apps give their users a backend, like an app builder where each project
+gets its own API. For that, your app has to deploy the backend from code, at the
+moment the user needs it.
 
-This lets you build tools that ship backends for their users, such as an app
-builder that gives each project its own API.
+With the [Workers API](/Workers/#workers-api), your app creates a
+[serverless worker](/Workers/), updates its code and removes it, the same way it
+writes files. Each worker answers at its own URL, and there is no server for you
+to run.
 
 ## Create a Worker
 
@@ -42,7 +43,7 @@ const res = await puter.workers.exec(`${deployment.url}/me`);
 await res.json();    // { username: 'grace' }
 ```
 
-[Build an API with a worker](/recipes/workers-build-an-api/) covers what to put
+[Build an API with a worker](/recipes/build-an-api/) covers what to put
 in the routes.
 
 Worker names are global, like subdomains, and are stored in lowercase. A name
@@ -65,9 +66,6 @@ await puter.fs.write(info.file_path, updatedCode);
 
 Writing the file redeploys the worker at the same URL, so anything already
 calling it keeps working.
-
-Don't create a new worker with a new name to ship a change. The old one stays
-online at its old URL, and every caller has to be pointed at the new one.
 
 ## Find Your Workers
 
@@ -124,6 +122,6 @@ await puter.workers.delete('notes-api');
 Its URL stops answering, and the name is free to use again. The source file
 stays in your account.
 
-The link also works the other way. Deleting a worker's source file with
-[`puter.fs.delete()`](/FS/delete/) deletes the worker too, so keep the file for
-as long as the worker should stay online.
+Deleting a worker's source file with [`puter.fs.delete()`](/FS/delete/) also
+deletes the worker, so keep the file for as long as the worker should stay
+online.

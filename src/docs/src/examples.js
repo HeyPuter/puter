@@ -745,12 +745,6 @@ const examples = [
                 slug: 'hosting-publish-a-website',
                 source: '/playground/examples/hosting-publish-a-website.html',
             },
-            {
-                title: 'Release and roll back a site',
-                description: 'Switch a website between folders to release or roll back a version with Puter.js hosting API. Run and modify this example directly in your browser.',
-                slug: 'hosting-manage-websites-release',
-                source: '/playground/examples/hosting-manage-websites-release.html',
-            },
         ],
     },
     {
@@ -997,18 +991,6 @@ const examples = [
                 description: 'Execute authenticated worker requests with Puter.js workers API. Run and experiment with this example in the playground.',
                 slug: 'workers-exec',
                 source: '/playground/examples/workers-exec.html',
-            },
-            {
-                title: 'Build an API',
-                description: 'Deploy a worker whose routes store notes in the calling user\'s own key-value store with user.puter, and call it with puter.workers.exec(). Run and modify this example directly in your browser.',
-                slug: 'workers-build-an-api',
-                source: '/playground/examples/workers-build-an-api.html',
-            },
-            {
-                title: 'Update a worker in place',
-                description: 'Ship new code to a deployed worker at the same URL by overwriting its source file with Puter.js workers API. Run and modify this example directly in your browser.',
-                slug: 'workers-deploy-from-code-update',
-                source: '/playground/examples/workers-deploy-from-code-update.html',
             },
         ],
     },

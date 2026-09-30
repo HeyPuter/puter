@@ -5,7 +5,7 @@ tags: [hosting]
 order: 56
 ---
 
-Once your app has [published a website](/recipes/publish-a-website/), the
+Once your app has [published a website](/recipes/add-website-publishing/), the
 [hosting API](/Hosting/) lets it find that site again, change which folder it
 serves, and take it offline. Each operation is one call that takes the site's
 name.
@@ -27,6 +27,10 @@ for (const site of sites) {
 
 Each entry is a [`Subdomain`](/Objects/subdomain/) object. `root_dir` is the
 folder it serves, and is `null` when that folder no longer exists.
+
+When your code runs as a Puter app, the list only has the sites that app
+created. Sites the user published from somewhere else are left out, and the
+other hosting calls cannot change them either.
 
 ## Get One Site
 
@@ -74,13 +78,3 @@ await puter.hosting.delete('grace-portfolio');
 
 The address stops answering. The folder and its files stay in the user's
 account, so nothing is lost and you can publish them again later.
-
-## Notes
-
-- When your code runs as a Puter app, these calls only see the sites that app
-  created. Sites the user published elsewhere are not listed and cannot be
-  changed.
-- [`puter.hosting.list()`](/Hosting/list/) returns sites only. Workers have
-  their own [`puter.workers.list()`](/Workers/list/).
-- For a user with many sites, page through them with the `limit` and `cursor`
-  options of [`puter.hosting.list()`](/Hosting/list/).

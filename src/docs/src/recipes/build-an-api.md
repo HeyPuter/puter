@@ -1,13 +1,19 @@
 ---
 title: Build an API with a Worker
-description: "Learn how to write the routes of a serverless worker with Puter.js, reading requests, storing data in the calling user's own account and sending back JSON or errors."
+description: "Learn how to build a backend API for your app with Puter.js serverless workers."
 tags: [workers, kv, auth]
 order: 38
 ---
 
-A [serverless worker](/Workers/) is JavaScript that runs in the cloud instead of
-in the user's browser. It answers HTTP requests at its own URL, such as
-`https://notes-api.puter.work`, and you write it as a list of routes, each one a
+Some of your app's code belongs outside the user's browser, such as checking
+input before it is saved, receiving a webhook from another service, or calling
+another API. That code needs a backend, which usually means running and paying
+for a server.
+
+A [serverless worker](/Workers/) gives you that backend with no server to run,
+like Cloudflare Workers or AWS Lambda. It is JavaScript that runs in the cloud
+and answers HTTP requests at its own URL, such as
+`https://notes-api.puter.work`. You write it as a list of routes, each one a
 path and the function that handles it.
 
 When your app calls a worker with
@@ -136,8 +142,8 @@ character and does not match anything else.
 ## Routes Without a User
 
 A worker is also an ordinary HTTP endpoint, so it can serve callers that have
-never heard of Puter: a webhook from another service, a `curl` in a script, or a
-page that doesn't load Puter.js. These routes never touch `user`.
+never heard of Puter. A webhook from another service, a `curl` in a script, or a
+page without Puter.js can all call it. These routes never touch `user`.
 
 A route can do its work and answer, with nothing to store:
 
@@ -184,8 +190,8 @@ router.get('/weather/:city', async ({ params }) => {
 });
 ```
 
-Anyone who knows the URL can call a route like these, so don't put anything
-behind one that should be private.
+Anyone who knows the URL can call a route like these, so keep private data
+behind routes that check for `user`.
 
 ## Call It From Your App
 
