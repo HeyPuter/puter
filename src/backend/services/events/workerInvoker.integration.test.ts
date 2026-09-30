@@ -556,15 +556,16 @@ describe('what each answer does to the delivery', () => {
 
         // The event is gone and a marker stands in its place, so the
         // subscription learns there was one rather than reading silence.
+        // Waited on by claiming it: depth is 1 across the swap either way.
         await waitUntil(async () =>
-            expect(await pending().depth(subId)).toBe(1),
+            expect(
+                (await pending().claim(subId, { leaseMs: 0 }))?.event,
+            ).toMatchObject({
+                op: 'gap',
+                reason: 'handler_rejected',
+            }),
         );
-        answer = 200;
-        const claimed = await pending().claim(subId, { leaseMs: 0 });
-        expect(claimed?.event).toMatchObject({
-            op: 'gap',
-            reason: 'handler_rejected',
-        });
+        expect(await pending().depth(subId)).toBe(1);
         // It counted: a refusal is still a handler that did not work.
         await expect(
             env.server.clients.redis.get(`ev:qf:{${subId}}`),
