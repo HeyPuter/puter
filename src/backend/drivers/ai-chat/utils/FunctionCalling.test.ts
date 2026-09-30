@@ -175,6 +175,32 @@ describe('normalize_tools_object', () => {
         const out = normalize_tools_object(tools);
         expect(out).toBe(tools);
     });
+
+    it.each([
+        ['an object', { name: 'lookup' }],
+        ['a string', 'lookup'],
+    ])('throws 400 when tools is %s', (_label, tools) => {
+        expect(() => normalize_tools_object(tools)).toThrow(
+            expect.objectContaining({ statusCode: 400 }),
+        );
+    });
+
+    it.each([
+        ['null', null],
+        ['a string', 'lookup'],
+        ['an array', [{ name: 'lookup' }]],
+    ])('throws 400 when a tool entry is %s', (_label, tool) => {
+        expect(() => normalize_tools_object([tool])).toThrow(
+            expect.objectContaining({ statusCode: 400 }),
+        );
+    });
+
+    it('leaves non-object `properties` alone instead of recursing into it', () => {
+        const out = normalize_tools_object([
+            { name: 'lookup', parameters: { type: 'object', properties: 'x' } },
+        ]);
+        expect(out[0].function.parameters.properties).toBe('x');
+    });
 });
 
 // ── make_openai_tools ───────────────────────────────────────────────

@@ -105,6 +105,16 @@ export default suite('ai', {
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 
+    'chat testMode returns a sample without using the selected model': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Hello there', {
+            model: 'costly',
+        }, true);
+        t.assert.equal((result.message as { model?: string }).model, 'fake');
+        t.assert.equal((result.usage as Usage).input_tokens, 0);
+        t.assert.ok(textOf(result).length > 0);
+    },
+
     'chat accepts a messages array': async (t) => {
         useApiToken(t);
         const result = await t.puter.ai.chat(

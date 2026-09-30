@@ -180,6 +180,46 @@ describe('ChatCompletionDriver model catalog', () => {
 // ── Auth + model resolution ─────────────────────────────────────────
 
 describe('ChatCompletionDriver.complete auth and model resolution', () => {
+    it('uses a free fake completion in test mode without taking a credit hold', async () => {
+        const creditGate = vi.spyOn(server.services.metering, 'withAiCostFactor');
+        const complete = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        const result = await withTestActor(() =>
+            driver.complete({
+                model: 'costly',
+                messages: [{ role: 'user', content: 'hi' }],
+                test_mode: true,
+            }),
+        );
+
+        expect(creditGate).not.toHaveBeenCalled();
+        expect(complete).toHaveBeenCalledOnce();
+        expect(complete.mock.calls[0]![0].model).toBe('fake');
+        expect('message' in result && result.message.model).toBe('fake');
+        expect('usage' in result && result.usage).toMatchObject({
+            input_tokens: 0,
+            output_tokens: 1,
+        });
+    });
+
+    it('streams a fake completion in test mode', async () => {
+        const complete = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        const result = await withTestActor(() =>
+            driver.complete({
+                model: 'costly',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+                test_mode: true,
+            }),
+        );
+
+        expect(complete.mock.calls[0]![0].model).toBe('fake');
+        const streamResult = result as unknown as { dataType: string; stream: Readable };
+        expect(streamResult.dataType).toBe('stream');
+        const chunks = await collectStream(streamResult.stream);
+        expect(chunks).toContainEqual(expect.objectContaining({ type: 'text' }));
+    });
+
     it('throws 401 when no actor is in context', async () => {
         // Note: not wrapped in `withTestActor` — `Context.get('actor')`
         // returns undefined.

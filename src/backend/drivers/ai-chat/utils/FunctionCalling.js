@@ -23,7 +23,7 @@ export const normalize_json_schema = (schema) => {
     if (!schema) return schema;
 
     if (schema.type === 'object') {
-        if (!schema.properties) {
+        if (!schema.properties || typeof schema.properties !== 'object') {
             return schema;
         }
 
@@ -60,8 +60,18 @@ export const normalize_json_schema = (schema) => {
  * @param {any} tools
  */
 export const normalize_tools_object = (tools) => {
+    if (!Array.isArray(tools)) {
+        throw new HttpError(400, '`tools` must be an array', {
+            legacyCode: 'bad_request',
+        });
+    }
     for (let i = 0; i < tools.length; i++) {
         const tool = tools[i];
+        if (!tool || typeof tool !== 'object' || Array.isArray(tool)) {
+            throw new HttpError(400, 'each tool must be an object', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         if (tool.type === 'web_search') {
             // OpenAI Responses specific

@@ -7,6 +7,7 @@
 const recipeTags = {
     ai: 'AI',
     auth: 'Auth',
+    perms: 'Permissions',
     fs: 'File System',
     kv: 'Key-Value',
     hosting: 'Hosting',

@@ -1,0 +1,32 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Brand assets</h3>
+    <input id="who" placeholder="username or email">
+    <select id="mode">
+        <option value="read">Reviewer (read)</option>
+        <option value="write">Collaborator (write)</option>
+        <option value="manage">Lead (manage — can re-share)</option>
+    </select>
+    <button id="go">Set access</button>
+    <script>
+        // A design tool handing the same folder to different roles.
+        document.getElementById('go').addEventListener('click', async () => {
+            const recipient = document.getElementById('who').value.trim();
+            if (!recipient) return;
+            const mode = document.getElementById('mode').value;
+
+            await puter.fs.mkdir('assets', { createMissingParents: true }).catch(() => {});
+
+            try {
+                // Sharing again replaces their access, so changing a role is one call.
+                const [share] = await puter.fs.share('assets', recipient, mode);
+                puter.print(`${recipient} is now ${share.mode}<br>`);
+                puter.print(share.isNew ? 'newly added' : 'role changed');
+            } catch (e) {
+                puter.print(`Could not share: ${e.code ?? e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

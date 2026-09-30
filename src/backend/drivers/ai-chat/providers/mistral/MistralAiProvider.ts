@@ -19,7 +19,10 @@
 
 import { Mistral } from '@mistralai/mistralai';
 import { ChatCompletionResponse } from '@mistralai/mistralai/models/components/chatcompletionresponse.js';
+import { MistralError } from '@mistralai/mistralai/models/errors/mistralerror.js';
+import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalidationerror.js';
 import { Context } from '../../../../core/context.js';
+import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
     IChatCompleteResult,
@@ -203,18 +206,37 @@ export class MistralAIProvider implements IChatProvider {
             ) ||
             (await this.models()).find((m) => m.id === this.getDefaultModel())!;
         const actor = Context.get('actor');
-        const completion = await this.#client.chat[
-            stream ? 'stream' : 'complete'
-        ]({
-            model: selectedModel.id,
-            ...(tools ? { tools: tools as any[] } : {}),
-            ...(customParams.prompt_mode !== undefined
-                ? { promptMode: customParams.prompt_mode }
-                : {}),
-            messages,
-            maxTokens: max_tokens,
-            temperature,
-        });
+        let completion: Awaited<
+            ReturnType<Mistral['chat']['complete' | 'stream']>
+        >;
+        try {
+            completion = await this.#client.chat[
+                stream ? 'stream' : 'complete'
+            ]({
+                model: selectedModel.id,
+                ...(tools ? { tools: tools as any[] } : {}),
+                ...(customParams.prompt_mode !== undefined
+                    ? { promptMode: customParams.prompt_mode }
+                    : {}),
+                messages,
+                maxTokens: max_tokens,
+                temperature,
+            });
+        } catch (e) {
+            // The SDK validates input client-side and throws without a status,
+            // which the driver would count as a route failure. Its `instanceof`
+            // also matches ResponseValidationError (an unparseable upstream
+            // response), which is a MistralError and not the caller's fault.
+            if (
+                e instanceof SDKValidationError &&
+                !(e instanceof MistralError)
+            ) {
+                throw new HttpError(400, 'invalid request for Mistral models', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            throw e;
+        }
 
         // The Mistral SDK speaks camelCase (`finishReason`, `toolCalls`,
         // object-typed `arguments`) and its reasoning models return chunked
