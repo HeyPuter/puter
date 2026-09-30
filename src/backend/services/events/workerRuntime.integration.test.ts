@@ -55,6 +55,7 @@ import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import {
+    EVENTS_HANDLER_TOKEN_TTL_SECONDS,
     EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
     eventsWorkerScript,
@@ -553,12 +554,15 @@ describe('single delivery through the real worker', () => {
                 error: 'subject_does_not_exist',
             });
 
-            // No hard expiry: this is a session, revoked like any other
-            // worker session rather than aged out on a timer.
+            // Short-lived, since every delivery mints its own; the session
+            // row is still what revokes it.
             const decoded = env.server.services.token.verify('auth', token!) as {
+                iat: number;
                 exp?: number;
             };
-            expect(decoded.exp).toBeUndefined();
+            expect(decoded.exp! - decoded.iat).toBe(
+                EVENTS_HANDLER_TOKEN_TTL_SECONDS,
+            );
 
             // A second delivery for the same (user, app) reuses the same
             // session row rather than minting a new one each time.

@@ -4,7 +4,7 @@ description: Increment values in the user's own key-value store by a specified a
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Increments the value of a key. If the key does not exist, it is initialized with 0 before performing the operation. An error is returned if the key contains a value of the wrong type or contains a string that can not be represented as integer. This operation is limited to 64 bit signed integers.
+Increments the value of a key. A missing or expired key starts from 0 and loses any TTL it had; a live TTL is kept. Rejects if the target — the whole value, or with a path map the field at each path — holds anything other than a number, including a numeric string.
 
 ## Syntax
 
@@ -20,9 +20,9 @@ puter.kv.incr(key, pathAndAmount)
 
 The key of the value to increment.
 
-#### `amount` (Integer | Object) (optional)
+#### `amount` (Number | Object) (optional)
 
-The amount to increment the value by. Defaults to 1.
+The amount to increment the value by, which may be fractional or negative. Defaults to 1.
 
 When `amount` is an object: Increments a property within an object value stored in the key.
 
@@ -35,7 +35,25 @@ Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `s
 
 ## Return Value
 
-Returns the new value of the key after the increment operation.
+Returns the new value of the key after the increment operation — a number for the plain form, or the whole stored value when `amount` is a path map.
+
+## Errors
+
+A rejection carries an `Error` with a stable `code`:
+
+| Code | Meaning |
+| -- | -- |
+| `key_undefined` | No key was given. |
+| `key_too_large` | The key is over the 1 KB limit. |
+| `arguments_required` | Called with no arguments at all. |
+| `value_not_a_number` | The value, or with a path map the field at a path, isn't a number. |
+| `bad_request` | A malformed path, or an amount that isn't a number. |
+| `upstream_bad_request` | A path map addressed a field inside a stored number, boolean, null, string, or array — or a missing array element. |
+| `insufficient_funds` | No usage left on the account. |
+| `forbidden` | Called with `optConfig.appUuid` for another app's data without permission, or the entry is private to that app. |
+| `subject_does_not_exist` | `optConfig.appUuid` names an app that doesn't exist. |
+| `response_timeout` | Too many writers on the key right now — retry. |
+| `too_many_requests` | The rate limit was exceeded. See [Rate Limits and Quotas](/rate-limits-and-quotas/). |
 
 ## Examples
 

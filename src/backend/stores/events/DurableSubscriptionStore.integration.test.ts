@@ -463,6 +463,38 @@ describe('removal', () => {
             survivor.row,
         ]);
     });
+
+    it('returns null and does not move the generation on a second remove', async () => {
+        const { row } = await durable().create(input());
+        const before = await cache().getGeneration(userId);
+
+        const first = await durable().remove(row);
+        expect(first).not.toBeNull();
+        const afterFirst = await cache().getGeneration(userId);
+        expect(afterFirst).toBeGreaterThan(before);
+
+        const second = await durable().remove(row);
+        expect(second).toBeNull();
+        await expect(cache().getGeneration(userId)).resolves.toBe(afterFirst);
+    });
+
+    it('caches nothing and reports no bump when reanchor loses to a remove', async () => {
+        const { row } = await durable().create(input());
+        await durable().remove(row);
+
+        const { bumps } = await durable().reanchor(row, {
+            token: 'f#reanchored-after-remove',
+            anchorUid,
+            anchorPath,
+            match: 'x',
+            ownerUserId: userId,
+        });
+
+        expect(bumps).toEqual([]);
+        await expect(
+            cache().getForTokens(userId, ['f#reanchored-after-remove']),
+        ).resolves.toEqual([]);
+    });
 });
 
 describe('the holder listing', () => {

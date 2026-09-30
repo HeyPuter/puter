@@ -178,6 +178,23 @@ describe('handing a delivery out', () => {
         });
     });
 
+    it('hands back the handler depth the delivery was queued at', async () => {
+        await store.enqueue(subId, event('a'), 3);
+
+        await expect(store.claim(subId)).resolves.toMatchObject({
+            event: { id: 'a' },
+            handlerDepth: 3,
+        });
+    });
+
+    it('treats a delivery queued without a depth as no handler deep', async () => {
+        await store.enqueue(subId, event('a'));
+
+        await expect(store.claim(subId)).resolves.toMatchObject({
+            handlerDepth: 0,
+        });
+    });
+
     it('counts the socket attempts a delivery has spent', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId, { leaseMs: 1 });
@@ -294,6 +311,17 @@ describe('when a handler could not take it', () => {
         await expect(
             store.discard(subId, entryId, 'handler_rejected'),
         ).resolves.toBe(false);
+    });
+
+    it('leaves the marker as deep as the delivery it replaced', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'), 2);
+
+        await store.discard(subId, entryId, 'handler_rejected');
+
+        await expect(store.claim(subId)).resolves.toMatchObject({
+            event: { op: 'gap' },
+            handlerDepth: 2,
+        });
     });
 
     it('counts failures in a row, and forgets them when one lands', async () => {

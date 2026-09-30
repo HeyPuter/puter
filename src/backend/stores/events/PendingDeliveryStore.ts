@@ -184,6 +184,8 @@ export interface ClaimedDelivery {
     socketAttempts: number;
     /** Remote candidates already spent, which is what indexes the next one. */
     remoteAttempts: number;
+    /** Handler runs behind the event, carried to the one it may invoke. */
+    handlerDepth: number;
 }
 
 /** What one failed handler attempt left behind. */
@@ -216,6 +218,8 @@ interface StoredEntry {
     handlerAttempts?: number;
     /** Set once this entry has been charged for, however many attempts follow. */
     billed?: boolean;
+    /** Absent for an event no handler produced. */
+    handlerDepth?: number;
 }
 
 const parseEntry = (raw: string | null): StoredEntry | null => {
@@ -299,8 +303,9 @@ export class PendingDeliveryStore extends PuterStore {
     async enqueue(
         subId: string,
         event: DeliverableEvent,
+        handlerDepth = 0,
     ): Promise<{ entryId: string; shed: PendingShed[] }> {
-        const entryId = await this.#append(subId, event);
+        const entryId = await this.#append(subId, event, handlerDepth);
 
         const shed: PendingShed[] = [];
         const overflowed = await this.#capSubscription(subId);
@@ -360,6 +365,7 @@ export class PendingDeliveryStore extends PuterStore {
             event: entry.event,
             socketAttempts: entry.socketAttempts,
             remoteAttempts: entry.remoteAttempts ?? 0,
+            handlerDepth: entry.handlerDepth ?? 0,
         };
     }
 
@@ -460,14 +466,17 @@ export class PendingDeliveryStore extends PuterStore {
      * Drop one delivery nothing will ever take, leaving a gap marker in its
      * place. A refused delivery is still an event its subscription was
      * promised, so the marker is what keeps the silence from reading as
-     * "nothing happened".
+     * "nothing happened". It keeps the entry's handler depth, or a handler that
+     * writes on every delivery would restart its chain from the marker.
      */
     async discard(
         subId: string,
         entryId: string,
         reason: GapMarker['reason'],
     ): Promise<boolean> {
-        const subject = await this.#subjectOf(subId, entryId);
+        const entry = parseEntry(
+            await this.clients.redis.hget(entriesKey(subId), entryId),
+        );
         const removed = await this.clients.redis.zrem(
             pendingKey(subId),
             entryId,
@@ -475,7 +484,11 @@ export class PendingDeliveryStore extends PuterStore {
         if (Number(removed) !== 1) return false;
 
         await this.#forget(subId, [entryId]);
-        await this.#append(subId, gapMarker(subject, reason));
+        await this.#append(
+            subId,
+            gapMarker(entry?.event.subject ?? '', reason),
+            entry?.handlerDepth ?? 0,
+        );
         return true;
     }
 
@@ -717,7 +730,11 @@ export class PendingDeliveryStore extends PuterStore {
      * is the only thing the sweeper ever reads, so an entry it does not know
      * about is never retried.
      */
-    async #append(subId: string, event: DeliverableEvent): Promise<string> {
+    async #append(
+        subId: string,
+        event: DeliverableEvent,
+        handlerDepth = 0,
+    ): Promise<string> {
         const now = Date.now();
         const entryId = this.#mintEntryId(now);
 
@@ -731,7 +748,11 @@ export class PendingDeliveryStore extends PuterStore {
         write.hset(
             entriesKey(subId),
             entryId,
-            JSON.stringify({ event, socketAttempts: 0 } satisfies StoredEntry),
+            JSON.stringify({
+                event,
+                socketAttempts: 0,
+                ...(handlerDepth > 0 ? { handlerDepth } : {}),
+            } satisfies StoredEntry),
         );
         write.zadd(pendingKey(subId), now, entryId);
         write.expire(entriesKey(subId), PENDING_BACKLOG_TTL_SECONDS);

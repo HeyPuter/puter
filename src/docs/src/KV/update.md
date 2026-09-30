@@ -4,7 +4,7 @@ description: Update one or more paths within a stored value in the user's own ke
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Update one or more paths within the value stored at a key. You can update nested fields without overwriting the entire value.
+Update one or more paths within the value stored at a key. You can update nested fields without overwriting the entire value. A missing or expired key is built from the paths you give, with no TTL unless you pass one.
 
 ## Syntax
 
@@ -26,9 +26,9 @@ An object where each key is a path (for example, `"profile.name"`) and each valu
 
 Each value follows the same limits as [`puter.kv.set()`](/KV/set/): **400 KB**, and every number within **±9,007,199,254,740,991** — a larger one is stored clamped to that bound.
 
-#### `ttl` (Number) (optional)
+#### `ttl` (Number | null) (optional)
 
-Time-to-live for the key, in seconds.
+Time-to-live for the key, in seconds. Omit it to keep the key's current TTL; pass `null` to remove it. `0` or a negative number expires the key right away.
 
 Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. When a path continues through an array element (for example, `[0].score`), that element must already exist. Missing object parents are created automatically; sparse array elements are not created.
 

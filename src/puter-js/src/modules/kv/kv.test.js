@@ -254,9 +254,25 @@ describe('kv.get GUI boot cache', () => {
         expect(body.args.key).toContain('sidebar_items');
     });
 
-    it('resolves undefined for boot keys when the batch result is not an array', async () => {
-        FakeXHR.respondWith = () => ({ success: false });
-        await expect(kv.get('sidebar_items')).resolves.toBeUndefined();
+    it('a failed batch makes get(bootKey) issue a normal call', async () => {
+        FakeXHR.respondWith = (body) =>
+            Array.isArray(body.args.key)
+                ? { success: false }
+                : { success: true, result: `${body.args.key}-fallback` };
+        await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-fallback');
+        expect(FakeXHR.requests).toHaveLength(2);
+        expect(lastBody().args).toEqual({ key: 'sidebar_items' });
+    });
+
+    it('rejects when the fallback call rejects', async () => {
+        FakeXHR.respondWith = (body) =>
+            Array.isArray(body.args.key)
+                ? { success: false }
+                : { success: false, error: { code: 'insufficient_funds' } };
+        await expect(kv.get('sidebar_items')).rejects.toMatchObject({
+            success: false,
+            error: { code: 'insufficient_funds' },
+        });
     });
 
     it('bypasses the cache when optConfig is passed', async () => {
@@ -450,6 +466,11 @@ describe('kv.update driver payloads', () => {
     it('update(object) coerces a numeric-string ttl', async () => {
         await kv.update({ key: 'k', pathAndValueMap: { a: 1 }, ttl: '60' });
         expect(lastBody().args).toEqual({ key: 'k', pathAndValueMap: { a: 1 }, ttl: 60 });
+    });
+
+    it('update(key, pathAndValueMap, null) sends a null ttl', async () => {
+        await kv.update('k', { a: 1 }, null);
+        expect(lastBody().args).toEqual({ key: 'k', pathAndValueMap: { a: 1 }, ttl: null });
     });
 
     it('rejects a non-object pathAndValueMap', async () => {

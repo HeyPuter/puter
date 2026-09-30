@@ -153,6 +153,32 @@ describe('compileMatch', () => {
         );
     });
 
+    it('covers what is beneath a literal pattern when asked to', () => {
+        const compiled = compileMatch('uploads', { literalCoversSubtree: true });
+        expect(compiled.test('uploads')).toBe(true);
+        expect(compiled.test('uploads/a.png')).toBe(true);
+        expect(compiled.test('uploads/x/y.png')).toBe(true);
+        expect(compiled.test('uploads-old')).toBe(false);
+        expect(compiled.test('uploads-old/a.png')).toBe(false);
+        expect(compiled.test('up')).toBe(false);
+        expect(compiled.test('other/uploads')).toBe(false);
+    });
+
+    it('leaves a wildcard pattern whole-path even when asked to cover subtrees', () => {
+        expect(
+            compileMatch('*.png', { literalCoversSubtree: true }).test('a.png/b'),
+        ).toBe(false);
+        expect(
+            compileMatch('inbox/*.json', { literalCoversSubtree: true }).test(
+                'inbox/a.json/x',
+            ),
+        ).toBe(false);
+    });
+
+    it('keeps a literal pattern exact by default', () => {
+        expect(compileMatch('uploads').test('uploads/a')).toBe(false);
+    });
+
     it('stays cheap on the worst shape the bounds allow', () => {
         // One globstar, then a star in every remaining segment, against a
         // deep path of long segments that misses only at the very end.

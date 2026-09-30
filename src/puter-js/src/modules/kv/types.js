@@ -19,7 +19,8 @@
  * @typedef {Object} KVSetItem
  * @property {string} key The key to create or update. Maximum key size is `1 KB`.
  * @property {T} value The value to store. Maximum value size is `400 KB`.
- * @property {number} [expireAt] Timestamp, in seconds, at which the key should expire.
+ * @property {number | null} [expireAt] Timestamp, in seconds, at which the key should expire.
+ * Omit or pass `null` for no expiry.
  */
 
 /**
@@ -29,7 +30,8 @@
  * @typedef {Object} KVSetObject
  * @property {string} key The key to create or update. Maximum key size is `1 KB`.
  * @property {T} value The value to store. Maximum value size is `400 KB`.
- * @property {number} [expireAt] Timestamp, in seconds, at which the key should expire.
+ * @property {number | null} [expireAt] Timestamp, in seconds, at which the key should expire.
+ * Omit or pass `null` for no expiry.
  * @property {KVOptConfig} [optConfig]
  */
 
@@ -62,7 +64,8 @@
  * @typedef {Object} KVUpdateObject
  * @property {string} key The key to update.
  * @property {KVUpdatePath} pathAndValueMap Maps dot-separated paths to their new values.
- * @property {number} [ttl] Time-to-live for the key, in seconds.
+ * @property {number | null} [ttl] Time-to-live for the key, in seconds. Omit to keep the
+ * key's current TTL; `null` removes it.
  * @property {KVOptConfig} [optConfig]
  */
 

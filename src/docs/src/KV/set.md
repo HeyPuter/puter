@@ -30,9 +30,9 @@ The value you want to give the key you are creating/updating. Objects and arrays
 
 Numbers are stored with the precision JavaScript itself keeps: every number in the value — including one nested inside an object or array — must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`). A number past that is stored clamped to the bound rather than rejected, and `NaN` is stored as `null`. Store an id or a total that has to stay exact past that point as a string.
 
-#### `expireAt` (Number) (optional)
+#### `expireAt` (Number | null) (optional)
 
-A number containing when the key should expire in timestamp seconds.
+A Unix timestamp in seconds at which the key should expire. Omit it, or pass `null` or `0`, for no expiry. A timestamp at or before now stores the key already expired. Every `set()` replaces the whole entry, TTL included — a later `set()` with no `expireAt` clears an existing one.
 
 #### `disableSharing` (Boolean) (optional)
 
@@ -50,7 +50,7 @@ You may also pass a single object instead of positional arguments: `set({ key, v
 
 ## Return value
 
-A `Promise` that will resolves to `true` when the key-value pair has been created or the existing key's value has been updated.
+A `Promise` that will resolve to `true` when the key-value pair has been created or the existing key's value has been updated.
 
 ## Examples
 

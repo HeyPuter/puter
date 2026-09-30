@@ -481,7 +481,15 @@ export class DDBClient extends PuterClient {
     async del<T extends Record<string, unknown>>(
         table: string,
         key: T,
-        opts?: { returnOld?: boolean },
+        opts?: {
+            returnOld?: boolean;
+            /** Refused (`ConditionalCheckFailedException`) unless it holds. */
+            condition?: {
+                expression: string;
+                names?: Record<string, string>;
+                values?: Record<string, unknown>;
+            };
+        },
     ) {
         const command = new DeleteCommand({
             TableName: table,
@@ -490,6 +498,20 @@ export class DDBClient extends PuterClient {
             // ALL_OLD makes the delete an atomic claim: exactly one caller
             // gets the attributes back.
             ...(opts?.returnOld ? { ReturnValues: 'ALL_OLD' as const } : {}),
+            ...(opts?.condition
+                ? {
+                      ConditionExpression: opts.condition.expression,
+                      ...(opts.condition.names
+                          ? { ExpressionAttributeNames: opts.condition.names }
+                          : {}),
+                      ...(opts.condition.values
+                          ? {
+                                ExpressionAttributeValues:
+                                    opts.condition.values,
+                            }
+                          : {}),
+                  }
+                : {}),
         });
 
         const client = await this.#getDocumentClient();
@@ -761,14 +783,15 @@ export class DDBClient extends PuterClient {
             const scan = await client.send(
                 new ScanCommand({
                     TableName: table,
-                    FilterExpression: '#ttl < :now',
+                    // 0 means no expiry, so it must never sweep.
+                    FilterExpression: '#ttl < :now AND #ttl <> :none',
                     ExpressionAttributeNames: {
                         '#ttl': ttlAttribute,
                         ...Object.fromEntries(
                             keyNames.map((key) => [`#k_${key}`, key]),
                         ),
                     },
-                    ExpressionAttributeValues: { ':now': now },
+                    ExpressionAttributeValues: { ':now': now, ':none': 0 },
                     ProjectionExpression: keyNames
                         .map((key) => `#k_${key}`)
                         .join(', '),

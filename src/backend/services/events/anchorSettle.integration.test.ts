@@ -199,6 +199,28 @@ describe('a path-form subscription whose anchor is deleted', () => {
 
         expect(delivered.map((d) => d.subId)).toEqual([sub.subId]);
     });
+
+    it('keeps covering a missing folder`s contents after it climbs', async () => {
+        const docs = await folder(`${home}/reanchor-inbox`);
+        const sub = await subscribe('sock-inbox', `fs:${docs}/inbox`);
+        expect(sub.anchor.path).toBe(docs);
+        expect(sub.match).toBe('inbox');
+
+        await removeAt(docs);
+        const moved = await anchoredAt('sock-inbox', sub.subId, home);
+        expect(moved.match).toBe('reanchor-inbox/inbox');
+
+        await folder(`${docs}/inbox`);
+        await drain();
+        await fs().touch(user.id, { path: `${docs}/inbox/a.txt` });
+        await settled();
+
+        expect(delivered.map((d) => d.subId)).toEqual([sub.subId]);
+        expect(delivered[0].event).toMatchObject({
+            op: 'add',
+            path: `${docs}/inbox/a.txt`,
+        });
+    });
 });
 
 describe('a node-form subscription whose anchor is deleted', () => {

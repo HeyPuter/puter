@@ -44,7 +44,7 @@ const updateDriverCall = (puter, args) =>
  * @overload
  * @param {string} key
  * @param {KVUpdatePath} pathAndValueMap
- * @param {number} [ttl]
+ * @param {number | null} [ttl]
  * @param {KVOptConfig} [optConfig]
  * @returns {Promise<KVValue>}
  */
