@@ -167,6 +167,25 @@ const errorFor = async (
 // -- Provider registration -------------------------------------------
 
 describe('ChatCompletionDriver provider registration', () => {
+    it('routes test mode to fake-chat without calling the selected upstream provider', async () => {
+        const upstream = vi.spyOn(AzureChatProvider.prototype, 'complete');
+        const fake = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        const result = await withTestActor(() =>
+            fullDriver.complete({
+                model: 'gpt-4o',
+                provider: 'azure-openai',
+                messages: [{ role: 'user', content: 'hi' }],
+                test_mode: true,
+            }),
+        );
+
+        expect(upstream).not.toHaveBeenCalled();
+        expect(fake).toHaveBeenCalledOnce();
+        expect(fake.mock.calls[0]![0].model).toBe('fake');
+        expect('message' in result && result.message.model).toBe('fake');
+    });
+
     it('registers a model surface spanning every credentialed provider', async () => {
         const models = await fullDriver.models();
         const providers = new Set(models.map((m) => m.provider));
@@ -251,6 +270,25 @@ describe('ChatCompletionDriver provider registration', () => {
         }
         const claudeRows = rows.filter((r) => r.source.endsWith('/claude'));
         expect(claudeRows.length).toBeGreaterThan(0);
+    });
+});
+
+// -- Input validation ------------------------------------------------
+
+describe('ChatCompletionDriver malformed input', () => {
+    it.each([
+        ['missing messages', { messages: undefined }],
+        [
+            'a null content item',
+            { messages: [{ role: 'user', content: [null] }] },
+        ],
+        ['a null tool entry', { tools: [null] }],
+    ])('rejects %s with 400 before any provider runs', async (_label, args) => {
+        const fake = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        await expect(completeFake(args)).rejects.toMatchObject({
+            statusCode: 400,
+        });
+        expect(fake).not.toHaveBeenCalled();
     });
 });
 

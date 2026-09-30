@@ -10,8 +10,7 @@ Returns the team's member directory — the colleagues of the user your app is
 running for, active accounts only. It is consent-gated: the team's owner has to
 open the directory to apps, and until they do it rejects with `team_not_found`
 for every caller, indistinguishable from the team not existing. The same
-consent decides whether an app sees the team in [`list()`](/Teams/list/) and
-may call [`listMembers()`](/Teams/listMembers/).
+consent decides whether an app sees the team in [`list()`](/Teams/list/).
 
 The membership is always the signed-in user's, never the app's: an app can only
 see the directory of a team its user belongs to.

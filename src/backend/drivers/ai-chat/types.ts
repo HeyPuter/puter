@@ -75,6 +75,7 @@ export interface ICompleteArguments {
     provider?: string;
     stream?: boolean;
     model: string;
+    test_mode?: boolean;
     tools?: unknown[];
     tool_choice?: unknown;
     parallel_tool_calls?: boolean;

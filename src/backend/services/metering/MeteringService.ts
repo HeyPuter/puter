@@ -2640,6 +2640,9 @@ export class MeteringService extends PuterService {
     }
 
     private async checkRateOfChange(): Promise<void> {
+        const maxPerMinute = this.config.maxGlobalUsagePerMinute;
+        if (!(maxPerMinute && maxPerMinute > 0)) return;
+
         const now = Date.now();
         const lastChangeKey = `${METRICS_PREFIX}:lastGlobalUsageCheck`;
         const { res: lastChangeRaw } = await this.stores.kv.get({
@@ -2655,9 +2658,7 @@ export class MeteringService extends PuterService {
         const globalUsage = await this.getGlobalUsage();
         const currTotal = globalUsage.total;
 
-        const maxPerMinute = this.config.maxGlobalUsagePerMinute;
-
-        if (lastChange && maxPerMinute && maxPerMinute > 0) {
+        if (lastChange) {
             const timeDelta = now - lastChange.timestamp;
             const usageDelta = currTotal - lastChange.total;
             const usagePerMinute = usageDelta / (timeDelta / 60000);

@@ -3311,6 +3311,21 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         expect(deduped.name).toBe('sc (1)');
     });
 
+    it('rejects a shortcut name containing a slash before creating anything', async () => {
+        const target = await writeFile(
+            user,
+            `${user.home}/Documents/sc-target2.txt`,
+            'x',
+        );
+        const parent = (await entryAt(user, '/Documents'))!;
+
+        const error = await caught(() =>
+            fs.mkshortcut(user.userId, { parent, name: 'a/b', target }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(await entryAt(user, '/Documents/a/b')).toBeNull();
+    });
+
     it('rejects a thumbnail update without an entry identifier', async () => {
         const error = await caught(() =>
             fs.updateEntryThumbnail(user.userId, '', 'data:image/png;base64,A'),
@@ -3527,6 +3542,78 @@ describe('FSService home directory guard', () => {
         const renamed = await fs.rename(user.userId, dir, 'renamed');
 
         expect(renamed.path).toBe(`${user.home}/renamed`);
+    });
+
+    it('refuses to remove a home directory', async () => {
+        const user = await makeUser();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        ))!;
+
+        const error = await caught(() =>
+            runWithContext({ actor: user.actor }, () =>
+                fs.remove(user.userId, { entry: root, recursive: true }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(error.message).toContain('home directory');
+        expect(
+            await server.stores.fsEntry.getRootEntryForUser(user.userId),
+        ).not.toBeNull();
+    });
+
+    it('still empties Trash with descendantsOnly', async () => {
+        const user = await makeUser();
+        const trash = (await entryAt(user, '/Trash'))!;
+        await fs.mkdir(user.userId, { path: `${user.home}/Trash/leftover` });
+
+        await fs.remove(user.userId, {
+            entry: trash,
+            recursive: true,
+            descendantsOnly: true,
+        });
+
+        expect(await entryAt(user, '/Trash/leftover')).toBeNull();
+        expect(await entryAt(user, '/Trash')).not.toBeNull();
+    });
+
+    it('empties a home directory with descendantsOnly and keeps the home', async () => {
+        const user = await makeUser();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        ))!;
+        await fs.mkdir(user.userId, { path: `${user.home}/scratch` });
+
+        await runWithContext({ actor: user.actor }, () =>
+            fs.remove(user.userId, {
+                entry: root,
+                recursive: true,
+                descendantsOnly: true,
+            }),
+        );
+
+        expect(await entryAt(user, '/scratch')).toBeNull();
+        expect(
+            await server.stores.fsEntry.getRootEntryForUser(user.userId),
+        ).not.toBeNull();
+    });
+
+    it('a systemInitiated removal bypasses the home-root guard', async () => {
+        const user = await makeUser();
+        const root = (await server.stores.fsEntry.getRootEntryForUser(
+            user.userId,
+        ))!;
+
+        await fs.remove(user.userId, {
+            entry: root,
+            recursive: true,
+            systemInitiated: true,
+        });
+
+        expect(
+            await server.stores.fsEntry.getRootEntryForUser(user.userId),
+        ).toBeNull();
     });
 });
 

@@ -135,7 +135,10 @@ export class FakeChatProvider implements IChatProvider {
                         inputTokens += Math.ceil(message.content.length / 4);
                     } else if (Array.isArray(message.content)) {
                         for (const content of message.content) {
-                            if (content.type === 'text') {
+                            if (
+                                content.type === 'text' &&
+                                typeof content.text === 'string'
+                            ) {
                                 inputTokens += Math.ceil(
                                     content.text.length / 4,
                                 );

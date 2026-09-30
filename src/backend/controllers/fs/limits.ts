@@ -189,11 +189,12 @@ export const FS_POLL_LIMIT = userWindow('fs:poll', 240, 240, 120);
 
 /**
  * `/batch` buffers every file fully into memory before any quota or storage
- * check runs, up to BATCH_MAX_FILES × BATCH_MAX_FILE_SIZE. The concurrency slot
- * is doing the real work here; the window is secondary, and sized to say so —
- * one upload is one call, so a per-minute ceiling in the tens is a cap on how
- * many files someone may upload rather than a bound on cost. What actually
- * bounds the memory this route can tie up is how many run at once.
+ * check runs, up to BATCH_MAX_FILES × BATCH_MAX_FILE_SIZE, capped in aggregate
+ * per request by BATCH_MAX_TOTAL_SIZE. The concurrency slot is doing the real
+ * work here; the window is secondary, and sized to say so — one upload is one
+ * call, so a per-minute ceiling in the tens is a cap on how many files someone
+ * may upload rather than a bound on cost. What actually bounds the memory this
+ * route can tie up is how many run at once.
  */
 export const FS_BATCH_LIMIT = userWindow('fs:batch', 600, 300, 300);
 export const FS_BATCH_CONCURRENT = userConcurrent('fs:batch', 5, 2, 2);

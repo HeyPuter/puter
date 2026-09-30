@@ -411,11 +411,7 @@ export class ChatCompletionDriver extends PuterDriver {
             });
         }
 
-        if (args.messages) {
-            args.messages = normalizeMediaParts(
-                normalize_messages(args.messages),
-            );
-        }
+        args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
             normalize_tools_object(args.tools);
         }
@@ -493,8 +489,20 @@ export class ChatCompletionDriver extends PuterDriver {
             }
         }
 
-        // Skipped for blocked requests since fake-chat is free and the user
-        // shouldn't see a billing error in place of the abuse page.
+        if (args.test_mode === true && !blocked) {
+            const fakeModel = this.#resolveModel('fake', 'fake-chat');
+            if (!fakeModel) {
+                throw new HttpError(500, 'Test chat provider unavailable', {
+                    legacyCode: 'internal_error',
+                });
+            }
+            model = fakeModel;
+        }
+
+        const useFakeProvider = blocked || args.test_mode === true;
+
+        // Fake responses need no credit hold, including blocked prompts and
+        // test requests.
         //
         // The gate hands back a hold on what this attempt could cost, which
         // stands in for its usage until the real numbers land. It is released
@@ -502,7 +510,7 @@ export class ChatCompletionDriver extends PuterDriver {
         // where "done" is the stream draining rather than this method
         // returning.
         let hold: CreditHold = NO_CREDIT_HOLD;
-        if (!blocked) {
+        if (!useFakeProvider) {
             hold = await this.#applyCreditGate(actor, model, args, {
                 promptTokenEstimate,
                 requestedMaxTokens,
@@ -537,7 +545,9 @@ export class ChatCompletionDriver extends PuterDriver {
         };
 
         try {
-            if (!blocked) await this.#resolvePuterPaths(provider, args, actor);
+            if (!useFakeProvider) {
+                await this.#resolvePuterPaths(provider, args, actor);
+            }
             res = await provider.complete({
                 ...args,
                 model: model.id,
@@ -576,7 +586,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 // be capped against what is actually left.
                 // The previous attempt released its hold when it failed, so
                 // this one starts from nothing held.
-                if (!blocked) {
+                if (!useFakeProvider) {
                     hold = await this.#applyCreditGate(actor, fallback, args, {
                         promptTokenEstimate,
                         requestedMaxTokens,
@@ -586,7 +596,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 tried.add(routeId(fallback.provider!, fallback.id));
 
                 try {
-                    if (!blocked) {
+                    if (!useFakeProvider) {
                         await this.#resolvePuterPaths(fbProvider, args, actor);
                     }
                     res = await fbProvider.complete({

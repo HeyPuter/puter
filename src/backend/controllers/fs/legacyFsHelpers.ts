@@ -22,6 +22,7 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSService } from '../../services/fs/FSService.js';
+import type { NodeRef } from '../../services/fs/resolveNode.js';
 import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
 import { isAppActor, type Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -31,6 +32,7 @@ import {
     resolveNode,
     normalizeAbsolutePath,
     isOwnersTrash,
+    assertChildName,
     joinChildPath,
     expandTildePath,
 } from '../../services/fs/resolveNode.js';
@@ -115,9 +117,32 @@ export async function expandClientPath(
     );
 }
 
-export async function resolveV1Selector(
+// Nested `{parent, name}` selectors recurse; unbounded depth overflows the stack.
+const MAX_SELECTOR_DEPTH = 4;
+
+/**
+ * Resolve `ref`, reporting any miss as the same 404 an unreadable entry gets,
+ * so a lookup never echoes a resolved path or tells missing from hidden.
+ */
+async function resolveOrNotFound(
+    fsEntryStore: FSEntryStore,
+    ref: NodeRef,
+): Promise<FSEntry> {
+    try {
+        const entry = await resolveNode(fsEntryStore, ref, { required: true });
+        if (entry) return entry;
+    } catch (err) {
+        if (!(err instanceof HttpError && err.statusCode === 404)) throw err;
+    }
+    throw new HttpError(404, 'Subject does not exist', {
+        legacyCode: 'subject_does_not_exist',
+    });
+}
+
+async function resolveV1SelectorAtDepth(
     fsEntryStore: FSEntryStore,
     raw: unknown,
+    depth: number,
 ): Promise<FSEntry> {
     const username = Context.get('actor')?.user?.username;
 
@@ -130,30 +155,29 @@ export async function resolveV1Selector(
         const ref = isPath
             ? { path: await expandClientPath(fsEntryStore, raw, username) }
             : { uid: raw };
-        const entry = await resolveNode(fsEntryStore, ref, { required: true });
-        if (!entry)
-            throw new HttpError(404, `Entry not found: ${raw}`, {
-                legacyCode: 'not_found',
-            });
-        return entry;
+        return resolveOrNotFound(fsEntryStore, ref);
     }
 
     const record = asRecord(raw);
 
     // {parent, name}: "child selector" — resolve parent, then child by name.
     if (record.parent !== undefined && typeof record.name === 'string') {
-        const parent = await resolveV1Selector(fsEntryStore, record.parent);
-        const childPath = joinChildPath(parent.path, record.name);
-        const child = await resolveNode(
-            fsEntryStore,
-            { path: childPath },
-            { required: true },
-        );
-        if (!child)
-            throw new HttpError(404, `Entry not found: ${childPath}`, {
-                legacyCode: 'not_found',
+        if (depth >= MAX_SELECTOR_DEPTH) {
+            throw new HttpError(400, 'Selector is nested too deeply', {
+                legacyCode: 'bad_request',
             });
-        return child;
+        }
+        // Before the parent lookup, so a bad name can't tell whether the
+        // parent exists.
+        assertChildName(record.name);
+        const parent = await resolveV1SelectorAtDepth(
+            fsEntryStore,
+            record.parent,
+            depth + 1,
+        );
+        return resolveOrNotFound(fsEntryStore, {
+            path: joinChildPath(parent.path, record.name),
+        });
     }
 
     const rawPath = typeof record.path === 'string' ? record.path : undefined;
@@ -173,12 +197,14 @@ export async function resolveV1Selector(
                 ? record.id
                 : undefined,
     };
-    const entry = await resolveNode(fsEntryStore, ref, { required: true });
-    if (!entry)
-        throw new HttpError(404, 'Entry not found', {
-            legacyCode: 'not_found',
-        });
-    return entry;
+    return resolveOrNotFound(fsEntryStore, ref);
+}
+
+export async function resolveV1Selector(
+    fsEntryStore: FSEntryStore,
+    raw: unknown,
+): Promise<FSEntry> {
+    return resolveV1SelectorAtDepth(fsEntryStore, raw, 0);
 }
 
 // -- ACL --------------------------------------------------------------
@@ -225,7 +251,7 @@ export async function assertAccess(
     // through the error code. User-actor denials keep the real 403.
 
     if (isAppActor(actor)) {
-        throw new HttpError(404, `Entry not found: path=${path}`, {
+        throw new HttpError(404, 'Subject does not exist', {
             legacyCode: 'subject_does_not_exist',
         });
     }

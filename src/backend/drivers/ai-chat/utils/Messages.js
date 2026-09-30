@@ -131,7 +131,7 @@ export const normalize_single_message = (message, params = {}) => {
             };
         }
         if (
-            !message ||
+            !message.content[i] ||
             typeof message.content[i] !== 'object' ||
             Array.isArray(message.content[i])
         ) {
@@ -149,7 +149,7 @@ export const normalize_single_message = (message, params = {}) => {
         }
     }
 
-    // Remove "text" properties from content blocks with type=tool_result
+    // Remove "text" properties from content blocks with type=tool_use
     for (let i = 0; i < message.content.length; i++) {
         if (message.content[i].type !== 'tool_use') {
             continue;
@@ -173,6 +173,11 @@ export const normalize_single_message = (message, params = {}) => {
  * @returns {Array} Normalized and merged array of messages
  */
 export const normalize_messages = (messages, params = {}) => {
+    if (!Array.isArray(messages)) {
+        throw new HttpError(400, '`messages` must be an array', {
+            legacyCode: 'bad_request',
+        });
+    }
     for (let i = 0; i < messages.length; i++) {
         messages[i] = normalize_single_message(messages[i], params);
     }

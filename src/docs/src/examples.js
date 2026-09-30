@@ -739,6 +739,12 @@ const examples = [
                 slug: 'hosting-get',
                 source: '/playground/examples/hosting-get.html',
             },
+            {
+                title: 'Publish a portfolio page',
+                description: 'Publish a page built from form input as a public website with Puter.js hosting API. Run and modify this example directly in your browser.',
+                slug: 'hosting-publish-a-website',
+                source: '/playground/examples/hosting-publish-a-website.html',
+            },
         ],
     },
     {
@@ -950,6 +956,23 @@ const examples = [
                 description: 'Check whether access is already held before showing an opt-in with Puter.js permissions API. Run and modify this example directly in your browser.',
                 slug: 'perms-ask-for-access-check',
                 source: '/playground/examples/perms-ask-for-access-check.html',
+            },
+        ],
+    },
+    {
+        title: 'Teams',
+        children: [
+            {
+                title: "Find the user's team",
+                description: "Check whether the signed-in user belongs to a team with Puter.js teams API. Run and experiment with this example directly in the playground.",
+                slug: 'teams-list',
+                source: '/playground/examples/teams-list.html',
+            },
+            {
+                title: 'Offer colleagues in a picker',
+                description: 'Build a colleague picker from a team directory with Puter.js teams API. Run and experiment with this example in the playground.',
+                slug: 'teams-directory',
+                source: '/playground/examples/teams-directory.html',
             },
         ],
     },

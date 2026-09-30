@@ -93,6 +93,22 @@ export class HostingController extends PuterController {
                     userId: req.actor.user.id,
                 });
 
+                // Same event the `puter-subdomains` driver fires on delete —
+                // listeners (CDN purge, abuse tracking, worker cleanup)
+                // depend on it.
+                try {
+                    this.clients.event.emit(
+                        'subdomain.delete',
+                        {
+                            subdomain: row.subdomain,
+                            uid: String(row.uuid),
+                        },
+                        {},
+                    );
+                } catch {
+                    // Non-critical.
+                }
+
                 res.json({});
             },
         );
