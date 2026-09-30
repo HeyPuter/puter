@@ -963,12 +963,6 @@ const examples = [
                 source: '/playground/examples/teams-list.html',
             },
             {
-                title: 'List team members',
-                description: 'List the accounts belonging to a team with Puter.js teams API. Run and modify this example instantly in your browser.',
-                slug: 'teams-list-members',
-                source: '/playground/examples/teams-list-members.html',
-            },
-            {
                 title: 'Offer colleagues in a picker',
                 description: 'Build a colleague picker from a team directory with Puter.js teams API. Run and experiment with this example in the playground.',
                 slug: 'teams-directory',
