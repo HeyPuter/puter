@@ -739,6 +739,12 @@ const examples = [
                 slug: 'hosting-get',
                 source: '/playground/examples/hosting-get.html',
             },
+            {
+                title: 'Publish a portfolio page',
+                description: 'Publish a page built from form input as a public website with Puter.js hosting API. Run and modify this example directly in your browser.',
+                slug: 'hosting-publish-a-website',
+                source: '/playground/examples/hosting-publish-a-website.html',
+            },
         ],
     },
     {
