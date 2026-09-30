@@ -171,6 +171,7 @@ describe('OpenAiChatProvider model catalog', () => {
         // gpt-5-nano is a Chat-Completions model, must be present.
         expect(ids).toContain('gpt-5-nano-2025-08-07');
         expect(ids).toContain('gpt-6-astra');
+        expect(ids).toContain('gpt-6.1-sol');
         expect(ids).toContain('gpt-6-sol');
         expect(ids).toContain('gpt-6-luna');
     });
@@ -317,7 +318,7 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.safety_identifier).toBe('puter-u42');
     });
 
-    it.each(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+    it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'])(
         'resolves the namespaced %s alias',
         async (model) => {
             const { provider } = makeProvider();
