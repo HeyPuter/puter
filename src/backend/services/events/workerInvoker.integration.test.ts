@@ -538,21 +538,24 @@ describe('what each answer does to the delivery', () => {
         await touch('refused.txt');
         await invoked(1);
 
+        // It counted: a refusal is still a handler that did not work. Counted
+        // only once the marker is in, so it is also what says the answer was
+        // handled — the depth alone reads 1 while the event is still leased.
+        await vi.waitFor(async () =>
+            expect(
+                await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+            ).toBe('1'),
+        );
+
         // The event is gone and a marker stands in its place, so the
         // subscription learns there was one rather than reading silence.
-        await vi.waitFor(async () =>
-            expect(await pending().depth(subId)).toBe(1),
-        );
+        expect(await pending().depth(subId)).toBe(1);
         answer = 200;
         const claimed = await pending().claim(subId, { leaseMs: 0 });
         expect(claimed?.event).toMatchObject({
             op: 'gap',
             reason: 'handler_rejected',
         });
-        // It counted: a refusal is still a handler that did not work.
-        await expect(
-            env.server.clients.redis.get(`ev:qf:{${subId}}`),
-        ).resolves.toBe('1');
     });
 
     it('holds a 4xx with no handled marker for retry rather than dropping it', async () => {
