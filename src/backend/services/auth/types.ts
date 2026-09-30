@@ -61,6 +61,8 @@ export interface AppUnderUserTokenPayload extends TokenPayloadBase {
     app_uid: string;
     /** V1: raw web-session uuid (optional). v2: unused. */
     session?: string;
+    /** Events handler runs behind this token's writes; see `Actor.handlerDepth`. */
+    handler_depth?: number;
 }
 
 /**

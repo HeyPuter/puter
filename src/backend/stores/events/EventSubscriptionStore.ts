@@ -139,6 +139,14 @@ interface DroppedSessionToken {
     token: string;
 }
 
+/** What `#dropRefs` actually did, as opposed to what it was asked to. */
+interface DropRefsResult {
+    /** Tokens whose region-local watcher count crossed to zero. */
+    dropped: DroppedSessionToken[];
+    /** Refs a concurrent duplicate had not already taken. */
+    removed: SocketRef[];
+}
+
 const toAnnounces = (
     dropped: readonly DroppedSessionToken[],
     op: 'add' | 'drop',
@@ -300,15 +308,23 @@ export class EventSubscriptionStore extends PuterStore {
      * Drop one subscription the caller has already read back. Taking the row
      * rather than an id keeps the scope decision — whose row this is, and which
      * app's — with the actor, where it belongs.
+     *
+     * `null` when a concurrent duplicate of this call already removed it.
      */
-    async remove(sub: SessionSubscription): Promise<GenerationBump> {
-        const dropped = await this.#dropRefs(sub.holderUserId, sub.socketId, [
-            {
-                ownerUserId: sub.ownerUserId,
-                token: sub.token,
-                subId: sub.subId,
-            },
-        ]);
+    async remove(sub: SessionSubscription): Promise<GenerationBump | null> {
+        const { dropped, removed } = await this.#dropRefs(
+            sub.holderUserId,
+            sub.socketId,
+            [
+                {
+                    ownerUserId: sub.ownerUserId,
+                    token: sub.token,
+                    subId: sub.subId,
+                },
+            ],
+        );
+        if (removed.length === 0) return null;
+
         return {
             userId: sub.ownerUserId,
             generation: await this.bumpGeneration(sub.ownerUserId),
@@ -326,7 +342,7 @@ export class EventSubscriptionStore extends PuterStore {
         previous: SessionSubscription,
         next: SessionSubscription,
     ): Promise<GenerationBump[]> {
-        const dropped = await this.#dropRefs(
+        const { dropped, removed } = await this.#dropRefs(
             previous.holderUserId,
             previous.socketId,
             [
@@ -337,6 +353,9 @@ export class EventSubscriptionStore extends PuterStore {
                 },
             ],
         );
+        // A concurrent unsubscribe already took the previous ref; nothing to
+        // carry forward.
+        if (removed.length === 0) return [];
 
         const rows = this.clients.redis.pipeline();
         const key = tokenKey(next.ownerUserId, next.token);
@@ -408,7 +427,11 @@ export class EventSubscriptionStore extends PuterStore {
         ).map(parseSocketRef);
         if (refs.length === 0) return [];
 
-        const dropped = await this.#dropRefs(holderUserId, socketId, refs);
+        const { dropped, removed } = await this.#dropRefs(
+            holderUserId,
+            socketId,
+            refs,
+        );
         const announceByOwner = new Map<number, RemoteWatchAnnounce[]>();
         for (const { ownerUserId, token } of dropped)
             announceByOwner.set(ownerUserId, [
@@ -416,8 +439,9 @@ export class EventSubscriptionStore extends PuterStore {
                 { token, op: 'drop' },
             ]);
 
+        // Bump only owners whose ref this call actually removed.
         const bumps: GenerationBump[] = [];
-        for (const ownerUserId of byOwner(refs).keys())
+        for (const ownerUserId of byOwner(removed).keys())
             bumps.push({
                 userId: ownerUserId,
                 generation: await this.bumpGeneration(ownerUserId),
@@ -426,19 +450,25 @@ export class EventSubscriptionStore extends PuterStore {
         return bumps;
     }
 
-    /** Forget a socket's refs, then the rows they point at. */
+    /**
+     * Forget a socket's refs, then the rows they point at. Only refs this
+     * call's own `srem` actually removed count as dropped.
+     */
     async #dropRefs(
         holderUserId: number,
         socketId: string,
         refs: readonly SocketRef[],
-    ): Promise<DroppedSessionToken[]> {
-        await this.clients.redis.srem(
-            socketKey(holderUserId, socketId),
-            ...refs.map(socketRef),
-        );
+    ): Promise<DropRefsResult> {
+        if (refs.length === 0) return { dropped: [], removed: [] };
+
+        const key = socketKey(holderUserId, socketId);
+        const pipeline = this.clients.redis.pipeline();
+        for (const ref of refs) pipeline.srem(key, socketRef(ref));
+        const results = (await pipeline.exec()) ?? [];
+        const removed = refs.filter((_ref, i) => Number(results[i]?.[1]) === 1);
 
         const dropped: DroppedSessionToken[] = [];
-        for (const [ownerUserId, owned] of byOwner(refs)) {
+        for (const [ownerUserId, owned] of byOwner(removed)) {
             await this.#dropRows(ownerUserId, owned);
             dropped.push(
                 ...(await this.#dropSessionCounts(
@@ -447,7 +477,7 @@ export class EventSubscriptionStore extends PuterStore {
                 )),
             );
         }
-        return dropped;
+        return { dropped, removed };
     }
 
     /**

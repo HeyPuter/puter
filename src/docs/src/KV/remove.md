@@ -26,7 +26,7 @@ Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `s
 
 ## Return value
 
-Returns a `Promise` that resolves to the updated value stored at `key`.
+Returns a `Promise` that resolves to the updated value stored at `key`. An expired key resolves to `null`.
 
 ## Examples
 

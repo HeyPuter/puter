@@ -142,6 +142,42 @@ describe('DDBClient — item operations', () => {
         expect(result.Item).toBeUndefined();
     });
 
+    it('deletes only while its condition holds', async () => {
+        await client.put(TABLE, { pk: 'u6', sk: 'guarded', v: 1 });
+
+        await expect(
+            client.del(
+                TABLE,
+                { pk: 'u6', sk: 'guarded' },
+                {
+                    condition: {
+                        expression: '#v = :wrong',
+                        names: { '#v': 'v' },
+                        values: { ':wrong': 2 },
+                    },
+                },
+            ),
+        ).rejects.toMatchObject({ name: 'ConditionalCheckFailedException' });
+        expect(
+            (await client.get(TABLE, { pk: 'u6', sk: 'guarded' })).Item,
+        ).toBeDefined();
+
+        await client.del(
+            TABLE,
+            { pk: 'u6', sk: 'guarded' },
+            {
+                condition: {
+                    expression: '#v = :right',
+                    names: { '#v': 'v' },
+                    values: { ':right': 1 },
+                },
+            },
+        );
+        expect(
+            (await client.get(TABLE, { pk: 'u6', sk: 'guarded' })).Item,
+        ).toBeUndefined();
+    });
+
     it('fetches keys from several tables in one batch', async () => {
         await client.put(TABLE, { pk: 'b1', sk: 'a', v: 1 });
         await client.put(TABLE, { pk: 'b1', sk: 'b', v: 2 });
@@ -363,6 +399,59 @@ describe('DDBClient — expired item sweep', () => {
         expect((await client.get(table, { pk: 'stale' })).Item).toBeUndefined();
         expect((await client.get(table, { pk: 'fresh' })).Item).toBeDefined();
         expect((await client.get(table, { pk: 'eternal' })).Item).toBeDefined();
+    });
+
+    it('keeps an item whose ttl is 0, which never expires', async () => {
+        const client = new DDBClient(localConfig());
+        const table = 'ttl-zero-items';
+        const schema = {
+            TableName: table,
+            KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' as const }],
+            AttributeDefinitions: [
+                { AttributeName: 'pk', AttributeType: 'S' as const },
+            ],
+            ProvisionedThroughput: {
+                ReadCapacityUnits: 5,
+                WriteCapacityUnits: 5,
+            },
+        };
+
+        await client.createTableIfNotExists(schema, 'expireAt');
+        await awaitTable(client, table, { pk: 'ready' });
+        await client.put(table, { pk: 'zero', expireAt: 0 });
+
+        // Second call finds the table in use, so the sweep runs.
+        await client.createTableIfNotExists(schema, 'expireAt');
+
+        expect((await client.get(table, { pk: 'zero' })).Item).toBeDefined();
+    });
+
+    it('keeps an item whose ttl is not a number, which the sweep can never purge', async () => {
+        const client = new DDBClient(localConfig());
+        const table = 'ttl-nan-items';
+        const schema = {
+            TableName: table,
+            KeySchema: [{ AttributeName: 'pk', KeyType: 'HASH' as const }],
+            AttributeDefinitions: [
+                { AttributeName: 'pk', AttributeType: 'S' as const },
+            ],
+            ProvisionedThroughput: {
+                ReadCapacityUnits: 5,
+                WriteCapacityUnits: 5,
+            },
+        };
+
+        await client.createTableIfNotExists(schema, 'expireAt');
+        await awaitTable(client, table, { pk: 'ready' });
+        const past = Math.floor(Date.now() / 1000) - 60;
+        await client.put(table, { pk: 'stringTtl', expireAt: String(past) });
+
+        // Second call finds the table in use, so the sweep runs.
+        await client.createTableIfNotExists(schema, 'expireAt');
+
+        expect(
+            (await client.get(table, { pk: 'stringTtl' })).Item,
+        ).toBeDefined();
     });
 });
 

@@ -5,9 +5,11 @@ import {
     decodeCachedRead,
     encodeCachedHit,
     encodeCachedMiss,
+    isExpiredTtl,
     kvCacheKey,
     KV_CACHE_BLOCK_MARKER,
     resolveKvCacheSettings,
+    ttlNumber,
 } from './readCache.ts';
 
 const settings = (overrides: Partial<IConfig['kvCache']> = {}) =>
@@ -139,6 +141,52 @@ describe('kv readCache', () => {
         it('refuses to cache an entry that has already lapsed', () => {
             expect(cacheTtlSecondsFor(settings(), now - 1, now)).toBeNull();
             expect(cacheTtlSecondsFor(settings(), now, now)).toBeNull();
+        });
+
+        it('treats a null or 0 expiry as none', () => {
+            expect(cacheTtlSecondsFor(settings(), null, now)).toBe(60);
+            expect(cacheTtlSecondsFor(settings(), 0, now)).toBe(60);
+        });
+
+        it('caches a legacy numeric-string ttl by its value', () => {
+            expect(cacheTtlSecondsFor(settings(), String(now + 5), now)).toBe(
+                5,
+            );
+        });
+
+        it('treats a non-numeric string ttl as no expiry', () => {
+            expect(cacheTtlSecondsFor(settings(), 'not-a-number', now)).toBe(
+                60,
+            );
+        });
+    });
+
+    describe('ttlNumber / isExpiredTtl', () => {
+        const now = 1_000_000;
+
+        it('reads a numeric string and a boolean by their numeric value', () => {
+            expect(ttlNumber(String(now - 1))).toBe(now - 1);
+            expect(ttlNumber(true)).toBe(1);
+            expect(ttlNumber(false)).toBe(0);
+        });
+
+        it('has no numeric reading for junk, null, or undefined', () => {
+            expect(Number.isFinite(ttlNumber('not-a-number'))).toBe(false);
+            expect(Number.isFinite(ttlNumber(null))).toBe(false);
+            expect(Number.isFinite(ttlNumber(undefined))).toBe(false);
+            expect(Number.isFinite(ttlNumber(''))).toBe(false);
+        });
+
+        it('expires a past numeric string but not a future one', () => {
+            expect(isExpiredTtl(String(now - 1), now)).toBe(true);
+            expect(isExpiredTtl(String(now + 1), now)).toBe(false);
+        });
+
+        it('never expires 0, junk, null, or undefined', () => {
+            expect(isExpiredTtl(0, now)).toBe(false);
+            expect(isExpiredTtl('not-a-number', now)).toBe(false);
+            expect(isExpiredTtl(null, now)).toBe(false);
+            expect(isExpiredTtl(undefined, now)).toBe(false);
         });
     });
 });

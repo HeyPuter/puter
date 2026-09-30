@@ -471,3 +471,28 @@ describe('a move out of a watched folder', () => {
         expect(delivered.find(arrived)?.event).not.toHaveProperty('from');
     });
 });
+
+describe('a folder subscribed before it exists', () => {
+    it('delivers what lands inside it once it is created', async () => {
+        const parent = `/${username}/watch-later`;
+        await fs().mkdir(userId, { path: parent, createMissingParents: true });
+
+        const sub = await subscribeTo(`fs:${parent}/uploads`);
+        expect(sub.anchor.path).toBe(parent);
+        expect(sub.match).toBe('uploads');
+
+        await fs().mkdir(userId, { path: `${parent}/uploads`, createMissingParents: true });
+        await fs().touch(userId, { path: `${parent}/uploads/a.txt` });
+        await settle((d) => pathOf(d) === `${parent}/uploads/a.txt`);
+
+        const mine = deliveredUnder(parent).filter(
+            (d) => d.subId === sub.subId,
+        );
+        expect(mine.map((d) => pathOf(d))).toEqual(
+            expect.arrayContaining([
+                `${parent}/uploads`,
+                `${parent}/uploads/a.txt`,
+            ]),
+        );
+    });
+});

@@ -309,7 +309,8 @@ Counted per event, per region:
 
 | Call                                              | Limit    | Scope              |
 | ------------------------------------------------- | -------- | ------------------ |
-| `subscribe` / `unsubscribe`                       | 60/min   | Per user, all apps |
+| `subscribe`                                       | 60/min   | Per user, all apps |
+| `unsubscribe`                                     | 600/min  | Per user, all apps |
 | Acknowledgements                                  | 600/min  | Per user, all apps |
 | Share-handle mint / revoke                        | 60/min   | Per user, all apps |
 | Handler publish / remove                          | 60/min   | Per user, all apps |
@@ -319,6 +320,8 @@ Counted per event, per region:
 | `fetch()`                                         | 120/min  | Per user, per app  |
 
 Over any of these: `too_many_requests`. Listing pages hold up to 200 items. A `fetch()` page defaults to 50 events and holds up to 200.
+
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
 
 #### Delivery
 
@@ -349,8 +352,19 @@ Over any of these: `too_many_requests`. Listing pages hold up to 200 items. A `f
 | Run timeout                            | 30 seconds                     | Per run            |
 | Retry delay                            | 2 seconds, doubling, up to 5 minutes | Per delivery |
 | Failures in a row before suspension    | 5                              | Per subscription   |
+| `user` token lifetime in the events worker | 15 minutes                 | Per run            |
 
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
+
+#### Handler chains
+
+| Limit                         | Scope                          | Paid | Free |
+| ----------------------------- | ------------------------------ | ---- | ---- |
+| Handler runs in one chain     | Per account holding the subscription | 12 | 4 |
+
+- A write made through a handler's `user` in the events worker is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain.
+- When an event reaches the limit, no handler runs for it. The delivery is dropped without a gap marker and doesn't count as a handler failure. Connected clients still receive it.
+- If the holder's plan can't be looked up, the free number applies. A server with no metering uses the paid number.
 
 #### Suspended subscriptions
 

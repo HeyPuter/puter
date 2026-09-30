@@ -23,10 +23,10 @@ const getDriverCall = (puter, args) =>
  * @overload
  * @param {string} key
  * @param {KVOptConfig} [optConfig]
- * @returns {Promise<T | undefined>}
+ * @returns {Promise<T | null>}
  */
 /**
- * Returns the key's value, or `undefined` if the key does not exist.
+ * Returns the key's value, or `null` if the key does not exist or has expired.
  *
  * Also accepts the object form `get({ key, optConfig })` and legacy trailing
  * success/error callbacks.
@@ -46,9 +46,11 @@ export async function get (keyOrObject, ...rest) {
     const key = keyOrObject;
     const { optConfig, success, error } = parseOptConfigThenCallbacks(rest);
 
-    // The GUI's boot-time reads are served from one batched request.
+    // The GUI's boot-time reads are served from one batched request; a batch
+    // that failed or came back malformed falls through to the call below.
     if ( !optConfig && this.guiCache.serves(key) ) {
-        return await this.guiCache.lookup(/** @type {string} */ (key));
+        const cached = await this.guiCache.lookup(/** @type {string} */ (key));
+        if ( cached.hit ) return cached.value;
     }
 
     return await getDriverCall(puter, { key, optConfig, success, error });

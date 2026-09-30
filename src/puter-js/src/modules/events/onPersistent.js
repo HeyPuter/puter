@@ -1,6 +1,7 @@
 import { PuterJSError } from '../../lib/PuterJSError.js';
 import { request } from './lib/api.js';
 import { prepareHandler, serializeContext } from './lib/handlerSource.js';
+import { needsSignIn, signInVisitor } from './lib/signIn.js';
 import { assertSubject } from './lib/validate.js';
 
 /** @typedef {import('./types.js').OnPersistentOptions} OnPersistentOptions */
@@ -21,6 +22,9 @@ import { assertSubject } from './lib/validate.js';
  * `context` is evaluated **here, now** — serialized once and delivered to every
  * invocation as a frozen `ctx`. It never re-evaluates, so a value read from the
  * environment is the value that subscription carries forever.
+ *
+ * On a website with nobody signed in, opens the sign-in first; rejects
+ * `auth_canceled` if the visitor closes it.
  *
  * @this {import('./index.js').EventsModule}
  * @param {OnPersistentOptions} options
@@ -69,6 +73,8 @@ export async function onPersistent (options = {}) {
     // request carries the value, which the server stores the same way.
     if ( serializeContext(options.context) !== undefined )
         body.context = options.context;
+
+    if ( needsSignIn(puter) ) await signInVisitor(puter);
 
     const sub = /** @type {PersistentSubscription} */ (
         await request(puter, '/events/subscribe', body)

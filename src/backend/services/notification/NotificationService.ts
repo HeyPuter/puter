@@ -18,6 +18,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { handlerDepthOf, type Actor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
 import type { NotifEventContext } from '../events/registry.js';
 import { PuterService } from '../types.js';
 import {
@@ -312,6 +314,9 @@ export class NotificationService extends PuterService {
             return;
         }
 
+        const handlerDepth = handlerDepthOf(
+            Context.get('actor') as Actor | undefined,
+        );
         this.clients.event.emit(
             'notif.created',
             {
@@ -323,6 +328,7 @@ export class NotificationService extends PuterService {
                 appUid: scope.appUid,
                 value: payload,
                 createdAt: Date.now(),
+                ...(handlerDepth > 0 ? { handlerDepth } : {}),
             },
             {},
         );

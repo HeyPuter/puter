@@ -140,6 +140,8 @@ export interface EventContextBase {
     key: EventKey;
     id: string;
     ts: number;
+    /** Handler runs behind the change. Never projected. */
+    handlerDepth?: number;
 }
 
 /** What dispatch knows about one committed filesystem change. */

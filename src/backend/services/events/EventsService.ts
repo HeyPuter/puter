@@ -28,6 +28,7 @@ import {
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
     EVENTS_FETCH_LIMIT_CAP,
     EVENTS_FETCH_LIMIT_DEFAULT,
+    EVENTS_HANDLER_DEPTH,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
     EVENTS_KV_HANDLE_LIMIT,
@@ -40,6 +41,7 @@ import {
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
+    EVENTS_UNSUBSCRIBE_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
     EVENTS_WORKER_SOURCE_MAX_BYTES,
     limitFor,
@@ -225,6 +227,7 @@ import type {
     WorkerMissHandler,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
+    EVENTS_HANDLER_TOKEN_TTL_SECONDS,
     EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
     eventsWorkerScope,
@@ -562,6 +565,8 @@ export interface FsDispatchOptions {
     ancestors?: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
     /** Who performed the write, for the `self` flag. */
     actingUserId?: number;
+    /** Handler runs behind the write; see `Actor.handlerDepth`. */
+    handlerDepth?: number;
     /** Present only for a move: where the entry lived before it, lazily. */
     movedFrom?: {
         path: string;
@@ -601,6 +606,8 @@ export interface NotifDispatchInput {
     appUid: string | null;
     value: Record<string, unknown>;
     createdAt: number;
+    /** Handler runs behind whatever created it; see `Actor.handlerDepth`. */
+    handlerDepth?: number;
 }
 
 /** One committed KV mutation, as the bus reports it. */
@@ -615,6 +622,8 @@ export interface KvDispatchInput {
     values?: readonly unknown[];
     /** Keys among `keys` private to the namespace's app. */
     noShareKeys?: readonly string[];
+    /** Handler runs behind the write; see `Actor.handlerDepth`. */
+    handlerDepth?: number;
 }
 
 interface RouteLimits {
@@ -1195,6 +1204,12 @@ const KV_ROUTE_LIMITS_NEVER_BIND = Math.min(
     ...Object.values(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription),
 );
 
+/** Handler depths below this run on every plan, so no plan is looked up. */
+const HANDLER_DEPTH_NEVER_BINDS = Math.min(
+    EVENTS_HANDLER_DEPTH.limit,
+    ...Object.values(EVENTS_HANDLER_DEPTH.bySubscription),
+);
+
 const parseDelivery = (value: unknown): DeliveryClass => {
     if (value === undefined || value === null || value === 'broadcast')
         return 'broadcast';
@@ -1685,21 +1700,23 @@ export class EventsService extends PuterService {
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
 
-        await this.#spendCallBudget(holderUserId);
+        await this.#spendUnsubscribeBudget(holderUserId);
 
         const subId = String(request?.subId ?? '');
-        if (!subId) throw unknownSubscription();
-
-        const sub = await this.stores.eventSubscription.getForSocket(
-            holderUserId,
-            socketId,
-            subId,
-        );
+        const sub = subId
+            ? await this.stores.eventSubscription.getForSocket(
+                  holderUserId,
+                  socketId,
+                  subId,
+              )
+            : null;
         // An id this socket never held — or one another app created — reads as
         // absent rather than refused: a 403 here is an oracle for subIds.
         if (!sub || !rowInActorScope(actor, sub)) throw unknownSubscription();
 
         const bump = await this.stores.eventSubscription.remove(sub);
+        // A concurrent duplicate of this same call already removed it.
+        if (!bump) throw unknownSubscription();
         this.#forget(subId);
         this.#publishGeneration(bump, false);
     }
@@ -1974,12 +1991,12 @@ export class EventsService extends PuterService {
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
 
-        await this.#spendCallBudget(holderUserId);
+        await this.#spendUnsubscribeBudget(holderUserId);
 
         const subId = String(request?.subId ?? '');
-        if (!subId) throw unknownSubscription();
-
-        const row = await this.stores.durableSubscription.getBySubId(subId);
+        const row = subId
+            ? await this.stores.durableSubscription.getBySubId(subId)
+            : null;
         // Someone else's id — or one another app created — reads as absent
         // rather than refused: a 403 here is an oracle for subIds.
         if (
@@ -1990,6 +2007,8 @@ export class EventsService extends PuterService {
             throw unknownSubscription();
 
         const bump = await this.stores.durableSubscription.remove(row);
+        // A concurrent duplicate of this same call already removed it.
+        if (!bump) throw unknownSubscription();
         // Whatever it was still owed goes with it: a backlog held for a
         // subscription nobody can consume is memory, and the paths it names are
         // ones its holder just gave up asking about.
@@ -3562,6 +3581,7 @@ export class EventsService extends PuterService {
             movedFrom,
             id: options.id ?? randomUUID(),
             ts: options.ts ?? Date.now(),
+            handlerDepth: options.handlerDepth,
         };
 
         const { local, remote } =
@@ -3660,6 +3680,7 @@ export class EventsService extends PuterService {
             // emitter's own id so both copies match.
             id: options.forwarded && options.id ? options.id : randomUUID(),
             ts,
+            handlerDepth: input.handlerDepth,
             ...(noShareKeys.has(kvKey) ? { noShare: true as const } : {}),
         }));
         const carried: Array<{ value: unknown } | undefined> = [];
@@ -3763,7 +3784,7 @@ export class EventsService extends PuterService {
         const plan =
             candidates <= KV_ROUTE_LIMITS_NEVER_BIND
                 ? DEFAULT_FREE_SUBSCRIPTION
-                : await this.#kvOwnerPlan(ownerUserId, ownerUserUuid);
+                : await this.#planOrFree(ownerUserId, ownerUserUuid);
         return {
             matchedSubscriptions: limitFor(
                 EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
@@ -3777,21 +3798,25 @@ export class EventsService extends PuterService {
         };
     }
 
-    /** The key owner's plan; the free one when it can't be resolved. */
-    async #kvOwnerPlan(
-        ownerUserId: number,
-        ownerUserUuid: string,
+    /**
+     * A user's plan by row id; the free one when it can't be resolved, or when
+     * `expectedUuid` is given and the row is no longer that user.
+     */
+    async #planOrFree(
+        userId: number,
+        expectedUuid?: string,
     ): Promise<string | null> {
         if (!this.services.metering) return null;
         try {
-            const owner = await this.stores.user.getById(ownerUserId);
-            if (owner?.uuid !== ownerUserUuid) return DEFAULT_FREE_SUBSCRIPTION;
+            const user = await this.stores.user.getById(userId);
+            if (!user || (expectedUuid && user.uuid !== expectedUuid))
+                return DEFAULT_FREE_SUBSCRIPTION;
             return (
-                (await this.#planId(makeActor({ user: owner }))) ??
+                (await this.#planId(makeActor({ user }))) ??
                 DEFAULT_FREE_SUBSCRIPTION
             );
         } catch (err) {
-            console.warn("[events] could not resolve a key owner's plan", err);
+            console.warn('[events] could not resolve a plan', err);
             return DEFAULT_FREE_SUBSCRIPTION;
         }
     }
@@ -3910,6 +3935,7 @@ export class EventsService extends PuterService {
             notification: input.value ?? {},
             id: input.uid,
             ts: input.createdAt || Date.now(),
+            handlerDepth: input.handlerDepth,
         };
 
         // The adapter is not a subscription: the desktop is delivered to
@@ -4040,7 +4066,7 @@ export class EventsService extends PuterService {
             // coalesced or broadcast — collapsing two of them would drop one
             // the subscription was promised.
             if (isSingle(row)) {
-                await this.#oweSingle(row, event);
+                await this.#oweSingle(row, event, context.handlerDepth ?? 0);
                 continue;
             }
 
@@ -4052,7 +4078,11 @@ export class EventsService extends PuterService {
                 // A session row is addressed at one connection, which is the
                 // one that made it and is therefore here.
                 remote: row.socketId === undefined,
-                worker: this.#workerInvocation(row, event)!,
+                worker: this.#workerInvocation(
+                    row,
+                    event,
+                    context.handlerDepth ?? 0,
+                )!,
                 meter: meterFor(row),
                 // `broadcast` is one send per delivery — no retry to dedup.
                 bill: true,
@@ -4371,7 +4401,11 @@ export class EventsService extends PuterService {
     ): CompiledMatch {
         const cached = this.#compiled.get(row.subId);
         if (cached && cached.pattern === row.match) return cached;
-        const compiled = compileMatch(row.match as string, { separator });
+        const compiled = compileMatch(row.match as string, {
+            separator,
+            // A wildcard-free FS filter is a path that didn't exist yet.
+            literalCoversSubtree: isFsToken(row.token),
+        });
         this.#compiled.set(row.subId, compiled);
         return compiled;
     }
@@ -4396,7 +4430,7 @@ export class EventsService extends PuterService {
             // one window still surfaces one marker per subscription. It is
             // never billed: charging for a loss would bill the holder for it.
             if (isSingle(row)) {
-                void this.#owe(row, marker);
+                void this.#owe(row, marker, context.handlerDepth ?? 0);
                 continue;
             }
             // A marker rides the socket; a row with none has nowhere to hear
@@ -4702,7 +4736,8 @@ export class EventsService extends PuterService {
                 await this.#endSubscription(current, 'anchor_deleted');
                 return;
             }
-            await this.#reanchor(current, next);
+            // A concurrent unsubscribe already took the row.
+            if (!(await this.#reanchor(current, next))) return;
             if (await resolveNode(this.stores.fsEntry, { uid: next.anchorUid }))
                 return;
             current = {
@@ -4804,10 +4839,14 @@ export class EventsService extends PuterService {
         return null;
     }
 
+    /**
+     * Whether it actually moved — `false` when a concurrent unsubscribe won
+     * first.
+     */
     async #reanchor(
         row: DispatchSubscription,
         next: ReanchorInput,
-    ): Promise<void> {
+    ): Promise<boolean> {
         const bumps =
             row.durable === true
                 ? (
@@ -4826,6 +4865,7 @@ export class EventsService extends PuterService {
         this.#deliveryAuth.forget(row.subId);
         for (const bump of bumps)
             this.#publishGeneration(bump, row.durable === true);
+        return bumps.length > 0;
     }
 
     /**
@@ -4845,12 +4885,14 @@ export class EventsService extends PuterService {
             const bump = await this.stores.eventSubscription.remove(
                 row as SessionSubscription,
             );
-            this.#publishGeneration(bump, false);
+            // A concurrent unsubscribe (or another settle pass) already took it.
+            if (bump) this.#publishGeneration(bump, false);
             return;
         }
 
         const durable = row as DurableSubscription;
         const bump = await this.stores.durableSubscription.remove(durable);
+        if (!bump) return;
         // Nothing can drain a stream whose row is gone, so what is still owed
         // goes with it — the same trade an explicit unsubscribe makes.
         await this.stores.pendingDelivery.purge(durable.subId).catch(() => {});
@@ -4913,13 +4955,18 @@ export class EventsService extends PuterService {
     async #oweSingle(
         row: DispatchSubscription,
         event: DeliverableEvent,
+        handlerDepth: number,
     ): Promise<void> {
         const allowed = await checkRateLimit(
             `${EVENTS_SINGLE_DELIVERY_LIMIT.scope}:${row.subId}`,
             EVENTS_SINGLE_DELIVERY_LIMIT.limit,
             EVENTS_SINGLE_DELIVERY_LIMIT.window,
         );
-        await this.#owe(row, allowed ? event : rateLimitGap(event));
+        await this.#owe(
+            row,
+            allowed ? event : rateLimitGap(event),
+            handlerDepth,
+        );
     }
 
     /**
@@ -4930,11 +4977,13 @@ export class EventsService extends PuterService {
     async #owe(
         row: DispatchSubscription,
         event: DeliverableEvent,
+        handlerDepth: number,
     ): Promise<void> {
         try {
             const { shed } = await this.stores.pendingDelivery.enqueue(
                 row.subId,
                 event,
+                handlerDepth,
             );
             this.#reportShed(shed);
             await this.#drain(row, { justAuthorized: true });
@@ -5118,7 +5167,11 @@ export class EventsService extends PuterService {
             return false;
         }
 
-        const invocation = this.#workerInvocation(row, claimed.event);
+        const invocation = this.#workerInvocation(
+            row,
+            claimed.event,
+            claimed.handlerDepth,
+        );
         if (!invocation) return false;
 
         // Over the invocation budget nothing ran, so nothing was delivered and
@@ -5130,6 +5183,16 @@ export class EventsService extends PuterService {
             result: outcome ?? 'over-budget',
         });
         if (outcome === null) return false;
+
+        // Never runnable, so dropped outright: not a handler failure, and no
+        // gap marker, which would be handed to the handler at this same depth.
+        if (outcome === 'too-deep') {
+            await this.stores.pendingDelivery.settle(
+                row.subId,
+                claimed.entryId,
+            );
+            return true;
+        }
 
         // Only a settled outcome is a delivery: billing and reporting it
         // ahead of that would charge for an attempt that failed, is still
@@ -5214,6 +5277,7 @@ export class EventsService extends PuterService {
     #workerInvocation(
         row: DispatchSubscription,
         event: DeliverableEvent,
+        handlerDepth: number,
     ): WorkerInvocation | null {
         if (row.durable !== true) return null;
         if (!targetsOf(row).includes('worker')) return null;
@@ -5224,6 +5288,7 @@ export class EventsService extends PuterService {
             handlerName: row.handlerName ?? null,
             event,
             context: row.context ?? null,
+            handlerDepth,
         };
     }
 
@@ -5240,7 +5305,8 @@ export class EventsService extends PuterService {
      * The session behind the token is one row per (user, app), reused across
      * every delivery — the same idempotent worker session `puter.workers.*`
      * uses — so it appears once in the user's sessions list and is revocable
-     * there like any other.
+     * there like any other. The token itself is short-lived and carries the
+     * handler depth its writes are stamped with.
      *
      * Null when the identity cannot be rebuilt (the holder or the app is gone)
      * or the consent is no longer there, which is not a handler failure: there
@@ -5273,6 +5339,10 @@ export class EventsService extends PuterService {
                 actor,
                 appUid,
                 EVENTS_WORKER_SESSION_NAME,
+                {
+                    handlerDepth: invocation.handlerDepth + 1,
+                    expiresInSeconds: EVENTS_HANDLER_TOKEN_TTL_SECONDS,
+                },
             );
         } catch (err) {
             console.warn(
@@ -5605,10 +5675,13 @@ export class EventsService extends PuterService {
      * Run a handler, unless this (account, app) has spent its invocations for
      * the minute. `null` says nothing ran: a `single` stays owed and its lease
      * paces the next attempt, and a `broadcast` copy is simply not made.
+     * `too-deep` says nothing ever will: the event is as many handler runs deep
+     * as the holder's plan lets a chain go.
      */
     async #invokeHandler(
         invocation: WorkerInvocation,
-    ): Promise<WorkerInvocationOutcome | null> {
+    ): Promise<WorkerInvocationOutcome | 'too-deep' | null> {
+        if (await this.#tooDeep(invocation)) return 'too-deep';
         const allowed = await checkRateLimit(
             `${EVENTS_WORKER_INVOCATION_LIMIT.scope}:${invocation.holderUserId}:${invocation.appUid ?? ''}`,
             EVENTS_WORKER_INVOCATION_LIMIT.limit,
@@ -5616,6 +5689,12 @@ export class EventsService extends PuterService {
         );
         if (!allowed) return null;
         return this.worker.invoke(invocation);
+    }
+
+    async #tooDeep(invocation: WorkerInvocation): Promise<boolean> {
+        if (invocation.handlerDepth < HANDLER_DEPTH_NEVER_BINDS) return false;
+        const plan = await this.#planOrFree(invocation.holderUserId);
+        return invocation.handlerDepth >= limitFor(EVENTS_HANDLER_DEPTH, plan);
     }
 
     /**
@@ -5810,6 +5889,15 @@ export class EventsService extends PuterService {
             `${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
             EVENTS_SUBSCRIBE_LIMIT.limit,
             EVENTS_SUBSCRIBE_LIMIT.window,
+        );
+        if (!ok) throw tooManyCalls();
+    }
+
+    async #spendUnsubscribeBudget(userId: number): Promise<void> {
+        const ok = await checkRateLimit(
+            `${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
+            EVENTS_UNSUBSCRIBE_LIMIT.limit,
+            EVENTS_UNSUBSCRIBE_LIMIT.window,
         );
         if (!ok) throw tooManyCalls();
     }

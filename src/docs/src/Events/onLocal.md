@@ -10,6 +10,8 @@ Subscribes to a subject and calls `handler` each time something matching it chan
 
 Not for Puter workers: a subscription there only lasts for one invocation. To react to changes from a worker, use [`onPersistent()`](/Events/onPersistent/) with a published handler.
 
+On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 ## Syntax
 ```js
 puter.events.onLocal(subject, handler)
@@ -22,11 +24,11 @@ puter.events.onLocal(subject, handler, options)
 What to watch: `fs:<path or uid>[:<op>]`, `kv:<key>`, or `notif:<audience>`. See [Subjects](#subjects).
 
 #### `handler` (Function) (required)
-Called with `{ event }` for each delivery; see [The event](#the-event). `event.op === 'gap'` means events were dropped by a limit: re-read what you're watching (see [Gaps](#gaps)). A handler that throws is logged to the console; the subscription continues.
+Called with `{ event }` for each delivery; see [The event](#the-event). `event.op === 'gap'` means events were dropped by a limit or missed while the connection was down: re-read what you're watching (see [Gaps](#gaps)). A handler that throws is logged to the console; the subscription continues.
 
 #### `options` (Object) (optional)
 
-- `onError` (Function): Called with `{ message, code }` if the subscription can't be restored after a disconnect: re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A single disconnect is reconnected without calling it. After `onError`, the subscription is over; call `onLocal()` again to resume. Without it, the error is logged to the console.
+- `onError` (Function): Called with `{ message, code }` if the subscription can't be restored after a disconnect: re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A single disconnect is reconnected without calling it; the handler gets a `reconnect` gap instead. After `onError`, the subscription is over; call `onLocal()` again to resume. Without it, the error is logged to the console.
 - `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
 - `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). See [Getting the new value](#getting-the-new-value) for when it's left out. Refused on other subjects.
 
@@ -37,7 +39,7 @@ A `Promise` that resolves, once the server confirms the subscription, to:
 - `subId` (String | null): The server's id for the subscription. It changes on every reconnect, so don't store anything against it.
 - `subject` (String): The subject, in full form. `kv:cart` comes back as `kv:<appId>:cart`.
 - `anchor` (Object): The node the subscription is attached to, as `{ uid, path }`: the subject itself, or its nearest existing parent if the subject doesn't exist yet. For `kv:`, `uid` is the app whose store is watched and `path` is the key prefix. Through a share handle, `uid` is the handle and `path` is empty. `path` is the one from when you subscribed; a later rename doesn't update it.
-- `match` (String | null): The pattern matched under the anchor, if the subject had one.
+- `match` (String | null): The pattern matched under the anchor, if the subject had one. For a path that didn't exist yet, it's the rest of that path, and it covers that path and everything under it.
 - `op` (String | null): The one operation this subscription is limited to, or `null` for all.
 - `includeValue` (Boolean): Whether `kv:` deliveries carry the new value.
 - `off` (Function): Ends the subscription; see [`subscription.off()`](/Events/off/).
@@ -48,6 +50,7 @@ The promise rejects with `{ message, code }`:
 | --- | --- |
 | `invalid_subject` | The subject is empty, not a string, or can't be parsed. |
 | `invalid_handler` | `handler` isn't a function. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `invalid_subject_op` | The `:op` suffix isn't one of the five operations. |
 | `invalid_subject_pattern` | The pattern is over its limits: 256 characters, 16 segments, one `*` per segment, one `**` in total. |
 | `invalid_kv_pattern` | A `kv:` subject has a `*` before the end, or a `?`. |
@@ -57,7 +60,7 @@ The promise rejects with `{ message, code }`:
 | `forbidden` | The other app doesn't share its data, or your app hasn't been granted `app-data:<appId>:kv:read`. |
 | `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
 | `events_subscription_limit` | This connection already has 50 subscriptions. |
-| `too_many_requests` | Over the subscribe/unsubscribe rate limit. |
+| `too_many_requests` | Over the subscribe rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `reauth_required` | The session behind this connection is no longer valid. |
 | `events_connection_failed` | The connection couldn't be opened, the server didn't answer in time, or it kept closing the connection. |
@@ -92,7 +95,7 @@ await puter.events.onLocal('fs:~/Projects/**/build.log', handler);      // acros
 
 #### Watching a path before it exists
 
-A subject can name a path that isn't there. The subscription anchors on the nearest existing directory and matches the rest as a pattern, so you get the event when the path appears:
+A subject can name a path that isn't there. The subscription anchors on the nearest existing directory and matches the rest of the path, so it behaves as if the path already existed: you get the event when it appears and, for a folder, every change inside it afterwards. A pattern still matches only the paths it names.
 
 ```js
 // Nothing at this path yet. The handler runs when it's created.
@@ -101,7 +104,7 @@ await puter.events.onLocal('fs:~/Documents/inbox/trigger.json:add', ({ event }) 
 });
 ```
 
-If the anchor is deleted, a subscription made with a uid ends. One made with a path or pattern moves up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
+If the node a subscription is attached to is deleted, a subscription made with a uid, or with a path that existed when you subscribed, ends on the server. The SDK isn't told right away: the handle stays open but receives nothing until the next reconnect, when it subscribes again. A uid subscription then fails with `subject_does_not_exist` and lapses through `onError`. A path subscription subscribes by the same path, and if nothing is there yet, it anchors on the nearest existing folder like any path that doesn't exist yet. One made with a pattern, or with a path that didn't exist yet, moves up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
 
 ### Notifications
 
@@ -243,7 +246,7 @@ Writes to the same subject within 250 ms arrive as one event carrying the latest
 
 ### Gaps
 
-Limits never make a subscription fail. Instead they send a **gap marker** in place of what was dropped: an event with `op: 'gap'`, a `reason`, and no `uid` or `path`. Treat it as "re-read what I'm watching", never as "nothing changed".
+Limits never make a subscription fail. Instead they send a **gap marker** in place of what was dropped: an event with `op: 'gap'`, a `reason`, and no `uid` or `path`. Treat it as "re-read what I'm watching", never as "nothing changed". A reconnect sends one too.
 
 | `reason` | Cause |
 | --- | --- |
@@ -253,6 +256,7 @@ Limits never make a subscription fail. Instead they send a **gap marker** in pla
 | `backlog_overflow` | A persistent subscription's undelivered backlog was full, so the oldest deliveries were dropped. |
 | `handler_rejected` | A persistent subscription's handler refused the delivery (a `4xx`, or a thrown terminal error). |
 | `suspended_backlog_expired` | A persistent subscription stayed [suspended](/Events/onPersistent/#suspended-subscriptions) past the time its backlog is kept. |
+| `reconnect` | The connection dropped and came back. Changes made while it was down weren't delivered. Sent once, after the subscription is restored. |
 
 ```js
 await puter.events.onLocal('fs:~/Documents', async ({ event }) => {
@@ -268,6 +272,8 @@ See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for the numbers be
 All of a client's session subscriptions share one connection, opened by the first `onLocal()` and closed when the last one ends.
 
 If the connection drops (a network blip, a sign-in, an API origin change, or the server closing it), the SDK reconnects and subscribes again. The handler and subscription object stay the same; only `subId` changes, so don't store anything against it. `onError` is called only if the subscription can't be restored: re-subscribing fails, the reconnect is refused (`reauth_required` after a sign-out), or the server keeps closing the connection (`events_connection_failed`).
+
+Changes made while it was down aren't sent afterwards. Once the subscription is back, the handler gets one [gap marker](#gaps) with `reason: 'reconnect'`, so a handler that re-reads on gaps catches up by itself. For `notif:` subjects, [`fetch()`](/Events/fetch/) reads exactly what was missed.
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', handler, {
