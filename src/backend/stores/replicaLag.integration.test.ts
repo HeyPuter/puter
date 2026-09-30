@@ -25,8 +25,8 @@
  * unit tests inject them, since sqlite has neither a replica nor FK
  * enforcement.
  *
- * Needs both containers, so it is opt-in and skipped in CI — setup and usage in
- * doc/testing-replica-lag.md.
+ * Needs both containers, so it is opt-in behind `PUTER_TEST_REPLICA_LAG` and
+ * skipped everywhere it is unset, CI included.
  */
 
 import { execFileSync } from 'node:child_process';
