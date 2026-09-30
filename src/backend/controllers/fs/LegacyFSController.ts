@@ -44,7 +44,12 @@ import {
     verifySignature,
 } from '../../util/fileSigning.js';
 import { APP_ICON_SIZES, getAppIconCdnUrl } from '../../util/appIcon.js';
-import { expandTildePath } from '../../services/fs/resolveNode.js';
+import {
+    expandTildePath,
+    joinChildPath,
+    normalizeAbsolutePath,
+    splitParentAndName,
+} from '../../services/fs/resolveNode.js';
 import { maskEntryPath } from '../../services/fs/sharePathMask.js';
 import {
     buildHostedBackingDenial,
@@ -97,9 +102,44 @@ const additionalRoutePaths: Record<string, string> = {};
 // they sent. Streaming uploads go through `/writeFile`; this path is for
 // pre-v2 clients only.
 const BATCH_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MiB per file
+const BATCH_MAX_TOTAL_SIZE = 256 * 1024 * 1024; // 256 MiB buffered per request
 const BATCH_MAX_FILES = 64;
 const BATCH_MAX_PARTS = 256;
 const BATCH_MAX_FIELD_SIZE = 1 * 1024 * 1024; // 1 MiB per operation/fileinfo JSON
+// Multipart carries at most one op per part, so JSON mode gets the same bound.
+const BATCH_MAX_OPS = BATCH_MAX_PARTS;
+const BATCH_MUTATING_OPS = new Set(['mkdir', 'shortcut', 'move', 'delete']);
+
+// An op's `as` names the path it produced; later ops in the same batch refer
+// to it as `$name` or `$name/rest`, since a deduped mkdir can land elsewhere.
+function resolveBatchRef(raw: string, refs: Map<string, string>): string {
+    if (!raw.startsWith('$')) return raw;
+    const slashIdx = raw.indexOf('/');
+    const name = slashIdx === -1 ? raw.slice(1) : raw.slice(1, slashIdx);
+    const rest = slashIdx === -1 ? '' : raw.slice(slashIdx);
+    if (!name) {
+        throw new HttpError(400, 'Invalid batch reference', {
+            legacyCode: 'bad_request',
+        });
+    }
+    const base = refs.get(name);
+    if (base === undefined) {
+        throw new HttpError(400, `Unknown batch reference: $${name}`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    // Rejects non-normalized results, so `$ref/../x` can't escape.
+    return normalizeAbsolutePath(base + rest);
+}
+
+const malformedMultipart = (err: unknown): HttpError =>
+    err instanceof HttpError
+        ? err
+        : new HttpError(
+              400,
+              `Malformed multipart body${err instanceof Error ? `: ${err.message}` : ''}`,
+              { legacyCode: 'bad_request' },
+          );
 
 async function loadAdditionalRouter(
     key: string,
@@ -2206,12 +2246,23 @@ export class LegacyFSController extends PuterController {
         const results: unknown[] = [];
         let hasError = false;
         let sequentialFileIdx = 0;
+        const pathRefs = new Map<string, string>();
 
         for (const spec of operationSpecs) {
             try {
                 const record = asRecord(spec);
                 const op = typeof record.op === 'string' ? record.op : '';
                 let shaped: unknown;
+
+                // Non-write ops draw the same budget as the standalone routes.
+                if (
+                    BATCH_MUTATING_OPS.has(op) &&
+                    !(await consumeRouteRateLimit(req, FS_MUTATE_LIMIT))
+                ) {
+                    throw new HttpError(429, 'Too many requests.', {
+                        legacyCode: 'too_many_requests',
+                    });
+                }
 
                 if (op === 'write') {
                     // Pair with a file part — prefer `item_upload_id`
@@ -2246,15 +2297,21 @@ export class LegacyFSController extends PuterController {
                             legacyCode: 'bad_request',
                         });
                     }
-                    const parentPath = getString(record, 'path') ?? '';
+                    const parentPath = resolveBatchRef(
+                        getString(record, 'path') ?? '',
+                        pathRefs,
+                    );
                     const expandedParent = expandTildePath(
                         parentPath,
                         username,
                     );
-                    const targetPath =
-                        expandedParent && expandedParent !== '/'
-                            ? `${expandedParent.replace(/\/+$/, '')}/${name}`
-                            : `/${name}`;
+                    // joinChildPath rejects a `name` carrying a slash or a
+                    // `.`/`..` segment, so it can't reach outside the parent
+                    // the ACL check below actually authorized.
+                    const targetPath = joinChildPath(
+                        expandedParent || '/',
+                        name,
+                    );
                     // Mirrors the per-op /write|/mkdir routes: assert write
                     // on the parent dir, but when the parent resolves to `/`
                     // fall back to the target path so the ACL check rides
@@ -2305,25 +2362,12 @@ export class LegacyFSController extends PuterController {
                         response.fsEntry,
                     );
                 } else if (op === 'mkdir') {
-                    const parentPath = getString(record, 'path') ?? '';
-                    const name = getString(record, 'name');
-                    if (!name) {
-                        throw new HttpError(400, 'mkdir op missing `name`', {
-                            legacyCode: 'bad_request',
-                        });
-                    }
-                    const expandedParent = expandTildePath(
-                        parentPath,
-                        username,
-                    );
-                    const targetPath =
-                        expandedParent && expandedParent !== '/'
-                            ? `${expandedParent.replace(/\/+$/, '')}/${name}`
-                            : `/${name}`;
-                    const writeAclPath =
-                        expandedParent && expandedParent !== '/'
-                            ? expandedParent.replace(/\/+$/, '')
-                            : targetPath;
+                    const { targetPath, writeAclPath } =
+                        this.#resolveBatchMkdirTarget(
+                            record,
+                            username,
+                            pathRefs,
+                        );
                     await assertAccess(
                         this.services.acl,
                         this.services.fs,
@@ -2341,12 +2385,13 @@ export class LegacyFSController extends PuterController {
                                 'create_missing_parents',
                             ) ?? false,
                     });
+                    this.#registerBatchRef(record, pathRefs, entry.path);
                     await this.#emitGuiEvent('outer.gui.item.added', entry);
                     shaped = await toLegacyEntry(this.clients.event, entry);
                 } else if (op === 'shortcut') {
                     const parentPath = getString(record, 'path') ?? '';
                     const name = getString(record, 'name');
-                    const shortcutToUid =
+                    const shortcutToRaw =
                         getString(record, 'shortcut_to_uid') ??
                         getString(record, 'shortcut_to');
                     if (!name) {
@@ -2354,19 +2399,20 @@ export class LegacyFSController extends PuterController {
                             legacyCode: 'shortcut_target_not_found',
                         });
                     }
-                    if (!shortcutToUid) {
+                    if (!shortcutToRaw) {
                         throw new HttpError(
                             400,
                             'shortcut op missing `shortcut_to_uid`',
                             { legacyCode: 'shortcut_target_not_found' },
                         );
                     }
+                    // A path or a uid; the desktop sends a path.
                     const target = await resolveV1Selector(
                         this.stores.fsEntry,
-                        { uid: shortcutToUid },
+                        resolveBatchRef(shortcutToRaw, pathRefs),
                     );
                     const expandedParent = expandTildePath(
-                        parentPath,
+                        resolveBatchRef(parentPath, pathRefs),
                         username,
                     );
                     const parent = await resolveV1Selector(
@@ -2396,13 +2442,21 @@ export class LegacyFSController extends PuterController {
                     await this.#emitGuiEvent('outer.gui.item.added', link);
                     shaped = await toLegacyEntry(this.clients.event, link);
                 } else if (op === 'move') {
+                    const sourceRef =
+                        typeof record.source === 'string'
+                            ? resolveBatchRef(record.source, pathRefs)
+                            : record.source;
+                    const destinationRef =
+                        typeof record.destination === 'string'
+                            ? resolveBatchRef(record.destination, pathRefs)
+                            : record.destination;
                     const source = await resolveV1Selector(
                         this.stores.fsEntry,
-                        record.source,
+                        sourceRef,
                     );
                     const destinationParent = await resolveV1Selector(
                         this.stores.fsEntry,
-                        record.destination,
+                        destinationRef,
                     );
                     await assertAccess(
                         this.services.acl,
@@ -2425,14 +2479,20 @@ export class LegacyFSController extends PuterController {
                         overwrite: getBoolean(record, 'overwrite') ?? false,
                         dedupeName: getBoolean(record, 'dedupe_name') ?? false,
                     });
+                    this.#registerBatchRef(record, pathRefs, moved.path);
                     await this.#emitGuiEvent('outer.gui.item.moved', moved, {
                         old_path: source.path,
                     });
                     shaped = await toLegacyEntry(this.clients.event, moved);
                 } else if (op === 'delete') {
+                    const pathField = getString(record, 'path');
+                    const selectorRef =
+                        pathField !== undefined
+                            ? resolveBatchRef(pathField, pathRefs)
+                            : record;
                     const entry = await resolveV1Selector(
                         this.stores.fsEntry,
-                        getString(record, 'path') ?? record,
+                        selectorRef,
                     );
                     await assertAccess(
                         this.services.acl,
@@ -2481,64 +2541,100 @@ export class LegacyFSController extends PuterController {
             }> = [];
             const fileinfos: Array<Record<string, unknown>> = [];
             let parseError: Error | null = null;
-            const bb = Busboy({
-                headers: req.headers,
-                limits: {
-                    fileSize: BATCH_MAX_FILE_SIZE,
-                    files: BATCH_MAX_FILES,
-                    parts: BATCH_MAX_PARTS,
-                    fieldSize: BATCH_MAX_FIELD_SIZE,
-                },
-            });
+            let totalBufferedBytes = 0;
+            // First error wins. Buffered files are dropped right away rather
+            // than held while the rest of the body drains.
+            const fail = (err: Error) => {
+                if (parseError) return;
+                parseError = err;
+                files.length = 0;
+            };
+            const tooLarge = (message: string) =>
+                new HttpError(413, message, {
+                    legacyCode: 'too_large' as never,
+                });
+            const reserve = (bytes: number): boolean => {
+                totalBufferedBytes += bytes;
+                if (totalBufferedBytes <= BATCH_MAX_TOTAL_SIZE) return true;
+                fail(
+                    tooLarge(
+                        `Batch exceeds ${BATCH_MAX_TOTAL_SIZE} bytes in total`,
+                    ),
+                );
+                return false;
+            };
+            let bb: ReturnType<typeof Busboy>;
+            try {
+                bb = Busboy({
+                    headers: req.headers,
+                    limits: {
+                        fileSize: BATCH_MAX_FILE_SIZE,
+                        files: BATCH_MAX_FILES,
+                        parts: BATCH_MAX_PARTS,
+                        fieldSize: BATCH_MAX_FIELD_SIZE,
+                    },
+                });
+            } catch (err) {
+                // Missing boundary or unparseable content-type.
+                reject(malformedMultipart(err));
+                return;
+            }
 
-            // Busboy emits these `*Limit` events when a configured cap is
-            // hit. Capture the first one as a 413 so callers get a clean
-            // signal instead of a silently-truncated upload.
-            bb.on('filesLimit', () => {
-                if (!parseError) {
-                    parseError = new HttpError(
-                        413,
+            bb.on('filesLimit', () =>
+                fail(
+                    tooLarge(
                         `Too many files in batch (max ${BATCH_MAX_FILES})`,
-                        { legacyCode: 'too_large' as never },
-                    );
-                }
-            });
-            bb.on('partsLimit', () => {
-                if (!parseError) {
-                    parseError = new HttpError(
-                        413,
+                    ),
+                ),
+            );
+            bb.on('partsLimit', () =>
+                fail(
+                    tooLarge(
                         `Too many parts in batch (max ${BATCH_MAX_PARTS})`,
-                        { legacyCode: 'too_large' as never },
-                    );
-                }
-            });
-            bb.on('fieldsLimit', () => {
-                if (!parseError) {
-                    parseError = new HttpError(
-                        413,
-                        'Too many fields in batch',
-                        { legacyCode: 'too_large' as never },
-                    );
-                }
-            });
+                    ),
+                ),
+            );
+            bb.on('fieldsLimit', () =>
+                fail(tooLarge('Too many fields in batch')),
+            );
 
-            bb.on('field', (fieldName, value) => {
+            bb.on('field', (fieldName, value, info) => {
+                if (parseError) return;
+                if (info?.valueTruncated) {
+                    fail(
+                        tooLarge(
+                            `\`${fieldName}\` field exceeds ${BATCH_MAX_FIELD_SIZE} bytes`,
+                        ),
+                    );
+                    return;
+                }
+                if (!reserve(Buffer.byteLength(value))) return;
+                // Ignore operation_id / socket_id / misc fields — not
+                // needed for v2 batch semantics.
+                if (fieldName !== 'operation' && fieldName !== 'fileinfo') {
+                    return;
+                }
+                let parsed: unknown;
                 try {
-                    if (fieldName === 'operation') {
-                        ops.push(JSON.parse(value));
-                    } else if (fieldName === 'fileinfo') {
-                        const parsed = JSON.parse(value);
-                        fileinfos.push(
-                            parsed && typeof parsed === 'object'
-                                ? (parsed as Record<string, unknown>)
-                                : {},
-                        );
-                    }
-                    // Ignore operation_id / socket_id / misc fields — not
-                    // needed for v2 batch semantics.
-                } catch (err) {
-                    parseError =
-                        err instanceof Error ? err : new Error(String(err));
+                    parsed = JSON.parse(value);
+                } catch {
+                    fail(
+                        new HttpError(
+                            400,
+                            `\`${fieldName}\` field is not valid JSON`,
+                            { legacyCode: 'bad_request' },
+                        ),
+                    );
+                    return;
+                }
+                if (fieldName === 'operation') {
+                    ops.push(parsed);
+                } else {
+                    fileinfos.push(
+                        parsed && typeof parsed === 'object'
+                            ? (parsed as Record<string, unknown>)
+                            : {},
+                    );
                 }
             });
 
@@ -2547,24 +2643,26 @@ export class LegacyFSController extends PuterController {
             // For streaming uploads use the signed `/writeFile` endpoint.
             bb.on('file', (_fieldName, stream, info) => {
                 const chunks: Buffer[] = [];
-                let truncated = false;
-                stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-                // Busboy emits `limit` after writing the first byte past
-                // `fileSize`. The stream continues being drained so the
-                // multipart parser stays in sync, but we discard the (now
-                // truncated) buffer and mark the batch as failed.
-                stream.on('limit', () => {
-                    truncated = true;
-                    if (!parseError) {
-                        parseError = new HttpError(
-                            413,
-                            `File in batch exceeds ${BATCH_MAX_FILE_SIZE} bytes`,
-                            { legacyCode: 'too_large' as never },
-                        );
+                // After a failure the stream keeps draining so the multipart
+                // parser reaches `close`, but nothing more is held.
+                stream.on('data', (chunk: Buffer) => {
+                    if (parseError || !reserve(chunk.length)) {
+                        chunks.length = 0;
+                        return;
                     }
+                    chunks.push(chunk);
+                });
+                // Busboy emits `limit` after the first byte past `fileSize`.
+                stream.on('limit', () => {
+                    chunks.length = 0;
+                    fail(
+                        tooLarge(
+                            `File in batch exceeds ${BATCH_MAX_FILE_SIZE} bytes`,
+                        ),
+                    );
                 });
                 stream.on('end', () => {
-                    if (truncated) return;
+                    if (parseError) return;
                     files.push({
                         content: Buffer.concat(chunks),
                         mimeType:
@@ -2577,16 +2675,19 @@ export class LegacyFSController extends PuterController {
                                 : undefined,
                     });
                 });
-                stream.on('error', (err: Error) => {
-                    parseError = err;
-                });
+                stream.on('error', (err: Error) => fail(err));
             });
 
             bb.on('close', () => {
-                if (parseError) reject(parseError);
+                if (parseError) reject(malformedMultipart(parseError));
                 else resolve({ ops, files, fileinfos });
             });
-            bb.on('error', (err) => reject(err));
+            bb.on('error', (err) => reject(malformedMultipart(err)));
+            // A client that disconnects mid-body never lets busboy close.
+            req.on('error', (err) => reject(malformedMultipart(err)));
+            req.on('aborted', () =>
+                reject(malformedMultipart(new Error('Request aborted'))),
+            );
 
             req.pipe(bb);
         });
@@ -2594,9 +2695,94 @@ export class LegacyFSController extends PuterController {
 
     #parseJsonBatch(req: Request): unknown[] {
         const body = asRecord(req.body);
-        if (Array.isArray(body.operations)) return body.operations;
-        if (Array.isArray(body.ops)) return body.ops;
-        return [];
+        const ops = Array.isArray(body.operations)
+            ? body.operations
+            : Array.isArray(body.ops)
+              ? body.ops
+              : [];
+        if (ops.length > BATCH_MAX_OPS) {
+            throw new HttpError(
+                413,
+                `Too many operations in batch (max ${BATCH_MAX_OPS})`,
+                { legacyCode: 'too_large' as never },
+            );
+        }
+        return ops;
+    }
+
+    /**
+     * Batch `mkdir` shapes: `{ parent, path }` with `path` relative to
+     * `parent`, `{ path, name }` with `path` as the parent, or an absolute `{
+     * path }`.
+     */
+    #resolveBatchMkdirTarget(
+        record: Record<string, unknown>,
+        username: string | undefined,
+        pathRefs: Map<string, string>,
+    ): { targetPath: string; writeAclPath: string } {
+        // Write is checked on the immediate parent: a multi-segment relative
+        // path must not be authorized by a grant on the target itself. Under
+        // `/` there is no parent to check, so the target stands in.
+        const withAclPath = (targetPath: string) => {
+            const parentPath = pathPosix.dirname(targetPath);
+            return {
+                targetPath,
+                writeAclPath: parentPath === '/' ? targetPath : parentPath,
+            };
+        };
+
+        const name = getString(record, 'name');
+
+        if (typeof record.parent === 'string' && !name) {
+            const parentPath = expandTildePath(
+                resolveBatchRef(record.parent, pathRefs),
+                username,
+            );
+            const segments = (getString(record, 'path') ?? '')
+                .split('/')
+                .filter((s) => s.length > 0);
+            if (segments.length === 0) {
+                throw new HttpError(400, 'mkdir op missing `name`', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            let targetPath = parentPath || '/';
+            for (const segment of segments) {
+                targetPath = joinChildPath(targetPath, segment);
+            }
+            return withAclPath(targetPath);
+        }
+
+        if (name) {
+            const parentPath = expandTildePath(
+                resolveBatchRef(getString(record, 'path') ?? '', pathRefs),
+                username,
+            );
+            return withAclPath(joinChildPath(parentPath || '/', name));
+        }
+
+        const rawPath = getString(record, 'path');
+        if (!rawPath) {
+            throw new HttpError(400, 'mkdir op missing `name`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const { parentPath, name: derivedName } = splitParentAndName(
+            expandTildePath(resolveBatchRef(rawPath, pathRefs), username),
+        );
+        return withAclPath(joinChildPath(parentPath, derivedName));
+    }
+
+    /** Record an op's `as` (a bare name, no slash) for later `$name` refs. */
+    #registerBatchRef(
+        record: Record<string, unknown>,
+        pathRefs: Map<string, string>,
+        path: string,
+    ): void {
+        const as = record.as;
+        if (typeof as === 'string' && as.length > 0 && !as.includes('/')) {
+            pathRefs.set(as, path);
+        }
     }
 
     #serializeBatchError(err: unknown): Record<string, unknown> {

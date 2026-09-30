@@ -43,7 +43,7 @@ export async function inlineHttpImageUrls(
         if (!Array.isArray(message.content)) continue;
         for (const part of message.content as ImageContentPart[]) {
             const url = part?.image_url?.url;
-            if (!url) continue;
+            if (typeof url !== 'string') continue;
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
                 continue;
             }

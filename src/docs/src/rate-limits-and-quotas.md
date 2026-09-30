@@ -136,11 +136,14 @@ Per minute unless stated:
 | ----- | ----- | ----- |
 | Uploads in progress | 10,000 | Per user, all apps |
 | Files in one `startBatchWrite` | 10,000 | Per request |
+| Legacy `/batch` request | 256 multipart parts (fields and files combined) or 256 JSON operations, 64 files, 100 MiB per file, 1 MiB per field, 256 MiB in total | Per request |
 | Signed-URL reads | 3,000/min | Per network |
 | Signed-URL writes | 600/min | Per network |
 | Signed-URL concurrent requests | 60 | Per network |
 | `getReadURL()` (shared with all access-token creation) | 20/hour | |
 | `revokeReadURL()` | 60/min | |
+
+Non-write operations (mkdir/shortcut/move/delete) inside a legacy `/batch` request also count against the Mutations limits above.
 
 An upload is in progress from `startWrite`/`startBatchWrite` (which `puter.fs.upload()` and `puter.fs.write()` use) until it completes, is cancelled, or expires. The count includes uploads by collaborators into the account's folders. Over the limit, new uploads fail with `429 too_many_requests` until some finish.
 

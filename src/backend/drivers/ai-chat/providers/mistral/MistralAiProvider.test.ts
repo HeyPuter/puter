@@ -42,6 +42,8 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { ResponseValidationError } from '@mistralai/mistralai/models/errors/responsevalidationerror.js';
+import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalidationerror.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -208,6 +210,49 @@ describe('MistralAIProvider.complete request shape', () => {
         // adapt our snake_case input.
         expect(args.maxTokens).toBe(256);
         expect(args.temperature).toBe(0.4);
+    });
+
+    it('turns the SDK client-side validation error into a 400', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockRejectedValueOnce(
+            new SDKValidationError('Input validation failed', new Error(), {}),
+        );
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'mistral-small-2603',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('passes an unparseable upstream response through rather than blaming the request', async () => {
+        const { provider } = makeProvider();
+        const upstreamError = new ResponseValidationError(
+            'Response validation failed',
+            {
+                cause: new Error(),
+                rawValue: {},
+                rawMessage: 'Response validation failed',
+                request: new Request(
+                    'https://api.mistral.ai/v1/chat/completions',
+                ),
+                response: new Response('{}', { status: 200 }),
+                body: '{}',
+            },
+        );
+        completeMock.mockRejectedValueOnce(upstreamError);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'mistral-small-2603',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            ),
+        ).rejects.toBe(upstreamError);
     });
 
     it('forwards custom.prompt_mode as the SDK promptMode', async () => {

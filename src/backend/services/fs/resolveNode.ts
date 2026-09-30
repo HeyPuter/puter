@@ -186,11 +186,8 @@ export function expandTildePath(path: string, username?: string): string {
     return `/${username}${trimmed.slice(1)}`;
 }
 
-/**
- * Build an absolute child path from a parent path + child name. Rejects names
- * containing `/`.
- */
-export function joinChildPath(parentPath: string, name: string): string {
+/** A child name must be exactly one path segment. */
+export function assertChildName(name: string): void {
     if (typeof name !== 'string' || name.length === 0) {
         throw new HttpError(400, 'Name cannot be empty', {
             legacyCode: 'bad_request',
@@ -201,6 +198,16 @@ export function joinChildPath(parentPath: string, name: string): string {
             legacyCode: 'bad_request',
         });
     }
+    if (name === '.' || name === '..') {
+        throw new HttpError(400, 'Name cannot be `.` or `..`', {
+            legacyCode: 'bad_request',
+        });
+    }
+}
+
+/** Build an absolute child path from a parent path + a one-segment name. */
+export function joinChildPath(parentPath: string, name: string): string {
+    assertChildName(name);
     const parent = normalizeAbsolutePath(parentPath);
     return parent === '/' ? `/${name}` : `${parent}/${name}`;
 }

@@ -189,6 +189,19 @@ describe('inlineHttpImageUrls', () => {
         expect(part.text).toContain('boom');
     });
 
+    it('skips a non-string image url instead of throwing', async () => {
+        const messages = [
+            {
+                role: 'user',
+                content: [{ type: 'image_url', image_url: { url: 5 } }],
+            },
+        ];
+
+        await inlineHttpImageUrls(messages as never);
+
+        expect(mockedSecureFetch).not.toHaveBeenCalled();
+    });
+
     it('ignores non-image-url parts and string content', async () => {
         const messages = [
             { role: 'user', content: 'plain text' },

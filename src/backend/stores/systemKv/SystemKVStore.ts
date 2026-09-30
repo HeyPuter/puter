@@ -32,6 +32,7 @@ import {
     normalizeLimit,
     normalizeOffset,
 } from '../../util/pagination';
+import { runWithConcurrencyLimit } from '../../util/concurrency';
 import { PuterStore } from '../types';
 import {
     cacheTtlSecondsFor,
@@ -156,6 +157,11 @@ const MAX_VALUE_BYTES = 399 * 1024;
  * here.
  */
 export const KV_BATCH_GET_LIMIT = 100;
+/**
+ * BatchGetItems one read keeps in flight. A call's keys share a partition, so
+ * this narrows the burst; it does not hold it under the partition's RCU/s.
+ */
+export const KV_BATCH_GET_CONCURRENCY = 4;
 const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // Offset emulation re-scans everything before the requested position, so it
 // is bounded; cursors are the recommended way to page.
@@ -296,7 +302,8 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
     });
 
 type PathToken =
-    { type: 'key'; value: string } | { type: 'index'; value: number };
+    | { type: 'key'; value: string }
+    | { type: 'index'; value: number };
 
 const invalidPathError = (): HttpError =>
     new HttpError(400, 'kv: path has invalid syntax', {
@@ -1303,7 +1310,8 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 0,
+                        | number
+                        | undefined) ?? 0,
                 );
             }
 
@@ -1382,7 +1390,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             ),
         };
@@ -1493,7 +1502,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -1528,7 +1538,8 @@ export class SystemKVStore extends PuterStore {
         );
 
         const old = response.Attributes as
-            { value?: unknown; ttl?: number } | undefined;
+            | { value?: unknown; ttl?: number }
+            | undefined;
         const now = Date.now() / 1000;
         const res =
             old === undefined || (old.ttl && old.ttl <= now)
@@ -1541,7 +1552,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -1631,7 +1643,9 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      string[] | unknown[] | { key: string; value: unknown }[];
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -1754,7 +1768,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             );
             return response;
@@ -1771,7 +1786,8 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -1794,7 +1810,8 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -1830,7 +1847,8 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (countKey);
         }
 
@@ -2177,7 +2195,8 @@ export class SystemKVStore extends PuterStore {
                     probeUsage,
                     writeUsage(
                         (response.ConsumedCapacity?.CapacityUnits as
-                            number | undefined) ?? 1,
+                            | number
+                            | undefined) ?? 1,
                     ),
                 ),
             };
@@ -2305,8 +2324,10 @@ export class SystemKVStore extends PuterStore {
             batches.push(allKeys.slice(i, i + KV_BATCH_GET_LIMIT));
         }
 
-        const results = await Promise.all(
-            batches.map(async (keys) => {
+        const results = await runWithConcurrencyLimit(
+            batches,
+            KV_BATCH_GET_CONCURRENCY,
+            async (keys) => {
                 const requests = [...new Set(keys)].map((k) => ({
                     table: this.tableName,
                     items: { namespace, key: k },
@@ -2320,7 +2341,7 @@ export class SystemKVStore extends PuterStore {
                         0,
                     ) ?? 0;
                 return { entries, units };
-            }),
+            },
         );
 
         return results.reduce(

@@ -3993,6 +3993,7 @@ export class FSService extends PuterService {
         },
     ): Promise<FSEntry> {
         let name = input.name;
+        this.#assertUsableName(name);
         const childPath =
             input.parent.path === '/'
                 ? `/${name}`
@@ -4175,6 +4176,10 @@ export class FSService extends PuterService {
         const { entry } = input;
         if (!input.systemInitiated) {
             await this.#assertCrossAppDeleteAllowed(entry.path);
+            // Emptying a home leaves it in place; only removing it is refused.
+            if (!input.descendantsOnly) {
+                this.#assertNotUserRoot(entry, 'delete');
+            }
         }
         await this.#assertCanRestructure(entry, userId);
 

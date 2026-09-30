@@ -361,6 +361,15 @@ describe('joinChildPath', () => {
             /Name cannot contain a slash/,
         );
     });
+
+    it('rejects `.` and `..` as a bare name', () => {
+        expect(() => joinChildPath('/alice', '.')).toThrowError(
+            /Name cannot be `\.` or `\.\.`/,
+        );
+        expect(() => joinChildPath('/alice', '..')).toThrowError(
+            /Name cannot be `\.` or `\.\.`/,
+        );
+    });
 });
 
 describe('isOwnersTrash', () => {
