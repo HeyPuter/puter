@@ -1,0 +1,48 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <select id="colleagues"><option>Loading…</option></select>
+    <button id="pick">Pick</button>
+    <script>
+        const select = document.getElementById('colleagues');
+
+        (async () => {
+            let teams;
+            try {
+                teams = await puter.teams.list();
+            } catch (e) {
+                if (e.code !== 'not_found') throw e;
+                select.innerHTML = '<option>Teams are not available here</option>';
+                return;
+            }
+
+            const team = teams[0];
+            if (!team) {
+                select.innerHTML = '<option>You are not on a team</option>';
+                return;
+            }
+
+            // Off by default, and the usual reason the list comes back empty.
+            if (!team.directoryEnabled) {
+                select.innerHTML = '<option>Directory is closed to apps</option>';
+                return;
+            }
+
+            const entries = await puter.teams.listDirectory(team.uid);
+            select.innerHTML = '';
+            for (const { username, uuid } of entries) {
+                const option = document.createElement('option');
+                // Store the uuid: it survives a username change.
+                option.value = uuid;
+                option.textContent = username;
+                select.append(option);
+            }
+        })();
+
+        document.getElementById('pick').addEventListener('click', () => {
+            const option = select.selectedOptions[0];
+            if (option) puter.print(`${option.textContent} → ${option.value}<br>`);
+        });
+    </script>
+</body>
+</html>

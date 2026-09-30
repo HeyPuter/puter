@@ -1200,14 +1200,6 @@ let sidebar = [
                 path: '/Teams/list',
             },
             {
-                title: '<code>listMembers()</code>',
-                page_title: '<code>puter.teams.listMembers()</code>',
-                title_tag: 'puter.teams.listMembers()',
-                icon: '/assets/img/function.svg',
-                source: '/Teams/listMembers.md',
-                path: '/Teams/listMembers',
-            },
-            {
                 title: '<code>listDirectory()</code>',
                 page_title: '<code>puter.teams.listDirectory()</code>',
                 title_tag: 'puter.teams.listDirectory()',
