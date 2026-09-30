@@ -138,6 +138,17 @@ describe('writes inside a folder shared with write', () => {
         expect(await ownerListing(s)).toContain('from-recipient.txt');
     }, 180_000);
 
+    it('touch still expands a tilde path', async () => {
+        const s = await shareAFolder();
+
+        const touched = await post('/touch', s.owner.token, {
+            path: '~/SharedDir/from-tilde.txt',
+        });
+
+        expect(touched.status).toBe(200);
+        expect(await ownerListing(s)).toContain('from-tilde.txt');
+    }, 180_000);
+
     // Addressed to the owner, so it carries the path the owner can resolve.
     it('publishes the owner’s real path on events about their entries', async () => {
         const s = await shareAFolder();

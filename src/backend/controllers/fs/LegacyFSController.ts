@@ -1050,11 +1050,12 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const targetPath = await expandClientPath(
+        const expanded = await expandClientPath(
             this.stores.fsEntry,
-            rawPath.startsWith('/') ? rawPath : `/${rawPath}`,
+            rawPath,
             actor.user?.username,
         );
+        const targetPath = expanded.startsWith('/') ? expanded : `/${expanded}`;
         const parentPath = pathPosix.dirname(targetPath);
         if (parentPath === '/') {
             throw new HttpError(400, 'Cannot touch in root', {
