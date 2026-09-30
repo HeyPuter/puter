@@ -273,6 +273,25 @@ describe('ChatCompletionDriver provider registration', () => {
     });
 });
 
+// -- Input validation ------------------------------------------------
+
+describe('ChatCompletionDriver malformed input', () => {
+    it.each([
+        ['missing messages', { messages: undefined }],
+        [
+            'a null content item',
+            { messages: [{ role: 'user', content: [null] }] },
+        ],
+        ['a null tool entry', { tools: [null] }],
+    ])('rejects %s with 400 before any provider runs', async (_label, args) => {
+        const fake = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        await expect(completeFake(args)).rejects.toMatchObject({
+            statusCode: 400,
+        });
+        expect(fake).not.toHaveBeenCalled();
+    });
+});
+
 // -- Failure classification ------------------------------------------
 
 describe('ChatCompletionDriver exhausted-chain classification', () => {

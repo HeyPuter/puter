@@ -175,6 +175,18 @@ describe('normalize_single_message', () => {
         ).toThrow(expect.objectContaining({ statusCode: 400 }));
     });
 
+    it('throws 400 when a content item is null', () => {
+        expect(() =>
+            normalize_single_message({
+                role: 'user',
+                content: ['hi', null],
+            }),
+        ).toThrow(expect.objectContaining({ statusCode: 400 }));
+        expect(() =>
+            normalize_single_message({ role: 'user', content: null }),
+        ).toThrow(expect.objectContaining({ statusCode: 400 }));
+    });
+
     it('strips a stray `text` from tool_use blocks', () => {
         const result = normalize_single_message({
             role: 'assistant',
@@ -230,6 +242,17 @@ describe('normalize_single_message tool_calls', () => {
 // ── normalize_messages ──────────────────────────────────────────────
 
 describe('normalize_messages', () => {
+    it.each([
+        ['undefined', undefined],
+        ['null', null],
+        ['an object', { role: 'user', content: 'hi' }],
+        ['a string', 'hi'],
+    ])('throws 400 when messages is %s', (_label, messages) => {
+        expect(() => normalize_messages(messages)).toThrow(
+            expect.objectContaining({ statusCode: 400 }),
+        );
+    });
+
     it('normalizes each entry and merges consecutive same-role text messages', () => {
         const result = normalize_messages([
             'hi',

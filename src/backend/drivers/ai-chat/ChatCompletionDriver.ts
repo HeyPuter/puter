@@ -411,11 +411,7 @@ export class ChatCompletionDriver extends PuterDriver {
             });
         }
 
-        if (args.messages) {
-            args.messages = normalizeMediaParts(
-                normalize_messages(args.messages),
-            );
-        }
+        args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
             normalize_tools_object(args.tools);
         }

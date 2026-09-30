@@ -27,11 +27,13 @@ import type { HttpError } from '../../core/http/HttpError.js';
 import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../../services/metering/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
+import { FS_MUTATE_LIMIT } from './limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -140,6 +142,90 @@ const makeRes = () => {
 // run handlers inside `runWithContext` so tilde expansion lookups work.
 const withActor = async <T>(actor: Actor, fn: () => Promise<T>): Promise<T> =>
     runWithContext({ actor }, fn);
+
+// Multipart /batch body carrying one `operation` field paired with one `file`
+// part — the shape a `write` op needs.
+const multipartWriteBatchReq = (
+    actor: Actor,
+    operation: Record<string, unknown>,
+    fileContent: string,
+): Request => {
+    const boundary = '----lfsBatchWriteBoundary';
+    const payload =
+        `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="operation"\r\n\r\n' +
+        `${JSON.stringify(operation)}\r\n` +
+        `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="file"; ' +
+        'filename="upload.txt"\r\n' +
+        'Content-Type: text/plain\r\n\r\n' +
+        `${fileContent}\r\n` +
+        `--${boundary}--\r\n`;
+    const req = Readable.from([Buffer.from(payload)]) as unknown as Request;
+    Object.assign(req, {
+        headers: {
+            'content-type': `multipart/form-data; boundary=${boundary}`,
+        },
+        query: {},
+        body: {},
+        actor,
+    });
+    return req;
+};
+
+// Multipart /batch body built from explicitly ordered parts — for payloads
+// that interleave `operation`/`fileinfo` fields with a `file` blob the way
+// puter-js's legacy folder-upload fallback does.
+type BatchMultipartPart =
+    | { field: 'operation' | 'fileinfo'; value: unknown }
+    | {
+          field: 'file';
+          filename: string;
+          contentType?: string;
+          content: string;
+      };
+
+const multipartBatchPartsReq = (
+    actor: Actor,
+    parts: BatchMultipartPart[],
+): Request => {
+    const boundary = '----lfsBatchPartsBoundary';
+    const payload =
+        parts
+            .map((part) =>
+                part.field === 'file'
+                    ? `--${boundary}\r\n` +
+                      `Content-Disposition: form-data; name="file"; filename="${part.filename}"\r\n` +
+                      `Content-Type: ${part.contentType ?? 'application/octet-stream'}\r\n\r\n` +
+                      `${part.content}\r\n`
+                    : `--${boundary}\r\n` +
+                      `Content-Disposition: form-data; name="${part.field}"\r\n\r\n` +
+                      `${JSON.stringify(part.value)}\r\n`,
+            )
+            .join('') + `--${boundary}--\r\n`;
+    const req = Readable.from([Buffer.from(payload)]) as unknown as Request;
+    Object.assign(req, {
+        headers: {
+            'content-type': `multipart/form-data; boundary=${boundary}`,
+        },
+        query: {},
+        body: {},
+        actor,
+    });
+    return req;
+};
+
+type StoredFsEntry = NonNullable<
+    Awaited<ReturnType<typeof server.stores.fsEntry.getEntryByPath>>
+>;
+const readFileText = async (entry: StoredFsEntry): Promise<string> => {
+    const download = await server.services.fs.readContent(entry);
+    const chunks: Buffer[] = [];
+    for await (const chunk of download.body) {
+        chunks.push(Buffer.from(chunk as Uint8Array));
+    }
+    return Buffer.concat(chunks).toString('utf8');
+};
 
 // ── Tests ───────────────────────────────────────────────────────────
 
@@ -689,6 +775,276 @@ describe('LegacyFSController.batch (json mode)', () => {
             error: true,
             status: 400,
         });
+    });
+});
+
+describe('LegacyFSController.batch (multipart mode)', () => {
+    const multipartBatchReq = (actor: Actor, operations: string[]): Request => {
+        const boundary = '----lfsBatchBoundary';
+        const payload =
+            operations
+                .map(
+                    (op) =>
+                        `--${boundary}\r\n` +
+                        'Content-Disposition: form-data; name="operation"\r\n\r\n' +
+                        `${op}\r\n`,
+                )
+                .join('') + `--${boundary}--\r\n`;
+        const req = Readable.from([Buffer.from(payload)]) as unknown as Request;
+        Object.assign(req, {
+            headers: {
+                'content-type': `multipart/form-data; boundary=${boundary}`,
+            },
+            query: {},
+            body: {},
+            actor,
+        });
+        return req;
+    };
+
+    it('runs a well-formed operation field', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                multipartBatchReq(actor, [
+                    JSON.stringify({
+                        op: 'mkdir',
+                        path: `/${username}/Documents`,
+                        name: 'mp-ok',
+                    }),
+                ]),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(200);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents/mp-ok`,
+            ),
+        ).not.toBeNull();
+    });
+
+    it('rejects malformed operation JSON with a 400 and runs nothing', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await expect(
+            withActor(actor, () =>
+                controller.batch(
+                    multipartBatchReq(actor, [
+                        JSON.stringify({
+                            op: 'mkdir',
+                            path: `/${username}/Documents`,
+                            name: 'mp-before-bad',
+                        }),
+                        `{"op":"mkdir","path":"/${username}/Documents" "name":"x"}`,
+                    ]),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents/mp-before-bad`,
+            ),
+        ).toBeNull();
+    });
+
+    it('rejects an operation field over the size cap with a 413', async () => {
+        const { actor } = await makeUser();
+        const oversized = JSON.stringify({
+            op: 'mkdir',
+            path: '/x',
+            name: 'a'.repeat(1024 * 1024 + 1),
+        });
+        await expect(
+            withActor(actor, () =>
+                controller.batch(
+                    multipartBatchReq(actor, [oversized]),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 413 });
+    });
+
+    it('rejects a multipart content-type with no boundary as a 400', async () => {
+        const { actor } = await makeUser();
+        const req = Readable.from([Buffer.from('')]) as unknown as Request;
+        Object.assign(req, {
+            headers: { 'content-type': 'multipart/form-data' },
+            query: {},
+            body: {},
+            actor,
+        });
+        await expect(
+            withActor(actor, () => controller.batch(req, makeRes().res)),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a body cut off before the closing boundary as a 400', async () => {
+        const { actor } = await makeUser();
+        const boundary = '----lfsBatchBoundary';
+        const req = Readable.from([
+            Buffer.from(
+                `--${boundary}\r\n` +
+                    'Content-Disposition: form-data; name="operation"\r\n\r\n' +
+                    '{"op":"mkdir"}',
+            ),
+        ]) as unknown as Request;
+        Object.assign(req, {
+            headers: {
+                'content-type': `multipart/form-data; boundary=${boundary}`,
+            },
+            query: {},
+            body: {},
+            actor,
+        });
+        await expect(
+            withActor(actor, () => controller.batch(req, makeRes().res)),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
+
+describe('LegacyFSController.batch (multipart total size cap)', () => {
+    it('rejects files that total over the aggregate cap without buffering them all up front', async () => {
+        const { actor } = await makeUser();
+        const boundary = '----lfsBatchTotalSizeBoundary';
+        const fileSize = 90 * 1024 * 1024; // under the 100 MiB per-file cap
+        const fileCount = 3; // 270 MiB > the 256 MiB aggregate cap
+        const chunkSize = 1024 * 1024;
+        // One reused buffer — the generator yields it repeatedly instead of
+        // allocating 270 MiB up front.
+        const chunk = Buffer.alloc(chunkSize, 'x');
+
+        async function* multipartBody() {
+            for (let f = 0; f < fileCount; f++) {
+                yield Buffer.from(
+                    `--${boundary}\r\n` +
+                        `Content-Disposition: form-data; name="file"; filename="big${f}.bin"\r\n` +
+                        'Content-Type: application/octet-stream\r\n\r\n',
+                );
+                let remaining = fileSize;
+                while (remaining > 0) {
+                    const size = Math.min(chunkSize, remaining);
+                    yield size === chunkSize ? chunk : chunk.subarray(0, size);
+                    remaining -= size;
+                }
+                yield Buffer.from('\r\n');
+            }
+            yield Buffer.from(`--${boundary}--\r\n`);
+        }
+
+        const req = Readable.from(multipartBody()) as unknown as Request;
+        Object.assign(req, {
+            headers: {
+                'content-type': `multipart/form-data; boundary=${boundary}`,
+            },
+            query: {},
+            body: {},
+            actor,
+        });
+
+        await expect(
+            withActor(actor, () => controller.batch(req, makeRes().res)),
+        ).rejects.toMatchObject({ statusCode: 413 });
+    });
+});
+
+describe('LegacyFSController.batch (json op cap)', () => {
+    it('rejects more operations than a multipart batch could carry', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.batch(
+                    makeReq({
+                        body: { operations: new Array(257).fill(0) },
+                        headers: { 'content-type': 'application/json' },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 413 });
+    });
+});
+
+describe('LegacyFSController.batch (per-op mutation budget)', () => {
+    const exhaustMutateBudget = async (actor: Actor) => {
+        const freeLimit =
+            (
+                FS_MUTATE_LIMIT[0]!.bySubscription as
+                    | Record<string, number>
+                    | undefined
+            )?.[DEFAULT_FREE_SUBSCRIPTION] ?? FS_MUTATE_LIMIT[0]!.limit;
+        const chargeReq = makeReq({ body: {}, actor });
+        for (let i = 0; i < freeLimit; i++) {
+            await consumeRouteRateLimit(chargeReq, FS_MUTATE_LIMIT);
+        }
+    };
+
+    it('charges a mutating op against FS_MUTATE_LIMIT, not just the batch budget', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await exhaustMutateBudget(actor);
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [
+                            {
+                                op: 'mkdir',
+                                path: `/${username}/Documents`,
+                                name: 'budget-mkdir',
+                            },
+                        ],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(218);
+        const body = captured.body as {
+            results: Array<{ error: boolean; status?: number }>;
+        };
+        expect(body.results[0]).toMatchObject({ error: true, status: 429 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents/budget-mkdir`,
+            ),
+        ).toBeNull();
+    });
+
+    it('does not charge FS_MUTATE_LIMIT for a `write` op', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await exhaustMutateBudget(actor);
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                multipartWriteBatchReq(
+                    actor,
+                    {
+                        op: 'write',
+                        path: `/${username}/Documents`,
+                        name: 'budget-write.txt',
+                    },
+                    'contents',
+                ),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(200);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents/budget-write.txt`,
+            ),
+        ).not.toBeNull();
     });
 });
 
@@ -2559,6 +2915,90 @@ describe('LegacyFSController.delete additional branches', () => {
     });
 });
 
+describe('LegacyFSController.delete home directory guard', () => {
+    it('refuses to delete the caller’s own home root', async () => {
+        const { actor, userId } = await makeUser();
+        const root = await server.stores.fsEntry.getRootEntryForUser(userId);
+
+        await expect(
+            withActor(actor, () =>
+                controller.delete(
+                    makeReq({ body: { uid: root!.uuid }, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(
+            await server.stores.fsEntry.getRootEntryForUser(userId),
+        ).not.toBeNull();
+    });
+
+    it('refuses to delete a home root through a batch op', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [{ op: 'delete', path: `/${username}` }],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(218);
+        const body = captured.body as {
+            results: Array<{ error: boolean; status?: number }>;
+        };
+        expect(body.results[0]).toMatchObject({ error: true, status: 403 });
+        expect(
+            await server.stores.fsEntry.getRootEntryForUser(userId),
+        ).not.toBeNull();
+    });
+
+    it('still empties Trash via descendants_only', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({
+                    body: { path: `/${username}/Trash/leftover` },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.delete(
+                makeReq({
+                    body: {
+                        path: `/${username}/Trash`,
+                        recursive: true,
+                        descendants_only: true,
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect((captured.body as { ok: boolean }).ok).toBe(true);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Trash/leftover`,
+            ),
+        ).toBeNull();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`/${username}/Trash`),
+        ).not.toBeNull();
+    });
+});
+
 // ── /touch flags ────────────────────────────────────────────────────
 
 describe('LegacyFSController.touch flags', () => {
@@ -3177,6 +3617,525 @@ describe('LegacyFSController.batch additional operations', () => {
     });
 });
 
+// -- batch: shapes the desktop's shortcuts and the SDK's folder upload send --
+
+describe('LegacyFSController.batch legacy wire-shape compatibility', () => {
+    it('runs the GUI "create shortcut" payload with a path target', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const targetPath = `/${username}/Documents/target`;
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: targetPath }, actor }),
+                makeRes().res,
+            ),
+        );
+        const targetEntry =
+            await server.stores.fsEntry.getEntryByPath(targetPath);
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                multipartBatchPartsReq(actor, [
+                    {
+                        field: 'operation',
+                        value: {
+                            op: 'shortcut',
+                            dedupe_name: true,
+                            overwrite: false,
+                            operation_id: 'op1',
+                            path: `/${username}/Desktop`,
+                            name: 'target - Shortcut',
+                            item_upload_id: 0,
+                            shortcut_to: targetPath,
+                            shortcut_to_uid: targetPath,
+                        },
+                    },
+                ]),
+                res,
+            ),
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const shortcutEntry = await server.stores.fsEntry.getEntryByPath(
+            `/${username}/Desktop/target - Shortcut`,
+        );
+        expect(shortcutEntry).not.toBeNull();
+        expect(shortcutEntry?.shortcutTo).toBe(targetEntry!.id);
+    });
+
+    it('runs the SDK folder-upload payload (v1 mkdir chain + $ref write)', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const desktop = `/${username}/Desktop`;
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                multipartBatchPartsReq(actor, [
+                    {
+                        field: 'operation',
+                        value: {
+                            op: 'mkdir',
+                            parent: desktop,
+                            path: '/up',
+                            overwrite: false,
+                            dedupe_name: true,
+                            create_missing_ancestors: true,
+                            as: 'dir_1',
+                        },
+                    },
+                    {
+                        field: 'operation',
+                        value: {
+                            op: 'mkdir',
+                            parent: '$dir_1',
+                            path: '/sub',
+                            overwrite: false,
+                            dedupe_name: true,
+                            create_missing_ancestors: true,
+                            as: 'dir_0',
+                        },
+                    },
+                    {
+                        field: 'fileinfo',
+                        value: { name: 'f.txt', type: 'text/plain', size: 2 },
+                    },
+                    {
+                        field: 'operation',
+                        value: {
+                            op: 'write',
+                            dedupe_name: true,
+                            overwrite: false,
+                            operation_id: 'op2',
+                            path: '$dir_0',
+                            name: 'f.txt',
+                            item_upload_id: 0,
+                        },
+                    },
+                    {
+                        field: 'file',
+                        filename: 'f.txt',
+                        contentType: 'text/plain',
+                        content: 'hi',
+                    },
+                ]),
+                res,
+            ),
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const fileEntry = await server.stores.fsEntry.getEntryByPath(
+            `${desktop}/up/sub/f.txt`,
+        );
+        expect(fileEntry).not.toBeNull();
+        expect(await readFileText(fileEntry!)).toBe('hi');
+    });
+
+    it('dedupes an existing target folder and writes into the deduped path', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const desktop = `/${username}/Desktop`;
+        // Pre-existing "up" forces the mkdir op below to dedupe to "up (1)".
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: `${desktop}/up` }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                multipartBatchPartsReq(actor, [
+                    {
+                        field: 'operation',
+                        value: {
+                            op: 'mkdir',
+                            parent: desktop,
+                            path: '/up',
+                            overwrite: false,
+                            dedupe_name: true,
+                            create_missing_ancestors: true,
+                            as: 'dir_1',
+                        },
+                    },
+                    {
+                        field: 'operation',
+                        value: {
+                            op: 'mkdir',
+                            parent: '$dir_1',
+                            path: '/sub',
+                            overwrite: false,
+                            dedupe_name: true,
+                            create_missing_ancestors: true,
+                            as: 'dir_0',
+                        },
+                    },
+                    {
+                        field: 'fileinfo',
+                        value: { name: 'f.txt', type: 'text/plain', size: 2 },
+                    },
+                    {
+                        field: 'operation',
+                        value: {
+                            op: 'write',
+                            dedupe_name: true,
+                            overwrite: false,
+                            operation_id: 'op2',
+                            path: '$dir_0',
+                            name: 'f.txt',
+                            item_upload_id: 0,
+                        },
+                    },
+                    {
+                        field: 'file',
+                        filename: 'f.txt',
+                        contentType: 'text/plain',
+                        content: 'hi',
+                    },
+                ]),
+                res,
+            ),
+        );
+
+        expect(captured.statusCode).toBe(200);
+        // Old folder is untouched — nothing landed inside it.
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`${desktop}/up/sub`),
+        ).toBeNull();
+        const dedupedFile = await server.stores.fsEntry.getEntryByPath(
+            `${desktop}/up (1)/sub/f.txt`,
+        );
+        expect(dedupedFile).not.toBeNull();
+        expect(await readFileText(dedupedFile!)).toBe('hi');
+    });
+
+    it('records a per-op 400 for an unknown `$ref` (not a 404 uid/path miss)', async () => {
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [{ op: 'delete', path: '$nope' }],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(218);
+        const body = captured.body as {
+            results: Array<{ error: boolean; status?: number }>;
+        };
+        expect(body.results[0]).toMatchObject({ error: true, status: 400 });
+    });
+
+    it('rejects a `$ref/../..`-style escape with a per-op 400 and deletes nothing outside the ref', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const desktop = `/${username}/Desktop`;
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [
+                            {
+                                op: 'mkdir',
+                                path: desktop,
+                                name: 'escbase',
+                                as: 'dir_1',
+                            },
+                            { op: 'delete', path: '$dir_1/../..' },
+                        ],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(218);
+        const body = captured.body as {
+            results: Array<{ error: boolean; status?: number }>;
+        };
+        expect(body.results[1]).toMatchObject({ error: true, status: 400 });
+        // The referenced folder (and everything above it) survived — the
+        // escape never reached a real path to delete.
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`${desktop}/escbase`),
+        ).not.toBeNull();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(desktop),
+        ).not.toBeNull();
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`/${username}`),
+        ).not.toBeNull();
+    });
+
+    it('rejects a `..` segment in a v1 mkdir `path` suffix with a per-op 400', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const desktop = `/${username}/Desktop`;
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [
+                            {
+                                op: 'mkdir',
+                                parent: desktop,
+                                path: '/../evil',
+                                create_missing_ancestors: true,
+                            },
+                        ],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(218);
+        const body = captured.body as {
+            results: Array<{ error: boolean; status?: number }>;
+        };
+        expect(body.results[0]).toMatchObject({ error: true, status: 400 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`/${username}/evil`),
+        ).toBeNull();
+    });
+
+    it("refuses to reach into a stranger's folder through `parent`, and never registers its ref for a later op", async () => {
+        const { actor: strangerActor } = await makeUser();
+        const strangerUsername = strangerActor.user!.username!;
+        const { actor } = await makeUser();
+        const strangerFolder = `/${strangerUsername}/Documents`;
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [
+                            {
+                                op: 'mkdir',
+                                parent: strangerFolder,
+                                path: '/intrusion',
+                                as: 'dir_x',
+                            },
+                            { op: 'mkdir', parent: '$dir_x', path: '/y' },
+                        ],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+
+        expect(captured.statusCode).toBe(218);
+        const body = captured.body as {
+            results: Array<{ error: boolean; status?: number }>;
+        };
+        expect(body.results[0]?.error).toBe(true);
+        expect([403, 404]).toContain(body.results[0]?.status);
+        expect(body.results[1]).toMatchObject({ error: true, status: 400 });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `${strangerFolder}/intrusion`,
+            ),
+        ).toBeNull();
+    });
+
+    it('checks a relative mkdir under `/` against the immediate parent, not the target', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const ownerUsername = owner.actor.user!.username!;
+        const shared = `/${ownerUsername}/Documents`;
+        const sharedEntry = await server.stores.fsEntry.getEntryByPath(shared);
+        await server.services.permission.grantUserUserPermission(
+            owner.actor,
+            recipient.actor.user!.username!,
+            `fs:${sharedEntry!.uuid}:write`,
+            {},
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(recipient.actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [
+                            {
+                                op: 'mkdir',
+                                parent: '/',
+                                path: shared,
+                                dedupe_name: true,
+                            },
+                        ],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor: recipient.actor,
+                }),
+                res,
+            ),
+        );
+
+        expect(captured.statusCode).toBe(218);
+        const body = captured.body as {
+            results: Array<{ error: boolean; status?: number }>;
+        };
+        expect([403, 404]).toContain(body.results[0]?.status);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(`${shared} (1)`),
+        ).toBeNull();
+    });
+
+    it('creates a directory from a bare absolute `path`', async () => {
+        const { actor } = await makeUser();
+        const target = `/${actor.user!.username}/Documents/bare-dir`;
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: { operations: [{ op: 'mkdir', path: target }] },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(200);
+        expect(
+            await server.stores.fsEntry.getEntryByPath(target),
+        ).toMatchObject({ isDir: true });
+    });
+
+    it('refuses a shortcut to another user’s file by path with the uniform 404', async () => {
+        const owner = await makeUser();
+        const { actor } = await makeUser();
+        const ownerUsername = owner.actor.user!.username!;
+        const secret = `/${ownerUsername}/Documents/secret.txt`;
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({ body: { path: secret }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: {
+                        operations: [
+                            {
+                                op: 'shortcut',
+                                path: `/${actor.user!.username}/Desktop`,
+                                name: 'peek',
+                                shortcut_to: secret,
+                            },
+                        ],
+                    },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+
+        const body = captured.body as {
+            results: Array<Record<string, unknown>>;
+        };
+        expect(body.results[0]).toMatchObject({
+            error: true,
+            status: 404,
+            message: 'Subject does not exist',
+        });
+        expect(JSON.stringify(body)).not.toContain(ownerUsername);
+    });
+});
+
+// -- batch: name validation on `write` / `mkdir` --
+
+describe('LegacyFSController.batch name validation', () => {
+    it.each(['a/b', '..'])(
+        'rejects a `write` op named %j with a per-op 400 and writes nothing',
+        async (badName) => {
+            const { actor } = await makeUser();
+            const username = actor.user!.username!;
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.batch(
+                    multipartWriteBatchReq(
+                        actor,
+                        {
+                            op: 'write',
+                            path: `/${username}/Documents`,
+                            name: badName,
+                        },
+                        'contents',
+                    ),
+                    res,
+                ),
+            );
+            expect(captured.statusCode).toBe(218);
+            const body = captured.body as {
+                results: Array<{ error: boolean; status?: number }>;
+            };
+            expect(body.results[0]).toMatchObject({ error: true, status: 400 });
+            expect(
+                await server.stores.fsEntry.listDescendantsByPath(
+                    `/${username}/Documents`,
+                ),
+            ).toHaveLength(0);
+        },
+    );
+
+    it.each(['a/b', '..'])(
+        'rejects a `mkdir` op named %j with a per-op 400 and creates nothing',
+        async (badName) => {
+            const { actor } = await makeUser();
+            const username = actor.user!.username!;
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.batch(
+                    makeReq({
+                        body: {
+                            operations: [
+                                {
+                                    op: 'mkdir',
+                                    path: `/${username}/Documents`,
+                                    name: badName,
+                                },
+                            ],
+                        },
+                        headers: { 'content-type': 'application/json' },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            expect(captured.statusCode).toBe(218);
+            const body = captured.body as {
+                results: Array<{ error: boolean; status?: number }>;
+            };
+            expect(body.results[0]).toMatchObject({ error: true, status: 400 });
+            expect(
+                await server.stores.fsEntry.listDescendantsByPath(
+                    `/${username}/Documents`,
+                ),
+            ).toHaveLength(0);
+        },
+    );
+});
+
 // ── stat additional ─────────────────────────────────────────────────
 
 describe('LegacyFSController.stat additional branches', () => {
@@ -3208,6 +4167,168 @@ describe('LegacyFSController.stat additional branches', () => {
         // versions defaults to an empty array — legacy clients depend on
         // the key being present.
         expect(Array.isArray(body.versions)).toBe(true);
+    });
+});
+
+// -- resolveV1Selector: uniform 404s, no path/existence leaks --
+
+describe('LegacyFSController resolveV1Selector security', () => {
+    it('gives a missing {parent, name} lookup and an existing-but-hidden one the identical 404', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const ownerUsername = owner.actor.user!.username!;
+        const folderPath = `/${ownerUsername}/Documents/hidden-folder`;
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: folderPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        const fileName = 'secret.txt';
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: `${folderPath}/${fileName}` },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const folderEntry =
+            await server.stores.fsEntry.getEntryByPath(folderPath);
+
+        const errorFor = async (name: string) => {
+            try {
+                await withActor(stranger.actor, () =>
+                    controller.stat(
+                        makeReq({
+                            body: { parent: folderEntry!.uuid, name },
+                            actor: stranger.actor,
+                        }),
+                        makeRes().res,
+                    ),
+                );
+                return null;
+            } catch (e) {
+                const err = e as HttpError;
+                return {
+                    statusCode: err.statusCode,
+                    message: err.message,
+                    legacyCode: err.legacyCode,
+                };
+            }
+        };
+
+        const missing = await errorFor('does-not-exist.txt');
+        const hidden = await errorFor(fileName);
+        expect(missing).toEqual({
+            statusCode: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(hidden).toEqual(missing);
+        expect(JSON.stringify(hidden)).not.toContain(ownerUsername);
+    });
+
+    it('checks a {parent, name} name before looking up the parent', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const folderPath = `/${owner.actor.user!.username}/Documents/nm-folder`;
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: folderPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        const folderEntry =
+            await server.stores.fsEntry.getEntryByPath(folderPath);
+
+        const errorFor = async (parent: string) => {
+            try {
+                await withActor(stranger.actor, () =>
+                    controller.stat(
+                        makeReq({
+                            body: { parent, name: '..' },
+                            actor: stranger.actor,
+                        }),
+                        makeRes().res,
+                    ),
+                );
+                return null;
+            } catch (e) {
+                const err = e as HttpError;
+                return { statusCode: err.statusCode, message: err.message };
+            }
+        };
+
+        const existing = await errorFor(folderEntry!.uuid);
+        expect(existing).toMatchObject({ statusCode: 400 });
+        expect(await errorFor(uuidv4())).toEqual(existing);
+    });
+
+    it('resolves a selector nested 4 levels deep', async () => {
+        const { actor } = await makeUser();
+        let path = `/${actor.user!.username}/Documents`;
+        let selector: unknown = path;
+        for (let i = 0; i < 4; i++) {
+            path = `${path}/level-${i}`;
+            await withActor(actor, () =>
+                controller.mkdir(
+                    makeReq({ body: { path }, actor }),
+                    makeRes().res,
+                ),
+            );
+            selector = { parent: selector, name: `level-${i}` };
+        }
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.stat(makeReq({ body: selector, actor }), res),
+        );
+        expect((captured.body as { path?: string }).path).toBe(path);
+    });
+
+    it('rejects a selector nested more than 4 levels deep', async () => {
+        const { actor } = await makeUser();
+        let selector: unknown = `/${actor.user!.username}/Documents`;
+        for (let i = 0; i < 5; i++) {
+            selector = { parent: selector, name: `level-${i}` };
+        }
+        await expect(
+            withActor(actor, () =>
+                controller.stat(
+                    makeReq({ body: selector, actor }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('leaks no path in an app actor’s access denial', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appUid = `app-resolve-sec-${uuidv4()}`;
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
+
+        let err: HttpError | null = null;
+        try {
+            await withActor(appActor, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: `/${username}/AppData` },
+                        actor: appActor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+        } catch (e) {
+            err = e as HttpError;
+        }
+        expect(err).toMatchObject({
+            statusCode: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+        expect(err!.message).not.toContain(username);
     });
 });
 
