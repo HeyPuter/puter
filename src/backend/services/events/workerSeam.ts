@@ -39,6 +39,8 @@ export interface WorkerInvocation {
     event: DeliverableEvent;
     /** The subscription's stored context, delivered to the handler as `ctx`. */
     context: string | null;
+    /** Handler runs behind `event`; the token this run is handed is one deeper. */
+    handlerDepth: number;
 }
 
 /**
@@ -47,7 +49,10 @@ export interface WorkerInvocation {
  * count toward the run that suspends a subscription.
  */
 export type WorkerInvocationOutcome =
-    'settled' | 'terminal' | 'retriable' | 'deferred';
+    | 'settled'
+    | 'terminal'
+    | 'retriable'
+    | 'deferred';
 
 export interface WorkerInvokerSeam {
     invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;

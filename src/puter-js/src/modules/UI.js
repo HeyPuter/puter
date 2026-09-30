@@ -2557,10 +2557,11 @@ export class UIModule extends EventListener {
             });
         }
 
-        // If a prompt is already open, return a promise that resolves based on the existing prompt's result.
+        // If a prompt is already open, queue behind it rather than taking the
+        // one slot a concurrent caller might already be waiting on.
         if ( puter.puterAuthState.isPromptOpen ) {
             return new Promise((resolve, reject) => {
-                puter.puterAuthState.resolver = { resolve, reject };
+                puter.puterAuthState.resolvers.push({ resolve, reject });
             });
         }
 
@@ -2585,9 +2586,9 @@ export class UIModule extends EventListener {
         const settle = (granted) => {
             puter.puterAuthState.authGranted = granted;
             puter.puterAuthState.isPromptOpen = false;
-            const resolver = puter.puterAuthState.resolver;
-            puter.puterAuthState.resolver = null;
-            if ( resolver ) {
+            const resolvers = puter.puterAuthState.resolvers;
+            puter.puterAuthState.resolvers = [];
+            for ( const resolver of resolvers ) {
                 if ( granted ) {
                     resolver.resolve();
                 } else {

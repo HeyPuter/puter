@@ -128,13 +128,19 @@ export const EVENTS_DURABLE_SUBSCRIPTIONS_MAX =
 export const SUSPENDED_ROW_TTL_DAYS = 30;
 
 /**
- * Subscribe + unsubscribe calls per minute, per user.
+ * Subscribe calls per minute, per user.
  *
- * Both resolve a path and take a write, so a loop over them is a write loop.
+ * Resolves a path and takes a write, so a loop over subscribes is a write loop.
  * Sized like the sharing verbs, which are the closest existing analogue: a
  * client sets its subscriptions up once and then leaves them alone.
  */
 export const EVENTS_SUBSCRIBE_LIMIT = userWindow('events:subscribe', 60);
+
+/**
+ * Unsubscribe calls per minute, per user — its own budget, never the subscribe
+ * one.
+ */
+export const EVENTS_UNSUBSCRIBE_LIMIT = userWindow('events:unsubscribe', 600);
 
 /**
  * Subscription listings per minute, per user. Reads an index and returns one
@@ -320,6 +326,15 @@ export const EVENTS_WORKER_INVOCATION_LIMIT = userWindow(
     'events:worker:invoke',
     60,
 );
+
+/**
+ * Handler runs one chain of events may take, by the holder's plan.
+ *
+ * A write made with a handler's token is one run deeper than the event that
+ * invoked it. An event at this depth still reaches sockets but runs no handler,
+ * which is what ends handlers whose writes trigger each other.
+ */
+export const EVENTS_HANDLER_DEPTH = tiered(12, 4, 4);
 
 /**
  * Filter evaluations one event may spend. Lives with the matcher because the

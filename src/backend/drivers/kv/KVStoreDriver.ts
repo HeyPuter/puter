@@ -347,7 +347,7 @@ export class KVStoreDriver extends PuterDriver {
     async set(args: {
         key: unknown;
         value: unknown;
-        expireAt?: number;
+        expireAt?: number | null;
         optConfig?: { appUuid?: string; disableSharing?: boolean };
     }): Promise<boolean> {
         const { key, value, expireAt } = args;
@@ -372,7 +372,7 @@ export class KVStoreDriver extends PuterDriver {
     }
 
     async batchPut(args: {
-        items: Array<{ key: string; value: unknown; expireAt?: number }>;
+        items: Array<{ key: string; value: unknown; expireAt?: number | null }>;
         optConfig?: { appUuid?: string; disableSharing?: boolean };
     }): Promise<boolean> {
         const { items } = args;
@@ -519,7 +519,7 @@ export class KVStoreDriver extends PuterDriver {
         key: unknown;
         timestamp: number;
         optConfig?: { appUuid?: string };
-    }): Promise<void> {
+    }): Promise<boolean> {
         const coerced = this.#coerceKey(args.key);
         if (typeof args.timestamp !== 'number') {
             throw new HttpError(400, '`timestamp` must be a number', {
@@ -527,18 +527,19 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
         const opts = await this.#opts('expireAt', args);
-        const { usage } = await this.stores.kv.expireAt(
+        const { res, usage } = await this.stores.kv.expireAt(
             { key: coerced, timestamp: args.timestamp },
             opts,
         );
         this.#meter(opts.actor, usage);
+        return res;
     }
 
     async expire(args: {
         key: unknown;
         ttl: number;
         optConfig?: { appUuid?: string };
-    }): Promise<void> {
+    }): Promise<boolean> {
         const coerced = this.#coerceKey(args.key);
         if (typeof args.ttl !== 'number') {
             throw new HttpError(400, '`ttl` must be a number (seconds)', {
@@ -546,17 +547,18 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
         const opts = await this.#opts('expire', args);
-        const { usage } = await this.stores.kv.expire(
+        const { res, usage } = await this.stores.kv.expire(
             { key: coerced, ttl: args.ttl },
             opts,
         );
         this.#meter(opts.actor, usage);
+        return res;
     }
 
     async update(args: {
         key: unknown;
         pathAndValueMap: Record<string, unknown>;
-        ttl?: number;
+        ttl?: number | null;
         optConfig?: { appUuid?: string };
     }): Promise<unknown> {
         const coerced = this.#coerceKey(args.key);

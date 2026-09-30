@@ -463,6 +463,8 @@ export type EventMap = {
         values?: unknown[];
         /** Keys among `keys` private to the namespace's app. */
         noShareKeys?: string[];
+        /** Events handler runs behind the write; see `Actor.handlerDepth`. */
+        handlerDepth?: number;
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
@@ -486,6 +488,8 @@ export type EventMap = {
         appUid: string | null;
         value: Record<string, unknown>;
         createdAt: number;
+        /** Events handler runs behind whatever created it. */
+        handlerDepth?: number;
     };
     /**
      * One notification, addressed at whatever sockets each region holds for the
@@ -852,10 +856,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

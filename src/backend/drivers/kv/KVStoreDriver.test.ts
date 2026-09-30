@@ -175,6 +175,25 @@ describe('KVStoreDriver', () => {
             expect(res).toBeNull();
         });
 
+        it('set treats a null expireAt as no expiry', async () => {
+            const { value, listed } = await inCtx(async () => {
+                await target.set({
+                    key: 'noExpiry',
+                    value: 'v',
+                    expireAt: null,
+                });
+                return {
+                    value: await target.get({ key: 'noExpiry' }),
+                    listed: (await target.list({
+                        as: 'keys',
+                        pattern: 'noExpiry',
+                    })) as string[],
+                };
+            });
+            expect(value).toBe('v');
+            expect(listed).toContain('noExpiry');
+        });
+
         it('rejects an empty key', async () => {
             await expect(
                 inCtx(() => target.set({ key: '', value: 'v' })),
@@ -511,6 +530,21 @@ describe('KVStoreDriver', () => {
                 expect(({} as Record<string, unknown>).x).toBeUndefined();
             },
         );
+
+        it('incr rejects a non-number value with value_not_a_number', async () => {
+            await expect(
+                inCtx(async () => {
+                    await target.set({ key: 'textCounter', value: 'hello' });
+                    return target.incr({
+                        key: 'textCounter',
+                        pathAndAmountMap: { '': 1 },
+                    });
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
     });
 
     describe('expireAt / expire', () => {
@@ -531,6 +565,25 @@ describe('KVStoreDriver', () => {
                 return target.get({ key: 'fade2' });
             });
             expect(res).toBeNull();
+        });
+
+        it('expireAt resolves true', async () => {
+            const res = await inCtx(async () => {
+                await target.set({ key: 'resolveAt', value: 'v' });
+                return target.expireAt({
+                    key: 'resolveAt',
+                    timestamp: Math.floor(Date.now() / 1000) + 60,
+                });
+            });
+            expect(res).toBe(true);
+        });
+
+        it('expire resolves true', async () => {
+            const res = await inCtx(async () => {
+                await target.set({ key: 'resolve', value: 'v' });
+                return target.expire({ key: 'resolve', ttl: 60 });
+            });
+            expect(res).toBe(true);
         });
 
         it('expireAt rejects a non-number timestamp', async () => {
@@ -615,6 +668,23 @@ describe('KVStoreDriver', () => {
                 return target.get({ key: 'doc' });
             });
             expect(res).toBeNull();
+        });
+
+        it('update clears the TTL when ttl is null', async () => {
+            const res = await inCtx(async () => {
+                await target.set({
+                    key: 'clearTtl',
+                    value: { a: 1 },
+                    expireAt: Math.floor(Date.now() / 1000) + 3600,
+                });
+                await target.update({
+                    key: 'clearTtl',
+                    pathAndValueMap: { a: 2 },
+                    ttl: null,
+                });
+                return target.get({ key: 'clearTtl' });
+            });
+            expect(res).toEqual({ a: 2 });
         });
 
         it('rejects a missing key', async () => {

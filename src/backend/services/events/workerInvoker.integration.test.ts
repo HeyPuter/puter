@@ -43,7 +43,9 @@ import {
 } from 'vitest';
 import {
     EVENTS_CONSECUTIVE_FAILURES,
+    EVENTS_HANDLER_DEPTH,
     deliveryBackoffMs,
+    limitFor,
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -51,6 +53,7 @@ import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import {
+    EVENTS_HANDLER_TOKEN_TTL_SECONDS,
     EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
     eventsWorkerScript,
@@ -216,12 +219,15 @@ const workerSessionFor = async (forAppUid: string) => {
 };
 
 /** A durable KV subscription on the app's own namespace, targeting the worker. */
-const subscribeKv = async (key: string): Promise<string> => {
+const subscribeKv = async (
+    key: string,
+    token: string = appToken,
+): Promise<string> => {
     const response = await fetch(new URL('/events/subscribe', env.apiOrigin), {
         method: 'POST',
         headers: {
             'content-type': 'application/json',
-            authorization: `Bearer ${appToken}`,
+            authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
             subject: `kv:${key}`,
@@ -428,12 +434,15 @@ describe('the call an owed delivery makes', () => {
             permission.check(actor!, EVENTS_BACKGROUND_PERMISSION),
         ).resolves.toBe(true);
 
-        // No hard expiry: revocable through the session row, like any other
-        // worker session, rather than aged out on a timer.
+        // Short-lived, since every delivery mints its own; the session row is
+        // still what revokes it.
         const decoded = env.server.services.token.verify('auth', token!) as {
+            iat: number;
             exp?: number;
         };
-        expect(decoded.exp).toBeUndefined();
+        expect(decoded.exp! - decoded.iat).toBe(
+            EVENTS_HANDLER_TOKEN_TTL_SECONDS,
+        );
     });
 
     it('mints the same app identity for a row on the app`s own kv namespace', async () => {
@@ -529,21 +538,24 @@ describe('what each answer does to the delivery', () => {
         await touch('refused.txt');
         await invoked(1);
 
+        // It counted: a refusal is still a handler that did not work. Counted
+        // only once the marker is in, so it is also what says the answer was
+        // handled — the depth alone reads 1 while the event is still leased.
+        await vi.waitFor(async () =>
+            expect(
+                await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+            ).toBe('1'),
+        );
+
         // The event is gone and a marker stands in its place, so the
         // subscription learns there was one rather than reading silence.
-        await vi.waitFor(async () =>
-            expect(await pending().depth(subId)).toBe(1),
-        );
+        expect(await pending().depth(subId)).toBe(1);
         answer = 200;
         const claimed = await pending().claim(subId, { leaseMs: 0 });
         expect(claimed?.event).toMatchObject({
             op: 'gap',
             reason: 'handler_rejected',
         });
-        // It counted: a refusal is still a handler that did not work.
-        await expect(
-            env.server.clients.redis.get(`ev:qf:{${subId}}`),
-        ).resolves.toBe('1');
     });
 
     it('holds a 4xx with no handled marker for retry rather than dropping it', async () => {
@@ -869,5 +881,100 @@ describe('deploying on a dispatcher miss', () => {
         } finally {
             createSpy.mockRestore();
         }
+    });
+});
+
+describe('handlers whose writes run handlers', () => {
+    const callsFor = (forAppUid: string): StubCall[] =>
+        calls.filter((call) => call.headers.app === forAppUid);
+
+    const nextCall = async (
+        forAppUid: string,
+        seen: number,
+    ): Promise<StubCall> => {
+        await vi.waitFor(
+            () => expect(callsFor(forAppUid)).toHaveLength(seen + 1),
+            { timeout: 5_000, interval: 25 },
+        );
+        return callsFor(forAppUid)[seen];
+    };
+
+    const depthOf = (token: string): number | undefined =>
+        (
+            env.server.services.token.verify('auth', token) as {
+                handler_depth?: number;
+            }
+        ).handler_depth;
+
+    /** The actor a handler's writes are made as, from the token it was handed. */
+    const actorOf = async (token: string): Promise<Actor> =>
+        (await env.server.services.auth.authenticate(token)).actor!;
+
+    it('hands each run a token one run deeper than the write that invoked it', async () => {
+        const worker = await makeWorkerApp();
+        await subscribe(worker.appToken);
+
+        await touch('first.txt');
+        const first = await nextCall(worker.appUid, 0);
+        expect(depthOf(first.body.token!)).toBe(1);
+        expect((await actorOf(first.body.token!)).handlerDepth).toBe(1);
+
+        await runWithContext(
+            { actor: await actorOf(first.body.token!) },
+            () => touch('second.txt'),
+        );
+        const second = await nextCall(worker.appUid, 1);
+        expect(depthOf(second.body.token!)).toBe(2);
+    });
+
+    it('counts a key-value write the same way', async () => {
+        const worker = await makeWorkerApp();
+        await subscribeKv('depth', worker.appToken);
+
+        await runWithContext({ actor: await actorOf(worker.appToken) }, () =>
+            env.server.drivers.kvStore.set({ key: 'depth', value: 1 }),
+        );
+        const first = await nextCall(worker.appUid, 0);
+        expect(depthOf(first.body.token!)).toBe(1);
+
+        await runWithContext(
+            { actor: await actorOf(first.body.token!) },
+            () => env.server.drivers.kvStore.set({ key: 'depth', value: 2 }),
+        );
+        const second = await nextCall(worker.appUid, 1);
+        expect(depthOf(second.body.token!)).toBe(2);
+    });
+
+    it('runs no handler for an event as deep as the plan lets a chain go', async () => {
+        const worker = await makeWorkerApp();
+        const path = `${anchor}/deep.txt`;
+        await touch('deep.txt');
+        const subId = await subscribe(worker.appToken);
+
+        const plan = await env.server.services.metering.getActorSubscription(
+            worker.actor,
+        );
+        const maxDepth = limitFor(EVENTS_HANDLER_DEPTH, plan.id);
+        const entry = (await env.server.stores.fsEntry.getEntryByPath(path))!;
+        // Awaited end to end, queue and drain included, unlike a write's own
+        // fire-and-forget dispatch.
+        const dispatchAt = (handlerDepth: number) =>
+            events().dispatchFs('fs.write.file', entry, {
+                handlerDepth,
+                ancestors: () => env.server.services.fs.getAncestorChain(path),
+            });
+
+        await dispatchAt(maxDepth - 1);
+        const last = await nextCall(worker.appUid, 0);
+        expect(depthOf(last.body.token!)).toBe(maxDepth);
+
+        await dispatchAt(maxDepth);
+        // Dropped, not held for a retry that could never run, and not counted
+        // as the handler failing.
+        expect(callsFor(worker.appUid)).toHaveLength(1);
+        expect(await pending().depth(subId)).toBe(0);
+        await expect(
+            env.server.clients.redis.get(`ev:qf:{${subId}}`),
+        ).resolves.toBeNull();
     });
 });

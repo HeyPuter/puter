@@ -39,6 +39,7 @@ import {
     decodeCachedRead,
     encodeCachedHit,
     encodeCachedMiss,
+    isExpiredTtl,
     KV_CACHE_BLOCK_MARKER,
     kvCacheKey,
     resolveKvCacheSettings,
@@ -183,11 +184,66 @@ const privateKeys = (
     item?: Record<string, unknown>,
 ): string[] | undefined => (item?.[KV_PRIVATE_ATTR] ? [key] : undefined);
 
-const ttlFilter = (now: number) => ({
-    expression: 'attribute_not_exists(#ttlAttr) OR #ttlAttr > :nowTs',
-    names: { '#ttlAttr': 'ttl' },
-    values: { ':nowTs': now },
+/**
+ * Live: `ttl` isn't a number, is `0`, or is future — a condition can't coerce a
+ * legacy numeric-string/boolean `ttl`, so reads use `isExpiredTtl` instead.
+ */
+const liveRowFilter = (now: number) => ({
+    expression:
+        'attribute_not_exists(#ttl) OR NOT attribute_type(#ttl, :ttlNum) OR #ttl = :ttlNone OR #ttl > :nowTs',
+    names: { '#ttl': 'ttl' },
+    values: { ':ttlNum': 'N', ':ttlNone': 0, ':nowTs': now },
 });
+
+/** A row whose `ttl` has passed and has not been swept yet. */
+const expiredRowFilter = (now: number) => {
+    const live = liveRowFilter(now);
+    return { ...live, expression: `NOT (${live.expression})` };
+};
+
+/**
+ * A timestamp at or before now is stored as `floor(now)` rather than as-is, so
+ * it still sweeps (never `0`, which reads as no expiry).
+ */
+const storedExpiry = (timestamp: number): number => {
+    const now = Date.now() / 1000;
+    return timestamp <= now ? Math.floor(now) : timestamp;
+};
+
+/**
+ * Coerces `expireAt` to a number or `null` (no expiry); rejects anything else,
+ * since a raw HTTP body isn't bound by the SDK's types.
+ */
+const coerceExpiry = (value: unknown, label: string): number | null => {
+    if (
+        value === null ||
+        value === undefined ||
+        value === 0 ||
+        value === '' ||
+        value === false
+    ) {
+        return null;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+        const n = Number(value);
+        if (Number.isFinite(n)) return n;
+    }
+    throw new HttpError(400, `kv: ${label} must be a number`, {
+        legacyCode: 'bad_request',
+    });
+};
+
+/** A write refused because the stored value isn't the type the op needs. */
+const isTypeMismatch = (err: unknown): boolean =>
+    (err as Error)?.name === 'ValidationException' &&
+    /incorrect (data|operand) type/i.test((err as Error).message);
+
+/**
+ * Attempts `#writeLiveOrMissing` retries a write refused for landing on a stale
+ * expired row.
+ */
+const MAX_LIVE_WRITE_ATTEMPTS = 3;
 
 /**
  * Expired entries, plus private ones for a cross-app caller. Filtered in the
@@ -195,12 +251,12 @@ const ttlFilter = (now: number) => ({
  * total counting rows the caller can't see would leak what the flag hides.
  */
 const listFilter = (now: number, crossApp: boolean) => {
-    const ttl = ttlFilter(now);
-    if (!crossApp) return ttl;
+    const live = liveRowFilter(now);
+    if (!crossApp) return live;
     return {
-        expression: `(${ttl.expression}) AND attribute_not_exists(#privAttr)`,
-        names: { ...ttl.names, '#privAttr': KV_PRIVATE_ATTR },
-        values: { ...ttl.values },
+        expression: `(${live.expression}) AND attribute_not_exists(#privAttr)`,
+        names: { ...live.names, '#privAttr': KV_PRIVATE_ATTR },
+        values: { ...live.values },
     };
 };
 
@@ -788,7 +844,7 @@ export class SystemKVStore extends PuterStore {
                     // The entry carries its own deadline and the cache TTL is
                     // only an upper bound on it, so an entry that lapsed since
                     // it was written counts as nothing cached at all.
-                    if (cached.item.ttl && cached.item.ttl <= now) {
+                    if (isExpiredTtl(cached.item.ttl, now)) {
                         outcomes.expired++;
                         return;
                     }
@@ -964,6 +1020,9 @@ export class SystemKVStore extends PuterStore {
                         : {}),
                     ...(noShareKeys?.length
                         ? { noShareKeys: [...new Set(noShareKeys)] }
+                        : {}),
+                    ...(actor.handlerDepth
+                        ? { handlerDepth: actor.handlerDepth }
                         : {}),
                 },
                 {},
@@ -1217,11 +1276,37 @@ export class SystemKVStore extends PuterStore {
         opts?: KVOpts,
     ): Promise<KVUsage> {
         if (!isCrossApp(opts)) return emptyUsage();
-        const response = await this.clients.dynamo.get(this.tableName, {
+        let response = await this.clients.dynamo.get(this.tableName, {
             namespace,
             key,
         });
-        if (response.Item?.[KV_PRIVATE_ATTR]) {
+        let usage = readUsage(
+            response.ConsumedCapacity?.CapacityUnits as number | undefined,
+        );
+        // An expired flag no longer applies, but a stale read could be wrong
+        // — confirm with a consistent one before trusting it.
+        if (
+            response.Item?.[KV_PRIVATE_ATTR] &&
+            isExpiredTtl(response.Item.ttl, Date.now() / 1000)
+        ) {
+            response = await this.clients.dynamo.get(
+                this.tableName,
+                { namespace, key },
+                true,
+            );
+            usage = addUsage(
+                usage,
+                readUsage(
+                    response.ConsumedCapacity?.CapacityUnits as
+                        | number
+                        | undefined,
+                ),
+            );
+        }
+        if (
+            response.Item?.[KV_PRIVATE_ATTR] &&
+            !isExpiredTtl(response.Item.ttl, Date.now() / 1000)
+        ) {
             throw new HttpError(
                 403,
                 'kv: this entry is private to the app that wrote it',
@@ -1230,9 +1315,7 @@ export class SystemKVStore extends PuterStore {
         }
         // Returned rather than swallowed: the probe is a real read, and a caller
         // that did not pay for it is under-billed for the operation.
-        return readUsage(
-            response.ConsumedCapacity?.CapacityUnits as number | undefined,
-        );
+        return usage;
     }
 
     /**
@@ -1246,7 +1329,42 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVUsage> {
         if (!isCrossApp(opts) || keys.length === 0) return emptyUsage();
         const { entries, usage } = await this.getBatches(namespace, keys);
-        const isPrivate = entries.some((entry) => entry?.noShare);
+        const now = Date.now() / 1000;
+
+        // Same race as the single-key form: confirm any private-and-expired
+        // entries with a consistent read before trusting them.
+        const staleKeys = new Set(
+            entries
+                .filter(
+                    (entry) => entry?.noShare && isExpiredTtl(entry.ttl, now),
+                )
+                .map((entry) => entry.key),
+        );
+        let confirmedEntries: (KvCachedItem | null)[] = entries;
+        let recheckUsage = emptyUsage();
+        if (staleKeys.size > 0) {
+            const rechecked = await this.getBatches(
+                namespace,
+                [...staleKeys],
+                true,
+            );
+            recheckUsage = rechecked.usage;
+            const byKey = new Map(
+                rechecked.entries.map((entry) => [entry.key, entry]),
+            );
+            // A key rechecked but no longer found is gone, not stale — never
+            // fall back to what the first, uncertain read said about it.
+            confirmedEntries = entries.map((entry) =>
+                staleKeys.has(entry.key)
+                    ? (byKey.get(entry.key) ?? null)
+                    : entry,
+            );
+        }
+
+        // An expired row's flag no longer applies — nothing left to hide.
+        const isPrivate = confirmedEntries.some(
+            (entry) => entry?.noShare && !isExpiredTtl(entry.ttl, now),
+        );
         if (isPrivate) {
             throw new HttpError(
                 403,
@@ -1254,7 +1372,68 @@ export class SystemKVStore extends PuterStore {
                 { legacyCode: 'forbidden' },
             );
         }
-        return usage;
+        return addUsage(usage, recheckUsage);
+    }
+
+    /**
+     * Deletes a row that has expired but not been swept, so a write can build
+     * on a clean slate. A refused delete means another writer already did it.
+     */
+    async #dropIfExpired(namespace: string, key: string): Promise<KVUsage> {
+        try {
+            const response = await this.clients.dynamo.del(
+                this.tableName,
+                { namespace, key },
+                { condition: expiredRowFilter(Date.now() / 1000) },
+            );
+            return writeUsage(
+                (response.ConsumedCapacity?.CapacityUnits as
+                    | number
+                    | undefined) ?? 1,
+            );
+        } catch (e) {
+            if (isConditionRefused(e)) return writeUsage(1);
+            throw e;
+        }
+    }
+
+    /**
+     * Drops a stale expired row and retries the write. After the last attempt,
+     * throws a retryable 503 instead of the raw refusal.
+     */
+    async #writeLiveOrMissing<R>(
+        namespace: string,
+        key: string,
+        write: () => Promise<R>,
+    ): Promise<{ response: R; resetUsage: KVUsage }> {
+        let resetUsage = emptyUsage();
+        for (let attempt = 1; ; attempt++) {
+            try {
+                return { response: await write(), resetUsage };
+            } catch (e) {
+                if (!isConditionRefused(e)) throw e;
+                if (attempt >= MAX_LIVE_WRITE_ATTEMPTS) {
+                    // A caller can trigger this via contention, so it must
+                    // stay a retryable 503, not a 4xx, and must not page.
+                    throw new HttpError(
+                        503,
+                        'kv: too many writers are contending for this key right now; try again',
+                        {
+                            legacyCode: 'response_timeout',
+                            cause: e,
+                            noAlarm: true,
+                        },
+                    );
+                }
+                resetUsage = addUsage(
+                    resetUsage,
+                    addUsage(
+                        writeUsage(1),
+                        await this.#dropIfExpired(namespace, key),
+                    ),
+                );
+            }
+        }
     }
 
     async get(
@@ -1335,7 +1514,7 @@ export class SystemKVStore extends PuterStore {
         const values = keys.map((k) => {
             const entry = kvEntries.find((e) => e.key === k);
             if (!entry) return null;
-            if (entry.ttl && entry.ttl <= now) return null;
+            if (isExpiredTtl(entry.ttl, now)) return null;
             // Absent rather than refused: the flag must not confirm the key.
             if (crossApp && entry.noShare) return null;
             return entry.value ?? null;
@@ -1353,7 +1532,8 @@ export class SystemKVStore extends PuterStore {
         }: {
             key: string;
             value: unknown;
-            expireAt?: number;
+            /** `null` or `0` (like the omitted case) mean no expiry. */
+            expireAt?: number | null;
             /**
              * Mark the entry private. `put` replaces the item, so omitting it
              * on a later write is how the owner re-shares the entry.
@@ -1364,6 +1544,7 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<boolean>> {
         assertKey(key);
         assertValue(value);
+        const ttl = coerceExpiry(expireAt, 'expireAt');
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
@@ -1372,7 +1553,7 @@ export class SystemKVStore extends PuterStore {
             namespace,
             key,
             value,
-            ttl: expireAt,
+            ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
             ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
         });
         await this.#committed(
@@ -1402,7 +1583,12 @@ export class SystemKVStore extends PuterStore {
             items,
             disableSharing,
         }: {
-            items: Array<{ key: string; value: unknown; expireAt?: number }>;
+            items: Array<{
+                key: string;
+                value: unknown;
+                /** `null` or `0` (like the omitted case) mean no expiry. */
+                expireAt?: number | null;
+            }>;
             /**
              * Marks every entry in the batch private, as `set` does for one.
              * Batch-wide rather than per-item: it arrives on the same trailing
@@ -1418,7 +1604,7 @@ export class SystemKVStore extends PuterStore {
 
         const byKey = new Map<
             string,
-            { key: string; value: unknown; expireAt?: number }
+            { key: string; value: unknown; expireAt?: number | null }
         >();
         for (const item of items) {
             const k = String(item.key);
@@ -1427,7 +1613,7 @@ export class SystemKVStore extends PuterStore {
             byKey.set(k, {
                 key: k,
                 value: item.value,
-                expireAt: item.expireAt,
+                expireAt: coerceExpiry(item.expireAt, 'expireAt'),
             });
         }
 
@@ -1447,7 +1633,7 @@ export class SystemKVStore extends PuterStore {
                 namespace,
                 key: item.key,
                 value: item.value,
-                ttl: item.expireAt,
+                ...(item.expireAt ? { ttl: storedExpiry(item.expireAt) } : {}),
                 ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
             },
         }));
@@ -1542,7 +1728,7 @@ export class SystemKVStore extends PuterStore {
             | undefined;
         const now = Date.now() / 1000;
         const res =
-            old === undefined || (old.ttl && old.ttl <= now)
+            old === undefined || isExpiredTtl(old.ttl, now)
                 ? null
                 : (old.value ?? null);
 
@@ -1829,7 +2015,7 @@ export class SystemKVStore extends PuterStore {
         }
 
         const entries = collected
-            .filter((e) => e && (!e.ttl || (e.ttl as number) > now))
+            .filter((e) => e && !isExpiredTtl(e.ttl, now))
             .map((e) => ({ key: e.key as string, value: e.value }));
 
         let items: string[] | unknown[] | { key: string; value: unknown }[] =
@@ -1919,7 +2105,7 @@ export class SystemKVStore extends PuterStore {
     async expireAt(
         { key, timestamp }: { key: string; timestamp: number },
         opts?: KVOpts,
-    ): Promise<KVResult<void>> {
+    ): Promise<KVResult<boolean>> {
         assertKey(key);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -1937,13 +2123,13 @@ export class SystemKVStore extends PuterStore {
             undefined,
             isPrivate ? [key] : undefined,
         );
-        return { res: undefined, usage: addUsage(probeUsage, usage) };
+        return { res: true, usage: addUsage(probeUsage, usage) };
     }
 
     async expire(
         { key, ttl }: { key: string; ttl: number },
         opts?: KVOpts,
-    ): Promise<KVResult<void>> {
+    ): Promise<KVResult<boolean>> {
         assertKey(key);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -1962,7 +2148,7 @@ export class SystemKVStore extends PuterStore {
             undefined,
             isPrivate ? [key] : undefined,
         );
-        return { res: undefined, usage: addUsage(probeUsage, usage) };
+        return { res: true, usage: addUsage(probeUsage, usage) };
     }
 
     async incr<T extends Record<string, number>>(
@@ -2000,13 +2186,15 @@ export class SystemKVStore extends PuterStore {
         const setStatements = pathTokens.map((tokens, idx) =>
             incrSetStatement(tokens, idx, renderer),
         );
-        const valueAttributeValues = Object.entries(pathAndAmountMap).reduce(
+        const valueAttributeValues: Record<string, unknown> = Object.entries(
+            pathAndAmountMap,
+        ).reduce(
             (acc, [_path, amt], idx) => {
                 acc[`:incr${idx}`] = amt;
                 acc[`:start${idx}`] = 0;
                 return acc;
             },
-            {} as Record<string, number>,
+            {} as Record<string, unknown>,
         );
 
         // Fold the TTL into the same UpdateItem so a counter bump is a single
@@ -2020,31 +2208,53 @@ export class SystemKVStore extends PuterStore {
                     legacyCode: 'bad_request',
                 });
             setStatements.push('#ttl = if_not_exists(#ttl, :ttl)');
-            valueAttributeValues[':ttl'] = ttlSeconds;
+            valueAttributeValues[':ttl'] = storedExpiry(ttlSeconds);
             renderer.names['#ttl'] = 'ttl';
         }
 
         const updateExpression = `SET ${setStatements.join(', ')}`;
-        const runUpdate = () =>
-            this.clients.dynamo.update(
+        // Only applies to a live (or missing) row — a stale expired one
+        // refuses, so the caller resets it instead of building on top of it.
+        const runUpdate = () => {
+            const live = liveRowFilter(Date.now() / 1000);
+            return this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
                 updateExpression,
-                valueAttributeValues,
-                renderer.names,
+                { ...valueAttributeValues, ...live.values },
+                { ...renderer.names, ...live.names },
+                { condition: live.expression },
             );
+        };
 
         // Most increments land on an item whose parent maps already exist (a
         // day's counter is created once, then bumped on every event), so try
         // the update directly and only pay for createPaths when a nested
         // parent is genuinely missing — typically the first bump for a key.
-        const { response, createPathsUsage } =
-            await this.withCreatePathsFallback(
-                namespace,
-                key,
-                pathTokens,
-                runUpdate,
+        let resetUsage: KVUsage;
+        let response: Awaited<ReturnType<typeof runUpdate>>;
+        let createPathsUsage: number;
+        try {
+            const outcome = await this.#writeLiveOrMissing(namespace, key, () =>
+                this.withCreatePathsFallback(
+                    namespace,
+                    key,
+                    pathTokens,
+                    runUpdate,
+                ),
             );
+            resetUsage = outcome.resetUsage;
+            response = outcome.response.response;
+            createPathsUsage = outcome.response.createPathsUsage;
+        } catch (e) {
+            if (isTypeMismatch(e))
+                throw new HttpError(
+                    400,
+                    'kv: the value is not a number, so it cannot be incremented or decremented',
+                    { code: 'value_not_a_number', cause: e },
+                );
+            throw e;
+        }
         await this.#committed(
             actor,
             namespace,
@@ -2056,9 +2266,12 @@ export class SystemKVStore extends PuterStore {
 
         const usage = addUsage(
             probeUsage,
-            writeUsage(
-                Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                    createPathsUsage,
+            addUsage(
+                resetUsage,
+                writeUsage(
+                    Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
+                        createPathsUsage,
+                ),
             ),
         );
 
@@ -2115,22 +2328,30 @@ export class SystemKVStore extends PuterStore {
             },
             {} as Record<string, unknown>,
         );
-        const runUpdate = () =>
-            this.clients.dynamo.update(
+        // Only applies to a live (or missing) row — a stale expired one
+        // refuses, so the caller resets it instead of building on top of it.
+        const runUpdate = () => {
+            const live = liveRowFilter(Date.now() / 1000);
+            return this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
                 `SET ${setStatements.join(', ')}`,
-                valueAttributeValues,
-                renderer.names,
+                { ...valueAttributeValues, ...live.values },
+                { ...renderer.names, ...live.names },
+                { condition: live.expression },
             );
+        };
 
-        const { response, createPathsUsage } =
-            await this.withCreatePathsFallback(
-                namespace,
-                key,
-                pathTokens,
-                runUpdate,
+        const { resetUsage, response: buildResult } =
+            await this.#writeLiveOrMissing(namespace, key, () =>
+                this.withCreatePathsFallback(
+                    namespace,
+                    key,
+                    pathTokens,
+                    runUpdate,
+                ),
             );
+        const { response, createPathsUsage } = buildResult;
         await this.#committed(
             actor,
             namespace,
@@ -2142,9 +2363,12 @@ export class SystemKVStore extends PuterStore {
 
         const usage = addUsage(
             probeUsage,
-            writeUsage(
-                Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                    createPathsUsage,
+            addUsage(
+                resetUsage,
+                writeUsage(
+                    Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
+                        createPathsUsage,
+                ),
             ),
         );
 
@@ -2172,14 +2396,16 @@ export class SystemKVStore extends PuterStore {
         const removeStatements = pathTokens.map((tokens) =>
             renderer.path(tokens),
         );
+        const live = liveRowFilter(Date.now() / 1000);
 
         try {
             const response = await this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
                 `REMOVE ${removeStatements.join(', ')}`,
-                undefined,
-                renderer.names,
+                live.values,
+                { ...renderer.names, ...live.names },
+                { condition: live.expression },
             );
             await this.#committed(
                 actor,
@@ -2201,6 +2427,14 @@ export class SystemKVStore extends PuterStore {
                 ),
             };
         } catch (e) {
+            // An expired row reads as missing — nothing to remove from, and
+            // no retry: unlike the other writes, there is nothing to build.
+            if (isConditionRefused(e)) {
+                return {
+                    res: null,
+                    usage: addUsage(probeUsage, writeUsage(1)),
+                };
+            }
             const err = e as Error;
             if (
                 err?.name === 'ValidationException' &&
@@ -2228,7 +2462,8 @@ export class SystemKVStore extends PuterStore {
         }: {
             key: string;
             pathAndValueMap: Record<string, unknown>;
-            ttl?: number;
+            /** Omit to keep the key's TTL; `null` removes it. */
+            ttl?: number | null;
         },
         opts?: KVOpts,
     ): Promise<KVResult<unknown>> {
@@ -2254,41 +2489,60 @@ export class SystemKVStore extends PuterStore {
             const attrName = renderer.path(tokens);
             return `${attrName} = :value${idx}`;
         });
-        const valueAttributeValues = Object.entries(pathAndValueMap).reduce(
+        const valueAttributeValues: Record<string, unknown> = Object.entries(
+            pathAndValueMap,
+        ).reduce(
             (acc, [_path, val], idx) => {
                 acc[`:value${idx}`] = val;
                 return acc;
             },
             {} as Record<string, unknown>,
         );
-        if (ttl !== undefined) {
+        let removeTtl = false;
+        if (ttl === null) {
+            removeTtl = true;
+            renderer.names['#ttl'] = 'ttl';
+        } else if (ttl !== undefined) {
             const ttlSeconds = Number(ttl);
             if (Number.isNaN(ttlSeconds))
                 throw new HttpError(400, 'kv: ttl must be a number', {
                     legacyCode: 'bad_request',
                 });
-            const timestamp = Math.floor(Date.now() / 1000) + ttlSeconds;
+            const timestamp = storedExpiry(
+                Math.floor(Date.now() / 1000) + ttlSeconds,
+            );
             setStatements.push('#ttl = :ttl');
             valueAttributeValues[':ttl'] = timestamp;
             renderer.names['#ttl'] = 'ttl';
         }
+        const baseExpression = `SET ${setStatements.join(', ')}${
+            removeTtl ? ' REMOVE #ttl' : ''
+        }`;
 
-        const runUpdate = () =>
-            this.clients.dynamo.update(
+        // Only applies to a live (or missing) row — a stale expired one
+        // refuses, so the caller resets it instead of building on top of it.
+        const runUpdate = () => {
+            const live = liveRowFilter(Date.now() / 1000);
+            return this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
-                `SET ${setStatements.join(', ')}`,
-                valueAttributeValues,
-                renderer.names,
+                baseExpression,
+                { ...valueAttributeValues, ...live.values },
+                { ...renderer.names, ...live.names },
+                { condition: live.expression },
             );
+        };
 
-        const { response, createPathsUsage } =
-            await this.withCreatePathsFallback(
-                namespace,
-                key,
-                pathTokens,
-                runUpdate,
+        const { resetUsage, response: buildResult } =
+            await this.#writeLiveOrMissing(namespace, key, () =>
+                this.withCreatePathsFallback(
+                    namespace,
+                    key,
+                    pathTokens,
+                    runUpdate,
+                ),
             );
+        const { response, createPathsUsage } = buildResult;
 
         await this.#committed(
             actor,
@@ -2301,9 +2555,12 @@ export class SystemKVStore extends PuterStore {
 
         const usage = addUsage(
             probeUsage,
-            writeUsage(
-                Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                    createPathsUsage,
+            addUsage(
+                resetUsage,
+                writeUsage(
+                    Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
+                        createPathsUsage,
+                ),
             ),
         );
 
@@ -2315,6 +2572,7 @@ export class SystemKVStore extends PuterStore {
     private async getBatches(
         namespace: string,
         allKeys: string[],
+        consistentRead = false,
     ): Promise<{
         entries: KvCachedItem[];
         usage: KVUsage;
@@ -2332,7 +2590,10 @@ export class SystemKVStore extends PuterStore {
                     table: this.tableName,
                     items: { namespace, key: k },
                 }));
-                const response = await this.clients.dynamo.batchGet(requests);
+                const response = await this.clients.dynamo.batchGet(
+                    requests,
+                    consistentRead,
+                );
                 const entries = (response.Responses?.[this.tableName] ??
                     []) as unknown as KvCachedItem[];
                 const units =
@@ -2357,23 +2618,43 @@ export class SystemKVStore extends PuterStore {
         );
     }
 
+    /**
+     * Sets `ttl`, defaulting a missing value to `null` — a reset always writes
+     * a fresh marker rather than reviving the old value.
+     */
     private async rawExpireAt(
         namespace: string,
         key: string,
         timestamp: number,
     ): Promise<{ usage: KVUsage; isPrivate: boolean }> {
-        const response = await this.clients.dynamo.update(
-            this.tableName,
-            { key, namespace },
-            'SET #ttl = :ttl, #value = if_not_exists(#value, :defaultValue)',
-            { ':ttl': timestamp, ':defaultValue': null },
-            { '#ttl': 'ttl', '#value': 'value' },
+        const runUpdate = () => {
+            const live = liveRowFilter(Date.now() / 1000);
+            return this.clients.dynamo.update(
+                this.tableName,
+                { key, namespace },
+                'SET #ttl = :ttl, #value = if_not_exists(#value, :defaultValue)',
+                {
+                    ':ttl': storedExpiry(timestamp),
+                    ':defaultValue': null,
+                    ...live.values,
+                },
+                { '#ttl': 'ttl', '#value': 'value', ...live.names },
+                { condition: live.expression },
+            );
+        };
+        const { response, resetUsage } = await this.#writeLiveOrMissing(
+            namespace,
+            key,
+            runUpdate,
         );
         return {
-            usage: writeUsage(
-                (response.ConsumedCapacity?.CapacityUnits as
-                    | number
-                    | undefined) ?? 1,
+            usage: addUsage(
+                resetUsage,
+                writeUsage(
+                    (response.ConsumedCapacity?.CapacityUnits as
+                        | number
+                        | undefined) ?? 1,
+                ),
             ),
             isPrivate: Boolean(response.Attributes?.[KV_PRIVATE_ATTR]),
         };
@@ -2382,8 +2663,8 @@ export class SystemKVStore extends PuterStore {
     /**
      * Try `runUpdate`; on a ValidationException (typically a missing parent
      * container), create the containers and retry once. An oversized expression
-     * is rethrown: createPaths can't fix it, and each of its writes costs the
-     * whole item.
+     * or a type mismatch is rethrown: createPaths can't fix either, and each of
+     * its writes costs the whole item.
      */
     private async withCreatePathsFallback<R>(
         namespace: string,
@@ -2397,6 +2678,7 @@ export class SystemKVStore extends PuterStore {
             const err = e as Error;
             if (err?.name !== 'ValidationException') throw e;
             if (isOversizedExpression(err)) throw e;
+            if (isTypeMismatch(err)) throw e;
             const createPathsUsage = await this.createPaths(
                 namespace,
                 key,
@@ -2420,14 +2702,18 @@ export class SystemKVStore extends PuterStore {
         const plan = planCreatePaths(pathList);
         if (!plan.nestedMapValue) return 0;
 
+        // Guarded like every other write here, so a lapsed row refuses
+        // instead of raising a raw document-path error.
         const rootRenderer = new PathExpressionRenderer();
         const rootAttr = rootRenderer.path([]);
+        const rootLive = liveRowFilter(Date.now() / 1000);
         const rootResponse = await this.clients.dynamo.update(
             this.tableName,
             { key, namespace },
             `SET ${rootAttr} = if_not_exists(${rootAttr}, :nestedMap)`,
-            { ':nestedMap': plan.nestedMapValue },
-            rootRenderer.names,
+            { ':nestedMap': plan.nestedMapValue, ...rootLive.values },
+            { ...rootRenderer.names, ...rootLive.names },
+            { condition: rootLive.expression },
         );
         let writeUnits = Number(
             rootResponse.ConsumedCapacity?.CapacityUnits ?? 0,
@@ -2450,12 +2736,14 @@ export class SystemKVStore extends PuterStore {
                         entry.containerType === 'index' ? [] : {};
                     return createPathsSetStatement(entry, idx, renderer);
                 });
+                const live = liveRowFilter(Date.now() / 1000);
                 const response = await this.clients.dynamo.update(
                     this.tableName,
                     { key, namespace },
                     `SET ${setStatements.join(', ')}`,
-                    expressionValues,
-                    renderer.names,
+                    { ...expressionValues, ...live.values },
+                    { ...renderer.names, ...live.names },
+                    { condition: live.expression },
                 );
                 writeUnits += Number(
                     response.ConsumedCapacity?.CapacityUnits ?? 0,

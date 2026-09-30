@@ -29,7 +29,7 @@ An id this caller doesn't hold (already ended, or created by another app) is rep
 | `code` | Meaning |
 | --- | --- |
 | `subscription_does_not_exist` | No such subscription, or it isn't this caller's. |
-| `too_many_requests` | Over the subscribe/unsubscribe rate limit. |
+| `too_many_requests` | Over the unsubscribe rate limit — its own, not the `subscribe` one. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
 

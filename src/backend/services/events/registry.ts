@@ -106,7 +106,9 @@ export interface ProjectedNotifEvent extends ProjectedEventBase {
 }
 
 export type ProjectedEvent =
-    ProjectedFsEvent | ProjectedKvEvent | ProjectedNotifEvent;
+    | ProjectedFsEvent
+    | ProjectedKvEvent
+    | ProjectedNotifEvent;
 
 export type GapReason =
     | 'matched_subscription_limit'
@@ -140,6 +142,8 @@ export interface EventContextBase {
     key: EventKey;
     id: string;
     ts: number;
+    /** Handler runs behind the change. Never projected. */
+    handlerDepth?: number;
 }
 
 /** What dispatch knows about one committed filesystem change. */
@@ -265,7 +269,9 @@ export interface NotifPublicSubject extends SubjectSpec<
 }
 
 export type PublicSubject =
-    FsPublicSubject | KvPublicSubject | NotifPublicSubject;
+    | FsPublicSubject
+    | KvPublicSubject
+    | NotifPublicSubject;
 
 export interface UnpublishedInternalEvent {
     event: EventKey;
