@@ -23,7 +23,10 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
  * Adds values to an existing key, returning the updated value.
  *
  * `value` defaults to `1` when omitted, or maps dot-separated paths to the
- * value (or values) to add at each path.
+ * value (or values) to add at each path. A plain object is always a path map,
+ * so wrap an object in an array to append it. Rejects with `value_not_a_list`
+ * when the target isn't a list, and `invalid_path` when a path runs through
+ * something that isn't an object or through a missing list element.
  *
  * @this {import('./index.js').KVModule}
  * @param {string | { key: string, pathAndValueMap?: KVAddPath, optConfig?: KVOptConfig }} keyOrOptions

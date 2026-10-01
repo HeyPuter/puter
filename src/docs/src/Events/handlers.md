@@ -10,6 +10,8 @@ A **handler** is a function your app publishes once, under a name, for persisten
 
 Publishing is a **developer** operation: the account must own the app. An app token publishes into its own app; an account session names the app with `appUid`.
 
+On a website with nobody signed in, each method asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 ```js
 await puter.events.handlers.publish('ingestUpload', async ({ event, ctx }) => {
     await fetch(ctx.endpoint, { method: 'POST', body: event.path });
@@ -123,6 +125,7 @@ All four methods reject with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
 | `events_handler_invalid` | `handler` isn't a function, a source string, or `{ file }`. |
 | `events_handler_name_invalid` | The name is empty, too long, or has characters that aren't allowed. |

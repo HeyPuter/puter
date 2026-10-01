@@ -1,5 +1,6 @@
 import { fetchUrl } from '../../../lib/networkUtils.js';
 import { PuterJSError } from '../../../lib/PuterJSError.js';
+import { needsSignIn, signInVisitor } from './signIn.js';
 
 /**
  * The HTTP half of `puter.events`. The socket verbs carry session
@@ -19,6 +20,8 @@ const requestFailed = (status) =>
     );
 
 /**
+ * Signs a signed-out website visitor in first, so every events HTTP call does.
+ *
  * @param {import('../../../index.js').Puter} puter
  * @param {string} route
  * @param {Record<string, unknown>} [body] Present makes it a POST.
@@ -26,6 +29,8 @@ const requestFailed = (status) =>
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function request (puter, route, body, query) {
+    if ( needsSignIn(puter) ) await signInVisitor(puter);
+
     const search = new URLSearchParams();
     for ( const [key, value] of Object.entries(query ?? {}) ) {
         if ( value === undefined || value === null ) continue;

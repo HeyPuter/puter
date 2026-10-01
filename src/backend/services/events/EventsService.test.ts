@@ -681,6 +681,59 @@ describe('unsubscribing', () => {
                 err.legacyCode === 'subscription_does_not_exist',
         );
     });
+
+    it('removes a subscription that moved while it was being removed', async () => {
+        const { home, documents } = seedTree();
+        // A literal, not-yet-existing child: a path-form row anchored
+        // exactly on `documents`, the same shape `anchorSettle` carries
+        // forward when `documents` itself is later removed.
+        const sub = await subscribe(`fs:${documents.path}/trigger`);
+        // What the row would match after the climb below (`Documents/trigger`
+        // relative to `home`) — a surviving row would be delivered this.
+        const trigger = register(
+            entry({ uid: `trigger-${seq}`, path: `${documents.path}/trigger` }),
+        );
+
+        const original = store.remove.bind(store);
+        const removeSpy = vi
+            .spyOn(store, 'remove')
+            .mockImplementationOnce(async (row) => {
+                // A carryForward climbing the row to `home` wins the race
+                // right as this call is about to drop it at its old anchor.
+                await store.reanchorSession(row, {
+                    ...row,
+                    token: `f#${home.uid}`,
+                    anchorUid: home.uid,
+                    anchorPath: home.path,
+                    match: 'Documents/trigger',
+                });
+                return original(row);
+            });
+
+        try {
+            await service.unsubscribe(actorFor(), socketId, {
+                subId: sub.subId,
+            });
+        } finally {
+            removeSpy.mockRestore();
+        }
+
+        await expect(store.listForSocket(userId, socketId)).resolves.toEqual(
+            [],
+        );
+        await expect(
+            store.getForTokens(userId, [`f#${home.uid}`]),
+        ).resolves.toEqual([]);
+
+        vi.useFakeTimers();
+        try {
+            await dispatch(trigger);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(sent).toEqual([]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 // -- What a dispatch costs -------------------------------------------
@@ -909,6 +962,63 @@ describe('cross-process invalidation', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toHaveLength(1);
+    });
+});
+
+describe('a subscription another process ended', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('drops what it had queued for it', async () => {
+        const { documents, file } = seedTree();
+        const sub = await subscribe(`fs:${documents.uid}`);
+
+        await dispatch(file);
+        remoteGenerationBumpHandler()?.(
+            'outer.pubsub.events.generationBumped',
+            { userId, generation: 99, durable: false, ended: [sub.subId] },
+            { from_outside: true },
+        );
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+        expect(metered).toEqual([]);
+    });
+
+    it('queues nothing more for it from a dispatch that still finds the row', async () => {
+        const { documents, file } = seedTree();
+        const sub = await subscribe(`fs:${documents.uid}`);
+
+        remoteGenerationBumpHandler()?.(
+            'outer.pubsub.events.generationBumped',
+            { userId, generation: 99, durable: false, ended: [sub.subId] },
+            { from_outside: true },
+        );
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toEqual([]);
+    });
+
+    it('keeps delivering to subscriptions it did not name', async () => {
+        const { documents, file } = seedTree();
+        const named = await subscribe(`fs:${documents.uid}`, `${socketId}-a`);
+        const other = await subscribe(`fs:${documents.uid}`, `${socketId}-b`);
+
+        await dispatch(file);
+        remoteGenerationBumpHandler()?.(
+            'outer.pubsub.events.generationBumped',
+            { userId, generation: 99, durable: false, ended: [named.subId] },
+            { from_outside: true },
+        );
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.map((s) => s.envelope.subId)).toEqual([other.subId]);
     });
 });
 

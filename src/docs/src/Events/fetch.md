@@ -12,6 +12,8 @@ It's a plain query: nothing is registered, no position is saved, and calling it 
 
 Only **`notif:`** (the notification mailbox) stores events. `fs:` and `kv:` are refused with `fetch_unsupported_subject` rather than answered with an empty page.
 
+On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 ## Syntax
 ```js
 puter.events.fetch(options)
@@ -43,16 +45,26 @@ Each item is a notification event:
 | `type` | String | The kind of notification, from the published catalog: `share.received`, `app.worker.deployed`, and so on. |
 | `audience` | String | `account`, `developer`, or `app-user`. |
 | `appUid` | String \| null | The app it's about, or `null` for platform notifications. |
-| `notification` | Object | The payload: `title`, `text`, `icon`, `fields`. |
+| `notification` | Object | The stored payload. It always has `type`, and everything Puter sends has a `title`; other fields depend on `type` (below). |
 | `self` | Boolean | Always `true`: a mailbox is your own. |
 | `ts` | Number | When it was created, in milliseconds since the epoch. |
 | `seq` | Number | Position within the page. |
 
-Apps never see `account` notifications (email changed, credits exhausted, and so on), and see `developer` notifications only for apps the user owns. Asking for a slice you can't see returns an empty page rather than an error, so the call doesn't reveal what exists.
+Besides `type` and `title`, `notification` carries:
+
+- `share.received`: `fields.username`, `fields.count`, `fields.senders` (`[{ username, count }]`), and `fields.target` (`{ path, name }`) for a single item.
+- `share.claimed`: `fields.count`.
+- `app.worker.deployed`, `app.worker.deployFailed`: nothing else.
+- `app.events.ended`: `reason` (`anchor_deleted`, `permission_revoked`, or `no_credit`); `anchor_deleted` and `permission_revoked` also add `subject`, `subjects` (up to 20) and `count`.
+- `app.events.suspended`: `handler` and `subscriptions`.
+
+Other notifications can carry other fields, so read them defensively.
+
+Apps never see `account` notifications (files shared with you, and so on), and see `developer` notifications only for apps the user owns. Asking for a slice you can't see returns an empty page rather than an error, so the call doesn't reveal what exists.
 
 Notifications are kept for the deployment's retention window. A client away for longer starts from what's left.
 
-The promise rejects with `{ message, code }`: `fetch_unsupported_subject` for `fs:` or `kv:`, `invalid_subject` or `invalid_subject_audience` for a subject that doesn't parse, `too_many_requests` over the rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
+The promise rejects with `{ message, code }`: `auth_canceled` if nobody was signed in and the user closed the sign-in, `fetch_unsupported_subject` for `fs:` or `kv:`, `invalid_subject` or `invalid_subject_audience` for a subject that doesn't parse, `too_many_requests` over the rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
 
 ## Examples
 

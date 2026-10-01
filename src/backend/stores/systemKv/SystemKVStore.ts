@@ -43,6 +43,7 @@ import {
     KV_CACHE_BLOCK_MARKER,
     kvCacheKey,
     resolveKvCacheSettings,
+    ttlNumber,
     type KvCachedItem,
     type KvCacheSettings,
 } from './readCache';
@@ -185,14 +186,28 @@ const privateKeys = (
 ): string[] | undefined => (item?.[KV_PRIVATE_ATTR] ? [key] : undefined);
 
 /**
- * Live: `ttl` isn't a number, is `0`, or is future — a condition can't coerce a
- * legacy numeric-string/boolean `ttl`, so reads use `isExpiredTtl` instead.
+ * Live: `ttl` isn't a number, is `0`, or is future. Used for reads and listing,
+ * where `isExpiredTtl` settles a legacy numeric-string/boolean `ttl` a
+ * condition can't coerce. `remove` writes under it too; other writes use
+ * `writableRowFilter`.
  */
 const liveRowFilter = (now: number) => ({
     expression:
         'attribute_not_exists(#ttl) OR NOT attribute_type(#ttl, :ttlNum) OR #ttl = :ttlNone OR #ttl > :nowTs',
     names: { '#ttl': 'ttl' },
     values: { ':ttlNum': 'N', ':ttlNone': 0, ':nowTs': now },
+});
+
+/**
+ * Writable: no `ttl`, a null or `0` one, or a future number. A `ttl` stored as
+ * text or a boolean refuses, so `#writeLiveOrMissing` can read it the way reads
+ * do.
+ */
+const writableRowFilter = (now: number) => ({
+    expression:
+        'attribute_not_exists(#ttl) OR attribute_type(#ttl, :ttlNull) OR #ttl = :ttlNone OR #ttl > :nowTs',
+    names: { '#ttl': 'ttl' },
+    values: { ':ttlNull': 'NULL', ':ttlNone': 0, ':nowTs': now },
 });
 
 /** A row whose `ttl` has passed and has not been swept yet. */
@@ -234,10 +249,45 @@ const coerceExpiry = (value: unknown, label: string): number | null => {
     });
 };
 
+/**
+ * An `update` ttl in seconds: `null` clears it; omitted, `''` or `false` keep
+ * it (`undefined`).
+ */
+const coerceTtlSeconds = (value: unknown): number | null | undefined => {
+    if (value === null) return null;
+    if (value === undefined || value === '' || value === false)
+        return undefined;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+        const n = Number(value);
+        if (Number.isFinite(n)) return n;
+    }
+    throw new HttpError(400, 'kv: ttl must be a number', {
+        code: 'ttl_invalid',
+    });
+};
+
 /** A write refused because the stored value isn't the type the op needs. */
 const isTypeMismatch = (err: unknown): boolean =>
     (err as Error)?.name === 'ValidationException' &&
     /incorrect (data|operand) type/i.test((err as Error).message);
+
+/** A write refused because a path runs through something that can't hold it. */
+const isInvalidDocumentPath = (err: unknown): boolean =>
+    (err as Error)?.name === 'ValidationException' &&
+    /document path provided in the update expression is invalid/i.test(
+        (err as Error).message,
+    );
+
+/** A write refused because the item it would leave is over the size cap. */
+const isItemTooLarge = (err: unknown): boolean =>
+    (err as Error)?.name === 'ValidationException' &&
+    /item size (to update )?has exceeded/i.test((err as Error).message);
+
+/** A write refused for nesting the stored value past 32 levels. */
+const isNestingTooDeep = (err: unknown): boolean =>
+    (err as Error)?.name === 'ValidationException' &&
+    /nesting levels have exceeded/i.test((err as Error).message);
 
 /**
  * Attempts `#writeLiveOrMissing` retries a write refused for landing on a stale
@@ -358,12 +408,60 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
     });
 
 type PathToken =
-    { type: 'key'; value: string } | { type: 'index'; value: number };
+    | { type: 'key'; value: string }
+    | { type: 'index'; value: number };
 
 const invalidPathError = (): HttpError =>
     new HttpError(400, 'kv: path has invalid syntax', {
         legacyCode: 'bad_request',
     });
+
+/**
+ * The store nests attributes at most 32 levels deep; the `value` attribute is
+ * the first.
+ */
+const MAX_NESTING_LEVELS = 32;
+/** The levels a caller's path can use under `value`. */
+const MAX_PATH_TOKENS = MAX_NESTING_LEVELS - 1;
+/**
+ * Path segments one call may carry across all its paths. Each renders as at
+ * least three bytes (`[0]`) of the one update expression a call sends, which
+ * the store caps at 4,096 bytes, so past 1,365 a call can never apply.
+ */
+const MAX_CALL_PATH_TOKENS = 1500;
+
+const tooDeepError = (valPath: string): HttpError =>
+    new HttpError(
+        400,
+        `kv: path ${describePath(valPath)} is nested too deeply (at most ${MAX_PATH_TOKENS} levels)`,
+        { legacyCode: 'bad_request' },
+    );
+
+/** A quoted path segment that names nothing, such as `[""]`. */
+const emptySegmentError = (valPath: string): HttpError =>
+    new HttpError(
+        400,
+        `kv: path ${describePath(valPath)} names an empty field; a field name needs at least one character`,
+        { legacyCode: 'bad_request' },
+    );
+
+/** A call whose paths together are too many, or too long, to apply in one write. */
+const tooManyPathsError = (cause?: unknown): HttpError =>
+    new HttpError(
+        400,
+        'kv: the paths in this call are too many or too long to apply in one write; split them across several calls',
+        { legacyCode: 'bad_request', cause },
+    );
+
+/** A value, or a value at a path, nested past the store's 32-level limit. */
+const tooDeeplyNestedError = (path?: string, cause?: unknown): HttpError =>
+    new HttpError(
+        400,
+        path === undefined
+            ? `kv: the value is nested too deeply (at most ${MAX_NESTING_LEVELS} levels, counting the value itself)`
+            : `kv: the value at ${describePath(path)} is nested too deeply (at most ${MAX_NESTING_LEVELS} levels, counting the value and each segment of its path)`,
+        { legacyCode: 'bad_request', cause },
+    );
 
 /** Parse the dot and bracket forms accepted by the KV document methods. */
 const parsePath = (valPath: string): PathToken[] => {
@@ -374,6 +472,12 @@ const parsePath = (valPath: string): PathToken[] => {
     if (valPath === '') return [];
 
     const tokens: PathToken[] = [];
+    // Checked on every push, so a very long path is refused the moment it
+    // crosses the cap instead of being parsed to the end first.
+    const push = (token: PathToken): void => {
+        if (tokens.length === MAX_PATH_TOKENS) throw tooDeepError(valPath);
+        tokens.push(token);
+    };
     let position = 0;
     let expectSegment = true;
     while (position < valPath.length) {
@@ -410,9 +514,10 @@ const parsePath = (valPath: string): PathToken[] => {
                 if (!closed || valPath[position] !== ']')
                     throw invalidPathError();
                 position++;
+                if (value === '') throw emptySegmentError(valPath);
                 if (UNSAFE_OBJECT_KEYS.has(value))
                     throw unsafeKeyError(value, 'path segment');
-                tokens.push({ type: 'key', value });
+                push({ type: 'key', value });
             } else {
                 const start = position;
                 while (
@@ -425,7 +530,7 @@ const parsePath = (valPath: string): PathToken[] => {
                 const value = Number(valPath.slice(start, position));
                 if (!Number.isSafeInteger(value)) throw invalidPathError();
                 position++;
-                tokens.push({ type: 'index', value });
+                push({ type: 'index', value });
             }
             expectSegment = false;
             continue;
@@ -443,44 +548,255 @@ const parsePath = (valPath: string): PathToken[] => {
         if (!value) throw invalidPathError();
         if (UNSAFE_OBJECT_KEYS.has(value))
             throw unsafeKeyError(value, 'path segment');
-        tokens.push({ type: 'key', value });
+        push({ type: 'key', value });
         expectSegment = false;
     }
     return tokens;
 };
 
-const parsePaths = (paths: string[]): PathToken[][] => paths.map(parsePath);
+/**
+ * Parse every path, refusing a call whose paths together exceed the per-call
+ * cap.
+ */
+const parsePaths = (paths: string[]): PathToken[][] => {
+    let total = 0;
+    return paths.map((path) => {
+        const tokens = parsePath(path);
+        total += tokens.length;
+        if (total > MAX_CALL_PATH_TOKENS) throw tooManyPathsError();
+        return tokens;
+    });
+};
 
-const isOversizedExpression = (err: Error): boolean =>
-    /expression size/i.test(err.message);
+const isOversizedExpression = (err: unknown): boolean =>
+    (err as Error)?.name === 'ValidationException' &&
+    /expression size/i.test((err as Error).message);
+
+/** How much of a caller's path an error message echoes before truncating it. */
+const MAX_ECHOED_PATH_CHARS = 100;
 
 /**
- * Walk a value about to be stored and reject unsafe keys. Iterative so a deeply
- * nested value can't blow the stack; own keys only, matching what the document
- * client actually marshalls.
+ * A path for an error message: the root reads as prose, and a long path is
+ * capped so one call can't blow up a message (or the work to build it).
  */
-const assertSafeValueKeys = (value: unknown): void => {
-    const stack: unknown[] = [value];
-    while (stack.length > 0) {
-        const current = stack.pop();
+const describePath = (path: string): string => {
+    if (path === '') return 'the root';
+    const shown =
+        path.length > MAX_ECHOED_PATH_CHARS
+            ? `${path.slice(0, MAX_ECHOED_PATH_CHARS)}…`
+            : path;
+    return `\`${shown}\``;
+};
+
+/** Up to three of the caller's own paths, quoted for an error message. */
+const describePaths = (paths: string[]): string => {
+    const shown = paths.slice(0, 3).map(describePath).join(', ');
+    return paths.length > 3 ? `${shown} and ${paths.length - 3} more` : shown;
+};
+
+/**
+ * "path `a`", "paths `a`, `b`", or, when the store didn't say which, "at least
+ * one of the paths …".
+ */
+const pathsSubject = (
+    paths: string[],
+    exact: boolean,
+): { subject: string; plural: boolean } =>
+    paths.length === 1
+        ? { subject: `path ${describePaths(paths)}`, plural: false }
+        : exact
+          ? { subject: `paths ${describePaths(paths)}`, plural: true }
+          : {
+                subject: `at least one of the paths ${describePaths(paths)}`,
+                plural: false,
+            };
+
+const notANumberError = (cause?: unknown): HttpError =>
+    new HttpError(
+        400,
+        'kv: the value is not a number, so it cannot be incremented or decremented',
+        { code: 'value_not_a_number', cause },
+    );
+
+/**
+ * `exact` says whether every listed path is at fault, or only at least one of
+ * them.
+ */
+const notAListError = (
+    key: string,
+    paths: string[],
+    exact: boolean,
+    cause?: unknown,
+): HttpError => {
+    if (paths.length === 1 && paths[0] === '')
+        return new HttpError(
+            400,
+            `kv: the value stored at \`${key}\` isn't a list, so it can't be appended to`,
+            { code: 'value_not_a_list', cause },
+        );
+    const { subject, plural } = pathsSubject(paths, exact);
+    return new HttpError(
+        400,
+        `kv: ${subject} in \`${key}\` ${plural ? 'hold' : 'holds'} something other than a list, so ${plural ? 'they' : 'it'} can't be appended to`,
+        { code: 'value_not_a_list', cause },
+    );
+};
+
+/**
+ * `exact` says whether every listed path is at fault, or only at least one of
+ * them.
+ */
+const unfitPathsError = (
+    key: string,
+    paths: string[],
+    exact: boolean,
+    cause?: unknown,
+): HttpError => {
+    const { subject, plural } = pathsSubject(paths, exact);
+    return new HttpError(
+        400,
+        `kv: ${subject} ${plural ? "don't" : "doesn't"} fit the value stored at \`${key}\`: a field name only works inside an object, and an [index] it passes through must be an existing list element`,
+        { code: 'invalid_path', cause },
+    );
+};
+
+/**
+ * The caller-facing error for a path write the store refused; anything else
+ * unchanged.
+ */
+const pathWriteError = (
+    err: unknown,
+    op: 'add' | 'update' | 'incr' | 'remove',
+    key: string,
+    paths: string[],
+): unknown => {
+    if (isTypeMismatch(err) && op === 'incr') return notANumberError(err);
+    if (isTypeMismatch(err) && op === 'add')
+        return notAListError(key, paths, false, err);
+    if (isInvalidDocumentPath(err))
+        return unfitPathsError(key, paths, false, err);
+    if (isItemTooLarge(err))
+        return new HttpError(
+            400,
+            `kv: this write would take the value stored at \`${key}\` over the 400 KB limit`,
+            { code: 'value_too_large', cause: err },
+        );
+    if (isOversizedExpression(err)) return tooManyPathsError(err);
+    if (isNestingTooDeep(err))
+        return new HttpError(
+            400,
+            `kv: this write would nest the value stored at \`${key}\` more than ${MAX_NESTING_LEVELS} levels deep`,
+            { legacyCode: 'bad_request', cause: err },
+        );
+    return err;
+};
+
+const overlappingPathsError = (first: string, second: string): HttpError =>
+    new HttpError(
+        400,
+        first === second
+            ? `kv: path ${describePath(first)} is listed more than once`
+            : `kv: paths ${describePath(first)} and ${describePath(second)} overlap: one is the same as, or inside, the other`,
+        { legacyCode: 'bad_request' },
+    );
+
+const conflictingPathsError = (first: string, second: string): HttpError =>
+    new HttpError(
+        400,
+        `kv: paths ${describePath(first)} and ${describePath(second)} conflict: one uses a list index where the other uses a field name`,
+        { legacyCode: 'bad_request' },
+    );
+
+/**
+ * Reject a path that repeats, lies inside another, or disagrees with another on
+ * whether a shared prefix is a list or a map — the store refuses all three in
+ * one write.
+ */
+const assertDisjointPaths = (
+    paths: string[],
+    pathList: PathToken[][],
+): void => {
+    if (pathList.length < 2) return;
+
+    const prefixIds = new PathPrefixIds();
+    const idsByPath = pathList.map((tokens) => prefixIds.of(tokens));
+
+    const pathById = new Map<number, string>();
+    pathList.forEach((tokens, i) => {
+        const id = idsByPath[i][tokens.length];
+        const clash = pathById.get(id);
+        if (clash !== undefined) throw overlappingPathsError(clash, paths[i]);
+        pathById.set(id, paths[i]);
+    });
+
+    // The token type a shared prefix's next step takes, per path that reaches
+    // it: a list index for one and a field name for another can't both be
+    // true of the same container.
+    const nextTokenType = new Map<
+        number,
+        { type: PathToken['type']; path: string }
+    >();
+    pathList.forEach((tokens, i) => {
+        const ids = idsByPath[i];
+        for (let depth = 0; depth < tokens.length; depth++) {
+            const prefixId = ids[depth];
+            const ancestor = pathById.get(prefixId);
+            if (ancestor !== undefined)
+                throw overlappingPathsError(ancestor, paths[i]);
+
+            const seenNext = nextTokenType.get(prefixId);
+            const type = tokens[depth].type;
+            if (seenNext && seenNext.type !== type)
+                throw conflictingPathsError(seenNext.path, paths[i]);
+            if (!seenNext)
+                nextTokenType.set(prefixId, { type, path: paths[i] });
+        }
+    });
+};
+
+/**
+ * Walk a value about to be stored, whose root sits at `rootLevel`: reject
+ * unsafe keys, and nesting past the store's 32-level limit. Iterative, one
+ * element at a time (never a spread onto the stack), so neither a deep value
+ * nor a long array can overflow.
+ */
+const assertValueShape = (
+    value: unknown,
+    rootLevel: number,
+    path?: string,
+): void => {
+    const nodes: unknown[] = [value];
+    const levels: number[] = [rootLevel];
+    while (nodes.length > 0) {
+        const current = nodes.pop();
+        const level = levels.pop()!;
+        if (level > MAX_NESTING_LEVELS) throw tooDeeplyNestedError(path);
         if (!current || typeof current !== 'object') continue;
         if (Array.isArray(current)) {
-            stack.push(...current);
+            for (const item of current) {
+                nodes.push(item);
+                levels.push(level + 1);
+            }
             continue;
         }
         for (const [k, v] of Object.entries(current)) {
             if (UNSAFE_OBJECT_KEYS.has(k)) throw unsafeKeyError(k, 'value key');
-            stack.push(v);
+            nodes.push(v);
+            levels.push(level + 1);
         }
     }
 };
 
 /**
- * Reject a value too big to store, or one holding a key that cannot be walked
- * safely. An out-of-range number is not rejected — it is clamped when the write
- * is encoded.
+ * Reject a value too big to store, nested too deep, or holding a key that
+ * cannot be walked safely. An out-of-range number is not rejected — it is
+ * clamped when the write is encoded. `rootLevel` is where the value lands: 1
+ * for a whole value, deeper for one landing at a document path.
  */
-const assertValue = (value: unknown): void => {
+const assertValue = (value: unknown, rootLevel = 1, path?: string): void => {
+    // Shape first: it stops at the nesting cap, and the size check's stringify
+    // would overflow the stack on a value nested thousands of levels deep.
+    assertValueShape(value, rootLevel, path);
     const size = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
     if (size > MAX_VALUE_BYTES) {
         throw new HttpError(
@@ -489,7 +805,6 @@ const assertValue = (value: unknown): void => {
             { legacyCode: 'bad_request' },
         );
     }
-    assertSafeValueKeys(value);
 };
 
 const normalizePattern = (pattern?: string): string | undefined => {
@@ -529,6 +844,28 @@ const objectsEqual = (left: unknown, right: unknown): boolean => {
     return true;
 };
 
+/**
+ * Numbers each distinct path prefix, so comparing prefixes costs one lookup per
+ * segment.
+ */
+class PathPrefixIds {
+    #ids = new Map<string, number>();
+    /** `ids[d]` names `tokens.slice(0, d)`; the root is 0. */
+    of(tokens: PathToken[]): number[] {
+        const ids = [0];
+        for (const token of tokens) {
+            const step = `${ids[ids.length - 1]}${token.type === 'index' ? '[' : '.'}${token.value}`;
+            let id = this.#ids.get(step);
+            if (id === undefined) {
+                id = this.#ids.size + 1;
+                this.#ids.set(step, id);
+            }
+            ids.push(id);
+        }
+        return ids;
+    }
+}
+
 class PathExpressionRenderer {
     readonly names: Record<string, string> = { '#value': 'value' };
     #aliases = new Map<string, string>();
@@ -545,7 +882,8 @@ class PathExpressionRenderer {
     #alias(key: string): string {
         let alias = this.#aliases.get(key);
         if (alias) return alias;
-        alias = `#p${this.#aliases.size}_${key.replaceAll(PATH_CLEANER_REGEX, '')}`;
+        // A placeholder is capped at 255 bytes; the name is only a debugging hint.
+        alias = `#p${this.#aliases.size}_${key.replaceAll(PATH_CLEANER_REGEX, '').slice(0, 32)}`;
         this.#aliases.set(key, alias);
         this.names[alias] = key;
         return alias;
@@ -676,12 +1014,14 @@ const planCreatePaths = (pathList: PathToken[][]): CreatePathsPlan => {
     if (!nestedMapValue) return { nestedMapValue: null, layers: [] };
 
     // Indexed ancestors must already exist, so they are never created.
-    const seen = new Map<string, CreatePathsLayerEntry>();
-    for (const tokens of pathList) {
+    const prefixIds = new PathPrefixIds();
+    const seen = new Map<number, CreatePathsLayerEntry>();
+    pathList.forEach((tokens) => {
+        const ids = prefixIds.of(tokens);
         for (let i = 1; i < tokens.length; i++) {
             const prefix = tokens.slice(0, i);
             if (prefix.at(-1)?.type === 'index') continue;
-            const id = JSON.stringify(prefix);
+            const id = ids[i];
             const containerType = tokens[i].type;
             const existing = seen.get(id);
             if (existing && existing.containerType !== containerType) {
@@ -693,7 +1033,7 @@ const planCreatePaths = (pathList: PathToken[][]): CreatePathsPlan => {
             }
             seen.set(id, { path: prefix, containerType });
         }
-    }
+    });
 
     // Equal-depth prefixes never overlap, so each depth can share one write.
     const byDepth = new Map<number, CreatePathsLayerEntry[]>();
@@ -711,6 +1051,58 @@ const planCreatePaths = (pathList: PathToken[][]): CreatePathsPlan => {
         .map((depth) => byDepth.get(depth)!);
 
     return { nestedMapValue, layers };
+};
+
+/**
+ * Paths the stored value can't take even after `createPaths` builds missing
+ * objects: `path` when one runs through a non-object (non-list for an
+ * `[index]`) or a missing list element, `type` when incr/add would land on a
+ * non-number/non-list.
+ */
+const findUnfitPaths = (
+    stored: unknown,
+    pathList: PathToken[][],
+    op: 'add' | 'update' | 'incr',
+): { path: number[]; type: number[] } => {
+    const unfit = { path: [] as number[], type: [] as number[] };
+    pathList.forEach((tokens, index) => {
+        let current = stored;
+        let present = stored !== undefined;
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            if (!present) {
+                // createPaths builds this only under a field name (or at the root).
+                if (i > 0 && tokens[i - 1].type === 'index') {
+                    unfit.path.push(index);
+                    return;
+                }
+                current = token.type === 'index' ? [] : {};
+            }
+            if (token.type === 'index') {
+                if (!Array.isArray(current)) {
+                    unfit.path.push(index);
+                    return;
+                }
+                present = token.value < current.length;
+                current = present ? current[token.value] : undefined;
+            } else {
+                if (!isPlainObject(current)) {
+                    unfit.path.push(index);
+                    return;
+                }
+                present = Object.hasOwn(current, token.value);
+                current = present ? current[token.value] : undefined;
+            }
+        }
+        if (!present || op === 'update') return;
+        if (
+            op === 'incr'
+                ? typeof current !== 'number'
+                : !Array.isArray(current)
+        )
+            unfit.type.push(index);
+    });
+    return unfit;
 };
 
 /** The `SET` assignment `createPaths` renders for one missing container. */
@@ -1297,7 +1689,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             );
         }
@@ -1375,7 +1768,8 @@ export class SystemKVStore extends PuterStore {
 
     /**
      * Deletes a row that has expired but not been swept, so a write can build
-     * on a clean slate. A refused delete means another writer already did it.
+     * on a clean slate. A refused delete means another writer got there first,
+     * or the row's `ttl` isn't a number, which `#settleLegacyTtl` deals with.
      */
     async #dropIfExpired(namespace: string, key: string): Promise<KVUsage> {
         try {
@@ -1386,17 +1780,86 @@ export class SystemKVStore extends PuterStore {
             );
             return writeUsage(
                 (response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined) ?? 1,
+                    | number
+                    | undefined) ?? 1,
             );
         } catch (e) {
-            if (isConditionRefused(e)) return writeUsage(1);
-            throw e;
+            if (!isConditionRefused(e)) throw e;
+            return addUsage(
+                writeUsage(1),
+                await this.#settleLegacyTtl(namespace, key),
+            );
         }
     }
 
     /**
-     * Drops a stale expired row and retries the write. After the last attempt,
-     * throws a retryable 503 instead of the raw refusal.
+     * A `ttl` stored as text or a boolean: delete the row if reads already
+     * treat it as expired, else store the same expiry as a number (or drop a
+     * `ttl` with no numeric reading). Conditioned on that exact `ttl`, so a row
+     * another writer has changed since is left alone.
+     */
+    async #settleLegacyTtl(namespace: string, key: string): Promise<KVUsage> {
+        const read = await this.clients.dynamo.get(
+            this.tableName,
+            { namespace, key },
+            true,
+        );
+        let usage = readUsage(
+            read.ConsumedCapacity?.CapacityUnits as number | undefined,
+        );
+        const ttl: unknown = read.Item?.ttl;
+        if (ttl === undefined || ttl === null || typeof ttl === 'number')
+            return usage;
+
+        const condition = '#ttl = :legacyTtl';
+        const names = { '#ttl': 'ttl' };
+        try {
+            let units: number | undefined;
+            if (isExpiredTtl(ttl, Date.now() / 1000)) {
+                const response = await this.clients.dynamo.del(
+                    this.tableName,
+                    { namespace, key },
+                    {
+                        condition: {
+                            expression: condition,
+                            names,
+                            values: { ':legacyTtl': ttl },
+                        },
+                    },
+                );
+                units = response.ConsumedCapacity?.CapacityUnits as
+                    | number
+                    | undefined;
+            } else {
+                const expiry = ttlNumber(ttl);
+                const keep = Number.isFinite(expiry) && expiry !== 0;
+                const response = await this.clients.dynamo.update(
+                    this.tableName,
+                    { namespace, key },
+                    keep ? 'SET #ttl = :ttl' : 'REMOVE #ttl',
+                    {
+                        ':legacyTtl': ttl,
+                        ...(keep ? { ':ttl': expiry } : {}),
+                    },
+                    names,
+                    { condition },
+                );
+                units = response.ConsumedCapacity?.CapacityUnits as
+                    | number
+                    | undefined;
+            }
+            usage = addUsage(usage, writeUsage(units ?? 1));
+        } catch (e) {
+            if (!isConditionRefused(e)) throw e;
+            usage = addUsage(usage, writeUsage(1));
+        }
+        return usage;
+    }
+
+    /**
+     * Drops a stale expired row, or settles a legacy `ttl`, and retries the
+     * write. After the last attempt, throws a retryable 503 instead of the raw
+     * refusal.
      */
     async #writeLiveOrMissing<R>(
         namespace: string,
@@ -1486,7 +1949,8 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 0,
+                        | number
+                        | undefined) ?? 0,
                 );
             }
 
@@ -1545,13 +2009,19 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const response = await this.clients.dynamo.put(this.tableName, {
-            namespace,
-            key,
-            value,
-            ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
-            ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
-        });
+        let response: Awaited<ReturnType<typeof this.clients.dynamo.put>>;
+        try {
+            response = await this.clients.dynamo.put(this.tableName, {
+                namespace,
+                key,
+                value,
+                ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
+                ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
+            });
+        } catch (e) {
+            if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
+            throw e;
+        }
         await this.#committed(
             actor,
             namespace,
@@ -1567,7 +2037,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             ),
         };
@@ -1633,7 +2104,13 @@ export class SystemKVStore extends PuterStore {
             },
         }));
 
-        const response = await this.clients.dynamo.batchPut(putParams);
+        let response: Awaited<ReturnType<typeof this.clients.dynamo.batchPut>>;
+        try {
+            response = await this.clients.dynamo.batchPut(putParams);
+        } catch (e) {
+            if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
+            throw e;
+        }
         await this.#committed(
             actor,
             namespace,
@@ -1683,7 +2160,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -1718,7 +2196,8 @@ export class SystemKVStore extends PuterStore {
         );
 
         const old = response.Attributes as
-            { value?: unknown; ttl?: number } | undefined;
+            | { value?: unknown; ttl?: number }
+            | undefined;
         const now = Date.now() / 1000;
         const res =
             old === undefined || isExpiredTtl(old.ttl, now)
@@ -1731,7 +2210,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -1821,7 +2301,9 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      string[] | unknown[] | { key: string; value: unknown }[];
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -1944,7 +2426,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             );
             return response;
@@ -1961,7 +2444,8 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -1984,7 +2468,8 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -2013,6 +2498,9 @@ export class SystemKVStore extends PuterStore {
         if (!paginated) return { res: items, usage };
 
         let total: number | undefined;
+        // The query filter can't read a legacy text or boolean ttl as a
+        // number, so such a row past its expiry is counted until a write
+        // settles it.
         if (includeTotal) {
             total = 0;
             let countKey: Record<string, unknown> | undefined;
@@ -2020,7 +2508,8 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (countKey);
         }
 
@@ -2093,14 +2582,15 @@ export class SystemKVStore extends PuterStore {
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
         assertKey(key);
+        const ts = Number(timestamp);
+        if (Number.isNaN(ts))
+            throw new HttpError(400, 'kv: timestamp must be a number', {
+                legacyCode: 'bad_request',
+            });
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
-        const { usage, isPrivate } = await this.rawExpireAt(
-            namespace,
-            key,
-            Number(timestamp),
-        );
+        const { usage, isPrivate } = await this.rawExpireAt(namespace, key, ts);
         await this.#committed(
             actor,
             namespace,
@@ -2117,10 +2607,15 @@ export class SystemKVStore extends PuterStore {
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
         assertKey(key);
+        const seconds = Number(ttl);
+        if (Number.isNaN(seconds))
+            throw new HttpError(400, 'kv: ttl must be a number', {
+                legacyCode: 'bad_request',
+            });
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
-        const timestamp = Math.floor(Date.now() / 1000) + Number(ttl);
+        const timestamp = Math.floor(Date.now() / 1000) + seconds;
         const { usage, isPrivate } = await this.rawExpireAt(
             namespace,
             key,
@@ -2142,7 +2637,7 @@ export class SystemKVStore extends PuterStore {
             key,
             pathAndAmountMap,
             expireAt,
-        }: { key: string; pathAndAmountMap: T; expireAt?: number },
+        }: { key: string; pathAndAmountMap: T; expireAt?: number | null },
         opts?: KVOpts,
     ): Promise<
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
@@ -2161,7 +2656,10 @@ export class SystemKVStore extends PuterStore {
                 { legacyCode: 'bad_request' },
             );
         }
-        const pathTokens = parsePaths(Object.keys(pathAndAmountMap));
+        const paths = Object.keys(pathAndAmountMap);
+        const pathTokens = parsePaths(paths);
+        assertDisjointPaths(paths, pathTokens);
+        const expiry = coerceExpiry(expireAt, 'expireAt');
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -2187,22 +2685,18 @@ export class SystemKVStore extends PuterStore {
         // write instead of incr + a separate expireAt. if_not_exists keeps the
         // first stamp for the key (re-stamping the same value was always a
         // no-op) — but now we don't pay for that extra write on every bump.
-        if (expireAt !== undefined) {
-            const ttlSeconds = Number(expireAt);
-            if (Number.isNaN(ttlSeconds))
-                throw new HttpError(400, 'kv: expireAt must be a number', {
-                    legacyCode: 'bad_request',
-                });
+        if (expiry !== null) {
             setStatements.push('#ttl = if_not_exists(#ttl, :ttl)');
-            valueAttributeValues[':ttl'] = storedExpiry(ttlSeconds);
+            valueAttributeValues[':ttl'] = storedExpiry(expiry);
             renderer.names['#ttl'] = 'ttl';
         }
 
         const updateExpression = `SET ${setStatements.join(', ')}`;
-        // Only applies to a live (or missing) row — a stale expired one
-        // refuses, so the caller resets it instead of building on top of it.
+        // Only applies to a writable (or missing) row — a stale expired one,
+        // or a legacy row whose ttl a condition can't read, refuses so the
+        // caller settles it instead of building on top of it.
         const runUpdate = () => {
-            const live = liveRowFilter(Date.now() / 1000);
+            const live = writableRowFilter(Date.now() / 1000);
             return this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
@@ -2219,12 +2713,14 @@ export class SystemKVStore extends PuterStore {
         // parent is genuinely missing — typically the first bump for a key.
         let resetUsage: KVUsage;
         let response: Awaited<ReturnType<typeof runUpdate>>;
-        let createPathsUsage: number;
+        let createPathsUsage: KVUsage;
         try {
             const outcome = await this.#writeLiveOrMissing(namespace, key, () =>
                 this.withCreatePathsFallback(
                     namespace,
                     key,
+                    'incr',
+                    paths,
                     pathTokens,
                     runUpdate,
                 ),
@@ -2233,13 +2729,7 @@ export class SystemKVStore extends PuterStore {
             response = outcome.response.response;
             createPathsUsage = outcome.response.createPathsUsage;
         } catch (e) {
-            if (isTypeMismatch(e))
-                throw new HttpError(
-                    400,
-                    'kv: the value is not a number, so it cannot be incremented or decremented',
-                    { code: 'value_not_a_number', cause: e },
-                );
-            throw e;
+            throw pathWriteError(e, 'incr', key, paths);
         }
         await this.#committed(
             actor,
@@ -2254,9 +2744,11 @@ export class SystemKVStore extends PuterStore {
             probeUsage,
             addUsage(
                 resetUsage,
-                writeUsage(
-                    Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                        createPathsUsage,
+                addUsage(
+                    writeUsage(
+                        Number(response.ConsumedCapacity?.CapacityUnits ?? 0),
+                    ),
+                    createPathsUsage,
                 ),
             ),
         );
@@ -2289,10 +2781,18 @@ export class SystemKVStore extends PuterStore {
                 legacyCode: 'bad_request',
             });
         }
-        for (const val of Object.values(pathAndValueMap)) {
-            assertValue(val);
-        }
-        const pathTokens = parsePaths(Object.keys(pathAndValueMap));
+        const paths = Object.keys(pathAndValueMap);
+        const pathTokens = parsePaths(paths);
+        // An appended scalar is wrapped into a one-element list, landing one
+        // level inside it; an appended array lands at the list itself.
+        Object.values(pathAndValueMap).forEach((val, i) =>
+            assertValue(
+                val,
+                (Array.isArray(val) ? 1 : 2) + pathTokens[i].length,
+                paths[i],
+            ),
+        );
+        assertDisjointPaths(paths, pathTokens);
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -2314,10 +2814,11 @@ export class SystemKVStore extends PuterStore {
             },
             {} as Record<string, unknown>,
         );
-        // Only applies to a live (or missing) row — a stale expired one
-        // refuses, so the caller resets it instead of building on top of it.
+        // Only applies to a writable (or missing) row — a stale expired one,
+        // or a legacy row whose ttl a condition can't read, refuses so the
+        // caller settles it instead of building on top of it.
         const runUpdate = () => {
-            const live = liveRowFilter(Date.now() / 1000);
+            const live = writableRowFilter(Date.now() / 1000);
             return this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
@@ -2328,16 +2829,26 @@ export class SystemKVStore extends PuterStore {
             );
         };
 
-        const { resetUsage, response: buildResult } =
-            await this.#writeLiveOrMissing(namespace, key, () =>
+        let resetUsage: KVUsage;
+        let response: Awaited<ReturnType<typeof runUpdate>>;
+        let createPathsUsage: KVUsage;
+        try {
+            const outcome = await this.#writeLiveOrMissing(namespace, key, () =>
                 this.withCreatePathsFallback(
                     namespace,
                     key,
+                    'add',
+                    paths,
                     pathTokens,
                     runUpdate,
                 ),
             );
-        const { response, createPathsUsage } = buildResult;
+            resetUsage = outcome.resetUsage;
+            response = outcome.response.response;
+            createPathsUsage = outcome.response.createPathsUsage;
+        } catch (e) {
+            throw pathWriteError(e, 'add', key, paths);
+        }
         await this.#committed(
             actor,
             namespace,
@@ -2351,9 +2862,11 @@ export class SystemKVStore extends PuterStore {
             probeUsage,
             addUsage(
                 resetUsage,
-                writeUsage(
-                    Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                        createPathsUsage,
+                addUsage(
+                    writeUsage(
+                        Number(response.ConsumedCapacity?.CapacityUnits ?? 0),
+                    ),
+                    createPathsUsage,
                 ),
             ),
         );
@@ -2372,6 +2885,14 @@ export class SystemKVStore extends PuterStore {
             });
         }
         const pathTokens = parsePaths(paths);
+        assertDisjointPaths(paths, pathTokens);
+
+        // The root takes the whole value with it; a REMOVE would leave the
+        // key holding nothing.
+        if (pathTokens.length === 1 && pathTokens[0].length === 0) {
+            const { usage } = await this.del({ key }, opts);
+            return { res: null, usage };
+        }
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -2393,6 +2914,21 @@ export class SystemKVStore extends PuterStore {
                 { ...renderer.names, ...live.names },
                 { condition: live.expression },
             );
+            const units =
+                (response.ConsumedCapacity?.CapacityUnits as
+                    | number
+                    | undefined) ?? 1;
+            // A legacy ttl the condition couldn't read: the row was already expired.
+            const removedTtl = response.Attributes?.ttl;
+            if (
+                typeof removedTtl !== 'number' &&
+                isExpiredTtl(removedTtl, Date.now() / 1000)
+            ) {
+                return {
+                    res: null,
+                    usage: addUsage(probeUsage, writeUsage(units)),
+                };
+            }
             await this.#committed(
                 actor,
                 namespace,
@@ -2403,13 +2939,7 @@ export class SystemKVStore extends PuterStore {
             );
             return {
                 res: response.Attributes?.value,
-                usage: addUsage(
-                    probeUsage,
-                    writeUsage(
-                        (response.ConsumedCapacity?.CapacityUnits as
-                            number | undefined) ?? 1,
-                    ),
-                ),
+                usage: addUsage(probeUsage, writeUsage(units)),
             };
         } catch (e) {
             // An expired row reads as missing — nothing to remove from, and
@@ -2420,12 +2950,8 @@ export class SystemKVStore extends PuterStore {
                     usage: addUsage(probeUsage, writeUsage(1)),
                 };
             }
-            const err = e as Error;
-            if (
-                err?.name === 'ValidationException' &&
-                /document path|invalid updateexpression/i.test(err.message)
-            ) {
-                // Path didn't exist — treat as no-op, return current value
+            if (isInvalidDocumentPath(e)) {
+                // A path that isn't there has nothing to remove.
                 const fallback = await this.get({ key }, opts);
                 return {
                     res: fallback.res,
@@ -2435,7 +2961,7 @@ export class SystemKVStore extends PuterStore {
                     ),
                 };
             }
-            throw e;
+            throw pathWriteError(e, 'remove', key, paths);
         }
     }
 
@@ -2447,7 +2973,10 @@ export class SystemKVStore extends PuterStore {
         }: {
             key: string;
             pathAndValueMap: Record<string, unknown>;
-            /** Omit to keep the key's TTL; `null` removes it. */
+            /**
+             * Seconds from now. Omit it, or pass `''`/`false`, to keep the
+             * key's TTL; `null` removes it.
+             */
             ttl?: number | null;
         },
         opts?: KVOpts,
@@ -2458,10 +2987,13 @@ export class SystemKVStore extends PuterStore {
                 legacyCode: 'bad_request',
             });
         }
-        for (const val of Object.values(pathAndValueMap)) {
-            assertValue(val);
-        }
-        const pathTokens = parsePaths(Object.keys(pathAndValueMap));
+        const paths = Object.keys(pathAndValueMap);
+        const pathTokens = parsePaths(paths);
+        Object.values(pathAndValueMap).forEach((val, i) =>
+            assertValue(val, 1 + pathTokens[i].length, paths[i]),
+        );
+        assertDisjointPaths(paths, pathTokens);
+        const ttlSeconds = coerceTtlSeconds(ttl);
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
@@ -2484,15 +3016,10 @@ export class SystemKVStore extends PuterStore {
             {} as Record<string, unknown>,
         );
         let removeTtl = false;
-        if (ttl === null) {
+        if (ttlSeconds === null) {
             removeTtl = true;
             renderer.names['#ttl'] = 'ttl';
-        } else if (ttl !== undefined) {
-            const ttlSeconds = Number(ttl);
-            if (Number.isNaN(ttlSeconds))
-                throw new HttpError(400, 'kv: ttl must be a number', {
-                    legacyCode: 'bad_request',
-                });
+        } else if (ttlSeconds !== undefined) {
             const timestamp = storedExpiry(
                 Math.floor(Date.now() / 1000) + ttlSeconds,
             );
@@ -2504,10 +3031,11 @@ export class SystemKVStore extends PuterStore {
             removeTtl ? ' REMOVE #ttl' : ''
         }`;
 
-        // Only applies to a live (or missing) row — a stale expired one
-        // refuses, so the caller resets it instead of building on top of it.
+        // Only applies to a writable (or missing) row — a stale expired one,
+        // or a legacy row whose ttl a condition can't read, refuses so the
+        // caller settles it instead of building on top of it.
         const runUpdate = () => {
-            const live = liveRowFilter(Date.now() / 1000);
+            const live = writableRowFilter(Date.now() / 1000);
             return this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
@@ -2518,16 +3046,26 @@ export class SystemKVStore extends PuterStore {
             );
         };
 
-        const { resetUsage, response: buildResult } =
-            await this.#writeLiveOrMissing(namespace, key, () =>
+        let resetUsage: KVUsage;
+        let response: Awaited<ReturnType<typeof runUpdate>>;
+        let createPathsUsage: KVUsage;
+        try {
+            const outcome = await this.#writeLiveOrMissing(namespace, key, () =>
                 this.withCreatePathsFallback(
                     namespace,
                     key,
+                    'update',
+                    paths,
                     pathTokens,
                     runUpdate,
                 ),
             );
-        const { response, createPathsUsage } = buildResult;
+            resetUsage = outcome.resetUsage;
+            response = outcome.response.response;
+            createPathsUsage = outcome.response.createPathsUsage;
+        } catch (e) {
+            throw pathWriteError(e, 'update', key, paths);
+        }
 
         await this.#committed(
             actor,
@@ -2542,9 +3080,11 @@ export class SystemKVStore extends PuterStore {
             probeUsage,
             addUsage(
                 resetUsage,
-                writeUsage(
-                    Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                        createPathsUsage,
+                addUsage(
+                    writeUsage(
+                        Number(response.ConsumedCapacity?.CapacityUnits ?? 0),
+                    ),
+                    createPathsUsage,
                 ),
             ),
         );
@@ -2613,7 +3153,7 @@ export class SystemKVStore extends PuterStore {
         timestamp: number,
     ): Promise<{ usage: KVUsage; isPrivate: boolean }> {
         const runUpdate = () => {
-            const live = liveRowFilter(Date.now() / 1000);
+            const live = writableRowFilter(Date.now() / 1000);
             return this.clients.dynamo.update(
                 this.tableName,
                 { key, namespace },
@@ -2637,7 +3177,8 @@ export class SystemKVStore extends PuterStore {
                 resetUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
             isPrivate: Boolean(response.Attributes?.[KV_PRIVATE_ATTR]),
@@ -2646,29 +3187,78 @@ export class SystemKVStore extends PuterStore {
 
     /**
      * Try `runUpdate`; on a ValidationException (typically a missing parent
-     * container), create the containers and retry once. An oversized expression
-     * or a type mismatch is rethrown: createPaths can't fix either, and each of
-     * its writes costs the whole item.
+     * container), reads the stored value once to refuse an inapplicable path
+     * before writing anything, else creates the missing containers and retries
+     * once. An oversized expression, a type mismatch, an item already at the
+     * size cap, or nesting past the store's limit is rethrown: createPaths
+     * can't fix any of them, and each of its writes costs the whole item.
      */
     private async withCreatePathsFallback<R>(
         namespace: string,
         key: string,
+        op: 'add' | 'update' | 'incr',
+        paths: string[],
         pathList: PathToken[][],
         runUpdate: () => Promise<R>,
-    ): Promise<{ response: R; createPathsUsage: number }> {
+    ): Promise<{ response: R; createPathsUsage: KVUsage }> {
         try {
-            return { response: await runUpdate(), createPathsUsage: 0 };
+            return {
+                response: await runUpdate(),
+                createPathsUsage: emptyUsage(),
+            };
         } catch (e) {
             const err = e as Error;
             if (err?.name !== 'ValidationException') throw e;
-            if (isOversizedExpression(err)) throw e;
-            if (isTypeMismatch(err)) throw e;
-            const createPathsUsage = await this.createPaths(
-                namespace,
+            if (
+                isOversizedExpression(err) ||
+                isTypeMismatch(err) ||
+                isItemTooLarge(err) ||
+                isNestingTooDeep(err)
+            )
+                throw e;
+        }
+
+        // Plan against what's stored, so a path that can't apply is refused
+        // before any container is written.
+        const current = await this.clients.dynamo.get(
+            this.tableName,
+            { namespace, key },
+            true,
+        );
+        let usage = readUsage(
+            current.ConsumedCapacity?.CapacityUnits as number | undefined,
+        );
+        const item = current.Item;
+        const stored =
+            item && !isExpiredTtl(item.ttl, Date.now() / 1000)
+                ? item.value
+                : undefined;
+        const unfit = findUnfitPaths(stored, pathList, op);
+        if (unfit.path.length > 0)
+            throw unfitPathsError(
                 key,
-                pathList,
+                unfit.path.map((i) => paths[i]),
+                true,
             );
-            return { response: await runUpdate(), createPathsUsage };
+        if (unfit.type.length > 0)
+            throw op === 'incr'
+                ? notANumberError()
+                : notAListError(
+                      key,
+                      unfit.type.map((i) => paths[i]),
+                      true,
+                  );
+
+        try {
+            usage = addUsage(
+                usage,
+                writeUsage(await this.createPaths(namespace, key, pathList)),
+            );
+            return { response: await runUpdate(), createPathsUsage: usage };
+        } catch (e) {
+            // createPaths may have committed containers before this failed.
+            await this.#invalidate(namespace, [key]);
+            throw e;
         }
     }
 
@@ -2690,7 +3280,7 @@ export class SystemKVStore extends PuterStore {
         // instead of raising a raw document-path error.
         const rootRenderer = new PathExpressionRenderer();
         const rootAttr = rootRenderer.path([]);
-        const rootLive = liveRowFilter(Date.now() / 1000);
+        const rootLive = writableRowFilter(Date.now() / 1000);
         const rootResponse = await this.clients.dynamo.update(
             this.tableName,
             { key, namespace },
@@ -2720,7 +3310,7 @@ export class SystemKVStore extends PuterStore {
                         entry.containerType === 'index' ? [] : {};
                     return createPathsSetStatement(entry, idx, renderer);
                 });
-                const live = liveRowFilter(Date.now() / 1000);
+                const live = writableRowFilter(Date.now() / 1000);
                 const response = await this.clients.dynamo.update(
                     this.tableName,
                     { key, namespace },

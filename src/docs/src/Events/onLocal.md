@@ -28,7 +28,7 @@ Called with `{ event }` for each delivery; see [The event](#the-event). `event.o
 
 #### `options` (Object) (optional)
 
-- `onError` (Function): Called with `{ message, code }` if the subscription can't be restored after a disconnect: re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A single disconnect is reconnected without calling it; the handler gets a `reconnect` gap instead. After `onError`, the subscription is over; call `onLocal()` again to resume. Without it, the error is logged to the console.
+- `onError` (Function): Called with `{ message, code }` if the subscription can't be restored after a disconnect: re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A single disconnect is reconnected without calling it; the handler gets a `reconnect` gap instead. After `onError`, the subscription is over; call `onLocal()` again to resume. It's also called with `code: 'subscription_ended'` and a `reason` when the server ends the subscription (see [Subscriptions the server ends](#subscriptions-the-server-ends)). Without it, the error is logged to the console.
 - `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
 - `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). See [Getting the new value](#getting-the-new-value) for when it's left out. Refused on other subjects.
 
@@ -37,7 +37,7 @@ Called with `{ event }` for each delivery; see [The event](#the-event). `event.o
 A `Promise` that resolves, once the server confirms the subscription, to:
 
 - `subId` (String | null): The server's id for the subscription. It changes on every reconnect, so don't store anything against it.
-- `subject` (String): The subject, in full form. `kv:cart` comes back as `kv:<appId>:cart`.
+- `subject` (String): The subject as you passed it. For `kv:`, `anchor.uid` is the app it resolved to; for `notif:`, the app, or your user id when acting as the account.
 - `anchor` (Object): The node the subscription is attached to, as `{ uid, path }`: the subject itself, or its nearest existing parent if the subject doesn't exist yet. For `kv:`, `uid` is the app whose store is watched and `path` is the key prefix. Through a share handle, `uid` is the handle and `path` is empty. `path` is the one from when you subscribed; a later rename doesn't update it.
 - `match` (String | null): The pattern matched under the anchor, if the subject had one. For a path that didn't exist yet, it's the rest of that path, and it covers that path and everything under it.
 - `op` (String | null): The one operation this subscription is limited to, or `null` for all.
@@ -48,7 +48,7 @@ The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
-| `invalid_subject` | The subject is empty, not a string, or can't be parsed. |
+| `invalid_subject` | The subject is empty, not a string, or can't be parsed, or it's a `notif:` subject and this server has notification events turned off. |
 | `invalid_handler` | `handler` isn't a function. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `invalid_subject_op` | The `:op` suffix isn't one of the five operations. |
@@ -104,13 +104,13 @@ await puter.events.onLocal('fs:~/Documents/inbox/trigger.json:add', ({ event }) 
 });
 ```
 
-If the node a subscription is attached to is deleted, a subscription made with a uid, or with a path that existed when you subscribed, ends on the server. The SDK isn't told right away: the handle stays open but receives nothing until the next reconnect, when it subscribes again. A uid subscription then fails with `subject_does_not_exist` and lapses through `onError`. A path subscription subscribes by the same path, and if nothing is there yet, it anchors on the nearest existing folder like any path that doesn't exist yet. One made with a pattern, or with a path that didn't exist yet, moves up to the nearest folder that still exists and keeps watching, so recreating the path resumes delivery.
+If the node a subscription is attached to is deleted, a subscription made with a uid, or with a path that existed when you subscribed, ends: `onError` is called with `subscription_ended` and `reason: 'anchor_deleted'`. Call `onLocal()` again to watch the path once it's back. One made with a pattern, or with a path that didn't exist yet, moves up to the nearest folder that still exists and that you can read, and keeps watching, so recreating the path resumes delivery. If there's no such folder (for example, the owner of a folder shared with you deleted it), or the pattern would grow past its limits, it ends the same way.
 
 ### Notifications
 
 `notif:` watches part of the account's notification mailbox:
 
-- `notif:account`: notifications about the account.
+- `notif:account`: notifications about the account itself, such as files shared with it. Only a client acting as the account, not as an app, sees them. Apps and websites never do: subscribing from one is refused with `subject_does_not_exist`.
 - `notif:app-user`: notifications belonging to the app you're running as.
 - `notif:developer`: notifications about an app you own.
 
@@ -136,7 +136,7 @@ await puter.events.onLocal('kv:orders:pending', handler);                  // ap
 await puter.events.onLocal(`kv:${puter.appID}:orders:pending`, handler);   // your app, key `orders:pending`
 ```
 
-The returned `subject` and `anchor` are always in the full form.
+The returned `anchor` names the app whose store is watched; `subject` stays as you passed it.
 
 #### Getting the new value
 
@@ -205,7 +205,7 @@ An app can also subscribe through a handle, but only when the shared region belo
 
 ## Access
 
-Subscribing takes the same access as reading. A subject you can't read and a subject that doesn't exist both fail with `subject_does_not_exist`, so the error doesn't reveal which. Access is checked again on every delivery: when a share is revoked, deliveries stop immediately.
+Subscribing takes the same access as reading. A subject you can't read and a subject that doesn't exist both fail with `subject_does_not_exist`, so the error doesn't reveal which. Access is checked again on every delivery: when a share is revoked, deliveries stop immediately. The subscription itself stays open, so `onError` isn't called — not even if the node is later deleted.
 
 ## The event
 
@@ -280,6 +280,16 @@ const sub = await puter.events.onLocal('fs:~/Documents', handler, {
     onError: (error) => console.warn('subscription ended:', error.code),
 });
 ```
+
+## Subscriptions the server ends
+
+The server can end a session subscription on its own, without a disconnect. `onError` is called once, and the handler isn't called after that. What was already on its way to the handler is usually delivered first, but not always: a delivery held back by a limit or an empty balance, or one for a change made at about the same moment, may never arrive.
+
+| `code` | `reason` | When |
+| --- | --- | --- |
+| `subscription_ended` | `anchor_deleted` | The node it was attached to was deleted, and it couldn't move up to a parent folder (see [Watching a path before it exists](#watching-a-path-before-it-exists)). |
+
+If the connection is down when this happens, or drops before `onError` is called, the SDK isn't told. It subscribes again with the original subject when it reconnects: a path then anchors on its nearest existing folder and keeps watching, like a path that doesn't exist yet, while a uid fails and `onError` is called with `subject_does_not_exist` instead.
 
 ## Examples
 

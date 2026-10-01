@@ -22,9 +22,12 @@ const updateDriverCall = (puter, args) =>
             if ( Object.keys(driverArgs.pathAndValueMap).length === 0 ) {
                 throw { message: 'pathAndValueMap cannot be empty', code: 'path_map_invalid' };
             }
-            if ( driverArgs.ttl !== undefined && driverArgs.ttl !== null ) {
-                const ttl = Number(driverArgs.ttl);
-                if ( Number.isNaN(ttl) ) {
+            // Same rules as the store: '' and false keep the TTL, null clears it, anything else must be a finite number of seconds.
+            if ( driverArgs.ttl === '' || driverArgs.ttl === false ) {
+                delete driverArgs.ttl;
+            } else if ( driverArgs.ttl !== undefined && driverArgs.ttl !== null ) {
+                const ttl = typeof driverArgs.ttl === 'number' || (typeof driverArgs.ttl === 'string' && driverArgs.ttl.trim() !== '') ? Number(driverArgs.ttl) : NaN;
+                if ( ! Number.isFinite(ttl) ) {
                     throw { message: 'ttl must be a number', code: 'ttl_invalid' };
                 }
                 driverArgs.ttl = ttl;
@@ -44,7 +47,7 @@ const updateDriverCall = (puter, args) =>
  * @overload
  * @param {string} key
  * @param {KVUpdatePath} pathAndValueMap
- * @param {number | null} [ttl]
+ * @param {number | null} [ttl] `ttl` may be a number or numeric string of seconds; `''` or `false` keeps the stored TTL, and anything else rejects with `ttl_invalid`.
  * @param {KVOptConfig} [optConfig]
  * @returns {Promise<KVValue>}
  */
@@ -55,7 +58,9 @@ const updateDriverCall = (puter, args) =>
  */
 /**
  * Updates one or more dot-separated paths within the value stored at a key
- * without overwriting the entire value, returning the updated value.
+ * without overwriting the entire value, returning the updated value. Rejects
+ * with `invalid_path` when a path runs through something that isn't an
+ * object or through a missing list element.
  *
  * Legacy positional success/error callbacks may trail the positional form.
  *
@@ -73,7 +78,9 @@ export async function update (keyOrObject, pathAndValueMap, ...rest) {
     }
 
     let ttl;
-    if ( typeof rest[0] === 'number' || rest[0] === null ) {
+    // Same shift rule as set()'s expireAt slot: anything but an object or a
+    // callback here is the ttl; it's checked below and again by the store.
+    if ( rest[0] !== undefined && !isObject(rest[0]) && typeof rest[0] !== 'function' ) {
         ttl = rest.shift();
     }
     const { optConfig, success, error } = parseTrailingArgs(rest);
