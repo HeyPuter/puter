@@ -5958,6 +5958,35 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         }
     });
 
+    it('change-username: only completed renames spend the 2-per-30-days budget', async () => {
+        const { user: other } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor();
+        for (let i = 0; i < 3; i++) {
+            await expect(
+                controller.handleChangeUsername(
+                    makeReq({ new_username: other.username }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        for (let i = 0; i < 2; i++) {
+            await controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            );
+        }
+        await expect(
+            controller.handleChangeUsername(
+                makeReq({ new_username: `r_${uniq()}` }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+    });
+
     it('change-username: 400 when the home path is already occupied, before the rename', async () => {
         const { user, actor } = await makeUserAndActor();
         // A name no account holds, whose home path a stray row does. This is

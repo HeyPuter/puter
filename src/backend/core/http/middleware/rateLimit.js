@@ -748,6 +748,29 @@ export async function consumeRouteRateLimit(req, spec) {
 }
 
 /**
+ * `consumeRouteRateLimit` without the spend: same spec, same bucket. Pair the
+ * two when only a successful outcome should count — peek before the work,
+ * consume after it succeeds. Single-window specs only. Fails open.
+ */
+export async function peekRouteRateLimit(req, spec) {
+    const {
+        window: windowMs,
+        key: strategy = 'fingerprint',
+        scope,
+        backend,
+    } = spec;
+    const backendPair = resolveBackend(backend);
+    const key = resolveKey(req, scope ?? req.route?.path ?? 'route', strategy);
+    try {
+        const limit = await resolveSubscriptionLimit(req, spec);
+        return await backendPair.peek(key, limit, windowMs);
+    } catch (err) {
+        console.error('[rate-limit] handler peek failed, failing open:', err);
+        return true;
+    }
+}
+
+/**
  * Read whether `key` still has budget, without spending any. The twin to
  * `checkRateLimit` for gates whose budget is consumed by an outcome rather than
  * by the request: a failed-credential counter has to be readable before the
