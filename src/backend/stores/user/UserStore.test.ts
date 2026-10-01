@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
@@ -460,7 +460,7 @@ describe('UserStore batched and uncached lookups', () => {
     it('getByIds falls back to the database when a cached entry is corrupt', async () => {
         const user = await makeUser();
         await server.stores.user.getById(user.id);
-        await server.clients.redis.set(`user:id:${user.id}`, 'not-json');
+        await server.clients.redis.set(`users:id:${user.id}`, 'not-json');
 
         const found = await server.stores.user.getByIds([user.id]);
         expect(found.get(user.id)?.username).toBe(user.username);
@@ -637,5 +637,55 @@ describe('UserStore batched and uncached lookups', () => {
         expect((await server.stores.user.getById(user.id))?.metadata).toEqual(
             {},
         );
+    });
+});
+
+describe('UserStore deleted-row tombstones', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const makeUser = async () => {
+        const username = `tomb-${Math.random().toString(36).slice(2, 10)}`;
+        return server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+        });
+    };
+
+    it('does not let a lagging replica cache a deleted user back', async () => {
+        const user = await makeUser();
+        const redis = server.clients.redis;
+        await server.stores.user.getByUsername(user.username);
+        expect(await redis.get(`users:username:${user.username}`)).not.toBeNull();
+
+        await server.services.userAccount.cascadeDelete(user.id);
+
+        // Replica that hasn't applied the delete yet; the primary has.
+        const readSpy = vi
+            .spyOn(server.clients.db, 'tryHardRead')
+            .mockResolvedValue([user as unknown as Record<string, unknown>]);
+        const preadSpy = vi
+            .spyOn(server.clients.db, 'pread')
+            .mockResolvedValue([]);
+        let found;
+        try {
+            found = await server.stores.user.getByUsername(user.username);
+        } finally {
+            readSpy.mockRestore();
+            preadSpy.mockRestore();
+        }
+
+        expect(found).toBeNull();
+        expect(await redis.get(`users:username:${user.username}`)).toBeNull();
+        expect(await redis.get(`users:id:${user.id}`)).toBeNull();
     });
 });

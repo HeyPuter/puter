@@ -46,6 +46,14 @@ export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (
 
 const DEFAULT_BROADCAST_REFRESH_TTL_SECONDS = 15 * 60;
 
+// Tombstone lifetime; must outlast replica lag.
+export const CACHE_TOMBSTONE_TTL_SECONDS = 60;
+export const CACHE_TOMBSTONE_SUFFIX = ':deleted';
+
+/** A tombstone marker rather than a cached row; peers must set it, not drop it. */
+export const isCacheTombstoneKey = (key: string): boolean =>
+    key.endsWith(CACHE_TOMBSTONE_SUFFIX);
+
 export const PuterStore = class PuterStore implements WithLifecycle {
     constructor(
         protected config: IConfig,
@@ -117,6 +125,64 @@ export const PuterStore = class PuterStore implements WithLifecycle {
                 '[PuterStore] publishCacheKeys failed to broadcast cache update:',
                 keys,
             );
+        }
+    }
+
+    /**
+     * Invalidate `keys` for a deleted row, marked so a lagging replica can't
+     * cache it back.
+     */
+    protected async tombstoneCacheKeys(keys: string[]): Promise<void> {
+        if (keys.length === 0) return;
+        await this.publishCacheKeys({
+            keys: keys.map((key) => key + CACHE_TOMBSTONE_SUFFIX),
+            serializedData: '1',
+            ttlSeconds: CACHE_TOMBSTONE_TTL_SECONDS,
+            broadcast: true,
+        });
+        await this.publishCacheKeys({ keys, broadcast: true });
+    }
+
+    /** Drop tombstones; the row is back and may be cached again. */
+    protected async clearCacheTombstones(keys: string[]): Promise<void> {
+        if (keys.length === 0) return;
+        await this.publishCacheKeys({
+            keys: keys.map((key) => key + CACHE_TOMBSTONE_SUFFIX),
+            broadcast: true,
+        });
+    }
+
+    /**
+     * Write only if `keys` are untombstoned, and undo it if a delete lands
+     * mid-write — a row cached under a live tombstone is never re-checked.
+     */
+    protected async writeCacheUnlessDeleted(
+        keys: string[],
+        write: () => Promise<void>,
+    ): Promise<void> {
+        if (keys.length === 0) return;
+        if (await this.isCacheKeyTombstoned(keys)) return;
+        await write();
+        if (await this.isCacheKeyTombstoned(keys)) {
+            await this.publishCacheKeys({ keys, broadcast: true });
+        }
+    }
+
+    /**
+     * Whether any of `keys` was deleted within the tombstone window. Fails
+     * open.
+     */
+    protected async isCacheKeyTombstoned(keys: string[]): Promise<boolean> {
+        if (keys.length === 0) return false;
+        try {
+            const pipeline = this.clients.redis.pipeline();
+            for (const key of keys) {
+                pipeline.exists(key + CACHE_TOMBSTONE_SUFFIX);
+            }
+            const results = await pipeline.exec();
+            return (results ?? []).some(([, exists]) => Number(exists) > 0);
+        } catch {
+            return false;
         }
     }
 } satisfies IPuterStore<WithLifecycle>;

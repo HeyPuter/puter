@@ -92,7 +92,10 @@ let calls: StubCall[];
 let answer: number | 'hang' = 200;
 /** Whether the stub's answer carries the handled header, as a real one would. */
 let answerHandled = true;
-/** Whether the stub reports the script missing until it sees the deployed header. */
+/**
+ * Whether the stub reports the script missing until it sees the deployed
+ * header.
+ */
 let dispatchMissing = false;
 
 const events = () => env.server.services.events;
@@ -109,8 +112,7 @@ const startStub = async (): Promise<string> => {
     stub = http.createServer((req, res) => {
         void readBody(req).then((raw) => {
             const deployed = req.headers['x-puter-events-deployed'] as
-                | string
-                | undefined;
+                string | undefined;
             calls.push({
                 method: req.method ?? '',
                 path: req.url ?? '',
@@ -127,7 +129,9 @@ const startStub = async (): Promise<string> => {
             // Stands in for the events dispatcher reporting a namespace miss
             // until the deploy-on-miss retry carries the deployed header.
             if (dispatchMissing && deployed !== '1') {
-                res.writeHead(404, { 'x-puter-events-dispatch': 'missing' }).end();
+                res.writeHead(404, {
+                    'x-puter-events-dispatch': 'missing',
+                }).end();
                 return;
             }
             // Stands in for the dispatcher forwarding a genuine answer from
@@ -246,11 +250,32 @@ const touch = async (name: string): Promise<void> => {
     await env.server.services.fs.touch(userId, { path: `${anchor}/${name}` });
 };
 
+/**
+ * Retry `check` until it stops throwing, on real time.
+ *
+ * `vi.waitFor` advances the faked `Date` once per poll, which drains the very
+ * backoff windows these tests measure — a loaded run reads a 2s hold as 0.5s.
+ * `performance.now` and `setTimeout` are unfaked, so polling through them
+ * leaves the clock exactly where `jump` put it.
+ */
+const waitUntil = async (
+    check: () => unknown,
+    { timeout = 5_000, interval = 25 } = {},
+): Promise<void> => {
+    const started = performance.now();
+    for (;;) {
+        try {
+            await check();
+            return;
+        } catch (err) {
+            if (performance.now() - started >= timeout) throw err;
+            await new Promise((resolve) => setTimeout(resolve, interval));
+        }
+    }
+};
+
 const invoked = (count: number): Promise<void> =>
-    vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(count), {
-        timeout: 5_000,
-        interval: 25,
-    });
+    waitUntil(() => expect(calls.length).toBeGreaterThanOrEqual(count));
 
 /** Move time past whatever the failed delivery is being held for. */
 const jump = (ms: number): void => {
@@ -485,7 +510,7 @@ describe('the call an owed delivery makes', () => {
             // The revocation settle takes the row out of service on its own,
             // but it is a best-effort listener — put the row back so what is
             // under test is the delivery path with the consent already gone.
-            await vi.waitFor(async () =>
+            await waitUntil(async () =>
                 expect(
                     (await durable().getBySubId(subId))?.suspendedAt,
                 ).not.toBeNull(),
@@ -500,7 +525,7 @@ describe('the call an owed delivery makes', () => {
             await durable().warmRegion(userId);
 
             await touch('revoked.txt');
-            await vi.waitFor(async () =>
+            await waitUntil(async () =>
                 expect(await pending().depth(subId)).toBe(1),
             );
             await events().sweepPending();
@@ -524,7 +549,7 @@ describe('the call an owed delivery makes', () => {
         await touch('settled.txt');
         await invoked(1);
 
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect(await pending().depth(subId)).toBe(0),
         );
     });
@@ -541,10 +566,10 @@ describe('what each answer does to the delivery', () => {
         // It counted: a refusal is still a handler that did not work. Counted
         // only once the marker is in, so it is also what says the answer was
         // handled — the depth alone reads 1 while the event is still leased.
-        await vi.waitFor(async () =>
-            expect(
-                await env.server.clients.redis.get(`ev:qf:{${subId}}`),
-            ).toBe('1'),
+        await waitUntil(async () =>
+            expect(await env.server.clients.redis.get(`ev:qf:{${subId}}`)).toBe(
+                '1',
+            ),
         );
 
         // The event is gone and a marker stands in its place, so the
@@ -568,7 +593,7 @@ describe('what each answer does to the delivery', () => {
         await touch('unmarked.txt');
         await invoked(1);
 
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect(await heldForMs(subId)).toBeGreaterThan(0),
         );
         expect(await pending().depth(subId)).toBe(1);
@@ -577,8 +602,8 @@ describe('what each answer does to the delivery', () => {
     it('holds one it could not answer, for longer each time', async () => {
         answer = 500;
         const subId = await subscribe();
-        // Freeze the clock so the first hold reads exactly, as later ones do
-        // after `jump`; on real time a slow run reads 2s as 1s.
+        // Freeze the clock so every hold is read against the same instant it
+        // was written from.
         jump(0);
 
         await touch('failing.txt');
@@ -590,7 +615,7 @@ describe('what each answer does to the delivery', () => {
             attempt < EVENTS_CONSECUTIVE_FAILURES;
             attempt++
         ) {
-            await vi.waitFor(async () =>
+            await waitUntil(async () =>
                 expect(await heldForMs(subId)).toBeGreaterThan(0),
             );
             waits.push(await heldForMs(subId));
@@ -604,16 +629,12 @@ describe('what each answer does to the delivery', () => {
             await invoked(attempt + 1);
         }
 
-        // Each hold sits within a second below its backoff step: a loaded run
-        // can spend part of the first one before it is read, and the steps
-        // are far enough apart that the windows never overlap.
-        for (const [i, expected] of [2, 4, 8, 16].entries()) {
-            expect(waits[i]).toBeGreaterThan((expected - 1) * 1000);
-            expect(waits[i]).toBeLessThanOrEqual(expected * 1000);
-        }
+        // Exact, not a window: the clock only moves where `jump` moves it, so
+        // a loaded run reads the same holds a quiet one does.
+        expect(waits).toEqual([2_000, 4_000, 8_000, 16_000]);
 
         // The fifth failure in a row is the one that stops it.
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect((await durable().getBySubId(subId))?.suspendedReason).toBe(
                 'failures',
             ),
@@ -637,7 +658,7 @@ describe('what each answer does to the delivery', () => {
             await events().sweepPending();
         }
 
-        await vi.waitFor(() =>
+        await waitUntil(() =>
             expect(notify).toHaveBeenCalledWith(
                 [userId],
                 expect.objectContaining({ handler: HANDLER }),
@@ -656,7 +677,7 @@ describe('what each answer does to the delivery', () => {
         await invoked(1);
 
         // Still owed, and held rather than dropped: nobody said no.
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect(await heldForMs(subId)).toBeGreaterThan(0),
         );
         expect(await pending().depth(subId)).toBe(1);
@@ -670,7 +691,7 @@ describe('what each answer does to the delivery', () => {
         await touch('busy.txt');
         await invoked(1);
 
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect(await heldForMs(subId)).toBeGreaterThan(0),
         );
         expect(await pending().depth(subId)).toBe(1);
@@ -691,14 +712,14 @@ describe('with no events worker to address', () => {
                 attempt < EVENTS_CONSECUTIVE_FAILURES;
                 attempt++
             ) {
-                await vi.waitFor(async () =>
+                await waitUntil(async () =>
                     expect(await heldForMs(subId)).toBeGreaterThan(0),
                 );
                 jump(deliveryBackoffMs(attempt) + 50);
                 await events().sweepPending();
             }
 
-            await vi.waitFor(async () =>
+            await waitUntil(async () =>
                 expect(
                     (await durable().getBySubId(subId))?.suspendedReason,
                 ).toBe('failures'),
@@ -724,7 +745,7 @@ describe('with no events worker to address', () => {
 
         try {
             await touch('suspended-owner.txt');
-            await vi.waitFor(async () =>
+            await waitUntil(async () =>
                 expect(await heldForMs(subId)).toBeGreaterThan(0),
             );
             expect(await pending().depth(subId)).toBe(1);
@@ -755,7 +776,7 @@ describe("what withdrawing an app's standing does to its worker session", () => 
             EVENTS_BACKGROUND_PERMISSION,
         );
 
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect(
                 (await workerSessionFor(app.appUid))?.revoked_at,
             ).not.toBeNull(),
@@ -780,7 +801,7 @@ describe("what withdrawing an app's standing does to its worker session", () => 
             app.appUid,
         );
 
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect(
                 (await workerSessionFor(app.appUid))?.revoked_at,
             ).not.toBeNull(),
@@ -827,7 +848,7 @@ describe("what withdrawing an app's standing does to its worker session", () => 
             app.appUid,
             EVENTS_BACKGROUND_PERMISSION,
         );
-        await vi.waitFor(async () =>
+        await waitUntil(async () =>
             expect(
                 (await workerSessionFor(app.appUid))?.revoked_at,
             ).not.toBeNull(),
@@ -875,7 +896,7 @@ describe('deploying on a dispatcher miss', () => {
             expect(createSpy).toHaveBeenCalledTimes(1);
             expect(calls[0].headers.deployed).toBeUndefined();
             expect(calls[1].headers.deployed).toBe('1');
-            await vi.waitFor(async () =>
+            await waitUntil(async () =>
                 expect(await pending().depth(subId)).toBe(0),
             );
         } finally {
@@ -892,9 +913,8 @@ describe('handlers whose writes run handlers', () => {
         forAppUid: string,
         seen: number,
     ): Promise<StubCall> => {
-        await vi.waitFor(
-            () => expect(callsFor(forAppUid)).toHaveLength(seen + 1),
-            { timeout: 5_000, interval: 25 },
+        await waitUntil(() =>
+            expect(callsFor(forAppUid)).toHaveLength(seen + 1),
         );
         return callsFor(forAppUid)[seen];
     };
@@ -919,9 +939,8 @@ describe('handlers whose writes run handlers', () => {
         expect(depthOf(first.body.token!)).toBe(1);
         expect((await actorOf(first.body.token!)).handlerDepth).toBe(1);
 
-        await runWithContext(
-            { actor: await actorOf(first.body.token!) },
-            () => touch('second.txt'),
+        await runWithContext({ actor: await actorOf(first.body.token!) }, () =>
+            touch('second.txt'),
         );
         const second = await nextCall(worker.appUid, 1);
         expect(depthOf(second.body.token!)).toBe(2);
@@ -937,9 +956,8 @@ describe('handlers whose writes run handlers', () => {
         const first = await nextCall(worker.appUid, 0);
         expect(depthOf(first.body.token!)).toBe(1);
 
-        await runWithContext(
-            { actor: await actorOf(first.body.token!) },
-            () => env.server.drivers.kvStore.set({ key: 'depth', value: 2 }),
+        await runWithContext({ actor: await actorOf(first.body.token!) }, () =>
+            env.server.drivers.kvStore.set({ key: 'depth', value: 2 }),
         );
         const second = await nextCall(worker.appUid, 1);
         expect(depthOf(second.body.token!)).toBe(2);

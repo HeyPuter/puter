@@ -106,9 +106,7 @@ export interface ProjectedNotifEvent extends ProjectedEventBase {
 }
 
 export type ProjectedEvent =
-    | ProjectedFsEvent
-    | ProjectedKvEvent
-    | ProjectedNotifEvent;
+    ProjectedFsEvent | ProjectedKvEvent | ProjectedNotifEvent;
 
 export type GapReason =
     | 'matched_subscription_limit'
@@ -269,9 +267,7 @@ export interface NotifPublicSubject extends SubjectSpec<
 }
 
 export type PublicSubject =
-    | FsPublicSubject
-    | KvPublicSubject
-    | NotifPublicSubject;
+    FsPublicSubject | KvPublicSubject | NotifPublicSubject;
 
 export interface UnpublishedInternalEvent {
     event: EventKey;

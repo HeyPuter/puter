@@ -27,6 +27,7 @@ import {
 } from '../../core/actor';
 import { Context, runWithContext } from '../../core/context';
 import { HttpError } from '../../core/http/HttpError.js';
+import { isMissingParentViolation } from '../../util/dbError.js';
 import { Span } from '../../util/span.js';
 import { PuterService } from '../types';
 import {
@@ -1391,14 +1392,30 @@ export class PermissionService extends PuterService {
         if (existing && (!grantedAs || existing.extra?.grantedAs === grantedAs))
             return;
 
-        await this.stores.permission.upsertUserAppPerm(
-            actor.user.id,
-            app.id,
-            permission,
-            grantedAs
-                ? { ...existing?.extra, ...rowExtra, grantedAs }
-                : rowExtra,
-        );
+        try {
+            await this.stores.permission.upsertUserAppPerm(
+                actor.user.id,
+                app.id,
+                permission,
+                grantedAs
+                    ? { ...existing?.extra, ...rowExtra, grantedAs }
+                    : rowExtra,
+            );
+        } catch (error) {
+            if (!isMissingParentViolation(error)) throw error;
+            // The row keys both the app and the user; ask which parent went
+            // away, or a dead account gets a live app tombstoned instead.
+            if (await this.stores.app.existsOnPrimary(app.id)) {
+                await this.stores.user.markDeletedById(actor.user.id);
+                throw new HttpError(401, 'This account no longer exists.', {
+                    legacyCode: 'unauthorized',
+                });
+            }
+            await this.stores.app.markDeleted(app);
+            throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        }
         this.stores.permission
             .auditUserAppPerm({
                 user_id: actor.user.id,

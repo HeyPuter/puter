@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { UserRow } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -49,13 +50,18 @@ export class UserAccountService extends PuterService {
         // subscriptions off `user.delete`, keyed by uuid / customer id.
         let userUuid: string | undefined;
         let stripeCustomerId: string | null = null;
+        // Cache keys the row answers under, captured while it still exists.
+        let cachedIdentity: UserRow | null = null;
         try {
-            const rows = (await this.clients.db.read(
-                'SELECT `uuid`, `stripe_customer_id` FROM `user` WHERE `id` = ?',
+            // `SELECT *`: a schema without `stripe_customer_id` still yields the rest.
+            const rows = (await this.clients.db.pread(
+                'SELECT * FROM `user` WHERE `id` = ?',
                 [userId],
-            )) as Array<{ uuid?: string; stripe_customer_id?: string | null }>;
-            userUuid = rows[0]?.uuid;
-            stripeCustomerId = rows[0]?.stripe_customer_id ?? null;
+            )) as Array<Record<string, unknown>>;
+            userUuid = rows[0]?.uuid as string | undefined;
+            stripeCustomerId =
+                (rows[0]?.stripe_customer_id as string | null) ?? null;
+            cachedIdentity = (rows[0] as UserRow | undefined) ?? null;
         } catch (e) {
             console.warn('[cascade-delete-user] identifier lookup failed:', e);
         }
@@ -79,7 +85,8 @@ export class UserAccountService extends PuterService {
         await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
             userId,
         ]);
-        await this.stores.user.invalidateById(userId);
+        if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
+        else await this.stores.user.invalidateById(userId);
 
         // Fire-and-forget: let listeners purge external state tied to the
         // account (Stripe subscriptions are cancelled immediately, without

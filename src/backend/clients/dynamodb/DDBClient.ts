@@ -802,8 +802,7 @@ export class DDBClient extends PuterClient {
             );
 
             lastEvaluatedKey = scan.LastEvaluatedKey as
-                | Record<string, unknown>
-                | undefined;
+                Record<string, unknown> | undefined;
             const items = scan.Items;
             if (!items || items.length === 0) continue;
 
