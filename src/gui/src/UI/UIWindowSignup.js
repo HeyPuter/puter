@@ -27,6 +27,7 @@ import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderI
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
 import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
+import { isAttestedOrigin } from '../helpers/attestedOrigin.js';
 import { bonusRequirementsKey, checkSignupBonusCode } from '../helpers/signupBonusCode.js';
 
 // What a checked bonus code grants, above the form (and the provider buttons).
@@ -77,7 +78,7 @@ function UIWindowSignup(options) {
         h += authLogoHeader({
             logoSrc: window.icons['logo-white.svg'],
             logoClickable: logo_clickable,
-            openerOrigin: window.embedded_in_popup ? window.openerOrigin : '',
+            openerOrigin: window.embedded_in_popup && isAttestedOrigin(window.openerOrigin) ? window.openerOrigin : '',
             openerFallbackSrc: window.icons['website.svg'],
         });
         // close button
@@ -91,7 +92,7 @@ function UIWindowSignup(options) {
         // title
         h += `<h1 class="signup-form-title">${i18n('create_free_account')}</h1>`;
         // In a sign-in popup, say which site brought the user here.
-        if (window.embedded_in_popup && window.openerOrigin) {
+        if (window.embedded_in_popup && isAttestedOrigin(window.openerOrigin)) {
             h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(window.openerOrigin).hostname])}</p>`;
         }
         h += '<div class="signup-bonus-notice" style="display:none;"></div>';

@@ -41,6 +41,7 @@ import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
+import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
@@ -1475,6 +1476,32 @@ window.initgui = async function (options) {
             } catch (e) {
                 throw new Error('No referrer found');
             }
+        }
+
+        // Everything below needs an origin to identify the opener by.
+        if (!isAttestedOrigin(window.openerOrigin)) {
+            // postAuthActions would answer this; a denial can go to '*'.
+            if (action === 'request-permission') {
+                try {
+                    window.opener?.postMessage(
+                        {
+                            msg: 'permissionGranted',
+                            granted: false,
+                            original_msg_id:
+                                window.url_query_params.get('msg_id'),
+                        },
+                        '*',
+                    );
+                } catch (e) {
+                    console.error('could not answer the requester', e);
+                }
+            }
+            await UIAlert({
+                message: i18n('popup_opener_origin_unsupported'),
+            });
+            window.close();
+            window.open('', '_self').close();
+            return;
         }
 
         // this is the referrer in terms of user acquisition

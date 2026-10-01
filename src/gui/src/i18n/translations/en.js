@@ -908,6 +908,7 @@ const en = {
         sign_up_with_provider: 'Sign up with %%',
         sign_up_with_email: 'Sign up using email',
         popup_opener_uses_puter: '%strong% is powered by Puter for its AI and cloud features.\nUse your Puter account to continue.',
+        popup_opener_origin_unsupported: 'Puter cannot sign you in to this page because the browser gives it no identifiable address. Pages opened straight from a file (file://) and iframes sandboxed without allow-same-origin are not supported — serve the page over http://localhost or a real domain and try again.',
         oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
         // Login Window

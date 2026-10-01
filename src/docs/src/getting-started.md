@@ -79,6 +79,8 @@ const puter = init(authToken);
 </html>
 ```
 
+<div class="info">Serve this page rather than double-clicking it. Puter identifies your app by its origin, and a page opened straight from disk (<code>file:///</code>) has none — see <a href="/supported-platforms/">Supported Platforms</a>. Any local server works: <code>python3 -m http.server</code>, then open <code>http://localhost:8000</code>.</div>
+
 </div>
 
 ## Starter templates

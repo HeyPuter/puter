@@ -45,6 +45,19 @@ export const hasUserActivation = () => {
 };
 
 /**
+ * Whether the browser reports this document's origin as `"null"` — a `file://`
+ * page or an iframe sandboxed without `allow-same-origin`. Neither an app
+ * identity nor a valid `postMessage` target.
+ *
+ * @returns {boolean}
+ */
+export const hasOpaqueOrigin = () => {
+    if ( ! globalThis.location ) return true;
+    if ( globalThis.location.protocol === 'file:' ) return true;
+    return globalThis.origin === 'null';
+};
+
+/**
  * Opens a centered Puter authentication popup window.
  *
  * This must be called synchronously from within a user gesture (e.g. a click
