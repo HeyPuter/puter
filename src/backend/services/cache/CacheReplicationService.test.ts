@@ -76,6 +76,28 @@ describe('CacheReplicationService', () => {
         expect(await server.clients.redis.get(key)).toBeNull();
     });
 
+    it('adopts a tombstone, which carries no row to distrust', async () => {
+        const key = `cacherepl-${uuidv4()}:deleted`;
+
+        await server.clients.event.emitAndWait(
+            'outer.cacheUpdate',
+            { cacheKey: [key], data: '1', ttlSeconds: 60 } as never,
+            { from_outside: true },
+        );
+
+        // Dropping it frees this region's replica to cache the row back.
+        expect(await server.clients.redis.get(key)).toBe('1');
+    });
+
+    it('drops a tombstone when the peer cleared it', async () => {
+        const key = `cacherepl-${uuidv4()}:deleted`;
+        await server.clients.redis.set(key, '1');
+
+        await emitRemote([key]);
+
+        expect(await server.clients.redis.get(key)).toBeNull();
+    });
+
     it('survives a malformed payload', async () => {
         await expect(emitRemote('not-an-array')).resolves.not.toThrow();
         await expect(emitRemote([123, '', null])).resolves.not.toThrow();

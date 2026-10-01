@@ -4,7 +4,7 @@ description: Add values to an existing key or nested path in the user's own key-
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Add values to an existing key. When you pass an array, its elements are appended to the array stored at the key. When you pass an object, each key is treated as a path and the value is added at that path.
+Add values to an existing key. When you pass an array, its elements are appended to the array stored at the key. When you pass an object, each key is treated as a path and the value is added at that path. A missing or expired key starts from an empty array (or, for a path map, an object holding an empty array at each path).
 
 ## Syntax
 

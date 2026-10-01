@@ -49,8 +49,10 @@
  * @property {string} key The key the event is about.
  * @property {unknown} [value] What the key holds after the change — the
  *   written value on a `set`, `null` on a `del`. Present only on a
- *   subscription made with `includeValue`, and left out when the value is
- *   over 16 KB serialized; an `expire` never carries one.
+ *   subscription made with `includeValue`. Left out when the value is over
+ *   16 KB serialized, when more than 128 subscriptions match the change, or
+ *   when there were more subscription filters to check than one change may
+ *   check. Read the key when it's absent. An `expire` never carries one.
  * @property {boolean} self `true` when the change was made by the account
  *   holding the subscription.
  * @property {number} ts Milliseconds since the epoch.
@@ -107,21 +109,25 @@
 
 /**
  * Stands in for events that happened and were not delivered — a per-event
- * ceiling was hit, or deliveries were coming faster than the subscription's
- * allowance. It carries no `uid` or `path`, because what was dropped is
- * exactly what it cannot name: treat it as "re-read the anchor", never as
- * "nothing changed".
+ * ceiling was hit, deliveries were coming faster than the subscription's
+ * allowance, or the connection was down. It carries no `uid` or `path`,
+ * because what was dropped is exactly what it cannot name: treat it as
+ * "re-read the anchor", never as "nothing changed".
  *
  * @typedef {Object} EventGapMarker
- * @property {string} id Unique id for the dispatch the gap happened in.
- * @property {string} subject The subject that was being delivered.
+ * @property {string} id Unique id for the dispatch the gap happened in, or a
+ *   fresh one for a `reconnect` gap.
+ * @property {string} subject The subject that was being delivered; for
+ *   `reconnect`, the subject the subscription was made with.
  * @property {'gap'} op Always `'gap'`.
  * @property {string} reason Why the delivery was dropped —
  *   `matched_subscription_limit`, `filter_evaluation_limit`,
  *   `delivery_rate_limit`, `backlog_overflow` when undelivered events were
  *   shed to stay inside a backlog cap, `suspended_backlog_expired` when a
- *   suspended subscription held them past its deadline, or `handler_rejected`
- *   when the subscription's handler refused the delivery outright.
+ *   suspended subscription held them past its deadline, `handler_rejected`
+ *   when the subscription's handler refused the delivery outright, or
+ *   `reconnect` once a session subscription is back after its connection
+ *   dropped, in place of whatever changed while it was down.
  * @property {number} ts Milliseconds since the epoch.
  */
 
@@ -168,7 +174,8 @@
  * @property {number} [timeout] How long to wait for the server to answer
  *   `subscribe`, in milliseconds. Default `30000`.
  * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
- *   value on each event as `event.value`.
+ *   value on each event as `event.value`, when it can be inlined (see
+ *   `PuterKvEvent.value`).
  */
 
 /**
@@ -196,7 +203,8 @@
  *   itself — unix seconds or an ISO-8601 string, and it has to be in the
  *   future.
  * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
- *   value on each event as `event.value`.
+ *   value on each event as `event.value`, when it can be inlined (see
+ *   `PuterKvEvent.value`).
  * @property {(error: Error & { code?: string }) => void} [onError] Called if
  *   this client stops running `handler` because its events connection could
  *   not be restored (`reauth_required` when this session was signed out). The
@@ -220,7 +228,9 @@
  * @property {string} subject The subject it was created with.
  * @property {EventAnchor} anchor The node it is keyed to.
  * @property {string | null} match The pattern events under the anchor are
- *   matched against, or `null` when the subject named the anchor itself.
+ *   matched against, or `null` when the subject named the anchor itself. A
+ *   pattern with no wildcard is a path that did not exist yet, and also
+ *   covers everything under it.
  * @property {string | null} op The single operation it is limited to, or
  *   `null` for all of them.
  * @property {Array<'socket' | 'worker' | 'push'>} targets Transports its

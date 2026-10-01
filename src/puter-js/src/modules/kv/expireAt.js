@@ -16,6 +16,10 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
  * server may see keys expire early or late — prefer `expire` for a
  * server-relative TTL.
  *
+ * A missing or already-expired key becomes an empty key with the TTL, rather
+ * than staying absent. A timestamp at or before now, including `0`, expires
+ * the key immediately.
+ *
  * @this {import('./index.js').KVModule}
  * @param {string} key
  * @param {number} timestamp

@@ -39,10 +39,12 @@ import type { NotificationAudience } from '../notification/notificationTypes.js'
  * and the glob its members are filtered by.
  *
  * An `fs:` subject naming something that does not exist yet anchors on the
- * nearest existing ancestor and files the remainder as the filter — climbing
- * terminates at the user's home, whose uid never changes. A `kv:` subject
- * anchors on a key prefix, which needs no lookup: the namespace is derived from
- * the actor, so nothing has to exist for the subscription to be valid.
+ * nearest existing ancestor and files the remainder as the filter. A glob with
+ * no wildcard is a path that did not exist yet; dispatch reads it as that path
+ * and everything under it. Climbing terminates at the user's home, whose uid
+ * never changes. A `kv:` subject anchors on a key prefix, which needs no
+ * lookup: the namespace is derived from the actor, so nothing has to exist for
+ * the subscription to be valid.
  */
 
 export interface FsAnchorDeps {
@@ -59,7 +61,11 @@ export interface ResolvedFsAnchor {
     token: string;
     uid: string;
     path: string;
-    /** Glob relative to the anchor, or `null` for a node-form subscription. */
+    /**
+     * Glob relative to the anchor, or `null` for a node-form subscription. A
+     * glob with no wildcard is a path that did not exist yet; dispatch reads it
+     * as that path and everything under it.
+     */
     match: string | null;
     op: FsOp | null;
 }

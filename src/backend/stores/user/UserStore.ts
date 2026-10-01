@@ -307,6 +307,18 @@ export class UserStore extends PuterStore {
             )) as Array<Record<string, unknown>>;
             for (const row of rows) {
                 const user = this.#normalizeRow(row);
+                // Tombstoned: let the primary say if it's really gone.
+                if (
+                    await this.isCacheKeyTombstoned([
+                        this.#cacheKey('id', user.id),
+                    ])
+                ) {
+                    const fresh = await this.getByProperty('id', user.id, {
+                        force: true,
+                    });
+                    if (fresh) result.set(fresh.id, fresh);
+                    continue;
+                }
                 result.set(user.id, user);
                 this.#writeCache(user).catch(() => {
                     // Best-effort cache backfill.
@@ -437,9 +449,14 @@ export class UserStore extends PuterStore {
             `SELECT * FROM \`user\` WHERE \`${prop}\` = ?` +
             (prop === 'email' ? ` ${EMAIL_OWNER_ORDER}` : '') +
             ' LIMIT 1';
-        const rows = force
-            ? await this.clients.db.pread(sql, [value])
-            : await this.clients.db.tryHardRead(sql, [value]);
+        // Only the primary reliably knows a tombstoned row is gone.
+        const tombstoned =
+            !force &&
+            (await this.isCacheKeyTombstoned([this.#cacheKey(prop, value)]));
+        const rows =
+            force || tombstoned
+                ? await this.clients.db.pread(sql, [value])
+                : await this.clients.db.tryHardRead(sql, [value]);
         const row = rows[0];
         if (!row) return null;
 
@@ -561,6 +578,15 @@ export class UserStore extends PuterStore {
         if (!insertId)
             throw new Error('Failed to create user — no insertId returned');
 
+        // A reused username/address retires its predecessor's tombstone.
+        await this.clearCacheTombstones(
+            this.#cacheKeysForUser({
+                id: insertId,
+                uuid: fields.uuid,
+                username: fields.username,
+                email: fields.email,
+            } as UserRow),
+        );
         const user = await this.getById(insertId, { force: true });
         if (!user) throw new Error('Failed to fetch created user');
         return user;
@@ -804,6 +830,29 @@ export class UserStore extends PuterStore {
         if (cached) await this.invalidate(cached);
     }
 
+    /** Invalidate a deleted row; pass it as read _before_ the delete. */
+    async markDeleted(user: UserRow): Promise<void> {
+        // Only keys this row owned: an unconfirmed address may be held by
+        // several rows, and the owner still needs to be cacheable.
+        const owned = this.#cacheKeysToWrite(user);
+        const rest = this.#cacheKeysForUser(user).filter(
+            (key) => !owned.includes(key),
+        );
+        await this.tombstoneCacheKeys(owned);
+        await this.publishCacheKeys({ keys: rest, broadcast: true });
+    }
+
+    /**
+     * `markDeleted` for a row we only know by id; the stale copy names its
+     * keys.
+     */
+    async markDeletedById(id: number): Promise<void> {
+        const cached = await this.#readCache('id', id);
+        if (cached) return this.markDeleted(cached);
+        // No cached copy to name the rest, but the id key is always this row's.
+        await this.tombstoneCacheKeys([this.#cacheKey('id', id)]);
+    }
+
     // -- Internals ----------------------------------------------------
 
     #cacheKey(prop: UserIdProperty, value: unknown): string {
@@ -857,29 +906,33 @@ export class UserStore extends PuterStore {
 
     async #writeCache(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysToWrite(user);
-        if (keys.length === 0) return;
         const serialized = JSON.stringify(user);
-        await Promise.all(
-            keys.map((key) =>
-                this.clients.redis.set(
-                    key,
-                    serialized,
-                    'EX',
-                    CACHE_TTL_SECONDS,
+        // A replica behind the delete still returns the row.
+        await this.writeCacheUnlessDeleted(keys, async () => {
+            await Promise.all(
+                keys.map((key) =>
+                    this.clients.redis.set(
+                        key,
+                        serialized,
+                        'EX',
+                        CACHE_TTL_SECONDS,
+                    ),
                 ),
-            ),
-        );
+            );
+        });
     }
 
     async #refreshCache(user: UserRow): Promise<void> {
         const keys = this.#cacheKeysToWrite(user);
-        if (keys.length === 0) return;
-        await this.publishCacheKeys({
-            keys,
-            serializedData: JSON.stringify(user),
-            ttlSeconds: CACHE_TTL_SECONDS,
-            broadcast: true,
-        });
+        // `#write` reads the replica, so it can refresh a row already deleted.
+        await this.writeCacheUnlessDeleted(keys, () =>
+            this.publishCacheKeys({
+                keys,
+                serializedData: JSON.stringify(user),
+                ttlSeconds: CACHE_TTL_SECONDS,
+                broadcast: true,
+            }),
+        );
     }
 
     /**

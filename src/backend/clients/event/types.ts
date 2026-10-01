@@ -463,6 +463,8 @@ export type EventMap = {
         values?: unknown[];
         /** Keys among `keys` private to the namespace's app. */
         noShareKeys?: string[];
+        /** Events handler runs behind the write; see `Actor.handlerDepth`. */
+        handlerDepth?: number;
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
@@ -486,6 +488,8 @@ export type EventMap = {
         appUid: string | null;
         value: Record<string, unknown>;
         createdAt: number;
+        /** Events handler runs behind whatever created it. */
+        handlerDepth?: number;
     };
     /**
      * One notification, addressed at whatever sockets each region holds for the

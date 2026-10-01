@@ -89,7 +89,6 @@ pre {
     --primary-lightness: 93.33%;
     --primary-alpha: 0.8;
     --primary-color: #373e44;
-    --primary-text-color: #393f46;
     --primary-color-icon: invert(0);
     --primary-color-sidebar-item: #fefeff;
 
@@ -133,7 +132,6 @@ body {
 @media (prefers-color-scheme: dark) {
     body {
         background-color: #1e1e1e;
-	--primary-text-color: #e2e8f0;
     }
 }
 
@@ -179,7 +177,7 @@ input[type=text], input[type=password], input[type=email], select {
     box-sizing: border-box;
     outline: none;
     -webkit-font-smoothing: antialiased;
-    color: var(--primary-text-color);
+    color: #393f46;
     font-size: 14px;
 }
 

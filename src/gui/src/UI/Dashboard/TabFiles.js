@@ -43,6 +43,7 @@ import list_all_shared from '../../helpers/listAllShared.js';
 import { can_restructure, can_share, remember_shared_root, remember_shared_roots } from '../../helpers/sharedAccess.js';
 import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
 import resolve_shared_item from '../../helpers/resolveSharedItem.js';
+import parse_item_metadata from '../../helpers/parseItemMetadata.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -2615,15 +2616,7 @@ const TabFiles = {
     async renderItem (file, iconResult = null) {
         // For trashed items, use original_name from metadata if available
         const item_id = window.global_element_id++;
-        // metadata is a client-writable, untrusted string stored verbatim, so
-        // it may be '', undefined, or malformed. Guard the parse (as itemIcon.js
-        // does) — an unguarded throw here aborts the whole directory render.
-        let metadata = {};
-        try {
-            if ( file.metadata ) metadata = JSON.parse(file.metadata) || {};
-        } catch {
-            metadata = {};
-        }
+        const metadata = parse_item_metadata(file.metadata);
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
         // Normalize is_shortcut to 0/1. Directory listings return it as a number,

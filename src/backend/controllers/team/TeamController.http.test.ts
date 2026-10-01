@@ -732,12 +732,17 @@ describe('team endpoints over HTTP', () => {
         return { username, password, userId: row.id, token };
     };
 
-    /** Cookie-credentialed on the GUI origin, as the user-protected gate insists. */
+    /**
+     * Cookie-credentialed on the GUI origin, as the user-protected gate insists.
+     * Sent with the seat's own user agent: the session touch otherwise rewrites
+     * it to Node's once a second boundary passes.
+     */
     const changePassword = (token: string, password: string, next: string) =>
         fetch(new URL('/user-protected/change-password', env.origin), {
             method: 'POST',
             headers: {
                 'content-type': 'application/json',
+                'user-agent': 'puter-test-seat',
                 authorization: `Bearer ${token}`,
                 cookie: `puter_auth_token=${token}`,
             },

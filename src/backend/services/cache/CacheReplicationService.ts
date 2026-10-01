@@ -17,6 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import {
+    CACHE_TOMBSTONE_TTL_SECONDS,
+    isCacheTombstoneKey,
+} from '../../stores/types';
 import { PuterService } from '../types';
 
 /**
@@ -27,8 +31,9 @@ import { PuterService } from '../types';
  * a webhook. Nothing consumed it on the far side, so cross-region cache
  * replication silently no-oped.
  *
- * Always deletes, never re-writes the sender's payload: their value was derived
+ * Deletes rather than re-writing the sender's payload: their value was derived
  * from their own replica, so forcing a re-read here is the conservative move.
+ * Tombstones are the exception — they carry no row, only the fact of a delete.
  */
 export class CacheReplicationService extends PuterService {
     override onServerStart(): void {
@@ -40,15 +45,22 @@ export class CacheReplicationService extends PuterService {
                 (key): key is string => typeof key === 'string' && key !== '',
             );
             if (keys.length === 0) return;
-            void this.#invalidate(keys);
+            const hasData = (data as { data?: unknown })?.data !== undefined;
+            void this.#invalidate(keys, hasData);
         });
     }
 
     // Pipelined rather than a multi-key DEL, which would CROSSSLOT on Valkey.
-    async #invalidate(keys: string[]): Promise<void> {
+    async #invalidate(keys: string[], hasData: boolean): Promise<void> {
         try {
             const pipeline = this.clients.redis.pipeline();
-            for (const key of keys) pipeline.del(key);
+            for (const key of keys) {
+                if (hasData && isCacheTombstoneKey(key)) {
+                    pipeline.set(key, '1', 'EX', CACHE_TOMBSTONE_TTL_SECONDS);
+                } else {
+                    pipeline.del(key);
+                }
+            }
             await pipeline.exec();
         } catch {
             console.warn(

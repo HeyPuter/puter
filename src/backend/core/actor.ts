@@ -64,6 +64,11 @@ export interface Actor {
      * carrying one. `kind` mirrors the session row (`web`, `app`, `worker`).
      */
     session?: { uid: string; kind?: string | null } | null;
+    /**
+     * Events handler runs behind this actor's writes; set only from an events
+     * handler token. Provenance, not authority, so derived actors keep it.
+     */
+    handlerDepth?: number;
 }
 
 /** UUID of the baked-in system user (see 0025 seed migration). */
@@ -155,5 +160,13 @@ export const actorUid = (actor: Actor): string => {
  */
 export const userRelatedActor = (actor: Actor): Actor => {
     if (!actor.app && !actor.accessToken) return actor;
-    return { user: actor.user, effectiveApp: null };
+    return {
+        user: actor.user,
+        effectiveApp: null,
+        ...(actor.handlerDepth ? { handlerDepth: actor.handlerDepth } : {}),
+    };
 };
+
+/** How many events handler runs led to a write by this actor. */
+export const handlerDepthOf = (actor: Actor | undefined | null): number =>
+    actor?.handlerDepth ?? 0;

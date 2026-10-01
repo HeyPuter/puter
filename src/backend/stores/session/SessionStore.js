@@ -19,6 +19,11 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { HttpError } from '../../core/http/HttpError.js';
+import {
+    isMissingParentViolation,
+    isUniqueViolation,
+} from '../../util/dbError.js';
 import { PuterStore } from '../types';
 
 // `updateActivity` / `updateUserActivity` intentionally skip cache
@@ -50,26 +55,6 @@ export const WEB_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 
-// Duplicate-key error codes used by the `getOrCreate*` paths to detect
-// "another caller won the partial-unique-index race" — the only error
-// category they're prepared to silently no-op through. CHECK / NOT NULL /
-// FK / type violations must bubble up; otherwise the caller caches a
-// row that was never inserted.
-//   better-sqlite3 surfaces SqliteError.code; mysql2 surfaces .code and
-//   .errno (1062 = ER_DUP_ENTRY); pg surfaces SQLSTATE 23505.
-function isUniqueViolation(err) {
-    if (!err) return false;
-    const code = err.code;
-    if (
-        code === 'SQLITE_CONSTRAINT_UNIQUE' ||
-        code === 'SQLITE_CONSTRAINT_PRIMARYKEY' ||
-        code === 'ER_DUP_ENTRY' ||
-        code === '23505'
-    ) {
-        return true;
-    }
-    return err.errno === 1062;
-}
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 const sqlTimestamp = (ms) =>
@@ -260,6 +245,13 @@ export class SessionStore extends PuterStore {
                 ],
             );
         } catch (err) {
+            if (isMissingParentViolation(err)) {
+                // The account is gone; a cached copy still answered lookups.
+                await this.stores.user.markDeletedById(userId);
+                throw new HttpError(401, 'This account no longer exists.', {
+                    legacyCode: 'unauthorized',
+                });
+            }
             if (!ignoreConflict || !isUniqueViolation(err)) {
                 throw err;
             }

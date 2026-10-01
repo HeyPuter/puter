@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { v5 as uuidv5 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
 
 // Stats cache TTL the store backfills with (mirrors STATS_CACHE_TTL_SECONDS).
@@ -1300,5 +1301,82 @@ describe('AppStore detailed stats', () => {
                 expect(stats.open_count).toBe(0);
             });
         });
+    });
+});
+
+describe('AppStore deleted-row tombstones', () => {
+    let server;
+    let appStore;
+    let db;
+    let redis;
+
+    const OWNER = 4101;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        appStore = server.stores.app;
+        db = server.clients.db;
+        redis = server.clients.redis;
+        await clearAppCache(redis);
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const createApp = async () => {
+        const name = `tomb-${Math.random().toString(36).slice(2, 10)}`;
+        return appStore.create(
+            { name, title: 'Tombstone', index_url: `https://${name}.test/` },
+            { ownerUserId: OWNER },
+        );
+    };
+
+    /** Replica that hasn't applied the delete yet; the primary has. */
+    const withLaggingReplica = async (row, fn) => {
+        const readSpy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                /FROM `apps`/.test(sql) ? [row] : [],
+            );
+        const preadSpy = vi.spyOn(db, 'pread').mockResolvedValue([]);
+        try {
+            return await fn();
+        } finally {
+            readSpy.mockRestore();
+            preadSpy.mockRestore();
+        }
+    };
+
+    it('does not let a lagging replica cache a deleted app back', async () => {
+        const app = await createApp();
+        await appStore.getByUid(app.uid);
+        expect(await redis.get(`apps:uid:${app.uid}`)).not.toBeNull();
+
+        await appStore.delete(app.id);
+
+        const found = await withLaggingReplica(app, () =>
+            appStore.getByUid(app.uid),
+        );
+
+        expect(found).toBeNull();
+        expect(await redis.get(`apps:uid:${app.uid}`)).toBeNull();
+        expect(await redis.get(`apps:name:${app.name}`)).toBeNull();
+    });
+
+    it('re-bootstrapping the same origin uid clears the tombstone', async () => {
+        const origin = 'https://tombstone-rebootstrap.test';
+        const uid = `app-${uuidv5(origin, uuidv5.URL)}`;
+
+        await appStore.createFromOrigin(uid, origin);
+        // By uid, not the returned row: ids collide in the shared mock redis.
+        const first = await appStore.getByUid(uid);
+        await appStore.delete(first.id);
+        expect(await appStore.getByUid(uid)).toBeNull();
+
+        await appStore.createFromOrigin(uid, origin);
+
+        expect(await appStore.getByUid(uid)).not.toBeNull();
+        expect(await redis.get(`apps:uid:${uid}`)).not.toBeNull();
     });
 });

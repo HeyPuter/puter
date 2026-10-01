@@ -475,15 +475,16 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                 }
 
                 puter.puterAuthState.isPromptOpen = false;
-                // Resolve or reject any waiting promises.
-                if ( puter.puterAuthState.resolver ) {
+                // Resolve or reject every waiting promise, not just one.
+                const resolvers = puter.puterAuthState.resolvers;
+                puter.puterAuthState.resolvers = [];
+                for ( const resolver of resolvers ) {
                     if ( puter.puterAuthState.authGranted ) {
-                        puter.puterAuthState.resolver.resolve();
+                        resolver.resolve();
                     } else {
-                        puter.puterAuthState.resolver.reject();
+                        resolver.reject();
                     }
-                    puter.puterAuthState.resolver = null;
-                };
+                }
             }
         };
 
@@ -521,10 +522,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         // This ensures that the calling code's catch block will be triggered.
         this.reject(new Error('User cancelled the authentication'));
 
-        // If there's a resolver set, use it to reject the waiting promise as well.
-        if ( puter.puterAuthState.resolver ) {
-            puter.puterAuthState.resolver.reject(new Error('User cancelled the authentication'));
-            puter.puterAuthState.resolver = null;
+        // Reject every waiting promise the same way, not just one.
+        const resolvers = puter.puterAuthState.resolvers;
+        puter.puterAuthState.resolvers = [];
+        for ( const resolver of resolvers ) {
+            resolver.reject(new Error('User cancelled the authentication'));
         }
     };
 

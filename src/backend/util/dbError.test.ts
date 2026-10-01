@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { isUniqueViolation } from './dbError.js';
+import { isMissingParentViolation, isUniqueViolation } from './dbError.js';
 
 describe('isUniqueViolation', () => {
     it('matches UNIQUE / PRIMARY KEY violations across the supported drivers', () => {
@@ -49,5 +49,45 @@ describe('isUniqueViolation', () => {
         expect(isUniqueViolation(undefined)).toBe(false);
         expect(isUniqueViolation('boom')).toBe(false);
         expect(isUniqueViolation({})).toBe(false);
+    });
+});
+
+describe('isMissingParentViolation', () => {
+    it('matches foreign-key violations across the supported drivers', () => {
+        expect(isMissingParentViolation({ code: '23503' })).toBe(true); // postgres
+        expect(
+            isMissingParentViolation({ code: 'SQLITE_CONSTRAINT_FOREIGNKEY' }),
+        ).toBe(true);
+        expect(
+            isMissingParentViolation({ code: 'ER_NO_REFERENCED_ROW_2' }),
+        ).toBe(true); // mysql
+        expect(isMissingParentViolation({ errno: 1452 })).toBe(true); // mysql errno
+        expect(isMissingParentViolation({ errno: 1216 })).toBe(true);
+    });
+
+    it('does NOT match other constraint / error kinds', () => {
+        expect(isMissingParentViolation({ code: 'SQLITE_CONSTRAINT' })).toBe(
+            false,
+        );
+        expect(
+            isMissingParentViolation({ code: 'SQLITE_CONSTRAINT_UNIQUE' }),
+        ).toBe(false);
+        expect(isMissingParentViolation({ code: '23505' })).toBe(false); // pg unique
+        expect(isMissingParentViolation({ code: 'ER_DUP_ENTRY' })).toBe(false);
+        expect(isMissingParentViolation({ errno: 1062 })).toBe(false);
+    });
+
+    it('does NOT match a delete blocked by surviving children', () => {
+        expect(
+            isMissingParentViolation({ code: 'ER_ROW_IS_REFERENCED_2' }),
+        ).toBe(false);
+        expect(isMissingParentViolation({ errno: 1451 })).toBe(false);
+    });
+
+    it('is safe on non-error inputs', () => {
+        expect(isMissingParentViolation(null)).toBe(false);
+        expect(isMissingParentViolation(undefined)).toBe(false);
+        expect(isMissingParentViolation('boom')).toBe(false);
+        expect(isMissingParentViolation({})).toBe(false);
     });
 });

@@ -245,7 +245,9 @@ export class Puter {
     puterAuthState = {
         isPromptOpen: false,
         authGranted: null,
-        resolver: null,
+        // Callers that found the prompt already open, queued rather than
+        // sharing one slot.
+        resolvers: [],
     };
 
     // Holds the unique app instance ID that is provided by the host environment
@@ -1866,14 +1868,15 @@ globalThis.addEventListener &&
             }
 
             puter.puterAuthState.isPromptOpen = false;
-            // Resolve or reject any waiting promises.
-            if (puter.puterAuthState.resolver) {
+            // Resolve or reject every waiting promise, not just one.
+            const resolvers = puter.puterAuthState.resolvers;
+            puter.puterAuthState.resolvers = [];
+            for (const resolver of resolvers) {
                 if (puter.puterAuthState.authGranted) {
-                    puter.puterAuthState.resolver.resolve();
+                    resolver.resolve();
                 } else {
-                    puter.puterAuthState.resolver.reject();
+                    resolver.reject();
                 }
-                puter.puterAuthState.resolver = null;
             }
         }
     });

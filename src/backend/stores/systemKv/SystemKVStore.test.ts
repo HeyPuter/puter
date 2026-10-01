@@ -13,8 +13,11 @@ import {
     chunkPathsForIncr,
     INCR_EXPRESSION_BUDGET_BYTES,
     incrExpressionBytes,
+    KV_GLOBAL_APP_KEY,
+    kvNamespace,
     type SystemKVStore,
 } from './SystemKVStore.ts';
+import { PUTER_KV_STORE_TABLE_NAME } from './tableDefinition.ts';
 import { PuterServer } from '../../server.ts';
 import type { Actor } from '../../core/actor.ts';
 
@@ -706,6 +709,23 @@ describe('SystemKVStore', () => {
                 target.expireAt({ key: '', timestamp: 0 }, opts),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        it('both resolve true', async () => {
+            await target.set({ key: 'resolveTrue', value: 1 }, opts);
+            const expireAtResult = await target.expireAt(
+                {
+                    key: 'resolveTrue',
+                    timestamp: Math.floor(Date.now() / 1000) + 60,
+                },
+                opts,
+            );
+            expect(expireAtResult.res).toBe(true);
+            const expireResult = await target.expire(
+                { key: 'resolveTrue', ttl: 60 },
+                opts,
+            );
+            expect(expireResult.res).toBe(true);
+        });
     });
 
     describe('incr / decr', () => {
@@ -900,6 +920,99 @@ describe('SystemKVStore', () => {
                     opts,
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects a text value with value_not_a_number and a plain message', async () => {
+            await target.set({ key: 'textCounter', value: 'hello' }, opts);
+            await expect(
+                target.incr(
+                    { key: 'textCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+                message: expect.not.stringMatching(/operand|expression/i),
+            });
+            const got = await target.get({ key: 'textCounter' }, opts);
+            expect(got.res).toBe('hello');
+        });
+
+        it('rejects a numeric string the same way', async () => {
+            await target.set({ key: 'numericStringCounter', value: '5' }, opts);
+            await expect(
+                target.incr(
+                    {
+                        key: 'numericStringCounter',
+                        pathAndAmountMap: { '': 1 },
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('rejects an object value when no field is named', async () => {
+            await target.set(
+                { key: 'objectCounter', value: { foo: 1 } },
+                opts,
+            );
+            await expect(
+                target.incr(
+                    { key: 'objectCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('rejects a null value', async () => {
+            await target.set({ key: 'nullCounter', value: null }, opts);
+            await expect(
+                target.incr(
+                    { key: 'nullCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('decr rejects a text value the same way', async () => {
+            await target.set({ key: 'decrTextCounter', value: 'hello' }, opts);
+            await expect(
+                target.decr(
+                    { key: 'decrTextCounter', pathAndAmountMap: { '': 1 } },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_not_a_number',
+            });
+        });
+
+        it('does not try to build paths for a type mismatch', async () => {
+            await target.set({ key: 'noPathBuildCounter', value: 'hello' }, opts);
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            try {
+                await expect(
+                    target.incr(
+                        {
+                            key: 'noPathBuildCounter',
+                            pathAndAmountMap: { '': 1 },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ code: 'value_not_a_number' });
+                expect(update).toHaveBeenCalledTimes(1);
+            } finally {
+                update.mockRestore();
+            }
         });
     });
 
@@ -2051,6 +2164,102 @@ describe('SystemKVStore', () => {
                 update.mockRestore();
             }
         });
+
+        it('treats an expired private entry as missing', async () => {
+            const past = Math.floor(Date.now() / 1000) - 10;
+            await target.set(
+                {
+                    key: 'expired-secret',
+                    value: 'v',
+                    disableSharing: true,
+                    expireAt: past,
+                },
+                { actor, appUuid: 'app-other' },
+            );
+            const result = await target.incr(
+                { key: 'expired-secret', pathAndAmountMap: { '': 1 } },
+                crossOpts,
+            );
+            expect(result.res).toBe(1);
+        });
+
+        it('re-checks a stale expired-private read before letting a cross-app write through', async () => {
+            // The row is genuinely live and private.
+            await target.set(
+                { key: 'racy-secret', value: 'v', disableSharing: true },
+                { actor, appUuid: 'app-other' },
+            );
+            const real = server.clients.dynamo.get.bind(server.clients.dynamo);
+            const get = vi
+                .spyOn(server.clients.dynamo, 'get')
+                .mockImplementation(async (...args) => {
+                    const [, , consistentRead] = args as [
+                        string,
+                        Record<string, unknown>,
+                        boolean?,
+                    ];
+                    const response = await real(...args);
+                    if (!consistentRead && response.Item) {
+                        // Simulate a stale eventually-consistent read: it
+                        // still sees the old (now-past) TTL.
+                        return {
+                            ...response,
+                            Item: {
+                                ...response.Item,
+                                ttl: Math.floor(Date.now() / 1000) - 10,
+                            },
+                        };
+                    }
+                    return response;
+                });
+            try {
+                await expect(
+                    target.incr(
+                        { key: 'racy-secret', pathAndAmountMap: { '': 1 } },
+                        crossOpts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            } finally {
+                get.mockRestore();
+            }
+        });
+
+        it('re-checks a stale expired-private read before letting a cross-app batch write through', async () => {
+            const namespace = kvNamespace(actor.user.uuid!, 'app-other');
+            const now = Math.floor(Date.now() / 1000);
+            const batchGet = vi
+                .spyOn(server.clients.dynamo, 'batchGet')
+                .mockImplementation(async (_params, consistentRead) => ({
+                    Responses: {
+                        [PUTER_KV_STORE_TABLE_NAME]: [
+                            {
+                                namespace,
+                                key: 'racy-secret-batch',
+                                value: 's',
+                                noShare: true,
+                                // Only the eventually-consistent read is stale.
+                                ...(consistentRead ? {} : { ttl: now - 10 }),
+                            },
+                        ],
+                    },
+                    ConsumedCapacity: [],
+                }));
+            try {
+                await expect(
+                    target.batchPut(
+                        {
+                            items: [
+                                { key: 'ok', value: 1 },
+                                { key: 'racy-secret-batch', value: 2 },
+                            ],
+                        },
+                        crossOpts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            } finally {
+                batchGet.mockRestore();
+            }
+        });
     });
 
     describe('take', () => {
@@ -2066,6 +2275,600 @@ describe('SystemKVStore', () => {
             expect(second.res).toBeNull();
             const { res } = await target.get({ key: 'claim-me' }, opts);
             expect(res).toBeNull();
+        });
+    });
+
+    const namespaceOf = (a: Actor) =>
+        kvNamespace(a.user.uuid!, KV_GLOBAL_APP_KEY);
+
+    describe('writes to an expired row that has not been swept', () => {
+        const past = () => Math.floor(Date.now() / 1000) - 10;
+
+        it('incr starts from zero on an expired counter and drops its TTL', async () => {
+            await target.set(
+                { key: 'expiredCounter', value: 5, expireAt: past() },
+                opts,
+            );
+            const result = await target.incr(
+                { key: 'expiredCounter', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(1);
+            const got = await target.get({ key: 'expiredCounter' }, opts);
+            expect(got.res).toBe(1);
+            const listed = await target.list({ as: 'entries' }, opts);
+            expect(listed.res).toContainEqual({
+                key: 'expiredCounter',
+                value: 1,
+            });
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'expiredCounter' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('incr starts from zero on an expired value that holds text', async () => {
+            await target.set(
+                { key: 'expiredText', value: 'hello', expireAt: past() },
+                opts,
+            );
+            const result = await target.incr(
+                { key: 'expiredText', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(1);
+        });
+
+        it('incr starts a fresh object on an expired record', async () => {
+            await target.set(
+                { key: 'expiredRecord', value: 'stale', expireAt: past() },
+                opts,
+            );
+            const result = await target.incr(
+                { key: 'expiredRecord', pathAndAmountMap: { hits: 1 } },
+                opts,
+            );
+            expect(result.res).toMatchObject({ hits: 1 });
+        });
+
+        it('decr starts from zero on an expired counter', async () => {
+            await target.set(
+                { key: 'expiredDecr', value: 5, expireAt: past() },
+                opts,
+            );
+            const result = await target.decr(
+                { key: 'expiredDecr', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(-1);
+        });
+
+        it('add starts a fresh array on an expired key', async () => {
+            await target.set(
+                { key: 'expiredList', value: ['x'], expireAt: past() },
+                opts,
+            );
+            const result = await target.add(
+                { key: 'expiredList', pathAndValueMap: { '': ['y'] } },
+                opts,
+            );
+            expect(result.res).toEqual(['y']);
+        });
+
+        it('update builds from empty on an expired key', async () => {
+            await target.set(
+                {
+                    key: 'expiredUpdate',
+                    value: { a: 1, b: 2 },
+                    expireAt: past(),
+                },
+                opts,
+            );
+            const result = await target.update(
+                { key: 'expiredUpdate', pathAndValueMap: { a: 5 } },
+                opts,
+            );
+            expect(result.res).toEqual({ a: 5 });
+            const got = await target.get({ key: 'expiredUpdate' }, opts);
+            expect(got.res).toEqual({ a: 5 });
+        });
+
+        it('remove on an expired key resolves null', async () => {
+            await target.set(
+                { key: 'expiredRemove', value: { a: 1 }, expireAt: past() },
+                opts,
+            );
+            const result = await target.remove(
+                { key: 'expiredRemove', paths: ['a'] },
+                opts,
+            );
+            expect(result.res).toBeNull();
+        });
+
+        it('expire on an expired key makes an empty marker instead of reviving the value', async () => {
+            await target.set(
+                { key: 'expireAgain', value: 'old', expireAt: past() },
+                opts,
+            );
+            await target.expire({ key: 'expireAgain', ttl: 60 }, opts);
+            const got = await target.get({ key: 'expireAgain' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'entries' }, opts);
+            expect(listed.res).toContainEqual({
+                key: 'expireAgain',
+                value: null,
+            });
+        });
+
+        it('expireAt on an expired key makes an empty marker instead of reviving the value', async () => {
+            await target.set(
+                { key: 'expireAtAgain', value: 'old', expireAt: past() },
+                opts,
+            );
+            const future = Math.floor(Date.now() / 1000) + 60;
+            await target.expireAt(
+                { key: 'expireAtAgain', timestamp: future },
+                opts,
+            );
+            const got = await target.get({ key: 'expireAtAgain' }, opts);
+            expect(got.res).toBeNull();
+        });
+
+        it('an internal incr stamps a fresh TTL on an expired counter', async () => {
+            await target.set(
+                { key: 'expiredWithTtl', value: 5, expireAt: past() },
+                opts,
+            );
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.incr(
+                {
+                    key: 'expiredWithTtl',
+                    pathAndAmountMap: { '': 1 },
+                    expireAt: future,
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'expiredWithTtl' },
+            );
+            expect(raw.Item?.ttl).toBe(future);
+        });
+
+        it('counts every concurrent incr on an expired counter', async () => {
+            await target.set(
+                { key: 'expiredConcurrent', value: 100, expireAt: past() },
+                opts,
+            );
+            const results = await Promise.all(
+                Array.from({ length: 5 }, () =>
+                    target.incr(
+                        {
+                            key: 'expiredConcurrent',
+                            pathAndAmountMap: { '': 1 },
+                        },
+                        opts,
+                    ),
+                ),
+            );
+            const sorted = results
+                .map((r) => r.res as number)
+                .sort((a, b) => a - b);
+            expect(sorted).toEqual([1, 2, 3, 4, 5]);
+            const got = await target.get({ key: 'expiredConcurrent' }, opts);
+            expect(got.res).toBe(5);
+        });
+
+        it('does not drop a row another writer revived during the reset', async () => {
+            const key = 'revivedDuringReset';
+            await target.set({ key, value: 5, expireAt: past() }, opts);
+
+            const real = server.clients.dynamo.del.bind(server.clients.dynamo);
+            const del = vi
+                .spyOn(server.clients.dynamo, 'del')
+                .mockImplementation(async (...args: Parameters<typeof real>) => {
+                    await target.set({ key, value: 10 }, opts);
+                    return real(...args);
+                });
+            try {
+                const result = await target.incr(
+                    { key, pathAndAmountMap: { '': 1 } },
+                    opts,
+                );
+                expect(result.res).toBe(11);
+            } finally {
+                del.mockRestore();
+            }
+        });
+
+        it('keeps a single write for a live row', async () => {
+            await target.set({ key: 'liveRow', value: 1 }, opts);
+            const update = vi.spyOn(server.clients.dynamo, 'update');
+            const del = vi.spyOn(server.clients.dynamo, 'del');
+            try {
+                await target.incr(
+                    { key: 'liveRow', pathAndAmountMap: { '': 1 } },
+                    opts,
+                );
+                expect(update).toHaveBeenCalledTimes(1);
+                expect(del).not.toHaveBeenCalled();
+            } finally {
+                update.mockRestore();
+                del.mockRestore();
+            }
+        });
+
+        it('bills the refused attempt and the reset', async () => {
+            await target.set({ key: 'liveBill', value: 1 }, opts);
+            const liveResult = await target.incr(
+                { key: 'liveBill', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+
+            await target.set(
+                { key: 'expiredBill', value: 1, expireAt: past() },
+                opts,
+            );
+            const expiredResult = await target.incr(
+                { key: 'expiredBill', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+
+            expect(expiredResult.usage.write).toBeGreaterThan(
+                liveResult.usage.write,
+            );
+        });
+
+        it('gives up after MAX_LIVE_WRITE_ATTEMPTS and throws a retryable 503', async () => {
+            await target.set({ key: 'exhausted', value: 1 }, opts);
+            const refused = Object.assign(
+                new Error('conditional check failed'),
+                { name: 'ConditionalCheckFailedException' },
+            );
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockRejectedValue(refused);
+            try {
+                await expect(
+                    target.incr(
+                        { key: 'exhausted', pathAndAmountMap: { '': 1 } },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 503,
+                    legacyCode: 'response_timeout',
+                    // A caller-triggered refusal, not a server fault — must
+                    // not page.
+                    noAlarm: true,
+                });
+            } finally {
+                update.mockRestore();
+            }
+        });
+
+        it('recovers when a row expires between createPaths steps', async () => {
+            const key = 'expiresBetweenCreatePaths';
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            let injectedOnce = false;
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation(async (...args) => {
+                    const expression = args[2] as string;
+                    // Just before createPaths' root write runs, simulate
+                    // another writer expiring the row in the gap.
+                    if (
+                        !injectedOnce &&
+                        expression ===
+                            'SET #value = if_not_exists(#value, :nestedMap)'
+                    ) {
+                        injectedOnce = true;
+                        await target.set(
+                            {
+                                key,
+                                value: 'raced-in',
+                                expireAt: Math.floor(Date.now() / 1000) - 10,
+                            },
+                            opts,
+                        );
+                    }
+                    return real(...(args as Parameters<typeof real>));
+                });
+            try {
+                const result = await target.incr(
+                    { key, pathAndAmountMap: { 'a.b.c': 2 } },
+                    opts,
+                );
+                expect(result.res).toMatchObject({ a: { b: { c: 2 } } });
+            } finally {
+                update.mockRestore();
+            }
+        });
+    });
+
+    describe('ttl storage', () => {
+        it('set with a null expireAt stores no TTL, so list shows the key', async () => {
+            await target.set(
+                { key: 'nullTtl', value: 'v', expireAt: null },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'nullTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).toContain('nullTtl');
+        });
+
+        it('set with an expireAt of 0 stores no TTL', async () => {
+            await target.set(
+                { key: 'zeroTtl', value: 'v', expireAt: 0 },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'zeroTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('set with a past expireAt stores an expired key', async () => {
+            const past = Math.floor(Date.now() / 1000) - 100;
+            await target.set(
+                { key: 'pastTtl', value: 'v', expireAt: past },
+                opts,
+            );
+            const got = await target.get({ key: 'pastTtl' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('pastTtl');
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'pastTtl' },
+            );
+            expect(raw.Item?.ttl as number).toBeGreaterThan(0);
+        });
+
+        it('batchPut with a null expireAt stores no TTL', async () => {
+            await target.batchPut(
+                {
+                    items: [
+                        { key: 'bpNullTtl', value: 'v', expireAt: null },
+                    ],
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'bpNullTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it('get and list agree on legacy rows whose ttl is null or 0', async () => {
+            const namespace = namespaceOf(actor);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyNull',
+                value: 'a',
+                ttl: null,
+            });
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyZero',
+                value: 'b',
+                ttl: 0,
+            });
+
+            const gotNull = await target.get({ key: 'legacyNull' }, opts);
+            const gotZero = await target.get({ key: 'legacyZero' }, opts);
+            expect(gotNull.res).toBe('a');
+            expect(gotZero.res).toBe('b');
+
+            const listed = await target.list(
+                { as: 'entries', pattern: 'legacy', includeTotal: true },
+                opts,
+            );
+            expect(listed.res).toMatchObject({
+                items: expect.arrayContaining([
+                    { key: 'legacyNull', value: 'a' },
+                    { key: 'legacyZero', value: 'b' },
+                ]),
+                total: 2,
+            });
+        });
+
+        it('update with a null ttl removes the TTL', async () => {
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.set(
+                {
+                    key: 'updateRemoveTtl',
+                    value: { a: 1 },
+                    expireAt: future,
+                },
+                opts,
+            );
+            await target.update(
+                {
+                    key: 'updateRemoveTtl',
+                    pathAndValueMap: { a: 2 },
+                    ttl: null,
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'updateRemoveTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+            const got = await target.get({ key: 'updateRemoveTtl' }, opts);
+            expect(got.res).toEqual({ a: 2 });
+        });
+
+        it('expireAt 0 expires the key', async () => {
+            await target.set({ key: 'expireAtZero', value: 'v' }, opts);
+            await target.expireAt(
+                { key: 'expireAtZero', timestamp: 0 },
+                opts,
+            );
+            const got = await target.get({ key: 'expireAtZero' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('expireAtZero');
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'expireAtZero' },
+            );
+            expect(raw.Item?.ttl as number).toBeGreaterThan(0);
+        });
+
+        it('a legacy row with a future string ttl is readable by get and list', async () => {
+            const namespace = namespaceOf(actor);
+            const future = String(Math.floor(Date.now() / 1000) + 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringFuture',
+                value: 'a',
+                ttl: future,
+            });
+            const got = await target.get({ key: 'legacyStringFuture' }, opts);
+            expect(got.res).toBe('a');
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).toContain('legacyStringFuture');
+        });
+
+        it('a legacy row with a past numeric-string ttl reads null in get and list', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringPast',
+                value: 'b',
+                ttl: past,
+            });
+            const got = await target.get({ key: 'legacyStringPast' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('legacyStringPast');
+        });
+
+        it('a legacy row with a non-numeric string ttl is readable by get and list', async () => {
+            const namespace = namespaceOf(actor);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringGarbage',
+                value: 'c',
+                ttl: 'not-a-number',
+            });
+            const got = await target.get({ key: 'legacyStringGarbage' }, opts);
+            expect(got.res).toBe('c');
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).toContain('legacyStringGarbage');
+        });
+
+        it('incr on a legacy string-ttl row does not reset it', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringIncr',
+                value: 5,
+                ttl: past,
+            });
+            const result = await target.incr(
+                { key: 'legacyStringIncr', pathAndAmountMap: { '': 1 } },
+                opts,
+            );
+            expect(result.res).toBe(6);
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace, key: 'legacyStringIncr' },
+            );
+            expect(raw.Item?.ttl).toBe(past);
+        });
+
+        it('set with a numeric string expireAt stores a number TTL', async () => {
+            const future = Math.floor(Date.now() / 1000) + 3600;
+            await target.set(
+                {
+                    key: 'numericStringTtl',
+                    value: 'v',
+                    expireAt: String(future) as unknown as number,
+                },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'numericStringTtl' },
+            );
+            expect(raw.Item?.ttl).toBe(future);
+            expect(typeof raw.Item?.ttl).toBe('number');
+        });
+
+        it('set rejects a non-numeric expireAt', async () => {
+            await expect(
+                target.set(
+                    {
+                        key: 'badTtl',
+                        value: 'v',
+                        expireAt: 'abc' as unknown as number,
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        });
+
+        it('set treats an empty string expireAt as no expiry', async () => {
+            await target.set(
+                { key: 'emptyStringTtl', value: 'v', expireAt: '' as unknown as number },
+                opts,
+            );
+            const raw = await server.clients.dynamo.get(
+                PUTER_KV_STORE_TABLE_NAME,
+                { namespace: namespaceOf(actor), key: 'emptyStringTtl' },
+            );
+            expect(raw.Item?.ttl).toBeUndefined();
+        });
+
+        it.each([
+            ['true', true],
+            ['an array', [5]],
+            ["the string 'Infinity'", 'Infinity'],
+        ])('set rejects %s as expireAt', async (_label, expireAt) => {
+            await expect(
+                target.set(
+                    {
+                        key: 'badTtlType',
+                        value: 'v',
+                        expireAt: expireAt as unknown as number,
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        });
+    });
+
+    describe('expire on a missing key', () => {
+        it('creates a null marker that list shows and get reads as null', async () => {
+            await target.expire({ key: 'freshMarker', ttl: 60 }, opts);
+            const got = await target.get({ key: 'freshMarker' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'entries' }, opts);
+            expect(listed.res).toContainEqual({
+                key: 'freshMarker',
+                value: null,
+            });
+        });
+
+        it('a marker whose time has already passed never shows up', async () => {
+            await target.expire({ key: 'pastMarker', ttl: -10 }, opts);
+            const got = await target.get({ key: 'pastMarker' }, opts);
+            expect(got.res).toBeNull();
+            const listed = await target.list({ as: 'keys' }, opts);
+            expect(listed.res).not.toContain('pastMarker');
         });
     });
 });

@@ -62,6 +62,24 @@ export default suite('kv', {
         t.assert.equal(await t.puter.kv.decr('kv-suite-decr'), 9);
     },
 
+    'incr on an expired key starts from zero': async (t) => {
+        await t.puter.kv.set(
+            'kv-suite-incr-expired',
+            5,
+            Math.floor(Date.now() / 1000) - 60,
+        );
+        t.assert.equal(await t.puter.kv.incr('kv-suite-incr-expired'), 1);
+    },
+
+    'incr on a text value rejects with value_not_a_number': async (t) => {
+        await t.puter.kv.set('kv-suite-incr-text', 'hello');
+        const err = await t.assert.rejects(
+            () => t.puter.kv.incr('kv-suite-incr-text'),
+            'incr on text should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'value_not_a_number');
+    },
+
     'update patches paths inside an object value': async (t) => {
         await t.puter.kv.set('kv-suite-update', {
             profile: { color: 'red', size: 'm' },
@@ -70,6 +88,18 @@ export default suite('kv', {
         const value = await t.puter.kv.get('kv-suite-update');
         t.assert.equal(value.profile.color, 'blue');
         t.assert.equal(value.profile.size, 'm');
+    },
+
+    'update with a null ttl keeps the value readable': async (t) => {
+        await t.puter.kv.set(
+            'kv-suite-update-null-ttl',
+            { a: 1 },
+            Math.floor(Date.now() / 1000) + 3600,
+        );
+        await t.puter.kv.update('kv-suite-update-null-ttl', { a: 2 }, null);
+        t.assert.deepEqual(await t.puter.kv.get('kv-suite-update-null-ttl'), {
+            a: 2,
+        });
     },
 
     'remove deletes paths inside an object value': async (t) => {
@@ -93,6 +123,24 @@ export default suite('kv', {
         await t.puter.kv.set('kv-suite-expire-future', 'fresh');
         await t.puter.kv.expire('kv-suite-expire-future', 3600);
         t.assert.equal(await t.puter.kv.get('kv-suite-expire-future'), 'fresh');
+    },
+
+    'expire and expireAt resolve true': async (t) => {
+        await t.puter.kv.set('kv-suite-resolve-true', 'v');
+        t.assert.equal(await t.puter.kv.expire('kv-suite-resolve-true', 60), true);
+        t.assert.equal(
+            await t.puter.kv.expireAt(
+                'kv-suite-resolve-true',
+                Math.floor(Date.now() / 1000) + 60,
+            ),
+            true,
+        );
+    },
+
+    'expireAt 0 makes the key unreadable': async (t) => {
+        await t.puter.kv.set('kv-suite-expireat-zero', 'v');
+        await t.puter.kv.expireAt('kv-suite-expireat-zero', 0);
+        t.assert.equal(await t.puter.kv.get('kv-suite-expireat-zero'), null);
     },
 
     'list with includeTotal reports the total for the pattern': async (t) => {
@@ -385,6 +433,13 @@ export default suite('kv', {
             Math.floor(Date.now() / 1000) - 60,
         );
         t.assert.equal(await t.puter.kv.get('kv-suite-set-expired'), null);
+    },
+
+    'set with a null expireAt is listed': async (t) => {
+        await t.puter.kv.set('kv-suite-set-null-ttl', 'v', null);
+        t.assert.equal(await t.puter.kv.get('kv-suite-set-null-ttl'), 'v');
+        const keys = await t.puter.kv.list('kv-suite-set-null-ttl');
+        t.assert.deepEqual([...keys], ['kv-suite-set-null-ttl']);
     },
 
     'set tolerates the legacy trailing callback slots': async (t) => {
