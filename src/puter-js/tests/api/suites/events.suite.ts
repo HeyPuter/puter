@@ -56,9 +56,11 @@ const open = (
     t: TestContext,
     subject: string,
     handler: (event: Delivered) => void,
+    options: { onError?: (error: unknown) => void } = {},
 ): Promise<Subscription> =>
     t.puter.events.onLocal(subject, ({ event }) => handler(event as Delivered), {
         timeout: SUBSCRIBE_TIMEOUT_MS,
+        ...options,
     });
 
 /** A handler that closes over nothing, so the free-variable scan accepts it. */
@@ -528,6 +530,32 @@ export default suite('events', {
             t.assert.equal(sub.subId, null);
         } finally {
             t.puter.setAuthToken(t.env.users.user.token);
+        }
+    },
+
+    'ends a subscription whose folder is deleted, and says why': async (t) => {
+        const dir = await makeDir(t, 'events-anchor-deleted');
+        const seen: Delivered[] = [];
+        const lapses: unknown[] = [];
+
+        const sub = await open(t, `fs:${dir}`, (event) => seen.push(event), {
+            onError: (error) => lapses.push(error),
+        });
+        if (!sub) return;
+
+        try {
+            await t.puter.fs.delete(dir, { recursive: true });
+
+            const ended = await waitFor(() => lapses.length > 0, DELIVERY_TIMEOUT_MS);
+            t.assert.ok(ended, 'the subscription was ended once its folder was deleted');
+            t.assert.equal(codeOf(lapses[0]), 'subscription_ended');
+            t.assert.equal((lapses[0] as { reason?: string }).reason, 'anchor_deleted');
+            t.assert.ok(
+                seen.some((event) => event.op === 'remove'),
+                'the handler saw the final removal before the subscription ended',
+            );
+        } finally {
+            await sub.off();
         }
     },
 

@@ -10,6 +10,8 @@ Lists the persistent subscriptions created with [`puter.events.onPersistent()`](
 
 An app sees only the subscriptions it created. An account session sees all of them, **including ones left by apps that have been deleted**, so that's where to clean up stray subscriptions.
 
+On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 ## Syntax
 ```js
 puter.events.list()
@@ -39,7 +41,7 @@ Each subscription is the object [`onPersistent()`](/Events/onPersistent/) return
 - `suspendedAt` (Number | null) and `suspendedReason` (String | null) are set when a subscription is [suspended](/Events/onPersistent/#suspended-subscriptions): `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
 - `targets` (Array) can include `'push'`, which is accepted but delivers nothing yet.
 
-The promise rejects with `{ message, code }`: `too_many_requests` over the listing rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
+The promise rejects with `{ message, code }`: `auth_canceled` if nobody was signed in and the user closed the sign-in, `too_many_requests` over the listing rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
 
 ## Examples
 

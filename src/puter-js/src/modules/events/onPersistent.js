@@ -1,7 +1,6 @@
 import { PuterJSError } from '../../lib/PuterJSError.js';
 import { request } from './lib/api.js';
 import { prepareHandler, serializeContext } from './lib/handlerSource.js';
-import { needsSignIn, signInVisitor } from './lib/signIn.js';
 import { assertSubject } from './lib/validate.js';
 
 /** @typedef {import('./types.js').OnPersistentOptions} OnPersistentOptions */
@@ -73,8 +72,6 @@ export async function onPersistent (options = {}) {
     // request carries the value, which the server stores the same way.
     if ( serializeContext(options.context) !== undefined )
         body.context = options.context;
-
-    if ( needsSignIn(puter) ) await signInVisitor(puter);
 
     const sub = /** @type {PersistentSubscription} */ (
         await request(puter, '/events/subscribe', body)

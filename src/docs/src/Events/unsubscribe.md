@@ -10,6 +10,8 @@ Ends a subscription created with [`puter.events.onPersistent()`](/Events/onPersi
 
 For a session subscription from [`puter.events.onLocal()`](/Events/onLocal/), use [`subscription.off()`](/Events/off/).
 
+On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 ## Syntax
 ```js
 puter.events.unsubscribe(subId)
@@ -29,6 +31,7 @@ An id this caller doesn't hold (already ended, or created by another app) is rep
 | `code` | Meaning |
 | --- | --- |
 | `subscription_does_not_exist` | No such subscription, or it isn't this caller's. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `too_many_requests` | Over the unsubscribe rate limit — its own, not the `subscribe` one. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |

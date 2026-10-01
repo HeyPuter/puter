@@ -20,6 +20,9 @@ import { prepareHandler } from './handlerSource.js';
  * right winner, so this sends the hash it last saw published (`ifHash`) and
  * lets the server refuse a publish whose base has moved. `replace: true` is how
  * a caller says it means to take the name regardless.
+ *
+ * On a website with nobody signed in, each method opens the sign-in first;
+ * rejects `auth_canceled` if the visitor closes it.
  */
 
 /** One name in one app. The same name means different code in another. */
