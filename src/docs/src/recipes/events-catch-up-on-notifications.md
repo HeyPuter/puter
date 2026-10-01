@@ -43,7 +43,8 @@ properly. The fields to use are:
 - `ts`: when it was created, in milliseconds since the epoch.
 
 Don't use `seq` or `ts` to tell notifications apart. `seq` is only a position
-within one page or one delivery, and two notifications can share a `ts`.
+within one page or one delivery, two notifications can share a `ts`, and the
+same notification's `ts` can differ between its live and fetched copies.
 
 ## Which Notifications Your App Sees
 
@@ -155,10 +156,10 @@ notification Puter still keeps.
 
 ## Notes
 
-- `fetch()` doesn't open the sign-in. On a website with nobody signed in, it
-  rejects with `token_missing`. In the example above, `puter.kv.get()` signs
-  the user in first. [Watch for Changes](/recipes/events-watch-for-changes/#watch-a-key)
-  shows how to start from a sign-in button.
+- `fetch()` asks the user to sign in on a website where nobody is, the same
+  way `onLocal()` does, and rejects with `auth_canceled` if they close it.
+  [Watch for Changes](/recipes/events-watch-for-changes/#watch-a-key) shows
+  how to start from a sign-in button.
 - Leave `after` undefined when there is no cursor. `fetch()` rejects `null`
   with `invalid_request`.
 - `fetch()` allows 120 calls a minute per user and app, and rejects with

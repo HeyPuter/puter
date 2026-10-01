@@ -140,7 +140,7 @@ const sub = await puter.events.onLocal(`fs:${dir}`, () => {
 await showFiles();
 ```
 
-Quick writes to one file arrive as one event, but each file gets its own, so
+Quick writes to an existing file arrive as one event, but each file gets its own, so
 uploading 50 files sends 50 events. The handler above turns them into one read
 every half second. That keeps a bulk upload well inside the `readdir` limit of
 60 calls per 10 seconds on the free plan.
@@ -230,8 +230,9 @@ afterwards. Instead, once a subscription is back, its handler gets one
 [gap](#handle-gaps) with `reason: 'reconnect'`. The handlers above already read
 everything again on a gap, so they catch up with no extra code.
 
-If the SDK cannot restore a subscription, for example because the user signed
-out (`reauth_required`), the subscription ends and `onError` is called. Nothing
+If the SDK cannot restore a subscription, for example after the user signs out,
+the subscription ends and `onError` is called. The same happens with
+`subscription_ended` when the file or folder it watches is deleted. Nothing
 arrives after that, so tell the user the view has stopped updating:
 
 ```js
