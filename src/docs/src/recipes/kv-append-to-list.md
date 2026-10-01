@@ -67,7 +67,7 @@ await puter.kv.add('log', { at: Date.now(), event: 'closed' });
 await puter.kv.add('log', [{ at: Date.now(), event: 'closed' }]);
 ```
 
-The wrong form rejects with `upstream_bad_request` and leaves the list as it
+The wrong form rejects with `invalid_path` and leaves the list as it
 was. Wrapping every item in an array is the one rule that always works.
 
 ## Append to a List Inside an Object
