@@ -2201,6 +2201,49 @@ describe('AuthController grant flows', () => {
         expect(res.body).toEqual({});
     });
 
+    it('grant-user-app: 400 on an `extra`/`meta` larger than the cap', async () => {
+        const appName = `tb-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestBoundApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = 'service:tb-app:ii:read';
+        const oversized = { blob: 'z'.repeat(5000) };
+        for (const body of [
+            { app_uid: app.uid, permission, extra: oversized },
+            { app_uid: app.uid, permission, meta: oversized },
+        ]) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(body, { actor: issuerActor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    {
+                        app_uid: app.uid,
+                        permission,
+                        extra: { blob: 'z'.repeat(1000) },
+                    },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
+
     it('grant-user-app: refuses a key-value delegation over a whole namespace', async () => {
         // The prompt for it would read "let this app show your app data to
         // whoever it picks", which describes no bounded capability — so the
@@ -3510,6 +3553,75 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
                     { permissions: [{ not: 'a-spec' } as unknown as string] },
                     { actor },
                 ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a permission wider than the column, leaving no session behind', async () => {
+        // Nothing rewrites these, so an over-wide one would reach the INSERT
+        // only after the session row was created and the JWT signed.
+        const before = (await server.clients.db.read(
+            "SELECT COUNT(*) AS n FROM sessions WHERE kind = 'access_token'",
+            [],
+        )) as Array<{ n: number }>;
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq(
+                    { permissions: [`service:${'a'.repeat(300)}:ii:read`] },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        const after = (await server.clients.db.read(
+            "SELECT COUNT(*) AS n FROM sessions WHERE kind = 'access_token'",
+            [],
+        )) as Array<{ n: number }>;
+        expect(after[0].n).toBe(before[0].n);
+    });
+
+    it('rejects more permissions than one request may carry', async () => {
+        // Each entry costs a permission check and an INSERT.
+        const permissions = Array.from(
+            { length: 17 },
+            (_, i) => `service:cap-${i}:ii:read`,
+        );
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq({ permissions }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('still mints at the cap', async () => {
+        const permissions = Array.from(
+            { length: 16 },
+            (_, i) => `service:atcap-${i}:ii:read`,
+        );
+        const res = makeRes();
+        await controller.handleCreateAccessToken(
+            makeReq({ permissions }, { actor }),
+            res,
+        );
+        expect((res.body as { token: string }).token).toEqual(
+            expect.any(String),
+        );
+    });
+
+    it.each([
+        ['an oversized permission string', ['x'.repeat(4097)]],
+        [
+            'an oversized `extra`',
+            [['service:x:ii:read', { a: 'y'.repeat(5000) }]],
+        ],
+        ['a non-object `extra`', [['service:x:ii:read', 'nope']]],
+        ['an empty permission string', ['']],
+    ])('rejects %s with 400', async (_label, permissions) => {
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq({ permissions: permissions as never[] }, { actor }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -6774,6 +6886,34 @@ describe('AuthController dev-app permission flows', () => {
         await expect(
             controller.handleGrantDevApp(
                 makeReq({ permission: 'fs:read' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it.each([
+        ['a non-object `extra`', { extra: 'nope' }],
+        ['an array `extra`', { extra: [1, 2] }],
+        ['an oversized `extra`', { extra: { blob: 'z'.repeat(5000) } }],
+        ['an oversized `meta`', { meta: { blob: 'z'.repeat(5000) } }],
+        ['an oversized `permission`', { permission: 'x'.repeat(4097) }],
+        // Survives the route cap but not the column it lands in.
+        [
+            'a `permission` wider than the column',
+            { permission: `service:${'a'.repeat(300)}:ii:read` },
+        ],
+    ])('grant-dev-app: 400 on %s', async (_label, patch) => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleGrantDevApp(
+                makeReq(
+                    {
+                        app_uid: `app-${uuidv4()}`,
+                        permission: 'fs:read',
+                        ...patch,
+                    },
+                    { actor },
+                ),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });

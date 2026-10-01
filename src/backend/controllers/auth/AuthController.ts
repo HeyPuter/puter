@@ -116,6 +116,8 @@ const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
+// Rides every row a request writes, and the per-(user, app) cache after that.
+const GRANT_EXTRA_MAX_BYTES = 4096;
 const DISPATCH_ID_MAX_LENGTH = 128;
 // One name for the flag, so the write and the read cannot drift apart.
 const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
@@ -3297,6 +3299,16 @@ export class AuthController extends PuterController {
                     legacyCode: 'bad_request',
                 });
             }
+            if (
+                Buffer.byteLength(JSON.stringify(value), 'utf8') >
+                GRANT_EXTRA_MAX_BYTES
+            ) {
+                throw new HttpError(
+                    400,
+                    `\`${key}\` may not exceed ${GRANT_EXTRA_MAX_BYTES} bytes`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
         }
     }
 
@@ -3864,6 +3876,13 @@ export class AuthController extends PuterController {
     async handleGrantDevApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body ?? {};
         const { origin, permission, extra, meta } = req.body ?? {};
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            extra,
+            meta,
+        });
         if (origin && !app_uid) {
             // Registered apps only, for the same reason the user-app handlers
             // insist on it: a synthesised `app-<uuidv5(origin)>` is resolved
@@ -4204,6 +4223,11 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
+            throw new HttpError(400, 'Too many `permissions`', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         // Optional user-facing name for the manage-sessions UI. Trim and clamp
         // to the same 64-char limit the rename endpoint enforces.
@@ -4237,13 +4261,25 @@ export class AuthController extends PuterController {
 
         // Normalize specs: string → [string], [string] → [string, {}], [string, extra] → as-is
         const normalized = permissions.map((spec) => {
-            if (typeof spec === 'string') return [spec];
-            if (Array.isArray(spec)) return spec;
-            throw new HttpError(
-                400,
-                'Each permission must be a string or [string, extra?]',
-                { legacyCode: 'bad_request' },
-            );
+            const entry =
+                typeof spec === 'string'
+                    ? [spec]
+                    : Array.isArray(spec)
+                      ? spec
+                      : null;
+            if (!entry || typeof entry[0] !== 'string' || !entry[0]) {
+                throw new HttpError(
+                    400,
+                    'Each permission must be a string or [string, extra?]',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            // Same caps the grant routes apply, before a session or row exists.
+            this.#validateAppPermissionParams({
+                permission: entry[0],
+                extra: entry[1],
+            });
+            return entry;
         });
 
         const token = await this.services.auth.createAccessToken(
