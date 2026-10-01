@@ -107,6 +107,29 @@ describe('kv.set driver payloads', () => {
         expect(lastBody().args).toEqual({ key: 'k', value: 'v', expireAt: 1234, optConfig: { appUuid: 'u' } });
     });
 
+    it('set(key, value, numericString) sends expireAt through', async () => {
+        await kv.set('k', 'v', '1700000000');
+        expect(lastBody().args).toEqual({ key: 'k', value: 'v', expireAt: '1700000000' });
+    });
+
+    it('set(key, value, numericString, optConfig) keeps both', async () => {
+        await kv.set('k', 'v', '1700000000', { appUuid: 'u' });
+        expect(lastBody().args).toEqual({ key: 'k', value: 'v', expireAt: '1700000000', optConfig: { appUuid: 'u' } });
+    });
+
+    it.each([
+        ['a non-numeric string', 'soon'],
+        ['a boolean', true],
+    ])('set(key, value, %s) sends it for the store to validate', async (_label, expireAt) => {
+        await kv.set('k', 'v', expireAt);
+        expect(lastBody().args).toEqual({ key: 'k', value: 'v', expireAt });
+    });
+
+    it('set(key, value, undefined, optConfig) skips the omitted expireAt', async () => {
+        await kv.set('k', 'v', undefined, { appUuid: 'u' });
+        expect(lastBody().args).toEqual({ key: 'k', value: 'v', optConfig: { appUuid: 'u' } });
+    });
+
     it('set(key, value, optConfig) skips expireAt', async () => {
         await kv.set('k', 'v', { appUuid: 'u' });
         expect(lastBody().args).toEqual({ key: 'k', value: 'v', optConfig: { appUuid: 'u' } });
@@ -483,6 +506,47 @@ describe('kv.update driver payloads', () => {
 
     it('rejects a non-numeric ttl', async () => {
         await expect(kv.update({ key: 'k', pathAndValueMap: { a: 1 }, ttl: 'soon' }))
+            .rejects.toMatchObject({ code: 'ttl_invalid' });
+    });
+
+    it('update(key, map, numericString) sends the ttl as a number', async () => {
+        await kv.update('k', { a: 1 }, '60');
+        expect(lastBody().args).toEqual({ key: 'k', pathAndValueMap: { a: 1 }, ttl: 60 });
+    });
+
+    it('update(key, map, numericString, optConfig) keeps both', async () => {
+        await kv.update('k', { a: 1 }, '60', { appUuid: 'u' });
+        expect(lastBody().args).toEqual({
+            key: 'k',
+            pathAndValueMap: { a: 1 },
+            ttl: 60,
+            optConfig: { appUuid: 'u' },
+        });
+    });
+
+    it('update(key, map, \'\', optConfig) keeps optConfig and sends no ttl', async () => {
+        await kv.update('k', { a: 1 }, '', { appUuid: 'u' });
+        expect(lastBody().args).toEqual({
+            key: 'k',
+            pathAndValueMap: { a: 1 },
+            optConfig: { appUuid: 'u' },
+        });
+    });
+
+    it.each([
+        ['an empty string', ''],
+        ['false', false],
+    ])('update(object) with %s as ttl sends none', async (_label, ttl) => {
+        await kv.update({ key: 'k', pathAndValueMap: { a: 1 }, ttl });
+        expect(lastBody().args).toEqual({ key: 'k', pathAndValueMap: { a: 1 } });
+    });
+
+    it.each([
+        ['true', true],
+        ['an array', [5]],
+        ['Infinity', Infinity],
+    ])('update(object) rejects %s as ttl with ttl_invalid', async (_label, ttl) => {
+        await expect(kv.update({ key: 'k', pathAndValueMap: { a: 1 }, ttl }))
             .rejects.toMatchObject({ code: 'ttl_invalid' });
     });
 });

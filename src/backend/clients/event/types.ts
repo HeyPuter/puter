@@ -593,6 +593,11 @@ export type EventMap = {
         generation: number;
         /** Whether the table changed; only then does a peer need to re-read it. */
         durable: boolean;
+        /**
+         * Session subscriptions this bump ended, so siblings stop queueing for
+         * them.
+         */
+        ended?: string[];
     };
     /**
      * A user's sockets moved between regions, so every node must drop what it

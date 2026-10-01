@@ -17,6 +17,9 @@ import { needsSignIn, signInVisitor } from './lib/signIn.js';
  * gap marker (`event.op === 'gap'`) in place of events that were dropped
  * against a limit or missed while the connection was down.
  *
+ * `onError` is also called if the server ends the subscription itself. The
+ * handler isn't called after that; a change made just before may not reach it.
+ *
  * On a website with nobody signed in, opens the sign-in first; rejects
  * `auth_canceled` if the visitor closes it.
  *

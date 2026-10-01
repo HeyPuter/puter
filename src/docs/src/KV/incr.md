@@ -31,7 +31,7 @@ When `amount` is an object: Increments a property within an object value stored 
 
 `amount` must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`); a larger one is applied clamped to that bound. A counter stays exact only while its total is inside the same range — store anything that has to count past it as a string with [`puter.kv.set()`](/KV/set/).
 
-Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. When a path continues through an array element (for example, `[0].score`), that element must already exist. Missing object parents are created automatically; sparse array elements are not created.
+Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. When a path continues through an array element (for example, `[0].score`), that element must already exist. Missing object parents are created automatically; sparse array elements are not created. A path may chain at most 31 levels; a deeper one rejects with `bad_request`. Quoted names can't be empty. All of a call's paths go into one write, so a call fits at most 1,500 path segments and, with short field names, about 60 paths; split larger changes across calls. See [Rate Limits and Quotas](/rate-limits-and-quotas/).
 
 ## Return Value
 
@@ -47,8 +47,9 @@ A rejection carries an `Error` with a stable `code`:
 | `key_too_large` | The key is over the 1 KB limit. |
 | `arguments_required` | Called with no arguments at all. |
 | `value_not_a_number` | The value, or with a path map the field at a path, isn't a number. |
-| `bad_request` | A malformed path, or an amount that isn't a number. |
-| `upstream_bad_request` | A path map addressed a field inside a stored number, boolean, null, string, or array — or a missing array element. |
+| `invalid_path` | A path map addressed a field inside a stored number, boolean, null, string, or array, or went through a missing array element. |
+| `value_too_large` | The write would take the stored value over 400 KB. |
+| `bad_request` | A malformed path (including an empty quoted name such as `[""]`), a path nested over 31 levels, two paths that overlap (one is the same as or inside the other) or conflict (one treats a shared step as a list index, the other as a field name), more or longer paths than one write can apply (see [Rate Limits and Quotas](/rate-limits-and-quotas/)), or an amount that isn't a number. |
 | `insufficient_funds` | No usage left on the account. |
 | `forbidden` | Called with `optConfig.appUuid` for another app's data without permission, or the entry is private to that app. |
 | `subject_does_not_exist` | `optConfig.appUuid` names an app that doesn't exist. |

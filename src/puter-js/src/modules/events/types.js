@@ -79,8 +79,9 @@
  *   is in relation to it: their account, an app they own, or an app they use.
  * @property {string | null} appUid The app it is about, or `null` for one from
  *   the platform itself.
- * @property {Record<string, unknown>} notification The payload — `title`,
- *   `text`, `icon`, `fields` — exactly as the desktop receives it.
+ * @property {Record<string, unknown>} notification The stored payload: always
+ *   `type`, a `title` on everything Puter sends, and fields that depend on
+ *   `type`.
  * @property {boolean} self Always `true`: a mailbox is your own.
  * @property {number} ts When it was created, in milliseconds since the epoch.
  * @property {number} seq Position within one dispatch.
@@ -91,8 +92,9 @@
  *
  * @typedef {Object} EventFetchOptions
  * @property {string} subject What to read. Only `notif:` subjects have a store
- *   behind them — `notif:account` for your account's notifications,
- *   `notif:app-user` for an app's own, or `notif:<appId>:<audience>` in full.
+ *   behind them — `notif:account` for your account's notifications (never
+ *   visible to an app), `notif:app-user` for an app's own, or
+ *   `notif:<appId>:<audience>` in full.
  * @property {string} [after] The `cursor` from the previous page. Absent starts
  *   from the oldest notification still kept.
  * @property {number} [limit] Events per page. Capped at 200; defaults to 50.
@@ -165,12 +167,15 @@
  * Options for {@link import('./onLocal.js').onLocal}.
  *
  * @typedef {Object} OnLocalOptions
- * @property {(error: Error & { code?: string }) => void} [onError] Called if
+ * @property {(error: Error & { code?: string, reason?: string }) => void} [onError] Called if
  *   the subscription lapses — the connection could not be restored:
  *   re-subscribing failed, the reconnect was refused, or the server kept
  *   closing it. The subscription is gone by then and the handler will not be
  *   called again; subscribe again to resume. Without this, a lapse is reported
- *   on the console.
+ *   on the console. Also called with `code: 'subscription_ended'` and a
+ *   `reason` when the server ends the subscription itself — `reason:
+ *   'anchor_deleted'` when the node it was attached to was deleted and it
+ *   couldn't move up to a parent.
  * @property {number} [timeout] How long to wait for the server to answer
  *   `subscribe`, in milliseconds. Default `30000`.
  * @property {boolean} [includeValue] `kv:` subjects only: deliver the key's new
@@ -225,7 +230,8 @@
  * @typedef {Object} PersistentSubscription
  * @property {string} subId The subscription's id, and what `unsubscribe()`
  *   names. Stable for the life of the subscription.
- * @property {string} subject The subject it was created with.
+ * @property {string} subject For `kv:` and `notif:`, the subject in full form,
+ *   e.g. `kv:cart` as `kv:<appId>:cart`. For `fs:`, as passed.
  * @property {EventAnchor} anchor The node it is keyed to.
  * @property {string | null} match The pattern events under the anchor are
  *   matched against, or `null` when the subject named the anchor itself. A

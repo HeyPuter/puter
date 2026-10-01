@@ -136,7 +136,9 @@ export async function set (keyOrItems, value, ...rest) {
     }
 
     let expireAt;
-    if ( typeof rest[0] === 'number' || rest[0] === null ) {
+    // Whatever sits in the expiry slot is sent as the expiry, as the object
+    // form does, so the store is the one place that validates it.
+    if ( rest[0] !== undefined && !isObject(rest[0]) && typeof rest[0] !== 'function' ) {
         expireAt = rest.shift();
     }
     const { optConfig, success, error } = parseTrailingArgs(rest);

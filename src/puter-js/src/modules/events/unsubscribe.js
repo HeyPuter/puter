@@ -8,6 +8,9 @@ import { request } from './lib/api.js';
  * created — reads as absent rather than refused, so the call cannot be used to
  * find out which subscriptions exist.
  *
+ * On a website with nobody signed in, opens the sign-in first; rejects
+ * `auth_canceled` if the visitor closes it.
+ *
  * @this {import('./index.js').EventsModule}
  * @param {string} subId The `subId` of the subscription to end.
  * @returns {Promise<void>}

@@ -36,7 +36,9 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
  * value to the amount to decrement each by; with a path map the call returns
  * the whole stored value, not just the changed field. Rejects with
  * `value_not_a_number` when the target — the whole value, or with a path map
- * the field at that path — isn't a number.
+ * the field at that path — isn't a number, and `invalid_path` when a path
+ * runs through something that isn't an object or through a missing list
+ * element.
  *
  * @this {import('./index.js').KVModule}
  * @param {string | { key: string, pathAndAmountMap?: KVIncrementPath, optConfig?: KVOptConfig }} keyOrOptions

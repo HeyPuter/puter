@@ -21,6 +21,9 @@ import { request } from './lib/api.js';
  * notification, so a client that reconnects mid-catch-up can drop the
  * duplicate.
  *
+ * On a website with nobody signed in, opens the sign-in first; rejects
+ * `auth_canceled` if the visitor closes it.
+ *
  * @this {import('./index.js').EventsModule}
  * @param {EventFetchOptions} options
  * @returns {Promise<EventFetchPage>}
