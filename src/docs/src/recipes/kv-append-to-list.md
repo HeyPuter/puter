@@ -3,6 +3,7 @@ title: Append to a List
 description: "Learn how to add items to a list that only grows, such as a log, a chat transcript or an activity feed, with one Puter.js key-value call."
 tags: [kv, data-modeling]
 order: 10
+draft: true
 ---
 
 Some lists only ever grow: an activity log, a chat transcript, a history feed.
@@ -108,6 +109,6 @@ const log = await puter.kv.get('log') ?? [];
   Quotas](/rate-limits-and-quotas/).
 - A list whose TTL ran out starts fresh: the next
   [`puter.kv.add()`](/KV/add/) creates a new list.
-  [Store Temporary Data](/recipes/kv-store-temporary-data/) covers TTLs.
-- To count things, use a counter instead. [Keep a
-  Counter](/recipes/kv-keep-a-counter/) shows how.
+  [Store Temporary Data](/recipes/store-temporary-data/) covers TTLs.
+- To count things, use a counter instead. [Add
+  Counters](/recipes/add-counters/) shows how.
