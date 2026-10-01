@@ -35,7 +35,12 @@ import {
     WriteRequest,
     WriteResponse,
 } from '../../controllers/fs/requestTypes.js';
-import { Actor, isAppActor, isPlainUserActor } from '../../core/actor.js';
+import {
+    Actor,
+    handlerDepthOf,
+    isAppActor,
+    isPlainUserActor,
+} from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -4372,11 +4377,12 @@ export class FSService extends PuterService {
         const events = this.services.events;
         if (!events?.enabled) return;
         const { movedFrom, ancestors } = options;
+        const actor = Context.get('actor') as Actor | undefined;
         try {
             void events
                 .dispatchFs(key, entry, {
-                    actingUserId: (Context.get('actor') as Actor | undefined)
-                        ?.user?.id,
+                    actingUserId: actor?.user?.id,
+                    handlerDepth: handlerDepthOf(actor),
                     ancestors:
                         ancestors ?? (() => this.getAncestorChain(entry.path)),
                     ...(movedFrom

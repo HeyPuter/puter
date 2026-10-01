@@ -34,7 +34,8 @@ export class EventSubscription {
 
     /**
      * The pattern events under the anchor are matched against, or `null` when
-     * the subject named the anchor itself.
+     * the subject named the anchor itself. A pattern with no wildcard is a
+     * path that did not exist yet, and also covers everything under it.
      *
      * @type {string | null}
      */

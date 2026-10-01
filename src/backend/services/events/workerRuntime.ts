@@ -44,6 +44,12 @@ export const EVENTS_WORKER_PREFIX = 'evw-';
 export const EVENTS_WORKER_SESSION_NAME = 'events:handlers';
 
 /**
+ * How long a delivery's token lasts: far past any invocation, and short enough
+ * that one kept after its run can't hold a chain at a lower depth for long.
+ */
+export const EVENTS_HANDLER_TOKEN_TTL_SECONDS = 15 * 60;
+
+/**
  * What scopes a script name to one backend. Two backends can share a dispatch
  * namespace and database (staging and production, say); folding this into the
  * name is what keeps a script deployed by one from resolving as the other's.

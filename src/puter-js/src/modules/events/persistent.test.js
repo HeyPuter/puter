@@ -272,6 +272,40 @@ describe('onPersistent', () => {
             expect(bodyOf(1)).toEqual({ subId: 'app-1#a' });
         });
     });
+
+    describe('signing in', () => {
+        it('signs a signed-out website visitor in before subscribing', async () => {
+            mockRequest.mockResolvedValue({ subId: 'app-1#a', subject: SUBJECT });
+            const module = makeModule();
+            module.puter.env = 'web';
+            module.puter.authToken = null;
+            module.puter.ui = { authenticateWithPuter: vi.fn(async () => {}) };
+
+            await module.onPersistent({ subject: SUBJECT });
+
+            expect(module.puter.ui.authenticateWithPuter).toHaveBeenCalledTimes(1);
+            expect(
+                module.puter.ui.authenticateWithPuter.mock.invocationCallOrder[0],
+            ).toBeLessThan(mockRequest.mock.invocationCallOrder[0]);
+        });
+
+        it('rejects auth_canceled without subscribing when the sign-in is closed', async () => {
+            const module = makeModule();
+            module.puter.env = 'web';
+            module.puter.authToken = null;
+            module.puter.ui = {
+                authenticateWithPuter: vi.fn(async () => {
+                    throw new Error('user closed the dialog');
+                }),
+            };
+
+            const error = await rejects(() =>
+                module.onPersistent({ subject: SUBJECT }),
+            );
+            expect(error.code).toBe('auth_canceled');
+            expect(mockRequest).not.toHaveBeenCalled();
+        });
+    });
 });
 
 describe('unsubscribe', () => {

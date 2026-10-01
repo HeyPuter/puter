@@ -50,21 +50,27 @@ export class GuiBootCache {
         (async () => {
             await this.init.promise;
             this.init = null;
-            const values = await driverCallEnvelope({
-                puter,
-                iface: 'puter-kvstore',
-                method: 'get',
-                args: { key: GUI_CACHE_KEYS },
-            }).catch(() => null);
+            let values;
+            try {
+                values = await driverCallEnvelope({
+                    puter,
+                    iface: 'puter-kvstore',
+                    method: 'get',
+                    args: { key: GUI_CACHE_KEYS },
+                });
+            } catch {
+                values = null;
+            }
             const scheduleExpiry = () => {
                 setTimeout(() => {
                     this.batch = null;
                 }, BATCH_LIFETIME_MS);
             };
             // A batch that failed or came back in an unexpected shape resolves
-            // empty, so boot-key reads see `undefined` until the window expires.
+            // to `null` (no cached keys), so every read for the rest of the
+            // window falls through to its own call instead of a false "miss".
             if ( ! Array.isArray(values?.result) ) {
-                this.batch.resolve({});
+                this.batch.resolve(null);
                 scheduleExpiry();
                 return;
             }
@@ -84,11 +90,15 @@ export class GuiBootCache {
 
     /**
      * @param {string} key
-     * @returns {Promise<unknown>}
+     * @returns {Promise<{ hit: true, value: unknown } | { hit: false }>}
+     *   `hit: false` when the batch failed or came back malformed — the
+     *   caller should fall through to its own driver call.
      */
     async lookup (key) {
         this.init && this.init.resolve();
         const cache = await this.batch.promise;
-        return cache[key];
+        if ( cache === null ) return { hit: false };
+        // `null`, not `undefined`, to match a normal miss from `kv.get()`.
+        return { hit: true, value: cache[key] ?? null };
     }
 }

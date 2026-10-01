@@ -8,6 +8,8 @@ platforms: [websites, apps, nodejs]
 
 Ends a subscription returned by [`puter.events.onLocal()`](/Events/onLocal/). The handler stops being called immediately, and the server is told if the connection is still open.
 
+Ending a subscription counts toward its own [unsubscribe rate limit](/rate-limits-and-quotas/#events), not the `subscribe` one. Over that limit `off()` still resolves and the handler still stops, but the server may keep the subscription until the connection closes, and a warning is logged to the console.
+
 When the last subscription on this client ends, the events connection closes.
 
 ## Syntax

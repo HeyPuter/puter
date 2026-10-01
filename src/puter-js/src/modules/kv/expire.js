@@ -15,6 +15,9 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
  * deleted. Prefer this over `expireAt` when the timestamp should be set by
  * the server, to avoid issues with clock drift.
  *
+ * A missing or already-expired key becomes an empty key with the TTL, rather
+ * than staying absent. `ttl <= 0` expires the key immediately.
+ *
  * @this {import('./index.js').KVModule}
  * @param {string} key
  * @param {number} ttl

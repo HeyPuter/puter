@@ -81,7 +81,7 @@ const setBatch = (puter, args) =>
  * @overload
  * @param {string} key
  * @param {T} value
- * @param {number} [expireAt]
+ * @param {number | null} [expireAt]
  * @param {KVOptConfig} [optConfig]
  * @returns {Promise<boolean>}
  */

@@ -42,3 +42,22 @@ export function isUniqueViolation(err: unknown): boolean {
     }
     return errno === 1062;
 }
+
+/**
+ * True when a write was rejected because the row it references is gone. Only
+ * mysql names that case, so elsewhere this is any foreign-key mismatch — use it
+ * at an insert site, where that's the same thing.
+ */
+export function isMissingParentViolation(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const { code, errno } = err as { code?: string; errno?: number };
+    if (
+        code === 'SQLITE_CONSTRAINT_FOREIGNKEY' ||
+        code === 'ER_NO_REFERENCED_ROW' ||
+        code === 'ER_NO_REFERENCED_ROW_2' ||
+        code === '23503'
+    ) {
+        return true;
+    }
+    return errno === 1216 || errno === 1452; // mysql; 1452 is the InnoDB form
+}

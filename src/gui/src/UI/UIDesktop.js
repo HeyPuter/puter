@@ -47,6 +47,7 @@ import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import { applyToastMark, createNotificationFeed } from '../helpers/notificationFeed.js';
 import { notificationTarget } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
+import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
 async function UIDesktop (options) {
@@ -442,7 +443,8 @@ async function UIDesktop (options) {
         }
 
         let dest_path = path.dirname(fsentry.path);
-        let metadata = fsentry.metadata;
+        // A JSON string on the wire; trash/restore reads its fields.
+        const metadata = parse_item_metadata(fsentry.metadata);
 
         // update all shortcut_to_path
         $(`.item[data-shortcut_to_path="${html_encode(resp.old_path)}" i]`).attr('data-shortcut_to_path', html_encode(fsentry.path));
@@ -493,8 +495,8 @@ async function UIDesktop (options) {
             $(`.item[data-uid=${fsentry.overwritten_uid}]`).removeItems();
         }
 
-        // if this is trash, get original name from item metadata
-        fsentry.name = (metadata && metadata.original_name) ? metadata.original_name : fsentry.name;
+        // Trashing renames the entry to its uid; the real name is in metadata.
+        fsentry.name = metadata.original_name ?? fsentry.name;
 
         // create new item on matching containers
         UIItem({
@@ -503,7 +505,7 @@ async function UIDesktop (options) {
             uid: fsentry.uid,
             path: fsentry.path,
             icon: await item_icon(fsentry),
-            name: (dest_path === window.trash_path) ? metadata.original_name : fsentry.name,
+            name: fsentry.name,
             is_dir: fsentry.is_dir,
             size: fsentry.size,
             type: fsentry.type,
@@ -513,7 +515,8 @@ async function UIDesktop (options) {
             shortcut_to: fsentry.shortcut_to,
             shortcut_to_path: fsentry.shortcut_to_path,
             // has_website: $(el_item).attr('data-has_website') === '1',
-            metadata: JSON.stringify(fsentry.metadata) ?? '',
+            // Raw, as every other renderer stores it; re-encoding breaks restore.
+            metadata: fsentry.metadata ?? '',
         });
 
         if ( fsentry.parent_dirs_created && fsentry.parent_dirs_created.length > 0 ) {

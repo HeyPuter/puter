@@ -19,6 +19,7 @@ type Delivered = {
     self?: boolean;
     ts: number;
     seq?: number;
+    reason?: string;
 };
 
 type Subscription = Awaited<ReturnType<TestContext['puter']['events']['onLocal']>>;
@@ -412,6 +413,15 @@ export default suite('events', {
             );
             t.assert.ok(back, 'the subscription was re-established with a new id');
 
+            const gapped = await waitFor(
+                () =>
+                    seen.some(
+                        (event) => event.op === 'gap' && event.reason === 'reconnect',
+                    ),
+                DELIVERY_TIMEOUT_MS,
+            );
+            t.assert.ok(gapped, 'the handler got a reconnect gap once restored');
+
             const file = `${dir}/after-reconnect.txt`;
             await t.puter.fs.write(file, 'still listening');
             await waitFor(
@@ -421,6 +431,33 @@ export default suite('events', {
             t.assert.ok(
                 seen.some((event) => event.path === file),
                 'the same handler keeps receiving events after the rebuild',
+            );
+        } finally {
+            await sub.off();
+        }
+    },
+
+    'covers what lands in a folder subscribed before it exists': async (t) => {
+        const dir = await makeDir(t, 'events-missing-folder');
+        const seen: Delivered[] = [];
+
+        const sub = await open(t, `fs:${dir}/later`, (event) => seen.push(event));
+        if (!sub) return;
+
+        try {
+            await t.puter.fs.mkdir(`${dir}/later`, {
+                createMissingParents: true,
+            });
+            const file = `${dir}/later/a.txt`;
+            await t.puter.fs.write(file, 'inside a folder that did not exist yet');
+
+            const arrived = await waitFor(
+                () => seen.some((event) => event.path === file),
+                DELIVERY_TIMEOUT_MS,
+            );
+            t.assert.ok(
+                arrived,
+                'the file inside the newly created folder was delivered',
             );
         } finally {
             await sub.off();

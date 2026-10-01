@@ -12,6 +12,8 @@ The subscription is live immediately in the region where it was created. Changes
 
 See [`onLocal()`](/Events/onLocal/#subjects) for the subject grammar and the event shape.
 
+On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
+
 ## Syntax
 ```js
 puter.events.onPersistent(options)
@@ -28,7 +30,7 @@ puter.events.onPersistent(options)
 - `handler` (Function | String | Object): The handler source you wrote this subscription against: a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The subscription is created only if it matches what's published under `handlerName`, so `handlerName` is required with it. Passing a function also runs it in this client (see below).
 - `context` (Object): Values the handler needs, passed to it as a frozen `ctx`. **Up to 4 KB serialized**; see below.
 - `expiresAt` (Number | String): When the subscription ends on its own, as unix seconds or an ISO-8601 string. Must be in the future.
-- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). The value is left out when it's over 16 KB, or when more than 128 subscriptions match the change in that region. Refused on other subjects.
+- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). The value is left out when it's over 16 KB, when more than 128 subscriptions match the change in that region, or when the filter-check limit stops the count early. Refused on other subjects.
 - `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going (in the events worker, if it targets `worker`), and runs here again once this client reconnects. Only used with a function `handler`; without it, the stop is logged to the console.
 
 ## Background delivery needs consent
@@ -58,6 +60,12 @@ The handler runs **in this client while it's connected**, and in the app's [even
 Only a **function** `handler` runs in this client. A source string or `{ file }` is only used for its hash. The connection reconnects on its own when it drops, so the handler keeps running here unless `onError` is called.
 
 Those five bindings are the handler's whole environment. The events worker has no ambient `puter`: a handler that names `puter` or `me` is refused at publish time. Use `user` instead.
+
+### Handlers that trigger handlers
+
+In the events worker, a write made through `user` is one run deeper than the event the handler ran for, and it can run handlers of its own, including this one. A chain stops at **12 runs on a paid plan and 4 on a free one**, by the plan of the account holding the subscription. An event past that still reaches connected clients but runs no handler: the delivery is dropped without a gap marker and doesn't count as a failure. Writes made anywhere else, including from a handler running in a client, start a new chain. See [handler chains](/rate-limits-and-quotas/#handler-chains).
+
+`user` in the events worker is valid for 15 minutes, so don't keep it past the run.
 
 ### Acknowledging a `single` delivery
 
@@ -130,6 +138,7 @@ The promise rejects with `{ message, code }`:
 | `code` | Meaning |
 | --- | --- |
 | `invalid_subject` | The subject is empty, not a string, or can't be parsed. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_handler_name_required` | `handler` was given without `handlerName`. |
 | `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
 | `events_handler_invalid` | `handler` is not a function, a source string, or `{ file }`. |
@@ -147,7 +156,7 @@ The promise rejects with `{ message, code }`:
 | `events_subscription_limit` | The account or app is at its [persistent subscription limit](/rate-limits-and-quotas/#events). |
 | `events_value_too_large` | A field is longer than can be stored (for example an app id over 40 characters). |
 | `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. |
-| `too_many_requests` | Over the subscribe/unsubscribe rate limit. |
+| `too_many_requests` | Over the subscribe rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
 

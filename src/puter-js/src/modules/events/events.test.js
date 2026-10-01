@@ -90,12 +90,13 @@ const durable = (subId, path, over = {}) => ({
 
 let authStateListeners = [];
 
-const makeModule = () => {
+const makeModule = (over = {}) => {
     const puter = {
         env: 'web',
         authToken: 'token-1',
         APIOrigin: 'https://api.test',
         onAuthStateChanged: listener => authStateListeners.push(listener),
+        ...over,
     };
     return new EventsModule(puter);
 };
@@ -208,6 +209,60 @@ describe('delivery routing', () => {
     });
 });
 
+describe('ending a subscription', () => {
+    it('stops routing at off() even when the server refuses the unsubscribe', async () => {
+        const events = makeModule();
+        const seen = [];
+        const sub = await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event), {}, 'sub-a');
+        // Keeps the socket up so the unsubscribe is actually sent, rather than
+        // skipped because the last subscription closed the connection.
+        await subscribed(events, 'fs:~/keepalive', () => {}, {}, 'sub-keepalive');
+
+        const off = sub.off();
+        sockets[0].answer('events.unsubscribe', {
+            ok: false,
+            error: { code: 'too_many_requests', message: 'slow down' },
+        });
+        await expect(off).resolves.toBeUndefined();
+
+        sockets[0].fire('events.delivery', projected('sub-a', '/user/a/late.txt'));
+        expect(seen).toEqual([]);
+    });
+
+    it('warns when the server could not end the subscription', async () => {
+        const events = makeModule();
+        const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const sub = await subscribed(events, 'fs:~/a', () => {}, {}, 'sub-a');
+        await subscribed(events, 'fs:~/keepalive', () => {}, {}, 'sub-keepalive');
+
+        const off = sub.off();
+        sockets[0].answer('events.unsubscribe', {
+            ok: false,
+            error: { code: 'too_many_requests', message: 'slow down' },
+        });
+        await off;
+
+        expect(warnings).toHaveBeenCalledTimes(1);
+        expect(warnings.mock.calls[0][0]).toContain('fs:~/a');
+    });
+
+    it('does not warn when the server had already let it go', async () => {
+        const events = makeModule();
+        const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const sub = await subscribed(events, 'fs:~/a', () => {}, {}, 'sub-a');
+        await subscribed(events, 'fs:~/keepalive', () => {}, {}, 'sub-keepalive');
+
+        const off = sub.off();
+        sockets[0].answer('events.unsubscribe', {
+            ok: false,
+            error: { code: 'subscription_does_not_exist', message: 'gone' },
+        });
+        await off;
+
+        expect(warnings).not.toHaveBeenCalled();
+    });
+});
+
 describe('includeValue', () => {
     it('is sent with the subscribe and again on every re-subscribe', async () => {
         const events = makeModule();
@@ -253,7 +308,69 @@ describe('reconnect', () => {
 
         expect(sub.subId).toBe('sub-2');
         sockets[0].fire('events.delivery', projected('sub-2', '/user/a/after.txt'));
-        expect(seen).toHaveLength(1);
+        expect(seen).toMatchObject([
+            { op: 'gap', reason: 'reconnect' },
+            { path: '/user/a/after.txt' },
+        ]);
+    });
+
+    it('hands the handler one reconnect gap once the subscription is restored', async () => {
+        const events = makeModule();
+        const seen = [];
+        await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event));
+
+        sockets[0].fire('disconnect');
+        sockets[0].fire('connect');
+        expect(seen).toEqual([]);
+
+        sockets[0].answer('events.subscribe', okSub('sub-2', 'fs:~/a'));
+        await Promise.resolve();
+
+        expect(seen).toEqual([{
+            id: expect.any(String),
+            subject: 'fs:~/a',
+            op: 'gap',
+            reason: 'reconnect',
+            ts: expect.any(Number),
+        }]);
+    });
+
+    it('sends no gap on the first subscribe', async () => {
+        const events = makeModule();
+        const seen = [];
+        await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event));
+
+        sockets[0].fire('connect');
+        expect(seen).toEqual([]);
+    });
+
+    it('sends one gap after a re-subscribe turned away for rate limiting finally succeeds', async () => {
+        vi.useFakeTimers();
+        try {
+            const events = makeModule();
+            const seen = [];
+            const sub = await subscribed(events, 'fs:~/a', ({ event }) => seen.push(event));
+
+            sockets[0].fire('disconnect');
+            sockets[0].fire('connect');
+            sockets[0].answer('events.subscribe', {
+                ok: false,
+                error: { code: 'too_many_requests', message: 'slow down' },
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(seen).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(10000);
+            sockets[0].answer('events.subscribe', okSub('sub-2', 'fs:~/a'));
+            await Promise.resolve();
+
+            expect(sub.subId).toBe('sub-2');
+            expect(seen).toMatchObject([{ op: 'gap', reason: 'reconnect' }]);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('ends the subscription and reports it when re-subscribing fails', async () => {
@@ -371,8 +488,10 @@ describe('reconnect', () => {
         sockets[0].fire('events.delivery', projected('sub-a2', '/user/a/one.txt'));
 
         expect(droppedSeen).toEqual([]);
-        expect(survivorSeen).toHaveLength(1);
-        expect(survivorSeen[0].path).toBe('/user/a/one.txt');
+        expect(survivorSeen).toMatchObject([
+            { op: 'gap', reason: 'reconnect' },
+            { path: '/user/a/one.txt' },
+        ]);
     });
 
     it('closes the connection when the last subscription lapses', async () => {
@@ -477,7 +596,10 @@ describe('server hang-up', () => {
         expect(lapses).toEqual([]);
 
         sockets[1].fire('events.delivery', projected('sub-2', '/user/a/after.txt'));
-        expect(seen).toHaveLength(1);
+        expect(seen).toMatchObject([
+            { op: 'gap', reason: 'reconnect' },
+            { path: '/user/a/after.txt' },
+        ]);
     });
 
     it('keeps running a persistent handler across the hang-up', async () => {
@@ -643,7 +765,10 @@ describe('server hang-up', () => {
         expect(lapses).toEqual([]);
 
         sockets[2].fire('events.delivery', projected('sub-2', '/user/a/after.txt'));
-        expect(seen).toHaveLength(1);
+        expect(seen).toMatchObject([
+            { op: 'gap', reason: 'reconnect' },
+            { path: '/user/a/after.txt' },
+        ]);
     });
 
     it('a hang-up followed by codeless connect_errors spanning over 120s still caps at one failure', async () => {
@@ -914,6 +1039,60 @@ describe('ack timeout', () => {
         const assertion = expect(pending).rejects.toMatchObject({ code: 'events_connection_failed' });
         await vi.advanceTimersByTimeAsync(5000);
         await assertion;
+    });
+});
+
+describe('signing in', () => {
+    it('signs a signed-out website visitor in before connecting', async () => {
+        const events = makeModule({
+            authToken: null,
+            ui: {
+                authenticateWithPuter: vi.fn(async () => {
+                    events.puter.authToken = 'token-2';
+                }),
+            },
+        });
+
+        const pending = events.onLocal('fs:~/a', () => {});
+        await vi.waitFor(() => expect(sockets.length).toBeGreaterThan(0));
+
+        expect(events.puter.ui.authenticateWithPuter).toHaveBeenCalledTimes(1);
+        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-2' });
+
+        sockets[0].answer('events.subscribe', okSub('sub-1', 'fs:~/a'));
+        await pending;
+    });
+
+    it('rejects with auth_canceled and opens no connection when the sign-in is closed', async () => {
+        const events = makeModule({
+            authToken: null,
+            ui: {
+                authenticateWithPuter: vi.fn(async () => {
+                    throw new Error('user closed the dialog');
+                }),
+            },
+        });
+
+        await expect(events.onLocal('fs:~/a', () => {})).rejects.toMatchObject({
+            code: 'auth_canceled',
+        });
+        expect(sockets).toHaveLength(0);
+    });
+
+    it('does not ask for a sign-in inside an app or when already signed in', async () => {
+        const inAppAuth = vi.fn();
+        const inApp = makeModule({
+            env: 'app',
+            authToken: null,
+            ui: { authenticateWithPuter: inAppAuth },
+        });
+        await subscribed(inApp, 'fs:~/a', () => {});
+        expect(inAppAuth).not.toHaveBeenCalled();
+
+        const signedInAuth = vi.fn();
+        const signedIn = makeModule({ ui: { authenticateWithPuter: signedInAuth } });
+        await subscribed(signedIn, 'fs:~/b', () => {});
+        expect(signedInAuth).not.toHaveBeenCalled();
     });
 });
 

@@ -39,6 +39,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -261,6 +262,43 @@ describe('notifications with the fold-in on', () => {
         // up with two copies.
         expect(legacy).toEqual([]);
         state.server.clients.event.off?.('outer.gui.notif.message', handler);
+    });
+
+    it('stamps the handler depth of the writer on the created event', async () => {
+        const user = await makeUser(state.server);
+        const created: Array<{ userId?: number; handlerDepth?: number }> = [];
+        const handler = (_k: string, data: unknown) =>
+            created.push(data as (typeof created)[number]);
+        state.server.clients.event.on('notif.created', handler);
+        try {
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                effectiveApp: null,
+            };
+            await runWithContext({ actor: { ...actor, handlerDepth: 3 } }, () =>
+                state.server.services.notification.notify(
+                    [user.id],
+                    { title: 'from a handler' },
+                    { type: 'share.received' },
+                ),
+            );
+            await runWithContext({ actor }, () =>
+                state.server.services.notification.notify(
+                    [user.id],
+                    { title: 'from a person' },
+                    { type: 'share.received' },
+                ),
+            );
+            await waitFor(
+                () => created.filter((e) => e.userId === user.id).length === 2,
+            );
+
+            const mine = created.filter((e) => e.userId === user.id);
+            expect(mine[0].handlerDepth).toBe(3);
+            expect(mine[1]).not.toHaveProperty('handlerDepth');
+        } finally {
+            state.server.clients.event.off?.('notif.created', handler);
+        }
     });
 
     it('sends each socket one copy across a region fan', async () => {

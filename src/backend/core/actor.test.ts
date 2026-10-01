@@ -75,6 +75,15 @@ describe('makeActor / effectiveApp', () => {
         expect(userRelatedActor(app).effectiveApp).toBeNull();
     });
 
+    it('keeps the handler depth when narrowing to the underlying user', () => {
+        const app = makeActor({ user, app: { uid: 'app-1' } });
+        app.handlerDepth = 3;
+        expect(userRelatedActor(app).handlerDepth).toBe(3);
+        expect(
+            userRelatedActor(makeActor({ user, app: { uid: 'app-1' } })),
+        ).not.toHaveProperty('handlerDepth');
+    });
+
     it('resolves the system actor', () => {
         expect(SYSTEM_ACTOR.effectiveApp).toBeNull();
     });

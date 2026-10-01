@@ -44,7 +44,11 @@ export interface CompileMatchOptions {
      * all, which is what a KV prefix pattern wants.
      */
     separator?: string | null;
+    /** Let a wildcard-free pattern also match everything beneath it. */
+    literalCoversSubtree?: boolean;
 }
+
+const WILDCARD = /[*?]/;
 
 export interface CompiledMatch {
     readonly pattern: string;
@@ -131,6 +135,12 @@ export function compileMatch(
         source += translateSegment(segments[i], separator);
         if (!isLast) source += escapedSeparator;
     }
+    if (
+        options.literalCoversSubtree &&
+        separator !== null &&
+        !WILDCARD.test(pattern)
+    )
+        source += `(?:${escapedSeparator}[\\s\\S]*)?`;
     source += '$';
 
     const regex = new RegExp(source);

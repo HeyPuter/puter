@@ -219,6 +219,55 @@ describe('removal', () => {
         ]);
     });
 
+    it('is idempotent under a burst of concurrent duplicate removes', async () => {
+        const mine = makeSub({ subId: 'mine', socketId: 'socket-a' });
+        const theirs = makeSub({ subId: 'theirs', socketId: 'socket-b' });
+        await store.add(mine);
+        await store.add(theirs);
+
+        const attempts = 8;
+        const results = await Promise.all(
+            Array.from({ length: attempts }, () => store.remove(mine)),
+        );
+
+        expect(results.filter((bump) => bump !== null)).toHaveLength(1);
+        // Not decremented once per duplicate call.
+        expect(Number(await redis.hget(`ev:sc:{${USER}}`, 'f#anchor'))).toBe(1);
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual([
+            'f#anchor',
+        ]);
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
+            theirs,
+        ]);
+    });
+
+    it('is idempotent under a reap racing a remove on the same anchor', async () => {
+        const mine = makeSub({ subId: 'mine', socketId: 'socket-a' });
+        const theirs = makeSub({ subId: 'theirs', socketId: 'socket-b' });
+        await store.add(mine);
+        await store.add(theirs);
+
+        const [reaped, removed] = await Promise.all([
+            store.reapSocket(USER, 'socket-a'),
+            store.remove(mine),
+        ]);
+
+        // Count goes from 2 to 1, not to 0, so neither announces a `drop`.
+        const announced = [...reaped, ...(removed ? [removed] : [])].flatMap(
+            (bump) => bump.announce ?? [],
+        );
+        expect(announced).toEqual([]);
+        expect(Number(await redis.hget(`ev:sc:{${USER}}`, 'f#anchor'))).toBe(
+            1,
+        );
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual(
+            ['f#anchor'],
+        );
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual([
+            theirs,
+        ]);
+    });
+
     it('reads back only what the asking socket holds', async () => {
         const mine = makeSub({ subId: 'mine', socketId: 'socket-a' });
         await store.add(mine);
@@ -245,6 +294,30 @@ describe('removal', () => {
 
         await store.remove(sub);
         await expect(store.userHasAny(USER)).resolves.toBe(false);
+    });
+});
+
+describe('reanchor', () => {
+    it('leaves nothing behind when a remove wins a race with it', async () => {
+        const prev = makeSub({ subId: 'mine' });
+        await store.add(prev);
+
+        const removed = await store.remove(prev);
+        expect(removed).not.toBeNull();
+
+        const bumps = await store.reanchorSession(prev, {
+            ...prev,
+            token: 'f#parent',
+            anchorUid: 'parent',
+            anchorPath: '/testuser',
+            match: 'Documents/x',
+        });
+
+        expect(bumps).toEqual([]);
+        await expect(store.getForTokens(USER, ['f#parent'])).resolves.toEqual(
+            [],
+        );
+        expect(await redis.smembers(`ev:s:{${USER}}:socket-a`)).toEqual([]);
     });
 });
 

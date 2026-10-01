@@ -336,11 +336,15 @@ export class AuthService extends PuterService {
      * getting its own stable long-lived token. Coexists with an interactive
      * `kind='app'` session for the same (user, app) because the uniqueness keys
      * don't overlap.
+     *
+     * `handlerDepth` stamps the writes made with the token as that many events
+     * handler runs deep; `expiresInSeconds` bounds a token that carries one.
      */
     async createWorkerAppToken(
         actor: Actor,
         appUid: string,
         workerName: string,
+        options: { handlerDepth?: number; expiresInSeconds?: number } = {},
     ): Promise<string> {
         if (!actor.user) {
             throw new HttpError(403, 'Actor must be a user', {
@@ -364,16 +368,25 @@ export class AuthService extends PuterService {
             });
         }
 
-        return this.services.token.sign('auth', {
-            type: 'app-under-user',
-            version: '2',
-            user_uid: actor.user.uuid,
-            app_uid: appUid,
-            session_uid: session.uuid,
-            auth_id,
-            worker: true,
-            worker_name: workerName,
-        });
+        return this.services.token.sign(
+            'auth',
+            {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: actor.user.uuid,
+                app_uid: appUid,
+                session_uid: session.uuid,
+                auth_id,
+                worker: true,
+                worker_name: workerName,
+                ...(options.handlerDepth
+                    ? { handler_depth: options.handlerDepth }
+                    : {}),
+            },
+            options.expiresInSeconds
+                ? { expiresIn: options.expiresInSeconds }
+                : undefined,
+        );
     }
 
     #authIdFor(user: UserRow): string {
@@ -1969,9 +1982,11 @@ export class AuthService extends PuterService {
             })
             .catch(() => {});
 
-        return {
-            actor: this.#buildAppUnderUserActor(user, app, session),
-        };
+        const actor = this.#buildAppUnderUserActor(user, app, session);
+        const { handler_depth: handlerDepth } = decoded;
+        if (Number.isSafeInteger(handlerDepth) && handlerDepth! > 0)
+            actor.handlerDepth = handlerDepth;
+        return { actor };
     }
 
     async #actorFromAccessTokenToken(
